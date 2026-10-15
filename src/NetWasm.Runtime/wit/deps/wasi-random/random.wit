@@ -1,0 +1,6 @@
+// WASI 0.2 interface declarations used by the native runtime.
+package wasi:random@0.2.11;
+
+interface random {
+  get-random-u64: func() -> u64;
+}

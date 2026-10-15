@@ -16,7 +16,7 @@
     "features": ["mvp", "mutable-global", "saturating-float-to-int", "sign-extension", "reference-types", "multi-value", "bulk-memory"],
     "imports": [
       { "module": "netwasm.application.v1", "name": "netwasm.filter", "parameters": ["i32", "ptr", "ptr"], "results": ["i32"], "required": true },
-      { "module": "netwasm.application.v1", "name": "netwasm.finalize", "parameters": ["ptr", "i32"], "results": ["i32"], "required": true },
+      { "module": "netwasm.application.v1", "name": "netwasm.finalize", "parameters": ["ptr", "i32"], "results": ["i32"], "required": false },
       { "module": "env", "name": "emscripten_notify_memory_growth", "parameters": ["ptr"], "results": [], "required": true },
       { "module": "{prefix}|wasi:cli/environment@0.2", "name": "get-environment", "parameters": ["ptr"], "results": [], "required": true },
       { "module": "{prefix}|wasi:cli/stdout@0.2", "name": "get-stdout", "parameters": [], "results": ["i32"], "required": false },

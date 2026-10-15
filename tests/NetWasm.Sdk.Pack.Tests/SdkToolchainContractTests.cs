@@ -2,7 +2,7 @@ using System.Xml.Linq;
 
 namespace NetWasm.Sdk.Pack.Tests;
 
-public sealed class SdkToolchainContractTests
+public sealed partial class SdkToolchainContractTests
 {
     private static readonly string[] RuntimeTargets = ["wasm32", "wasm64"];
     private static readonly string[] RuntimeCollectors = ["compact", "netwasm", "boehm", "bump"];
@@ -545,28 +545,6 @@ public sealed class SdkToolchainContractTests
     {
         var repositoryRoot = FindRepositoryRoot();
         var script = File.ReadAllText(Path.Combine(repositoryRoot, "eng/build-packages.sh"));
-        var temporaryRootIndex = script.IndexOf(
-            "build_root=\"$(mktemp -d ",
-            StringComparison.Ordinal);
-        var canonicalRootIndex = script.IndexOf(
-            "build_root=\"$(cd \"${build_root}\" && pwd -P)\"",
-            StringComparison.Ordinal);
-        var sourceRootIndex = script.IndexOf(
-            "source_root=\"${build_root}/source\"",
-            StringComparison.Ordinal);
-
-        Assert.True(temporaryRootIndex >= 0);
-        Assert.True(canonicalRootIndex > temporaryRootIndex);
-        Assert.True(sourceRootIndex > canonicalRootIndex);
-    }
-
-    [Fact]
-    public void ManagedCandidateBuildCanonicalizesTemporaryRootBeforeDerivingSourceRoot()
-    {
-        var repositoryRoot = FindRepositoryRoot();
-        var script = File.ReadAllText(Path.Combine(
-            repositoryRoot,
-            "eng/build-managed-candidate-packages.sh"));
         var temporaryRootIndex = script.IndexOf(
             "build_root=\"$(mktemp -d ",
             StringComparison.Ordinal);
