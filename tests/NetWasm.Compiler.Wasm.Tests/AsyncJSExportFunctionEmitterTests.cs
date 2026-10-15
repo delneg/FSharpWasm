@@ -78,23 +78,42 @@ public sealed class AsyncJSExportFunctionEmitterTests
             Calls(body));
     }
 
-    [Fact]
-    public void WrapperRunsTheFinalizerSafepointWhenFinalizersAreReachable()
+    [Theory]
+    [InlineData(WasmTarget.Wasm32, false)]
+    [InlineData(WasmTarget.Wasm64, false)]
+    [InlineData(WasmTarget.Wasm32, true)]
+    [InlineData(WasmTarget.Wasm64, true)]
+    public void WrapperRunsTheFinalizerSafepointFromTheSelectedImportMap(
+        WasmTarget target,
+        bool includeDiagnostics)
     {
         var imports = WasmRuntimeImports.CreateCatalog();
-        var layouts = new RecordingLayoutProvider();
+        var layouts = new RecordingLayoutProvider(WasmTargetLayout.For(target));
         var methods = new FakeProgram();
         var emitter = CreateWrapperEmitter(layouts, imports);
+        var selection = new RuntimeImportSelection(
+            WasmModuleProfile.ComponentCoreModule,
+            IncludeTerminalExceptionReporter: includeDiagnostics,
+            IncludeStackTrace: includeDiagnostics,
+            IncludeExceptionCapture: includeDiagnostics,
+            IncludeTerminalExceptionRaise: includeDiagnostics,
+            IncludeFinalization: true);
 
         var body = emitter.Emit(
             methods.GetMethod(EntryKey),
             CreateBinding(methods, CliValueKind.I4),
-            initialization: TestRuntimeInitialization.Create(512),
+            initialization: TestRuntimeInitialization.Create(512, selection),
             hasFinalizers: true,
             CreateFunctionIndices(methods));
 
+        var selectedIndex = imports.Resolve(RuntimeImportSymbol.FinalizerSafepoint, selection);
+        var fullCatalogIndex = imports.Resolve(RuntimeImportSymbol.FinalizerSafepoint);
+        Assert.NotEqual(fullCatalogIndex, selectedIndex);
         Assert.Contains(
-            Call(imports.Resolve(RuntimeImportSymbol.FinalizerSafepoint)),
+            Call(selectedIndex),
+            Calls(body));
+        Assert.DoesNotContain(
+            Call(fullCatalogIndex),
             Calls(body));
     }
 

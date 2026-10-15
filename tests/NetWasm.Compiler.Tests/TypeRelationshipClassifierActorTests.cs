@@ -12,6 +12,32 @@ public sealed class TypeRelationshipClassifierActorTests
     private static readonly CliTypeIdentity StringType = Named("String");
     private static readonly CliTypeIdentity ValueType = Named("Value", true);
 
+    [Fact]
+    public void VectorToRankOneArrayPreservesExactValueElementCompatibility()
+    {
+        var classifier = Create(new DefinitionResolver());
+        var element = CliTypeIdentity.FromStackKind(CliValueKind.I4);
+        var vector = CliTypeIdentity.SzArray(element);
+        var rankOne = CliTypeIdentity.Array(element, 1);
+
+        Assert.True(classifier.Classify(vector, rankOne).IsHierarchyAssignable);
+        Assert.False(classifier.Classify(rankOne, vector).IsAssignmentCompatible);
+        Assert.False(classifier.Classify(vector, CliTypeIdentity.Array(element, 2)).IsAssignmentCompatible);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void UnconstrainedGenericArrayElementsDoNotEstablishReferenceCovariance(bool methodParameter)
+    {
+        var classifier = Create(new DefinitionResolver(Definition(ObjectType, 1)));
+        var candidate = CliTypeIdentity.SzArray(CliTypeIdentity.GenericParameter(methodParameter, 0));
+        var target = CliTypeIdentity.SzArray(ObjectType);
+
+        Assert.False(classifier.Classify(candidate, target).IsAssignmentCompatible);
+        Assert.False(classifier.Classify(target, candidate).IsAssignmentCompatible);
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -89,7 +115,7 @@ public sealed class TypeRelationshipClassifierActorTests
         Assert.True(classifier.Classify(
             Instantiate(contravariant, ObjectType),
             Instantiate(contravariant, StringType)).RequiresVariantMethodResolution);
-        Assert.True(classifier.Classify(
+        Assert.False(classifier.Classify(
             Instantiate(covariant, StringType),
             Instantiate(covariant, StringType)).RequiresVariantMethodResolution);
         Assert.False(classifier.Classify(
@@ -127,6 +153,23 @@ public sealed class TypeRelationshipClassifierActorTests
         Assert.True(classifier.Classify(
             Instantiate(covariant, Instantiate(covariant, StringType)),
             Instantiate(covariant, Instantiate(covariant, ObjectType))).IsAssignmentCompatible);
+    }
+
+    [Fact]
+    public void ExactGenericInterfaceMatchUsesHierarchyWithoutVariantResolution()
+    {
+        var output = Generic("IOutput`1");
+        var exact = Instantiate(output, StringType);
+        var classifier = Create(new DefinitionResolver(
+            Definition(ObjectType, 1),
+            Definition(StringType, 2),
+            Definition(output, 3, CliGenericVariance.Covariant)));
+
+        var relationship = classifier.Classify(exact, exact);
+
+        Assert.True(relationship.IsAssignmentCompatible);
+        Assert.True(relationship.IsHierarchyAssignable);
+        Assert.False(relationship.RequiresVariantMethodResolution);
     }
 
     [Fact]

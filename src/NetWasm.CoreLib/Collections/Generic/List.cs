@@ -1,597 +1,1179 @@
-// Portions derived from dotnet/runtime System.Private.CoreLib.
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using System.Collections.ObjectModel;
+using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
+using System.Runtime.CompilerServices;
+
 namespace System.Collections.Generic
 {
-    // Portions derived from dotnet/runtime System.Private.CoreLib's List<T>
-    // at commit 811225a482702af7ecc35d817966bc70b88a3a23.
-    public class List<T> : ICollection<T>, IEnumerable<T>, IList<T>, IReadOnlyCollection<T>,
-        IReadOnlyList<T>, System.Collections.ICollection, System.Collections.IEnumerable,
-        System.Collections.IList
+    // Implements a variable-size List that uses an array of objects to store the
+    // elements. A List has a capacity, which is the allocated length
+    // of the internal array. As elements are added to a List, the capacity
+    // of the List is automatically increased as required by reallocating the
+    // internal array.
+    //
+    [DebuggerDisplay("Count = {Count}")]
+    [Serializable]
+    [TypeForwardedFrom("mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089")]
+    public class List<T> : IList<T>, IList, IReadOnlyList<T>
     {
-        private T[] _items;
-        private int _count;
-        private int _version;
+        private const int DefaultCapacity = 4;
 
+        internal T[] _items; // Do not rename (binary serialization) [cDAC] [ComWrappers] : Contract depends on this exact name
+        internal int _size; // Do not rename (binary serialization) [cDAC] [ComWrappers] : Contract depends on this exact name
+        internal int _version; // Do not rename (binary serialization)
+
+#pragma warning disable CA1825, IDE0300 // avoid the extra generic instantiation for Array.Empty<T>()
+        private static readonly T[] s_emptyArray = new T[0];
+#pragma warning restore CA1825, IDE0300
+
+        // Constructs a List. The list is initially empty and has a capacity
+        // of zero. Upon adding the first element to the list the capacity is
+        // increased to DefaultCapacity, and then increased in multiples of two
+        // as required.
         public List()
         {
-            _items = new T[0];
+            _items = s_emptyArray;
         }
 
+        // Constructs a List with a given initial capacity. The list is
+        // initially empty, but will have room for the given number of elements
+        // before any reallocations are required.
+        //
         public List(int capacity)
         {
             if (capacity < 0)
-            {
-                throw new System.ArgumentOutOfRangeException();
-            }
-            _items = new T[capacity];
+                ThrowHelper.ThrowArgumentOutOfRangeException(ExceptionArgument.capacity, ExceptionResource.ArgumentOutOfRange_NeedNonNegNum);
+
+            if (capacity == 0)
+                _items = s_emptyArray;
+            else
+                _items = new T[capacity];
         }
 
-        public List(IEnumerable<T> collection) : this()
+        // Constructs a List, copying the contents of the given collection. The
+        // size and capacity of the new list will both be equal to the size of the
+        // given collection.
+        //
+        public List(IEnumerable<T> collection)
         {
             if (collection == null)
+                ThrowHelper.ThrowArgumentNullException(ExceptionArgument.collection);
+
+            if (collection is ICollection<T> c)
             {
-                throw new System.ArgumentNullException();
-            }
-            AddRange(collection);
-        }
-
-        public int Count { get => _count; }
-
-        // CollectionsMarshal.AsSpan uses this bridge to preserve the upstream
-        // writable view over the active portion of List<T>'s backing array.
-        internal T[] Items => _items;
-        internal int Size => _count;
-
-        public System.Collections.ObjectModel.ReadOnlyCollection<T> AsReadOnly() =>
-            new(this);
-
-        public int BinarySearch(T item) => BinarySearch(0, _count, item, null);
-
-        public int BinarySearch(T item, IComparer<T>? comparer) =>
-            BinarySearch(0, _count, item, comparer);
-
-        public int BinarySearch(int index, int count, T item, IComparer<T>? comparer)
-        {
-            ValidateRange(index, count);
-            comparer ??= Comparer<T>.Default;
-            var low = index;
-            var high = index + count - 1;
-            while (low <= high)
-            {
-                var middle = low + ((high - low) >> 1);
-                var comparison = comparer.Compare(_items[middle], item);
-                if (comparison == 0)
+                int count = c.Count;
+                if (count == 0)
                 {
-                    return middle;
-                }
-                if (comparison < 0)
-                {
-                    low = middle + 1;
+                    _items = s_emptyArray;
                 }
                 else
                 {
-                    high = middle - 1;
+                    _items = new T[count];
+                    c.CopyTo(_items, 0);
+                    _size = count;
                 }
             }
-            return ~low;
+            else
+            {
+                _items = s_emptyArray;
+                using (IEnumerator<T> en = collection.GetEnumerator())
+                {
+                    while (en.MoveNext())
+                    {
+                        Add(en.Current);
+                    }
+                }
+            }
         }
 
+        // Gets and sets the capacity of this list.  The capacity is the size of
+        // the internal array used to hold items.  When set, the internal
+        // array of the list is reallocated to the given capacity.
+        //
         public int Capacity
         {
             get => _items.Length;
             set
             {
-                if (value < _count)
+                if (value < _size)
                 {
-                    throw new System.ArgumentOutOfRangeException();
+                    ThrowHelper.ThrowArgumentOutOfRangeException(ExceptionArgument.value, ExceptionResource.ArgumentOutOfRange_SmallCapacity);
                 }
-                if (value == _items.Length)
+
+                if (value != _items.Length)
                 {
-                    return;
+                    if (value > 0)
+                    {
+                        T[] newItems = new T[value];
+                        if (_size > 0)
+                        {
+                            Array.Copy(_items, newItems, _size);
+                        }
+                        _items = newItems;
+                    }
+                    else
+                    {
+                        _items = s_emptyArray;
+                    }
                 }
-                var replacement = new T[value];
-                System.Array.Copy(_items, 0, replacement, 0, _count);
-                _items = replacement;
             }
         }
 
-        public bool IsReadOnly => false;
+        // Read-only property describing how many elements are in the List.
+        public int Count => _size;
 
+        bool IList.IsFixedSize => false;
+
+        // Is this List read-only?
+        bool ICollection<T>.IsReadOnly => false;
+
+        bool IList.IsReadOnly => false;
+
+        // Is this List synchronized (thread-safe)?
+        bool ICollection.IsSynchronized => false;
+
+        // Synchronization root for this object.
+        object ICollection.SyncRoot => this;
+
+        // Sets or Gets the element at the given index.
         public T this[int index]
         {
             get
             {
-                ValidateIndex(index);
+                // Following trick can reduce the range check by one
+                if ((uint)index >= (uint)_size)
+                {
+                    ThrowHelper.ThrowArgumentOutOfRange_IndexMustBeLessException();
+                }
                 return _items[index];
             }
+
             set
             {
-                ValidateIndex(index);
+                if ((uint)index >= (uint)_size)
+                {
+                    ThrowHelper.ThrowArgumentOutOfRange_IndexMustBeLessException();
+                }
                 _items[index] = value;
                 _version++;
             }
         }
 
+        private static bool IsCompatibleObject(object? value)
+        {
+            // Non-null values are fine.  Only accept nulls if T is a class or Nullable<U>.
+            // Note that default(T) is not equal to null for value types except when T is Nullable<U>.
+            return (value is T) || (value == null && default(T) == null);
+        }
+
+        object? IList.this[int index]
+        {
+            get => this[index];
+            set
+            {
+                ThrowHelper.IfNullAndNullsAreIllegalThenThrow<T>(value, ExceptionArgument.value);
+
+                try
+                {
+                    this[index] = (T)value!;
+                }
+                catch (InvalidCastException)
+                {
+                    ThrowHelper.ThrowWrongValueTypeArgumentException(value, typeof(T));
+                }
+            }
+        }
+
+        // Adds the given object to the end of this list. The size of the list is
+        // increased by one. If required, the capacity of the list is doubled
+        // before adding the new element.
+        //
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public void Add(T item)
         {
-            EnsureCapacity(_count + 1);
-            _items[_count] = item;
-            _count++;
             _version++;
+            T[] array = _items;
+            int size = _size;
+            if ((uint)size < (uint)array.Length)
+            {
+                _size = size + 1;
+                array[size] = item;
+            }
+            else
+            {
+                AddWithResize(item);
+            }
         }
 
+        // Non-inline from List.Add to improve its code quality as uncommon path
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private void AddWithResize(T item)
+        {
+            Debug.Assert(_size == _items.Length);
+            int size = _size;
+            Grow(size + 1);
+            _size = size + 1;
+            _items[size] = item;
+        }
+
+        int IList.Add(object? item)
+        {
+            ThrowHelper.IfNullAndNullsAreIllegalThenThrow<T>(item, ExceptionArgument.item);
+
+            try
+            {
+                Add((T)item!);
+            }
+            catch (InvalidCastException)
+            {
+                ThrowHelper.ThrowWrongValueTypeArgumentException(item, typeof(T));
+            }
+
+            return Count - 1;
+        }
+
+        // Adds the elements of the given collection to the end of this list. If
+        // required, the capacity of the list is increased to twice the previous
+        // capacity or the new size, whichever is larger.
+        //
+        public void AddRange(IEnumerable<T> collection)
+        {
+            if (collection == null)
+            {
+                ThrowHelper.ThrowArgumentNullException(ExceptionArgument.collection);
+            }
+
+            if (collection is ICollection<T> c)
+            {
+                int count = c.Count;
+                if (count > 0)
+                {
+                    if (_items.Length - _size < count)
+                    {
+                        Grow(checked(_size + count));
+                    }
+
+                    c.CopyTo(_items, _size);
+                    _size += count;
+                    _version++;
+                }
+            }
+            else
+            {
+                using (IEnumerator<T> en = collection.GetEnumerator())
+                {
+                    while (en.MoveNext())
+                    {
+                        Add(en.Current);
+                    }
+                }
+            }
+        }
+
+        public ReadOnlyCollection<T> AsReadOnly()
+            => new ReadOnlyCollection<T>(this);
+
+        // Searches a section of the list for a given element using a binary search
+        // algorithm. Elements of the list are compared to the search value using
+        // the given IComparer interface. If comparer is null, elements of
+        // the list are compared to the search value using the IComparable
+        // interface, which in that case must be implemented by all elements of the
+        // list and the given search value. This method assumes that the given
+        // section of the list is already sorted; if this is not the case, the
+        // result will be incorrect.
+        //
+        // The method returns the index of the given value in the list. If the
+        // list does not contain the given value, the method returns a negative
+        // integer. The bitwise complement operator (~) can be applied to a
+        // negative result to produce the index of the first element (if any) that
+        // is larger than the given search value. This is also the index at which
+        // the search value should be inserted into the list in order for the list
+        // to remain sorted.
+        //
+        // The method uses the Array.BinarySearch method to perform the
+        // search.
+        //
+        public int BinarySearch(int index, int count, T item, IComparer<T>? comparer)
+        {
+            if (index < 0)
+                ThrowHelper.ThrowIndexArgumentOutOfRange_NeedNonNegNumException();
+            if (count < 0)
+                ThrowHelper.ThrowArgumentOutOfRangeException(ExceptionArgument.count, ExceptionResource.ArgumentOutOfRange_NeedNonNegNum);
+            if (_size - index < count)
+                ThrowHelper.ThrowArgumentException(ExceptionResource.Argument_InvalidOffLen);
+
+            return Array.BinarySearch(_items, index, count, item, comparer);
+        }
+
+        public int BinarySearch(T item)
+            => BinarySearch(0, Count, item, null);
+
+        public int BinarySearch(T item, IComparer<T>? comparer)
+            => BinarySearch(0, Count, item, comparer);
+
+        // Clears the contents of List.
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public void Clear()
         {
-            for (var index = 0; index < _count; index++)
-            {
-                _items[index] = default!;
-            }
-            _count = 0;
             _version++;
+            if (RuntimeHelpers.IsReferenceOrContainsReferences<T>())
+            {
+                int size = _size;
+                _size = 0;
+                if (size > 0)
+                {
+                    Array.Clear(_items, 0, size); // Clear the elements so that the gc can reclaim the references.
+                }
+            }
+            else
+            {
+                _size = 0;
+            }
         }
 
-        public bool Contains(T item) => IndexOf(item) >= 0;
+        // Contains returns true if the specified element is in the List.
+        // It does a linear, O(n) search.  Equality is determined by calling
+        // EqualityComparer<T>.Default.Equals().
+        //
+        public bool Contains(T item)
+        {
+            // PERF: IndexOf calls Array.IndexOf, which internally
+            // calls EqualityComparer<T>.Default.IndexOf, which
+            // is specialized for different types. This
+            // boosts performance since instead of making a
+            // virtual method call each iteration of the loop,
+            // via EqualityComparer<T>.Default.Equals, we
+            // only make one virtual call to EqualityComparer.IndexOf.
 
-        public List<TOutput> ConvertAll<TOutput>(System.Converter<T, TOutput> converter)
+            return _size != 0 && IndexOf(item) >= 0;
+        }
+
+        bool IList.Contains(object? item)
+        {
+            if (IsCompatibleObject(item))
+            {
+                return Contains((T)item!);
+            }
+            return false;
+        }
+
+        public List<TOutput> ConvertAll<TOutput>(Converter<T, TOutput> converter)
         {
             if (converter == null)
             {
-                throw new System.ArgumentNullException();
+                ThrowHelper.ThrowArgumentNullException(ExceptionArgument.converter);
             }
-            var result = new List<TOutput>(_count);
-            for (var index = 0; index < _count; index++)
+
+            List<TOutput> list = new List<TOutput>(_size);
+            for (int i = 0; i < _size; i++)
             {
-                result.Add(converter(_items[index]));
+                list._items[i] = converter(_items[i]);
             }
-            return result;
+            list._size = _size;
+            return list;
         }
 
-        public int IndexOf(T item)
-        {
-            return IndexOf(item, 0, _count);
-        }
+        // Copies this List into array, which must be of a
+        // compatible array type.
+        public void CopyTo(T[] array)
+            => CopyTo(array, 0);
 
-        public int IndexOf(T item, int index)
+        // Copies this List into array, which must be of a
+        // compatible array type.
+        void ICollection.CopyTo(Array array, int arrayIndex)
         {
-            return IndexOf(item, index, _count - index);
-        }
-
-        public int IndexOf(T item, int index, int count)
-        {
-            ValidateRange(index, count);
-            for (var current = index; current < index + count; current++)
+            if ((array != null) && (array.Rank != 1))
             {
-                if (EqualityComparer<T>.Default.Equals(_items[current], item))
-                {
-                    return current;
-                }
+                ThrowHelper.ThrowArgumentException(ExceptionResource.Arg_RankMultiDimNotSupported);
             }
-            return -1;
-        }
 
-        public int LastIndexOf(T item)
-        {
-            return LastIndexOf(item, _count - 1, _count);
-        }
-
-        public int LastIndexOf(T item, int index)
-        {
-            return LastIndexOf(item, index, index + 1);
-        }
-
-        public int LastIndexOf(T item, int index, int count)
-        {
-            if (index < -1 || index >= _count || count < 0 || index - count + 1 < 0)
+            try
             {
-                if (index == -1 && count == 0)
-                {
-                    return -1;
-                }
-                throw new System.ArgumentOutOfRangeException();
+                // Array.Copy will check for NULL.
+                Array.Copy(_items, 0, array!, arrayIndex, _size);
             }
-            for (var current = index; current >= index - count + 1; current--)
+            catch (ArrayTypeMismatchException)
             {
-                if (EqualityComparer<T>.Default.Equals(_items[current], item))
-                {
-                    return current;
-                }
+                ThrowHelper.ThrowArgumentException_Argument_IncompatibleArrayType();
             }
-            return -1;
         }
 
-        public T? Find(System.Predicate<T> match)
+        // Copies a section of this list to the given array at the given index.
+        //
+        // The method uses the Array.Copy method to copy the elements.
+        //
+        public void CopyTo(int index, T[] array, int arrayIndex, int count)
+        {
+            if (_size - index < count)
+            {
+                ThrowHelper.ThrowArgumentException(ExceptionResource.Argument_InvalidOffLen);
+            }
+
+            // Delegate rest of error checking to Array.Copy.
+            Array.Copy(_items, index, array, arrayIndex, count);
+        }
+
+        public void CopyTo(T[] array, int arrayIndex)
+        {
+            // Delegate rest of error checking to Array.Copy.
+            Array.Copy(_items, 0, array, arrayIndex, _size);
+        }
+
+        /// <summary>
+        /// Ensures that the capacity of this list is at least the specified <paramref name="capacity"/>.
+        /// If the current capacity of the list is less than specified <paramref name="capacity"/>,
+        /// the capacity is increased to at least <paramref name="capacity"/>.
+        /// </summary>
+        /// <param name="capacity">The minimum capacity to ensure.</param>
+        /// <returns>The new capacity of this list.</returns>
+        public int EnsureCapacity(int capacity)
+        {
+            if (capacity < 0)
+            {
+                ThrowHelper.ThrowArgumentOutOfRangeException(ExceptionArgument.capacity, ExceptionResource.ArgumentOutOfRange_NeedNonNegNum);
+            }
+            if (_items.Length < capacity)
+            {
+                Grow(capacity);
+            }
+
+            return _items.Length;
+        }
+
+        /// <summary>
+        /// Increase the capacity of this list to at least the specified <paramref name="capacity"/>.
+        /// </summary>
+        /// <param name="capacity">The minimum capacity to ensure.</param>
+        internal void Grow(int capacity)
+        {
+            Capacity = GetNewCapacity(capacity);
+        }
+
+        /// <summary>
+        /// Enlarge this list so it may contain at least <paramref name="insertionCount"/> more elements
+        /// And copy data to their after-insertion positions.
+        /// This method is specifically for insertion, as it avoids 1 extra array copy.
+        /// You should only call this method when Count + insertionCount > Capacity.
+        /// </summary>
+        /// <param name="indexToInsert">Index of the first insertion.</param>
+        /// <param name="insertionCount">How many elements will be inserted.</param>
+        internal void GrowForInsertion(int indexToInsert, int insertionCount = 1)
+        {
+            Debug.Assert(insertionCount > 0);
+
+            int requiredCapacity = checked(_size + insertionCount);
+            int newCapacity = GetNewCapacity(requiredCapacity);
+
+            // Inline and adapt logic from set_Capacity
+
+            T[] newItems = new T[newCapacity];
+            if (indexToInsert != 0)
+            {
+                Array.Copy(_items, newItems, length: indexToInsert);
+            }
+
+            if (_size != indexToInsert)
+            {
+                Array.Copy(_items, indexToInsert, newItems, indexToInsert + insertionCount, _size - indexToInsert);
+            }
+
+            _items = newItems;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private int GetNewCapacity(int capacity)
+        {
+            Debug.Assert(_items.Length < capacity);
+
+            int newCapacity = _items.Length == 0 ? DefaultCapacity : 2 * _items.Length;
+
+            // Allow the list to grow to maximum possible capacity (~2G elements) before encountering overflow.
+            // Note that this check works even when _items.Length overflowed thanks to the (uint) cast
+            if ((uint)newCapacity > Array.MaxLength) newCapacity = Array.MaxLength;
+
+            // If the computed capacity is still less than specified, set to the original argument.
+            // Capacities exceeding Array.MaxLength will be surfaced as OutOfMemoryException by Array.Resize.
+            if (newCapacity < capacity) newCapacity = capacity;
+
+            return newCapacity;
+        }
+
+        public bool Exists(Predicate<T> match)
+            => FindIndex(match) != -1;
+
+        public T? Find(Predicate<T> match)
         {
             if (match == null)
             {
-                throw new System.ArgumentNullException();
+                ThrowHelper.ThrowArgumentNullException(ExceptionArgument.match);
             }
-            for (var index = 0; index < _count; index++)
+
+            for (int i = 0; i < _size; i++)
             {
-                if (match(_items[index]))
+                if (match(_items[i]))
                 {
-                    return _items[index];
+                    return _items[i];
                 }
             }
             return default;
         }
 
-        public bool Exists(System.Predicate<T> match)
+        public List<T> FindAll(Predicate<T> match)
         {
-            return FindIndex(match) >= 0;
-        }
-
-        public int FindIndex(System.Predicate<T> match)
-        {
-            return FindIndex(0, _count, match);
-        }
-
-        public int FindIndex(int startIndex, System.Predicate<T> match)
-        {
-            return FindIndex(startIndex, _count - startIndex, match);
-        }
-
-        public int FindIndex(int startIndex, int count, System.Predicate<T> match)
-        {
-            ValidateRange(startIndex, count);
             if (match == null)
             {
-                throw new System.ArgumentNullException();
+                ThrowHelper.ThrowArgumentNullException(ExceptionArgument.match);
             }
-            for (var index = startIndex; index < startIndex + count; index++)
+
+            List<T> list = new List<T>();
+            for (int i = 0; i < _size; i++)
             {
-                if (match(_items[index]))
+                if (match(_items[i]))
                 {
-                    return index;
+                    list.Add(_items[i]);
+                }
+            }
+            return list;
+        }
+
+        public int FindIndex(Predicate<T> match)
+            => FindIndex(0, _size, match);
+
+        public int FindIndex(int startIndex, Predicate<T> match)
+            => FindIndex(startIndex, _size - startIndex, match);
+
+        public int FindIndex(int startIndex, int count, Predicate<T> match)
+        {
+            if ((uint)startIndex > (uint)_size)
+            {
+                ThrowHelper.ThrowStartIndexArgumentOutOfRange_ArgumentOutOfRange_IndexMustBeLessOrEqual();
+            }
+
+            if (count < 0 || startIndex > _size - count)
+            {
+                ThrowHelper.ThrowCountArgumentOutOfRange_ArgumentOutOfRange_Count();
+            }
+
+            if (match == null)
+            {
+                ThrowHelper.ThrowArgumentNullException(ExceptionArgument.match);
+            }
+
+            int endIndex = startIndex + count;
+            for (int i = startIndex; i < endIndex; i++)
+            {
+                if (match(_items[i])) return i;
+            }
+            return -1;
+        }
+
+        public T? FindLast(Predicate<T> match)
+        {
+            if (match == null)
+            {
+                ThrowHelper.ThrowArgumentNullException(ExceptionArgument.match);
+            }
+
+            for (int i = _size - 1; i >= 0; i--)
+            {
+                if (match(_items[i]))
+                {
+                    return _items[i];
+                }
+            }
+            return default;
+        }
+
+        public int FindLastIndex(Predicate<T> match)
+            => FindLastIndex(_size - 1, _size, match);
+
+        public int FindLastIndex(int startIndex, Predicate<T> match)
+            => FindLastIndex(startIndex, startIndex + 1, match);
+
+        public int FindLastIndex(int startIndex, int count, Predicate<T> match)
+        {
+            if (match == null)
+            {
+                ThrowHelper.ThrowArgumentNullException(ExceptionArgument.match);
+            }
+
+            if (_size == 0)
+            {
+                // Special case for 0 length List
+                if (startIndex != -1)
+                {
+                    ThrowHelper.ThrowStartIndexArgumentOutOfRange_ArgumentOutOfRange_IndexMustBeLess();
+                }
+            }
+            else
+            {
+                // Make sure we're not out of range
+                if ((uint)startIndex >= (uint)_size)
+                {
+                    ThrowHelper.ThrowStartIndexArgumentOutOfRange_ArgumentOutOfRange_IndexMustBeLess();
+                }
+            }
+
+            // 2nd have of this also catches when startIndex == MAXINT, so MAXINT - 0 + 1 == -1, which is < 0.
+            if (count < 0 || startIndex - count + 1 < 0)
+            {
+                ThrowHelper.ThrowCountArgumentOutOfRange_ArgumentOutOfRange_Count();
+            }
+
+            int endIndex = startIndex - count;
+            for (int i = startIndex; i > endIndex; i--)
+            {
+                if (match(_items[i]))
+                {
+                    return i;
                 }
             }
             return -1;
         }
 
-        public List<T> FindAll(System.Predicate<T> match)
-        {
-            if (match == null)
-            {
-                throw new System.ArgumentNullException();
-            }
-            var result = new List<T>();
-            for (var index = 0; index < _count; index++)
-            {
-                if (match(_items[index]))
-                {
-                    result.Add(_items[index]);
-                }
-            }
-            return result;
-        }
-
-        public T? FindLast(System.Predicate<T> match)
-        {
-            var index = FindLastIndex(match);
-            return index < 0 ? default : _items[index];
-        }
-
-        public int FindLastIndex(System.Predicate<T> match)
-        {
-            return FindLastIndex(_count - 1, _count, match);
-        }
-
-        public int FindLastIndex(int startIndex, System.Predicate<T> match)
-        {
-            return FindLastIndex(startIndex, startIndex + 1, match);
-        }
-
-        public int FindLastIndex(int startIndex, int count, System.Predicate<T> match)
-        {
-            if (match == null)
-            {
-                throw new System.ArgumentNullException();
-            }
-            if (startIndex < -1 || startIndex >= _count || count < 0 ||
-                startIndex - count + 1 < 0)
-            {
-                if (startIndex == -1 && count == 0)
-                {
-                    return -1;
-                }
-                throw new System.ArgumentOutOfRangeException();
-            }
-            for (var index = startIndex; index >= startIndex - count + 1; index--)
-            {
-                if (match(_items[index]))
-                {
-                    return index;
-                }
-            }
-            return -1;
-        }
-
-        public void ForEach(System.Action<T> action)
+        public void ForEach(Action<T> action)
         {
             if (action == null)
             {
-                throw new System.ArgumentNullException();
+                ThrowHelper.ThrowArgumentNullException(ExceptionArgument.action);
             }
-            for (var index = 0; index < _count; index++)
-            {
-                action(_items[index]);
-            }
-        }
 
-        public void Insert(int index, T item)
-        {
-            if ((uint)index > (uint)_count)
-            {
-                throw new System.ArgumentOutOfRangeException();
-            }
-            EnsureCapacity(_count + 1);
-            for (var current = _count; current > index; current--)
-            {
-                _items[current] = _items[current - 1];
-            }
-            _items[index] = item;
-            _count++;
-            _version++;
-        }
+            int version = _version;
 
-        public bool Remove(T item)
-        {
-            var index = IndexOf(item);
-            if (index < 0)
+            for (int i = 0; i < _size; i++)
             {
-                return false;
-            }
-            RemoveAt(index);
-            return true;
-        }
-
-        public void RemoveAt(int index)
-        {
-            ValidateIndex(index);
-            _count--;
-            for (var current = index; current < _count; current++)
-            {
-                _items[current] = _items[current + 1];
-            }
-            _items[_count] = default!;
-            _version++;
-        }
-
-        public void RemoveRange(int index, int count)
-        {
-            ValidateRange(index, count);
-            if (count == 0)
-            {
-                return;
-            }
-            var newCount = _count - count;
-            for (var current = index; current < newCount; current++)
-            {
-                _items[current] = _items[current + count];
-            }
-            for (var current = newCount; current < _count; current++)
-            {
-                _items[current] = default!;
-            }
-            _count = newCount;
-            _version++;
-        }
-
-        public int RemoveAll(System.Predicate<T> match)
-        {
-            if (match == null)
-            {
-                throw new System.ArgumentNullException();
-            }
-            var destination = 0;
-            for (var source = 0; source < _count; source++)
-            {
-                if (!match(_items[source]))
+                if (version != _version)
                 {
-                    _items[destination++] = _items[source];
+                    break;
                 }
+                action(_items[i]);
             }
-            var removed = _count - destination;
-            if (removed == 0)
-            {
-                return 0;
-            }
-            for (var index = destination; index < _count; index++)
-            {
-                _items[index] = default!;
-            }
-            _count = destination;
-            _version++;
-            return removed;
+
+            if (version != _version)
+                ThrowHelper.ThrowInvalidOperationException_InvalidOperation_EnumFailedVersion();
         }
 
-        public void CopyTo(T[] array, int arrayIndex)
-        {
-            if (array == null)
-            {
-                throw new System.ArgumentNullException();
-            }
-            if (arrayIndex < 0 || arrayIndex > array.Length - _count)
-            {
-                throw new System.ArgumentOutOfRangeException();
-            }
-            for (var index = 0; index < _count; index++)
-            {
-                array[arrayIndex + index] = _items[index];
-            }
-        }
+        // Returns an enumerator for this list with the given
+        // permission for removal of elements. If modifications made to the list
+        // while an enumeration is in progress, the MoveNext and
+        // GetObject methods of the enumerator will throw an exception.
+        //
+        public Enumerator GetEnumerator() => new Enumerator(this);
 
-        public void CopyTo(T[] array)
-        {
-            CopyTo(0, array, 0, _count);
-        }
+        IEnumerator<T> IEnumerable<T>.GetEnumerator() =>
+            Count == 0 ? SZGenericArrayEnumerator<T>.Empty :
+            GetEnumerator();
 
-        public void CopyTo(int index, T[] array, int arrayIndex, int count)
-        {
-            ValidateRange(index, count);
-            if (array == null)
-            {
-                throw new System.ArgumentNullException();
-            }
-            if (arrayIndex < 0 || arrayIndex > array.Length - count)
-            {
-                throw new System.ArgumentOutOfRangeException();
-            }
-            for (var offset = 0; offset < count; offset++)
-            {
-                array[arrayIndex + offset] = _items[index + offset];
-            }
-        }
-
-        public Enumerator GetEnumerator() => new(this);
-
-        public T[] ToArray()
-        {
-            var result = new T[_count];
-            System.Array.Copy(_items, 0, result, 0, _count);
-            return result;
-        }
-
-        public void AddRange(IEnumerable<T> collection)
-        {
-            if (collection == null)
-            {
-                throw new System.ArgumentNullException();
-            }
-            var source = System.Object.ReferenceEquals(collection, this)
-                ? ToArray()
-                : collection;
-            foreach (var item in source)
-            {
-                Add(item);
-            }
-        }
-
-        public void InsertRange(int index, IEnumerable<T> collection)
-        {
-            if ((uint)index > (uint)_count)
-            {
-                throw new System.ArgumentOutOfRangeException();
-            }
-            if (collection == null)
-            {
-                throw new System.ArgumentNullException();
-            }
-            var values = new List<T>();
-            foreach (var item in collection)
-            {
-                values.Add(item);
-            }
-            if (values.Count == 0)
-            {
-                return;
-            }
-            EnsureCapacity(_count + values.Count);
-            for (var current = _count - 1; current >= index; current--)
-            {
-                _items[current + values.Count] = _items[current];
-            }
-            for (var current = 0; current < values.Count; current++)
-            {
-                _items[index + current] = values[current];
-            }
-            _count += values.Count;
-            _version++;
-        }
+        IEnumerator IEnumerable.GetEnumerator() => ((IEnumerable<T>)this).GetEnumerator();
 
         public List<T> GetRange(int index, int count)
         {
-            ValidateRange(index, count);
-            var result = new List<T>(count);
-            for (var current = 0; current < count; current++)
+            if (index < 0)
             {
-                result.Add(_items[index + current]);
+                ThrowHelper.ThrowIndexArgumentOutOfRange_NeedNonNegNumException();
             }
-            return result;
-        }
 
-        public void Reverse()
-        {
-            Reverse(0, _count);
-        }
-
-        public void Reverse(int index, int count)
-        {
-            ValidateRange(index, count);
-            for (var left = index; left < index + (count / 2); left++)
+            if (count < 0)
             {
-                var right = index + count - left - 1;
-                var value = _items[left];
-                _items[left] = _items[right];
-                _items[right] = value;
+                ThrowHelper.ThrowArgumentOutOfRangeException(ExceptionArgument.count, ExceptionResource.ArgumentOutOfRange_NeedNonNegNum);
             }
-            _version++;
+
+            if (_size - index < count)
+            {
+                ThrowHelper.ThrowArgumentException(ExceptionResource.Argument_InvalidOffLen);
+            }
+
+            List<T> list = new List<T>(count);
+            Array.Copy(_items, index, list._items, 0, count);
+            list._size = count;
+            return list;
         }
 
+        /// <summary>
+        /// Creates a shallow copy of a range of elements in the source <see cref="List{T}" />.
+        /// </summary>
+        /// <param name="start">The zero-based <see cref="List{T}" /> index at which the range starts.</param>
+        /// <param name="length">The length of the range.</param>
+        /// <returns>A shallow copy of a range of elements in the source <see cref="List{T}" />.</returns>
+        /// <exception cref="ArgumentOutOfRangeException">
+        /// <paramref name="start" /> is less than 0.
+        /// -or-
+        /// <paramref name="length" /> is less than 0.
+        /// </exception>
+        /// <exception cref="ArgumentException"><paramref name="start" /> and <paramref name="length" /> do not denote a valid range of elements in the <see cref="List{T}" />.</exception>
         public List<T> Slice(int start, int length) => GetRange(start, length);
 
-        public int EnsureCapacity(int capacity)
+        // Returns the index of the first occurrence of a given value in a range of
+        // this list. The list is searched forwards from beginning to end.
+        // The elements of the list are compared to the given value using the
+        // Object.Equals method.
+        //
+        // This method uses the Array.IndexOf method to perform the
+        // search.
+        //
+        public int IndexOf(T item)
+            => Array.IndexOf(_items, item, 0, _size);
+
+        int IList.IndexOf(object? item)
         {
-            if (capacity < 0)
+            if (IsCompatibleObject(item))
             {
-                throw new System.ArgumentOutOfRangeException();
+                return IndexOf((T)item!);
             }
-            EnsureCapacityCore(capacity);
-            return _items.Length;
+            return -1;
         }
 
-        public void TrimExcess()
+        // Returns the index of the first occurrence of a given value in a range of
+        // this list. The list is searched forwards, starting at index
+        // index and ending at count number of elements. The
+        // elements of the list are compared to the given value using the
+        // Object.Equals method.
+        //
+        // This method uses the Array.IndexOf method to perform the
+        // search.
+        //
+        public int IndexOf(T item, int index)
         {
-            if (_count < _items.Length)
-            {
-                Capacity = _count;
-            }
+            if (index > _size)
+                ThrowHelper.ThrowArgumentOutOfRange_IndexMustBeLessOrEqualException();
+            return Array.IndexOf(_items, item, index, _size - index);
         }
 
-        public void Sort() => Sort(Comparer<T>.Default);
-
-        public void Sort(IComparer<T>? comparer)
+        // Returns the index of the first occurrence of a given value in a range of
+        // this list. The list is searched forwards, starting at index
+        // index and upto count number of elements. The
+        // elements of the list are compared to the given value using the
+        // Object.Equals method.
+        //
+        // This method uses the Array.IndexOf method to perform the
+        // search.
+        //
+        public int IndexOf(T item, int index, int count)
         {
-            Sort(0, _count, comparer);
+            if (index > _size)
+                ThrowHelper.ThrowArgumentOutOfRange_IndexMustBeLessOrEqualException();
+
+            if (count < 0 || index > _size - count)
+                ThrowHelper.ThrowCountArgumentOutOfRange_ArgumentOutOfRange_Count();
+
+            return Array.IndexOf(_items, item, index, count);
         }
 
-        public void Sort(int index, int count, IComparer<T>? comparer)
+        // Inserts an element into this list at a given index. The size of the list
+        // is increased by one. If required, the capacity of the list is doubled
+        // before inserting the new element.
+        //
+        public void Insert(int index, T item)
         {
-            ValidateRange(index, count);
-            comparer ??= Comparer<T>.Default;
-            for (var current = index + 1; current < index + count; current++)
+            // Note that insertions at the end are legal.
+            if ((uint)index > (uint)_size)
             {
-                var value = _items[current];
-                var insertion = current;
-                while (insertion > index && comparer.Compare(_items[insertion - 1], value) > 0)
-                {
-                    _items[insertion] = _items[insertion - 1];
-                    insertion--;
-                }
-                _items[insertion] = value;
+                ThrowHelper.ThrowArgumentOutOfRangeException(ExceptionArgument.index, ExceptionResource.ArgumentOutOfRange_ListInsert);
             }
+            if (_size == _items.Length)
+            {
+                GrowForInsertion(index, 1);
+            }
+            else if (index < _size)
+            {
+                Array.Copy(_items, index, _items, index + 1, _size - index);
+            }
+            _items[index] = item;
+            _size++;
             _version++;
         }
 
-        public void Sort(System.Comparison<T> comparison)
+        void IList.Insert(int index, object? item)
         {
-            if (comparison == null)
+            ThrowHelper.IfNullAndNullsAreIllegalThenThrow<T>(item, ExceptionArgument.item);
+
+            try
             {
-                throw new System.ArgumentNullException();
+                Insert(index, (T)item!);
             }
-            Sort(0, _count, new ComparisonComparer(comparison));
+            catch (InvalidCastException)
+            {
+                ThrowHelper.ThrowWrongValueTypeArgumentException(item, typeof(T));
+            }
         }
 
-        public bool TrueForAll(System.Predicate<T> match)
+        // Inserts the elements of the given collection at a given index. If
+        // required, the capacity of the list is increased to twice the previous
+        // capacity or the new size, whichever is larger.  Ranges may be added
+        // to the end of the list by setting index to the List's size.
+        //
+        public void InsertRange(int index, IEnumerable<T> collection)
+        {
+            if (collection == null)
+            {
+                ThrowHelper.ThrowArgumentNullException(ExceptionArgument.collection);
+            }
+
+            if ((uint)index > (uint)_size)
+            {
+                ThrowHelper.ThrowArgumentOutOfRange_IndexMustBeLessOrEqualException();
+            }
+
+            if (collection is ICollection<T> c)
+            {
+                int count = c.Count;
+                if (count > 0)
+                {
+                    if (_items.Length - _size < count)
+                    {
+                        GrowForInsertion(index, count);
+                    }
+                    else if (index < _size)
+                    {
+                        Array.Copy(_items, index, _items, index + count, _size - index);
+                    }
+
+                    // If we're inserting a List into itself, we want to be able to deal with that.
+                    if (this == c)
+                    {
+                        // Copy first part of _items to insert location
+                        Array.Copy(_items, 0, _items, index, index);
+                        // Copy last part of _items back to inserted location
+                        Array.Copy(_items, index + count, _items, index * 2, _size - index);
+                    }
+                    else
+                    {
+                        c.CopyTo(_items, index);
+                    }
+                    _size += count;
+                    _version++;
+                }
+            }
+            else
+            {
+                using (IEnumerator<T> en = collection.GetEnumerator())
+                {
+                    while (en.MoveNext())
+                    {
+                        Insert(index++, en.Current);
+                    }
+                }
+            }
+        }
+
+        // Returns the index of the last occurrence of a given value in a range of
+        // this list. The list is searched backwards, starting at the end
+        // and ending at the first element in the list. The elements of the list
+        // are compared to the given value using the Object.Equals method.
+        //
+        // This method uses the Array.LastIndexOf method to perform the
+        // search.
+        //
+        public int LastIndexOf(T item)
+        {
+            if (_size == 0)
+            {  // Special case for empty list
+                return -1;
+            }
+            else
+            {
+                return LastIndexOf(item, _size - 1, _size);
+            }
+        }
+
+        // Returns the index of the last occurrence of a given value in a range of
+        // this list. The list is searched backwards, starting at index
+        // index and ending at the first element in the list. The
+        // elements of the list are compared to the given value using the
+        // Object.Equals method.
+        //
+        // This method uses the Array.LastIndexOf method to perform the
+        // search.
+        //
+        public int LastIndexOf(T item, int index)
+        {
+            if (index >= _size)
+                ThrowHelper.ThrowArgumentOutOfRange_IndexMustBeLessException();
+            return LastIndexOf(item, index, index + 1);
+        }
+
+        // Returns the index of the last occurrence of a given value in a range of
+        // this list. The list is searched backwards, starting at index
+        // index and upto count elements. The elements of
+        // the list are compared to the given value using the Object.Equals
+        // method.
+        //
+        // This method uses the Array.LastIndexOf method to perform the
+        // search.
+        //
+        public int LastIndexOf(T item, int index, int count)
+        {
+            if ((Count != 0) && (index < 0))
+            {
+                ThrowHelper.ThrowIndexArgumentOutOfRange_NeedNonNegNumException();
+            }
+
+            if ((Count != 0) && (count < 0))
+            {
+                ThrowHelper.ThrowArgumentOutOfRangeException(ExceptionArgument.count, ExceptionResource.ArgumentOutOfRange_NeedNonNegNum);
+            }
+
+            if (_size == 0)
+            {  // Special case for empty list
+                return -1;
+            }
+
+            if (index >= _size)
+            {
+                ThrowHelper.ThrowArgumentOutOfRangeException(ExceptionArgument.index, ExceptionResource.ArgumentOutOfRange_BiggerThanCollection);
+            }
+
+            if (count > index + 1)
+            {
+                ThrowHelper.ThrowArgumentOutOfRangeException(ExceptionArgument.count, ExceptionResource.ArgumentOutOfRange_BiggerThanCollection);
+            }
+
+            return Array.LastIndexOf(_items, item, index, count);
+        }
+
+        // Removes the first occurrence of the given element, if found.
+        // The size of the list is decreased by one if successful.
+        public bool Remove(T item)
+        {
+            int index = IndexOf(item);
+            if (index >= 0)
+            {
+                RemoveAt(index);
+                return true;
+            }
+
+            return false;
+        }
+
+        void IList.Remove(object? item)
+        {
+            if (IsCompatibleObject(item))
+            {
+                Remove((T)item!);
+            }
+        }
+
+        // This method removes all items which matches the predicate.
+        // The complexity is O(n).
+        public int RemoveAll(Predicate<T> match)
         {
             if (match == null)
             {
-                throw new System.ArgumentNullException();
+                ThrowHelper.ThrowArgumentNullException(ExceptionArgument.match);
             }
-            for (var index = 0; index < _count; index++)
+
+            int freeIndex = 0;   // the first free slot in items array
+
+            // Find the first item which needs to be removed.
+            while (freeIndex < _size && !match(_items[freeIndex])) freeIndex++;
+            if (freeIndex >= _size) return 0;
+
+            int current = freeIndex + 1;
+            while (current < _size)
             {
-                if (!match(_items[index]))
+                // Find the first item which needs to be kept.
+                while (current < _size && match(_items[current])) current++;
+
+                if (current < _size)
+                {
+                    // copy item to the free slot.
+                    _items[freeIndex++] = _items[current++];
+                }
+            }
+
+            if (RuntimeHelpers.IsReferenceOrContainsReferences<T>())
+            {
+                Array.Clear(_items, freeIndex, _size - freeIndex); // Clear the elements so that the gc can reclaim the references.
+            }
+
+            int result = _size - freeIndex;
+            _size = freeIndex;
+            _version++;
+            return result;
+        }
+
+        // Removes the element at the given index. The size of the list is
+        // decreased by one.
+        public void RemoveAt(int index)
+        {
+            if ((uint)index >= (uint)_size)
+            {
+                ThrowHelper.ThrowArgumentOutOfRange_IndexMustBeLessException();
+            }
+            _size--;
+            if (index < _size)
+            {
+                Array.Copy(_items, index + 1, _items, index, _size - index);
+            }
+            if (RuntimeHelpers.IsReferenceOrContainsReferences<T>())
+            {
+                _items[_size] = default!;
+            }
+            _version++;
+        }
+
+        // Removes a range of elements from this list.
+        public void RemoveRange(int index, int count)
+        {
+            if (index < 0)
+            {
+                ThrowHelper.ThrowIndexArgumentOutOfRange_NeedNonNegNumException();
+            }
+
+            if (count < 0)
+            {
+                ThrowHelper.ThrowArgumentOutOfRangeException(ExceptionArgument.count, ExceptionResource.ArgumentOutOfRange_NeedNonNegNum);
+            }
+
+            if (_size - index < count)
+                ThrowHelper.ThrowArgumentException(ExceptionResource.Argument_InvalidOffLen);
+
+            if (count > 0)
+            {
+                _size -= count;
+                if (index < _size)
+                {
+                    Array.Copy(_items, index + count, _items, index, _size - index);
+                }
+
+                _version++;
+                if (RuntimeHelpers.IsReferenceOrContainsReferences<T>())
+                {
+                    Array.Clear(_items, _size, count);
+                }
+            }
+        }
+
+        // Reverses the elements in this list.
+        public void Reverse()
+            => Reverse(0, Count);
+
+        // Reverses the elements in a range of this list. Following a call to this
+        // method, an element in the range given by index and count
+        // which was previously located at index i will now be located at
+        // index index + (index + count - i - 1).
+        //
+        public void Reverse(int index, int count)
+        {
+            if (index < 0)
+            {
+                ThrowHelper.ThrowIndexArgumentOutOfRange_NeedNonNegNumException();
+            }
+
+            if (count < 0)
+            {
+                ThrowHelper.ThrowArgumentOutOfRangeException(ExceptionArgument.count, ExceptionResource.ArgumentOutOfRange_NeedNonNegNum);
+            }
+
+            if (_size - index < count)
+                ThrowHelper.ThrowArgumentException(ExceptionResource.Argument_InvalidOffLen);
+
+            if (count > 1)
+            {
+                Array.Reverse(_items, index, count);
+            }
+            _version++;
+        }
+
+        // Sorts the elements in this list.  Uses the default comparer and
+        // Array.Sort.
+        public void Sort()
+            => Sort(0, Count, null);
+
+        // Sorts the elements in this list.  Uses Array.Sort with the
+        // provided comparer.
+        public void Sort(IComparer<T>? comparer)
+            => Sort(0, Count, comparer);
+
+        // Sorts the elements in a section of this list. The sort compares the
+        // elements to each other using the given IComparer interface. If
+        // comparer is null, the elements are compared to each other using
+        // the IComparable interface, which in that case must be implemented by all
+        // elements of the list.
+        //
+        // This method uses the Array.Sort method to sort the elements.
+        //
+        public void Sort(int index, int count, IComparer<T>? comparer)
+        {
+            if (index < 0)
+            {
+                ThrowHelper.ThrowIndexArgumentOutOfRange_NeedNonNegNumException();
+            }
+
+            if (count < 0)
+            {
+                ThrowHelper.ThrowArgumentOutOfRangeException(ExceptionArgument.count, ExceptionResource.ArgumentOutOfRange_NeedNonNegNum);
+            }
+
+            if (_size - index < count)
+                ThrowHelper.ThrowArgumentException(ExceptionResource.Argument_InvalidOffLen);
+
+            if (count > 1)
+            {
+                Array.Sort(_items, index, count, comparer);
+            }
+            _version++;
+        }
+
+        public void Sort(Comparison<T> comparison)
+        {
+            if (comparison == null)
+            {
+                ThrowHelper.ThrowArgumentNullException(ExceptionArgument.comparison);
+            }
+
+            if (_size > 1)
+            {
+                ArraySortHelper<T>.Sort(new Span<T>(_items, 0, _size), comparison);
+            }
+            _version++;
+        }
+
+        // ToArray returns an array containing the contents of the List.
+        // This requires copying the List, which is an O(n) operation.
+        public T[] ToArray()
+        {
+            if (_size == 0)
+            {
+                return s_emptyArray;
+            }
+
+            T[] array = new T[_size];
+            Array.Copy(_items, array, _size);
+            return array;
+        }
+
+        // Sets the capacity of this list to the size of the list. This method can
+        // be used to minimize a list's memory overhead once it is known that no
+        // new elements will be added to the list. To completely clear a list and
+        // release all memory referenced by the list, execute the following
+        // statements:
+        //
+        // list.Clear();
+        // list.TrimExcess();
+        //
+        public void TrimExcess()
+        {
+            int threshold = (int)(((double)_items.Length) * 0.9);
+            if (_size < threshold)
+            {
+                Capacity = _size;
+            }
+        }
+
+        public bool TrueForAll(Predicate<T> match)
+        {
+            if (match == null)
+            {
+                ThrowHelper.ThrowArgumentNullException(ExceptionArgument.match);
+            }
+
+            for (int i = 0; i < _size; i++)
+            {
+                if (!match(_items[i]))
                 {
                     return false;
                 }
@@ -599,154 +1181,70 @@ namespace System.Collections.Generic
             return true;
         }
 
-        object? System.Collections.IList.this[int index]
-        {
-            get => this[index];
-            set => this[index] = ConvertObject(value);
-        }
-
-        int System.Collections.IList.Add(object? value)
-        {
-            Add(ConvertObject(value));
-            return _count - 1;
-        }
-
-        bool System.Collections.IList.Contains(object? value) =>
-            IsCompatibleObject(value) && Contains(ConvertObject(value));
-
-        int System.Collections.IList.IndexOf(object? value) =>
-            IsCompatibleObject(value) ? IndexOf(ConvertObject(value)) : -1;
-
-        void System.Collections.IList.Insert(int index, object? value) =>
-            Insert(index, ConvertObject(value));
-
-        void System.Collections.IList.Remove(object? value)
-        {
-            if (IsCompatibleObject(value))
-            {
-                Remove(ConvertObject(value));
-            }
-        }
-
-        bool System.Collections.IList.IsReadOnly => false;
-        bool System.Collections.IList.IsFixedSize => false;
-
-        int System.Collections.ICollection.Count => _count;
-        bool System.Collections.ICollection.IsSynchronized => false;
-        object System.Collections.ICollection.SyncRoot => this;
-
-        void System.Collections.ICollection.CopyTo(System.Array array, int index)
-        {
-            if (array is T[] typed)
-            {
-                CopyTo(typed, index);
-                return;
-            }
-            throw new System.ArgumentException();
-        }
-
-        internal int Version => _version;
-
-        public struct Enumerator : IEnumerator<T>, System.Collections.IEnumerator, System.IDisposable
+        public struct Enumerator : IEnumerator<T>, IEnumerator
         {
             private readonly List<T> _list;
             private readonly int _version;
+
             private int _index;
-            private T _current;
+            private T? _current;
 
             internal Enumerator(List<T> list)
             {
                 _list = list;
                 _version = list._version;
-                _index = 0;
-                _current = default!;
-            }
-
-            public T Current { get => _current; }
-            object System.Collections.IEnumerator.Current => _current!;
-
-            public bool MoveNext()
-            {
-                if (_version != _list._version)
-                {
-                    throw new System.InvalidOperationException();
-                }
-                if (_index == _list._count)
-                {
-                    _current = default!;
-                    return false;
-                }
-                _current = _list._items[_index++];
-                return true;
             }
 
             public void Dispose()
             {
             }
 
-            void System.Collections.IEnumerator.Reset() =>
-                throw new System.NotSupportedException();
-        }
-
-        private sealed class ComparisonComparer(System.Comparison<T> comparison) : IComparer<T>
-        {
-            public int Compare(T? left, T? right) => comparison(left!, right!);
-        }
-
-        IEnumerator<T> IEnumerable<T>.GetEnumerator() => GetEnumerator();
-
-        System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() =>
-            GetEnumerator();
-
-        private void EnsureCapacityCore(int required)
-        {
-            if (required <= _items.Length)
+            public bool MoveNext()
             {
-                return;
-            }
-            var capacity = _items.Length == 0 ? 4 : _items.Length * 2;
-            if (capacity < required)
-            {
-                capacity = required;
-            }
-            var replacement = new T[capacity];
-            for (var index = 0; index < _count; index++)
-            {
-                replacement[index] = _items[index];
-            }
-            _items = replacement;
-        }
+                List<T> localList = _list;
 
-        private void ValidateIndex(int index)
-        {
-            if ((uint)index >= (uint)_count)
-            {
-                throw new System.ArgumentOutOfRangeException();
-            }
-        }
+                if (_version != _list._version)
+                {
+                    ThrowHelper.ThrowInvalidOperationException_InvalidOperation_EnumFailedVersion();
+                }
 
-        private void ValidateRange(int index, int count)
-        {
-            if (index < 0 || count < 0 || index > _count - count)
-            {
-                throw new System.ArgumentOutOfRangeException();
-            }
-        }
+                if ((uint)_index < (uint)localList._size)
+                {
+                    _current = localList._items[_index];
+                    _index++;
+                    return true;
+                }
 
-        private static bool IsCompatibleObject(object? value) =>
-            value is T || (value is null && default(T) is null);
+                _current = default;
+                _index = -1;
+                return false;
+            }
 
-        private static T ConvertObject(object? value)
-        {
-            if (value is T item)
+            public T Current => _current!;
+
+            object? IEnumerator.Current
             {
-                return item;
+                get
+                {
+                    if (_index <= 0)
+                    {
+                        ThrowHelper.ThrowInvalidOperationException_InvalidOperation_EnumOpCantHappen();
+                    }
+
+                    return _current;
+                }
             }
-            if (value is null && default(T) is null)
+
+            void IEnumerator.Reset()
             {
-                return default!;
+                if (_version != _list._version)
+                {
+                    ThrowHelper.ThrowInvalidOperationException_InvalidOperation_EnumFailedVersion();
+                }
+
+                _index = 0;
+                _current = default;
             }
-            throw new System.ArgumentException();
         }
     }
 }

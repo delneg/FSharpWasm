@@ -22,6 +22,15 @@ namespace NetWasm.Runtime.Pack.Tests.Integration;
 public sealed class NativeCallbackDceIntegrationTests
 {
     private static readonly string[] ToolNames = ["node", "wasm-opt", "wasm-merge"];
+    private static readonly string[] FinalizationExports =
+    [
+        RuntimeAbi.RuntimeAllocateFinalizable,
+        RuntimeAbi.RuntimeFinalizerSafepoint,
+        RuntimeAbi.RuntimeGcWaitForPendingFinalizers,
+        RuntimeAbi.RuntimeInitializeFinalization,
+        RuntimeAbi.RuntimeReRegisterForFinalize,
+        RuntimeAbi.RuntimeSuppressFinalize,
+    ];
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -46,6 +55,7 @@ public sealed class NativeCallbackDceIntegrationTests
 
         var hostTools = RequiredDirectory("NETWASM_NATIVE_INTEROP_HOST_TOOLS_ROOT");
         var toolchain = RequiredDirectory("NETWASM_NATIVE_INTEROP_TOOLCHAIN_ROOT");
+        var runtimeAssets = RuntimeAssets(assets);
         var wasmTarget = target == "wasm64" ? WasmTarget.Wasm64 : WasmTarget.Wasm32;
         var baseline = BuildVariant(
             assets, cell, "baseline", target, wasmTarget, hostTools, toolchain,
@@ -96,9 +106,9 @@ public sealed class NativeCallbackDceIntegrationTests
             WasmToolsSha256 = digest.Calculate(Path.Combine(
                 toolchain, "tools", "wasm-tools", "wasm-tools.wasm")),
             RuntimeManifestSha256 = digest.Calculate(Path.Combine(
-                assets.Root, "src", "NetWasm.Runtime.Pack", "runtime", "runtime-pack.json")),
+                runtimeAssets, "runtime-pack.json")),
             RuntimePolicySha256 = digest.Calculate(Path.Combine(
-                assets.Root, "src", "NetWasm.Runtime.Pack", "runtime", "runtime-policy.json")),
+                runtimeAssets, "runtime-policy.json")),
             RunnerSha256 = digest.Calculate(Path.Combine(
                 AppContext.BaseDirectory, "IntegrationAssets", "hello42-dce-runner.mjs")),
         }, JsonOptions));
@@ -147,6 +157,7 @@ public sealed class NativeCallbackDceIntegrationTests
             EntryPointKind: CompilerEntryPointKind.ManagedExecutable));
         Assert.Null(compilation.NativeCallbackSupport);
         Assert.Empty(compilation.NativeImports);
+        Assert.Empty(compilation.RuntimeFeatures);
         Assert.Empty(compilation.Program.NativeCallbacks);
         Assert.DoesNotContain(compilation.Program.Methods.Values,
             method => method.Method.Definition.Name == "NeverCalled");
@@ -160,6 +171,7 @@ public sealed class NativeCallbackDceIntegrationTests
             target,
             applicationStaticDataEnd = compilation.StaticDataEnd,
             managedExecutableEntryPoint = (object?)null,
+            runtimeFeatures = compilation.RuntimeFeatures,
             nativeImports = compilation.NativeImports,
         }, JsonOptions));
         var manifest = Path.Combine(root, "interop.json");
@@ -168,7 +180,7 @@ public sealed class NativeCallbackDceIntegrationTests
 
         var suffix = OperatingSystem.IsWindows() ? ".exe" : string.Empty;
         var tools = Path.Combine(hostTools, "tools", "bin");
-        var runtimeAssets = Path.Combine(assets.Root, "src", "NetWasm.Runtime.Pack", "runtime");
+        var runtimeAssets = RuntimeAssets(assets);
         var runtime = RuntimeMaterializationComposition.Create().Materialize(
             new RuntimeMaterializationRequest(
                 Path.Combine(runtimeAssets, "runtime-pack.json"),
@@ -187,7 +199,11 @@ public sealed class NativeCallbackDceIntegrationTests
                 1_048_576,
                 null,
                 new("source", "source", "source", "source", "qualified-host-tools",
-                    "0.5.0", "pinned", "pinned", "pinned", "pinned")));
+                    "0.5.0", "pinned", "pinned", "pinned", "pinned"))
+            {
+                GarbageCollector = Environment.GetEnvironmentVariable(
+                    "NETWASM_NATIVE_INTEROP_GARBAGE_COLLECTOR"),
+            });
 
         var services = new ServiceCollection().AddNetWasmCompiler();
         services.AddSingleton<IBinaryenToolRunner>(provider => new CapturedBinaryenTools(
@@ -237,6 +253,12 @@ public sealed class NativeCallbackDceIntegrationTests
         var digest = new Sha256ArtifactDigestCalculator();
         var application = File.ReadAllBytes(applicationPath);
         var runtimeBytes = File.ReadAllBytes(runtime.OutputPath);
+        Assert.True(runtimeBytes.AsSpan().IndexOf(
+            System.Text.Encoding.UTF8.GetBytes(
+                RuntimeAbi.ManagedFinalizerDispatcher)) < 0);
+        var runtimeExports = WasmModuleInspection.ReadExportNames(runtimeBytes);
+        Assert.DoesNotContain(FinalizationExports, name =>
+            runtimeExports.Contains(name));
         var raw = File.ReadAllBytes(rawPath);
         var optimized = File.ReadAllBytes(optimizedPath);
         var functionImports = JsonSerializer.Serialize(compilation.FunctionImports, JsonOptions);
@@ -411,6 +433,12 @@ public sealed class NativeCallbackDceIntegrationTests
         Assert.True(Directory.Exists(path));
         return path!;
     }
+
+    private static string RuntimeAssets(TestAssets assets) =>
+        Environment.GetEnvironmentVariable(
+            "NETWASM_NATIVE_INTEROP_RUNTIME_ASSETS_ROOT") is null
+            ? Path.Combine(assets.Root, "src", "NetWasm.Runtime.Pack", "runtime")
+            : RequiredDirectory("NETWASM_NATIVE_INTEROP_RUNTIME_ASSETS_ROOT");
 
     private sealed class CapturedBinaryenTools(
         string directory,

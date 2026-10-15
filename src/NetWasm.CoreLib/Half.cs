@@ -11,51 +11,23 @@ using System.Runtime.InteropServices;
 
 namespace System
 {
+    // TODO(netwasm-simd)
+
     // Portions of the code implemented below are based on the 'Berkeley SoftFloat Release 3e' algorithms.
 
     /// <summary>
     /// Represents a half-precision floating-point number.
     /// </summary>
+    [Intrinsic]
     [StructLayout(LayoutKind.Sequential)]
-    public readonly partial struct Half
+    public readonly struct Half
         : IComparable,
+          ISpanFormattable,
           IComparable<Half>,
           IEquatable<Half>,
-          IFormattable,
-          IParsable<Half>,
-          ISpanFormattable,
-          ISpanParsable<Half>,
-          IUtf8SpanFormattable,
-          IUtf8SpanParsable<Half>,
-          IAdditionOperators<Half, Half, Half>,
-          IAdditiveIdentity<Half, Half>,
           IBinaryFloatingPointIeee754<Half>,
-          IBinaryNumber<Half>,
-          IBitwiseOperators<Half, Half, Half>,
-          IComparisonOperators<Half, Half, bool>,
-          IDecrementOperators<Half>,
-          IDivisionOperators<Half, Half, Half>,
-          IEqualityOperators<Half, Half, bool>,
-          IExponentialFunctions<Half>,
-          IFloatingPoint<Half>,
-          IFloatingPointConstants<Half>,
-          IFloatingPointIeee754<Half>,
-          IHyperbolicFunctions<Half>,
-          IIncrementOperators<Half>,
-          ILogarithmicFunctions<Half>,
           IMinMaxValue<Half>,
-          IModulusOperators<Half, Half, Half>,
-          IMultiplicativeIdentity<Half, Half>,
-          IMultiplyOperators<Half, Half, Half>,
-          INumber<Half>,
-          INumberBase<Half>,
-          IPowerFunctions<Half>,
-          IRootFunctions<Half>,
-          ISignedNumber<Half>,
-          ISubtractionOperators<Half, Half, Half>,
-          ITrigonometricFunctions<Half>,
-          IUnaryNegationOperators<Half, Half>,
-          IUnaryPlusOperators<Half, Half>,
+          IUtf8SpanFormattable,
           IBinaryFloatParseAndFormatInfo<Half>
     {
         private const NumberStyles DefaultParseStyle = NumberStyles.Float | NumberStyles.AllowThousands;
@@ -64,6 +36,7 @@ namespace System
 
         internal const ushort SignMask = 0x8000;
         internal const int SignShift = 15;
+        internal const byte ShiftedSignMask = SignMask >> SignShift;
 
         internal const ushort BiasedExponentMask = 0x7C00;
         internal const int BiasedExponentShift = 10;
@@ -71,6 +44,9 @@ namespace System
         internal const byte ShiftedBiasedExponentMask = BiasedExponentMask >> BiasedExponentShift;
 
         internal const ushort TrailingSignificandMask = 0x03FF;
+
+        internal const byte MinSign = 0;
+        internal const byte MaxSign = 1;
 
         internal const byte MinBiasedExponent = 0x00;
         internal const byte MaxBiasedExponent = 0x1F;
@@ -96,6 +72,7 @@ namespace System
         private const ushort PositiveInfinityBits = 0x7C00;
         private const ushort NegativeInfinityBits = 0xFC00;
 
+        private const ushort PositiveQNaNBits = 0x7E00;
         private const ushort NegativeQNaNBits = 0xFE00;
 
         private const ushort MinValueBits = 0xFBFF;
@@ -112,19 +89,19 @@ namespace System
 
         // Well-defined and commonly used values
 
-        public static Half Epsilon { get => new Half(EpsilonBits); }                                   //  5.9604645E-08
+        public static Half Epsilon { [Intrinsic] get => new Half(EpsilonBits); }                        //  5.9604645E-08
 
-        public static Half PositiveInfinity { get => new Half(PositiveInfinityBits); }                 //  1.0 / 0.0;
+        public static Half PositiveInfinity { [Intrinsic] get => new Half(PositiveInfinityBits); }      //  1.0 / 0.0;
 
-        public static Half NegativeInfinity { get => new Half(NegativeInfinityBits); }                 // -1.0 / 0.0
+        public static Half NegativeInfinity { [Intrinsic] get => new Half(NegativeInfinityBits); }      // -1.0 / 0.0
 
-        public static Half NaN { get => new Half(NegativeQNaNBits); }                                  //  0.0 / 0.0
+        public static Half NaN { [Intrinsic] get => new Half(NegativeQNaNBits); }                       //  0.0 / 0.0
 
         /// <inheritdoc cref="IMinMaxValue{TSelf}.MinValue" />
-        public static Half MinValue { get => new Half(MinValueBits); }                                 // -65504
+        public static Half MinValue { [Intrinsic] get => new Half(MinValueBits); }                      // -65504
 
         /// <inheritdoc cref="IMinMaxValue{TSelf}.MaxValue" />
-        public static Half MaxValue { get => new Half(MaxValueBits); }                                 //  65504
+        public static Half MaxValue { [Intrinsic] get => new Half(MaxValueBits); }                      //  65504
 
         internal readonly ushort _value;
 
@@ -180,6 +157,7 @@ namespace System
         }
 
         /// <inheritdoc cref="IComparisonOperators{TSelf, TOther, TResult}.op_LessThan(TSelf, TOther)" />
+        [Intrinsic]
         public static bool operator <(Half left, Half right)
         {
             if (IsNaN(left) || IsNaN(right))
@@ -202,12 +180,14 @@ namespace System
         }
 
         /// <inheritdoc cref="IComparisonOperators{TSelf, TOther, TResult}.op_GreaterThan(TSelf, TOther)" />
+        [Intrinsic]
         public static bool operator >(Half left, Half right)
         {
             return right < left;
         }
 
         /// <inheritdoc cref="IComparisonOperators{TSelf, TOther, TResult}.op_LessThanOrEqual(TSelf, TOther)" />
+        [Intrinsic]
         public static bool operator <=(Half left, Half right)
         {
             if (IsNaN(left) || IsNaN(right))
@@ -230,12 +210,14 @@ namespace System
         }
 
         /// <inheritdoc cref="IComparisonOperators{TSelf, TOther, TResult}.op_GreaterThanOrEqual(TSelf, TOther)" />
+        [Intrinsic]
         public static bool operator >=(Half left, Half right)
         {
             return right <= left;
         }
 
         /// <inheritdoc cref="IEqualityOperators{TSelf, TOther, TResult}.op_Equality(TSelf, TOther)" />
+        [Intrinsic]
         public static bool operator ==(Half left, Half right)
         {
             if (IsNaN(left) || IsNaN(right))
@@ -249,6 +231,7 @@ namespace System
         }
 
         /// <inheritdoc cref="IEqualityOperators{TSelf, TOther, TResult}.op_Inequality(TSelf, TOther)" />
+        [Intrinsic]
         public static bool operator !=(Half left, Half right)
         {
             return !(left == right);
@@ -362,7 +345,7 @@ namespace System
         /// <param name="style">The <see cref="NumberStyles"/> used to parse the input.</param>
         /// <param name="provider">A format provider.</param>
         /// <returns>The equivalent <see cref="Half"/> value representing the input string. If the input exceeds Half's range, a <see cref="PositiveInfinity"/> or <see cref="NegativeInfinity"/> is returned. </returns>
-        public static Half Parse(string s, System.Globalization.NumberStyles style = System.Globalization.NumberStyles.AllowDecimalPoint | System.Globalization.NumberStyles.AllowExponent | System.Globalization.NumberStyles.AllowLeadingSign | System.Globalization.NumberStyles.AllowLeadingWhite | System.Globalization.NumberStyles.AllowThousands | System.Globalization.NumberStyles.AllowTrailingWhite, IFormatProvider? provider = null)
+        public static Half Parse(string s, NumberStyles style = DefaultParseStyle, IFormatProvider? provider = null)
         {
             if (s is null)
             {
@@ -378,7 +361,7 @@ namespace System
         /// <param name="style">The <see cref="NumberStyles"/> used to parse the input.</param>
         /// <param name="provider">A format provider. </param>
         /// <returns>The equivalent <see cref="Half"/> value representing the input string. If the input exceeds Half's range, a <see cref="PositiveInfinity"/> or <see cref="NegativeInfinity"/> is returned. </returns>
-        public static Half Parse(ReadOnlySpan<char> s, System.Globalization.NumberStyles style = System.Globalization.NumberStyles.AllowDecimalPoint | System.Globalization.NumberStyles.AllowExponent | System.Globalization.NumberStyles.AllowLeadingSign | System.Globalization.NumberStyles.AllowLeadingWhite | System.Globalization.NumberStyles.AllowThousands | System.Globalization.NumberStyles.AllowTrailingWhite, IFormatProvider? provider = null)
+        public static Half Parse(ReadOnlySpan<char> s, NumberStyles style = DefaultParseStyle, IFormatProvider? provider = null)
         {
             NumberFormatInfo.ValidateParseStyleFloatingPoint(style);
             return Number.ParseFloat<char, Half>(s, style, NumberFormatInfo.GetInstance(provider));
@@ -557,13 +540,13 @@ namespace System
         /// <param name="format">A span containing the characters that represent a standard or custom format string that defines the acceptable format for <paramref name="destination"/>.</param>
         /// <param name="provider">An optional object that supplies culture-specific formatting information for <paramref name="destination"/>.</param>
         /// <returns></returns>
-        public bool TryFormat(Span<char> destination, out int charsWritten, [StringSyntax(StringSyntaxAttribute.NumericFormat)] ReadOnlySpan<char> format = default(System.ReadOnlySpan<char>), IFormatProvider? provider = null)
+        public bool TryFormat(Span<char> destination, out int charsWritten, [StringSyntax(StringSyntaxAttribute.NumericFormat)] ReadOnlySpan<char> format = default, IFormatProvider? provider = null)
         {
             return Number.TryFormatFloat(this, format, NumberFormatInfo.GetInstance(provider), destination, out charsWritten);
         }
 
         /// <inheritdoc cref="IUtf8SpanFormattable.TryFormat" />
-        public bool TryFormat(Span<byte> utf8Destination, out int bytesWritten, [StringSyntax(StringSyntaxAttribute.NumericFormat)] ReadOnlySpan<char> format = default(System.ReadOnlySpan<char>), IFormatProvider? provider = null)
+        public bool TryFormat(Span<byte> utf8Destination, out int bytesWritten, [StringSyntax(StringSyntaxAttribute.NumericFormat)] ReadOnlySpan<char> format = default, IFormatProvider? provider = null)
         {
             return Number.TryFormatFloat(this, format, NumberFormatInfo.GetInstance(provider), utf8Destination, out bytesWritten);
         }
@@ -588,6 +571,7 @@ namespace System
         /// <summary>Explicitly converts a <see cref="double" /> value to its nearest representable half-precision floating-point value.</summary>
         /// <param name="value">The value to convert.</param>
         /// <returns><paramref name="value" /> converted to its nearest representable half-precision floating-point value.</returns>
+        [Intrinsic]
         public static explicit operator Half(double value)
         {
             const int DoubleMaxExponent = 0x7FF;
@@ -622,11 +606,13 @@ namespace System
         /// <summary>Explicitly converts a <see cref="int" /> value to its nearest representable half-precision floating-point value.</summary>
         /// <param name="value">The value to convert.</param>
         /// <returns><paramref name="value" /> converted to its nearest representable half-precision floating-point value.</returns>
+        [Intrinsic]
         public static explicit operator Half(int value) => (Half)(float)value;
 
         /// <summary>Explicitly converts a <see cref="long" /> value to its nearest representable half-precision floating-point value.</summary>
         /// <param name="value">The value to convert.</param>
         /// <returns><paramref name="value" /> converted to its nearest representable half-precision floating-point value.</returns>
+        [Intrinsic]
         public static explicit operator Half(long value) => (Half)(float)value;
 
         /// <summary>Explicitly converts a <see cref="nint" /> value to its nearest representable half-precision floating-point value.</summary>
@@ -637,6 +623,7 @@ namespace System
         /// <summary>Explicitly converts a <see cref="float" /> value to its nearest representable half-precision floating-point value.</summary>
         /// <param name="value">The value to convert.</param>
         /// <returns><paramref name="value" /> converted to its nearest representable half-precision floating-point value.</returns>
+        [Intrinsic]
         public static explicit operator Half(float value)
         {
             #region Explanation of this algorithm
@@ -803,21 +790,27 @@ namespace System
         /// <summary>Explicitly converts a <see cref="ushort" /> value to its nearest representable half-precision floating-point value.</summary>
         /// <param name="value">The value to convert.</param>
         /// <returns><paramref name="value" /> converted to its nearest representable half-precision floating-point value.</returns>
+        [CLSCompliant(false)]
         public static explicit operator Half(ushort value) => (Half)(float)value;
 
         /// <summary>Explicitly converts a <see cref="uint" /> value to its nearest representable half-precision floating-point value.</summary>
         /// <param name="value">The value to convert.</param>
         /// <returns><paramref name="value" /> converted to its nearest representable half-precision floating-point value.</returns>
+        [CLSCompliant(false)]
+        [Intrinsic]
         public static explicit operator Half(uint value) => (Half)(float)value;
 
         /// <summary>Explicitly converts a <see cref="ulong" /> value to its nearest representable half-precision floating-point value.</summary>
         /// <param name="value">The value to convert.</param>
         /// <returns><paramref name="value" /> converted to its nearest representable half-precision floating-point value.</returns>
+        [CLSCompliant(false)]
+        [Intrinsic]
         public static explicit operator Half(ulong value) => (Half)(float)value;
 
         /// <summary>Explicitly converts a <see cref="nuint" /> value to its nearest representable half-precision floating-point value.</summary>
         /// <param name="value">The value to convert.</param>
         /// <returns><paramref name="value" /> converted to its nearest representable half-precision floating-point value.</returns>
+        [CLSCompliant(false)]
         public static explicit operator Half(nuint value) => (Half)(float)value;
 
         //
@@ -865,6 +858,7 @@ namespace System
         /// <summary>Explicitly converts a half-precision floating-point value to its nearest representable <see cref="int" /> value.</summary>
         /// <param name="value">The value to convert.</param>
         /// <returns><paramref name="value" /> converted to its nearest representable <see cref="int" /> value.</returns>
+        [Intrinsic]
         public static explicit operator int(Half value) => (int)(float)value;
 
         /// <summary>Explicitly converts a half-precision floating-point value to its nearest representable <see cref="int" /> value, throwing an overflow exception for any values that fall outside the representable range.</summary>
@@ -876,6 +870,7 @@ namespace System
         /// <summary>Explicitly converts a half-precision floating-point value to its nearest representable <see cref="long" /> value.</summary>
         /// <param name="value">The value to convert.</param>
         /// <returns><paramref name="value" /> converted to its nearest representable <see cref="long" /> value.</returns>
+        [Intrinsic]
         public static explicit operator long(Half value) => (long)(float)value;
 
         /// <summary>Explicitly converts a half-precision floating-point value to its nearest representable <see cref="long" /> value, throwing an overflow exception for any values that fall outside the representable range.</summary>
@@ -909,67 +904,81 @@ namespace System
         /// <summary>Explicitly converts a half-precision floating-point value to its nearest representable <see cref="sbyte" /> value.</summary>
         /// <param name="value">The value to convert.</param>
         /// <returns><paramref name="value" /> converted to its nearest representable <see cref="sbyte" /> value.</returns>
+        [CLSCompliant(false)]
         public static explicit operator sbyte(Half value) => (sbyte)(float)value;
 
         /// <summary>Explicitly converts a half-precision floating-point value to its nearest representable <see cref="sbyte" /> value, throwing an overflow exception for any values that fall outside the representable range.</summary>
         /// <param name="value">The value to convert.</param>
         /// <returns><paramref name="value" /> converted to its nearest representable <see cref="sbyte" /> value.</returns>
         /// <exception cref="OverflowException"><paramref name="value" /> is not representable by <see cref="sbyte" />.</exception>
+        [CLSCompliant(false)]
         public static explicit operator checked sbyte(Half value) => checked((sbyte)(float)value);
 
         /// <summary>Explicitly converts a half-precision floating-point value to its nearest representable <see cref="ushort" /> value.</summary>
         /// <param name="value">The value to convert.</param>
         /// <returns><paramref name="value" /> converted to its nearest representable <see cref="ushort" /> value.</returns>
+        [CLSCompliant(false)]
         public static explicit operator ushort(Half value) => (ushort)(float)value;
 
         /// <summary>Explicitly converts a half-precision floating-point value to its nearest representable <see cref="ushort" /> value, throwing an overflow exception for any values that fall outside the representable range.</summary>
         /// <param name="value">The value to convert.</param>
         /// <returns><paramref name="value" /> converted to its nearest representable <see cref="ushort" /> value.</returns>
         /// <exception cref="OverflowException"><paramref name="value" /> is not representable by <see cref="ushort" />.</exception>
+        [CLSCompliant(false)]
         public static explicit operator checked ushort(Half value) => checked((ushort)(float)value);
 
         /// <summary>Explicitly converts a half-precision floating-point value to its nearest representable <see cref="uint" /> value.</summary>
         /// <param name="value">The value to convert.</param>
         /// <returns><paramref name="value" /> converted to its nearest representable <see cref="uint" /> value.</returns>
+        [CLSCompliant(false)]
+        [Intrinsic]
         public static explicit operator uint(Half value) => (uint)(float)value;
 
         /// <summary>Explicitly converts a half-precision floating-point value to its nearest representable <see cref="uint" /> value, throwing an overflow exception for any values that fall outside the representable range.</summary>
         /// <param name="value">The value to convert.</param>
         /// <returns><paramref name="value" /> converted to its nearest representable <see cref="uint" /> value.</returns>
         /// <exception cref="OverflowException"><paramref name="value" /> is not representable by <see cref="uint" />.</exception>
+        [CLSCompliant(false)]
         public static explicit operator checked uint(Half value) => checked((uint)(float)value);
 
         /// <summary>Explicitly converts a half-precision floating-point value to its nearest representable <see cref="ulong" /> value.</summary>
         /// <param name="value">The value to convert.</param>
         /// <returns><paramref name="value" /> converted to its nearest representable <see cref="ulong" /> value.</returns>
+        [CLSCompliant(false)]
+        [Intrinsic]
         public static explicit operator ulong(Half value) => (ulong)(float)value;
 
         /// <summary>Explicitly converts a half-precision floating-point value to its nearest representable <see cref="ulong" /> value, throwing an overflow exception for any values that fall outside the representable range.</summary>
         /// <param name="value">The value to convert.</param>
         /// <returns><paramref name="value" /> converted to its nearest representable <see cref="ulong" /> value.</returns>
         /// <exception cref="OverflowException"><paramref name="value" /> is not representable by <see cref="ulong" />.</exception>
+        [CLSCompliant(false)]
         public static explicit operator checked ulong(Half value) => checked((ulong)(float)value);
 
         /// <summary>Explicitly converts a half-precision floating-point value to its nearest representable <see cref="UInt128"/>.</summary>
         /// <param name="value">The value to convert.</param>
         /// <returns><paramref name="value" /> converted to a 128-bit unsigned integer.</returns>
+        [CLSCompliant(false)]
         public static explicit operator UInt128(Half value) => (UInt128)(double)(value);
 
         /// <summary>Explicitly converts a half-precision floating-point value to its nearest representable <see cref="UInt128"/>, throwing an overflow exception for any values that fall outside the representable range.</summary>
         /// <param name="value">The value to convert.</param>
         /// <returns><paramref name="value" /> converted to a 128-bit unsigned integer.</returns>
         /// <exception cref="OverflowException"><paramref name="value" /> is not representable by <see cref="UInt128" />.</exception>
+        [CLSCompliant(false)]
         public static explicit operator checked UInt128(Half value) => checked((UInt128)(double)(value));
 
         /// <summary>Explicitly converts a half-precision floating-point value to its nearest representable <see cref="UIntPtr" /> value.</summary>
         /// <param name="value">The value to convert.</param>
         /// <returns><paramref name="value" /> converted to its nearest representable <see cref="UIntPtr" /> value.</returns>
+        [CLSCompliant(false)]
         public static explicit operator nuint(Half value) => (nuint)(float)value;
 
         /// <summary>Explicitly converts a half-precision floating-point value to its nearest representable <see cref="UIntPtr" /> value, throwing an overflow exception for any values that fall outside the representable range.</summary>
         /// <param name="value">The value to convert.</param>
         /// <returns><paramref name="value" /> converted to its nearest representable <see cref="UIntPtr" /> value.</returns>
         /// <exception cref="OverflowException"><paramref name="value" /> is not representable by <see cref="UIntPtr" />.</exception>
+        [CLSCompliant(false)]
         public static explicit operator checked nuint(Half value) => checked((nuint)(float)value);
 
         //
@@ -984,6 +993,7 @@ namespace System
         /// <summary>Implicitly converts a <see cref="sbyte" /> value to its nearest representable half-precision floating-point value.</summary>
         /// <param name="value">The value to convert.</param>
         /// <returns><paramref name="value" /> converted to its nearest representable half-precision floating-point value.</returns>
+        [CLSCompliant(false)]
         public static implicit operator Half(sbyte value) => (Half)(float)value;
 
         //
@@ -993,6 +1003,7 @@ namespace System
         /// <summary>Explicitly converts a half-precision floating-point value to its nearest representable <see cref="double" /> value.</summary>
         /// <param name="value">The value to convert.</param>
         /// <returns><paramref name="value" /> converted to its nearest representable <see cref="double" /> value.</returns>
+        [Intrinsic]
         public static explicit operator double(Half value)
         {
             bool sign = IsNegative(value);
@@ -1024,6 +1035,7 @@ namespace System
         /// <summary>Explicitly converts a half-precision floating-point value to its nearest representable <see cref="float" /> value.</summary>
         /// <param name="value">The value to convert.</param>
         /// <returns><paramref name="value" /> converted to its nearest representable <see cref="float" /> value.</returns>
+        [Intrinsic]
         public static explicit operator float(Half value)
         {
             #region Explanation of this algorithm
@@ -1097,9 +1109,15 @@ namespace System
             return BitConverter.UInt32BitsToSingle(absoluteValue | sign);
         }
 
+        // IEEE 754 specifies NaNs to be propagated
+        internal static Half Negate(Half value)
+        {
+            return IsNaN(value) ? value : new Half((ushort)(value._value ^ SignMask));
+        }
+
         private static (int Exp, uint Sig) NormSubnormalF16Sig(uint sig)
         {
-            var shiftDist = LeadingZeroCount((ushort)sig) - 5;
+            int shiftDist = BitOperations.LeadingZeroCount(sig) - 16 - 5;
             return (1 - shiftDist, sig << shiftDist);
         }
 
@@ -1154,6 +1172,16 @@ namespace System
 
         private static ulong ShiftRightJam(ulong l, int dist) => dist < 63 ? (l >> dist) | (l << (-dist & 63) != 0 ? 1UL : 0UL) : (l != 0 ? 1UL : 0UL);
 
+        private static float CreateSingleNaN(bool sign, ulong significand)
+        {
+            const uint NaNBits = float.BiasedExponentMask | 0x400000; // Most significant significand bit
+
+            uint signInt = (sign ? 1U : 0U) << float.SignShift;
+            uint sigInt = (uint)(significand >> 41);
+
+            return BitConverter.UInt32BitsToSingle(signInt | NaNBits | sigInt);
+        }
+
         private static double CreateDoubleNaN(bool sign, ulong significand)
         {
             const ulong NaNBits = double.BiasedExponentMask | 0x80000_00000000; // Most significant significand bit
@@ -1171,6 +1199,7 @@ namespace System
         //
 
         /// <inheritdoc cref="IAdditionOperators{TSelf, TOther, TResult}.op_Addition(TSelf, TOther)" />
+        [Intrinsic]
         public static Half operator +(Half left, Half right) => (Half)((float)left + (float)right);
 
         //
@@ -1252,6 +1281,7 @@ namespace System
         //
 
         /// <inheritdoc cref="IDecrementOperators{TSelf}.op_Decrement(TSelf)" />
+        [Intrinsic]
         public static Half operator --(Half value)
         {
             var tmp = (float)value;
@@ -1264,6 +1294,7 @@ namespace System
         //
 
         /// <inheritdoc cref="IDivisionOperators{TSelf, TOther, TResult}.op_Division(TSelf, TOther)" />
+        [Intrinsic]
         public static Half operator /(Half left, Half right) => (Half)((float)left / (float)right);
 
         //
@@ -1293,6 +1324,7 @@ namespace System
         //
 
         /// <inheritdoc cref="IFloatingPoint{TSelf}.Ceiling(TSelf)" />
+        [Intrinsic]
         public static Half Ceiling(Half x) => (Half)MathF.Ceiling((float)x);
 
         /// <inheritdoc cref="IFloatingPoint{TSelf}.ConvertToInteger{TInteger}(TSelf)" />
@@ -1304,9 +1336,11 @@ namespace System
             where TInteger : IBinaryInteger<TInteger> => TInteger.CreateSaturating(value);
 
         /// <inheritdoc cref="IFloatingPoint{TSelf}.Floor(TSelf)" />
+        [Intrinsic]
         public static Half Floor(Half x) => (Half)MathF.Floor((float)x);
 
         /// <inheritdoc cref="IFloatingPoint{TSelf}.Round(TSelf)" />
+        [Intrinsic]
         public static Half Round(Half x) => (Half)MathF.Round((float)x);
 
         /// <inheritdoc cref="IFloatingPoint{TSelf}.Round(TSelf, int)" />
@@ -1319,6 +1353,7 @@ namespace System
         public static Half Round(Half x, int digits, MidpointRounding mode) => (Half)MathF.Round((float)x, digits, mode);
 
         /// <inheritdoc cref="IFloatingPoint{TSelf}.Truncate(TSelf)" />
+        [Intrinsic]
         public static Half Truncate(Half x) => (Half)MathF.Truncate((float)x);
 
         /// <inheritdoc cref="IFloatingPoint{TSelf}.GetExponentByteCount()" />
@@ -1404,20 +1439,20 @@ namespace System
         //
 
         /// <inheritdoc cref="IFloatingPointConstants{TSelf}.E" />
-        public static Half E { get => new Half(EBits); }
+        public static Half E => new Half(EBits);
 
         /// <inheritdoc cref="IFloatingPointConstants{TSelf}.Pi" />
-        public static Half Pi { get => new Half(PiBits); }
+        public static Half Pi => new Half(PiBits);
 
         /// <inheritdoc cref="IFloatingPointConstants{TSelf}.Tau" />
-        public static Half Tau { get => new Half(TauBits); }
+        public static Half Tau => new Half(TauBits);
 
         //
         // IFloatingPointIeee754
         //
 
         /// <inheritdoc cref="IFloatingPointIeee754{TSelf}.NegativeZero" />
-        public static Half NegativeZero { get => new Half(NegativeZeroBits); }
+        public static Half NegativeZero => new Half(NegativeZeroBits);
 
         /// <inheritdoc cref="IFloatingPointIeee754{TSelf}.Atan2(TSelf, TSelf)" />
         public static Half Atan2(Half y, Half x) => (Half)MathF.Atan2((float)y, (float)x);
@@ -1492,6 +1527,7 @@ namespace System
         }
 
         /// <inheritdoc cref="IFloatingPointIeee754{TSelf}.FusedMultiplyAdd(TSelf, TSelf, TSelf)" />
+        [Intrinsic]
         public static Half FusedMultiplyAdd(Half left, Half right, Half addend)
         {
             // The intermediate has to be wide enough that rounding it down to Half matches rounding
@@ -1538,9 +1574,11 @@ namespace System
         public static Half Lerp(Half value1, Half value2, Half amount) => (Half)float.Lerp((float)value1, (float)value2, (float)amount);
 
         /// <inheritdoc cref="IFloatingPointIeee754{TSelf}.ReciprocalEstimate(TSelf)" />
+        [Intrinsic]
         public static Half ReciprocalEstimate(Half x) => (Half)MathF.ReciprocalEstimate((float)x);
 
         /// <inheritdoc cref="IFloatingPointIeee754{TSelf}.ReciprocalSqrtEstimate(TSelf)" />
+        [Intrinsic]
         public static Half ReciprocalSqrtEstimate(Half x) => (Half)MathF.ReciprocalSqrtEstimate((float)x);
 
         /// <inheritdoc cref="IFloatingPointIeee754{TSelf}.ScaleB(TSelf, int)" />
@@ -1576,6 +1614,7 @@ namespace System
         //
 
         /// <inheritdoc cref="IIncrementOperators{TSelf}.op_Increment(TSelf)" />
+        [Intrinsic]
         public static Half operator ++(Half value)
         {
             var tmp = (float)value;
@@ -1617,13 +1656,14 @@ namespace System
         //
 
         /// <inheritdoc cref="IMultiplicativeIdentity{TSelf, TResult}.MultiplicativeIdentity" />
-        public static Half MultiplicativeIdentity { get => new Half(PositiveOneBits); }
+        public static Half MultiplicativeIdentity => new Half(PositiveOneBits);
 
         //
         // IMultiplyOperators
         //
 
         /// <inheritdoc cref="IMultiplyOperators{TSelf, TOther, TResult}.op_Multiply(TSelf, TOther)" />
+        [Intrinsic]
         public static Half operator *(Half left, Half right) => (Half)((float)left * (float)right);
 
         //
@@ -1737,13 +1777,13 @@ namespace System
         //
 
         /// <inheritdoc cref="INumberBase{TSelf}.One" />
-        public static Half One { get => new Half(PositiveOneBits); }
+        public static Half One { [Intrinsic] get => new Half(PositiveOneBits); }
 
         /// <inheritdoc cref="INumberBase{TSelf}.Radix" />
         static int INumberBase<Half>.Radix => 2;
 
         /// <inheritdoc cref="INumberBase{TSelf}.Zero" />
-        public static Half Zero { get => new Half(PositiveZeroBits); }
+        public static Half Zero { [Intrinsic] get => new Half(PositiveZeroBits); }
 
         /// <inheritdoc cref="INumberBase{TSelf}.Abs(TSelf)" />
         public static Half Abs(Half value) => new Half((ushort)(value._value & ~SignMask));
@@ -2209,6 +2249,7 @@ namespace System
         public static Half RootN(Half x, int n) => (Half)float.RootN((float)x, n);
 
         /// <inheritdoc cref="IRootFunctions{TSelf}.Sqrt(TSelf)" />
+        [Intrinsic]
         public static Half Sqrt(Half x) => (Half)MathF.Sqrt((float)x);
 
         //
@@ -2216,7 +2257,7 @@ namespace System
         //
 
         /// <inheritdoc cref="ISignedNumber{TSelf}.NegativeOne" />
-        public static Half NegativeOne { get => new Half(NegativeOneBits); }
+        public static Half NegativeOne => new Half(NegativeOneBits);
 
         //
         // ISpanParsable
@@ -2233,6 +2274,7 @@ namespace System
         //
 
         /// <inheritdoc cref="ISubtractionOperators{TSelf, TOther, TResult}.op_Subtraction(TSelf, TOther)" />
+        [Intrinsic]
         public static Half operator -(Half left, Half right) => (Half)((float)left - (float)right);
 
         //
@@ -2326,7 +2368,7 @@ namespace System
         //
 
         /// <inheritdoc cref="INumberBase{TSelf}.Parse(ReadOnlySpan{byte}, NumberStyles, IFormatProvider?)" />
-        public static Half Parse(ReadOnlySpan<byte> utf8Text, System.Globalization.NumberStyles style = System.Globalization.NumberStyles.AllowDecimalPoint | System.Globalization.NumberStyles.AllowExponent | System.Globalization.NumberStyles.AllowLeadingSign | System.Globalization.NumberStyles.AllowLeadingWhite | System.Globalization.NumberStyles.AllowThousands | System.Globalization.NumberStyles.AllowTrailingWhite, IFormatProvider? provider = null)
+        public static Half Parse(ReadOnlySpan<byte> utf8Text, NumberStyles style = NumberStyles.Float | NumberStyles.AllowThousands, IFormatProvider? provider = null)
         {
             NumberFormatInfo.ValidateParseStyleFloatingPoint(style);
             return Number.ParseFloat<byte, Half>(utf8Text, style, NumberFormatInfo.GetInstance(provider));
@@ -2388,21 +2430,5 @@ namespace System
         static int IBinaryFloatParseAndFormatInfo<Half>.MaxRoundTripDigits => 5;
 
         static int IBinaryFloatParseAndFormatInfo<Half>.MaxPrecisionCustomFormat => 5;
-
-        private static int LeadingZeroCount(ushort value)
-        {
-            if (value == 0)
-            {
-                return 16;
-            }
-            var count = 0;
-            var mask = 0x8000;
-            while ((value & mask) == 0)
-            {
-                count++;
-                mask >>= 1;
-            }
-            return count;
-        }
     }
 }

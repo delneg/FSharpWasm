@@ -43,7 +43,7 @@ internal sealed class ExceptionContinuationGraphProjector : IExceptionContinuati
         }
 
         // These summary edges describe leaving a complete exception region.
-        // They are only for cycle discovery, never stack validation or emission.
+        // They are for cycle, join and overlap discovery, never stack validation or emission.
         return new ControlFlowGraph(
             graph.MethodBody,
             graph.Blocks,

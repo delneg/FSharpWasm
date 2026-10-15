@@ -53,7 +53,7 @@ namespace System.Collections.Frozen
             // if any entries have identical hashcodes (not just different hashcodes that might
             // map to the same bucket).
             int numBuckets = CalcNumBuckets(hashCodes, hashCodesAreUnique);
-            ulong fastModMultiplier = FrozenHashHelpers.GetFastModMultiplier((uint)numBuckets);
+            ulong fastModMultiplier = HashHelpers.GetFastModMultiplier((uint)numBuckets);
 
             // Create two spans:
             // - bucketStarts: initially filled with all -1s, the ith element stores the index
@@ -77,7 +77,7 @@ namespace System.Collections.Frozen
             for (int index = 0; index < hashCodes.Length; index++)
             {
                 int hashCode = hashCodes[index];
-                int bucketNum = (int)FrozenHashHelpers.FastMod((uint)hashCode, (uint)bucketStarts.Length, fastModMultiplier);
+                int bucketNum = (int)HashHelpers.FastMod((uint)hashCode, (uint)bucketStarts.Length, fastModMultiplier);
 
                 ref int bucketStart = ref bucketStarts[bucketNum];
                 nexts[index] = bucketStart;
@@ -135,7 +135,7 @@ namespace System.Collections.Frozen
         public void FindMatchingEntries(int hashCode, out int startIndex, out int endIndex)
         {
             Bucket[] buckets = _buckets;
-            ref Bucket b = ref buckets[FrozenHashHelpers.FastMod((uint)hashCode, (uint)buckets.Length, _fastModMultiplier)];
+            ref Bucket b = ref buckets[HashHelpers.FastMod((uint)hashCode, (uint)buckets.Length, _fastModMultiplier)];
             startIndex = b.StartIndex;
             endIndex = b.EndIndex;
         }
@@ -191,13 +191,13 @@ namespace System.Collections.Frozen
             // would cause Create to fail. Fall back to the next prime above uniqueCodesCount.
             if (minNumBuckets + hashCodes.Length > Array.MaxLength)
             {
-                return FrozenHashHelpers.GetPrime(uniqueCodesCount);
+                return HashHelpers.GetPrime(uniqueCodesCount);
             }
 
             // In our precomputed primes table, find the index of the smallest prime that's at least as large as our number of
             // hash codes. If there are more codes than in our precomputed primes table, which accommodates millions of values,
             // give up and just use the next prime.
-            ReadOnlySpan<int> primes = FrozenHashHelpers.Primes;
+            ReadOnlySpan<int> primes = HashHelpers.Primes;
             int minPrimeIndexInclusive = 0;
             while ((uint)minPrimeIndexInclusive < (uint)primes.Length && minNumBuckets > primes[minPrimeIndexInclusive])
             {
@@ -206,7 +206,7 @@ namespace System.Collections.Frozen
 
             if (minPrimeIndexInclusive >= primes.Length)
             {
-                return FrozenHashHelpers.GetPrime(uniqueCodesCount);
+                return HashHelpers.GetPrime(uniqueCodesCount);
             }
 
             // Determine the largest number of buckets we're willing to use, based on a multiple of the number of inputs.
@@ -326,68 +326,4 @@ namespace System.Collections.Frozen
         }
     }
 
-    // The desktop implementation obtains these operations from the runtime's
-    // shared HashHelpers type. NetWasm keeps this small, managed-only copy
-    // local to the frozen collection so the CoreLib port has no dependency on
-    // runtime-private hashing or platform threading services.
-    internal static class FrozenHashHelpers
-    {
-        internal static ReadOnlySpan<int> Primes =>
-        [
-            3, 7, 11, 17, 23, 29, 37, 47, 59, 71, 89, 107, 131, 163, 197, 239, 293, 353, 431, 521, 631, 761, 919,
-            1103, 1327, 1597, 1931, 2333, 2801, 3371, 4049, 4861, 5839, 7013, 8419, 10103, 12143, 14591,
-            17519, 21023, 25229, 30293, 36353, 43627, 52361, 62851, 75431, 90523, 108631, 130363, 156437,
-            187751, 225307, 270371, 324449, 389357, 467237, 560689, 672827, 807403, 968897, 1162687, 1395263,
-            1674319, 2009191, 2411033, 2893249, 3471899, 4166287, 4999559, 5999471, 7199369
-        ];
-
-        internal static int GetPrime(int minimum)
-        {
-            if (minimum < 0)
-            {
-                throw new ArgumentOutOfRangeException(nameof(minimum));
-            }
-
-            foreach (int prime in Primes)
-            {
-                if (prime >= minimum)
-                {
-                    return prime;
-                }
-            }
-
-            for (int candidate = minimum | 1; candidate < int.MaxValue; candidate += 2)
-            {
-                if (IsPrime(candidate) && ((candidate - 1) % 101 != 0))
-                {
-                    return candidate;
-                }
-            }
-
-            return minimum;
-        }
-
-        internal static ulong GetFastModMultiplier(uint divisor) => 0;
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        internal static uint FastMod(uint value, uint divisor, ulong multiplier) => value % divisor;
-
-        private static bool IsPrime(int candidate)
-        {
-            if ((candidate & 1) == 0)
-            {
-                return candidate == 2;
-            }
-
-            for (int divisor = 3; divisor * divisor <= candidate; divisor += 2)
-            {
-                if (candidate % divisor == 0)
-                {
-                    return false;
-                }
-            }
-
-            return true;
-        }
-    }
 }

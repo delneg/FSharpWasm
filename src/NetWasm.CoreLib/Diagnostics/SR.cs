@@ -25,7 +25,7 @@ namespace System.Diagnostics
         internal const string SetFormatOnStartedActivity = "\"Can not change format for an activity that was already started\"";
         internal const string SetParentIdOnActivityWithParent = "\"Can not set ParentId on activity which has parent\"";
         internal const string StartTimeNotUtc = "\"StartTime is not UTC\"";
-        internal const string InvalidHistogramExplicitBucketBoundaries = "The histogram bucket boundaries must be sorted and distinct.";
+        internal const string InvalidHistogramExplicitBucketBoundaries = "Histogram explicit bucket boundaries must be specified in ascending order and cannot contain duplicate values.";
         internal const string UnsupportedType = "The metric value type is not supported by the portable diagnostics profile.";
 
         internal static string Format(string format, object? arg) =>

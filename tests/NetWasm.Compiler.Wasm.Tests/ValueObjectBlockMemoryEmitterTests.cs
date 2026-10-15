@@ -5,6 +5,7 @@ using NetWasm.Compiler.Core;
 using NetWasm.Compiler.Wasm.Emission;
 using NetWasm.Compiler.Wasm.Emission.Instructions;
 using NetWasm.Compiler.Wasm.Emission.Methods;
+using NetWasm.Compiler.Wasm.Emission.AddressTakenValues;
 
 namespace NetWasm.Compiler.Wasm.Tests;
 
@@ -12,6 +13,36 @@ using static EmitterTestSupport;
 
 public sealed class ValueObjectBlockMemoryEmitterTests
 {
+    [Theory]
+    [InlineData(CilOperation.LoadObject)]
+    [InlineData(CilOperation.StoreObject)]
+    public void SelectedProjectionOwnsTheObjectTransfer(CilOperation operation)
+    {
+        var request = CreateRequest(operation, operation == CilOperation.LoadObject
+            ? [CliValueKind.ManagedAddress] : [CliValueKind.ManagedAddress, CliValueKind.I4]);
+        var originalStack = request.Stack.ToArray();
+        var projection = new SelectedProjection();
+
+        Emit((IInstructionCommandProvider)CreateEmitter(projections: projection), request);
+
+        Assert.Same(request, projection.Request);
+        Assert.Same(GetCodeWriter(request), projection.Writer);
+        Assert.Empty(GetCodeBytes(request));
+        Assert.Equal(originalStack, request.Stack);
+    }
+
+    private sealed class SelectedProjection : IAddressTakenAggregateProjectionEmitter
+    {
+        public InstructionEmissionRequest? Request { get; private set; }
+        public NetWasm.Compiler.Wasm.Encoding.IWasmInstructionWriter? Writer { get; private set; }
+        public bool TryEmit(InstructionEmissionRequest request, NetWasm.Compiler.Wasm.Encoding.IWasmInstructionWriter code)
+        {
+            Request = request;
+            Writer = code;
+            return true;
+        }
+    }
+
     [Fact]
     public void OwnsCompleteValueObjectBlockMemoryInstructionFamily()
     {
@@ -371,12 +402,14 @@ public sealed class ValueObjectBlockMemoryEmitterTests
     }
 
     private static ValueObjectBlockMemoryEmitter CreateEmitter(
-        WasmTargetLayout? target = null)
+        WasmTargetLayout? target = null,
+        IAddressTakenAggregateProjectionEmitter? projections = null)
     {
         var program = new FakeProgram();
         var layouts = new RecordingLayoutProvider(target);
         return new ValueObjectBlockMemoryEmitter(layouts, layouts, CreateTypeOperands(program),
-            WasmRuntimeImports.CreateCatalog());
+            WasmRuntimeImports.CreateCatalog(),
+            projections ?? new AddressTakenAggregateProjectionEmitter(layouts));
     }
 
     private static InstructionEmissionRequest CreateRequest(

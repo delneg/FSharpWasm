@@ -9,6 +9,8 @@ using NetWasm.Compiler.Core.IntermediateRepresentation.Delegates;
 using NetWasm.Compiler.Core.IntermediateRepresentation.Members;
 using NetWasm.Compiler.Core.Types;
 using NetWasm.Compiler.Wasm.Emission;
+using NetWasm.Compiler.Wasm.Emission.AddressTakenValues;
+using NetWasm.Compiler.Wasm.Emission.Values;
 using NetWasm.Compiler.Wasm.Emission.GeneratedFunctions;
 using NetWasm.Compiler.Wasm.Emission.Instructions;
 using NetWasm.Compiler.Wasm.Emission.Instructions.Calls;
@@ -248,7 +250,9 @@ internal static class EmitterTestSupport
         CreateTypeOperands(program),
         CreateTypeIdentities(program),
         CreateArgumentTypes(program),
-        CreateArgumentSignatureTypes(program));
+        CreateArgumentSignatureTypes(program),
+        new DirectValueLoadSelector(),
+            EmptyTransientAggregatePromotionPlanner.Instance);
 
     public static IValueFrameAddressEmitter CreateValueFrameAddresses(
         RecordingLayoutProvider layouts) => new ValueFrameAddressEmitter(layouts);
@@ -264,12 +268,27 @@ internal static class EmitterTestSupport
         RecordingLayoutProvider layouts,
         IRuntimeImportResolver runtimeImports) => new MethodFrameEntryEmitter(
         layouts,
-            layouts,
-            CreateArgumentSignatureTypes(program),
-            runtimeImports,
-            new StackTraceFrameEntryEmitter(runtimeImports),
-            CreateValueFrameAddresses(layouts),
-        CreateFilterEnvironmentRoots(layouts));
+        layouts,
+        runtimeImports,
+        new StackTraceFrameEntryEmitter(runtimeImports),
+        CreateValueFrameAddresses(layouts),
+        CreateValueFrameEntry(program, layouts, runtimeImports),
+        CreateFilterEnvironmentRoots(layouts),
+        new ManagedByRefAggregateInitializationEmitter(layouts));
+
+    public static IValueFrameEntryEmitter CreateValueFrameEntry(
+        FakeProgram program, RecordingLayoutProvider layouts, IRuntimeImportResolver imports) =>
+        new ValueFrameEntryEmitter(layouts, layouts, CreateArgumentSignatureTypes(program),
+            imports, CreateValueFrameAddresses(layouts),
+            new ValueFrameInitializationEmitter(layouts, layouts, CreateValueFrameAddresses(layouts)),
+            new SmallValueCopyEmitter(new BulkValueCopyEmitter(layouts)),
+            new ManagedAggregateValueInitializer(layouts));
+
+    public static ITerminalBranchValueFrameEmitter CreateTerminalBranchValueFrames(
+        FakeProgram program, RecordingLayoutProvider layouts, IRuntimeImportResolver imports) =>
+        new TerminalBranchValueFrameEmitter(layouts, new StructuredConditionValueEmitter(layouts),
+            CreateValueFrameEntry(program, layouts, imports),
+            new MethodExceptionBoundaryEmitter(new ExceptionPayloadBlockEmitter(layouts), CreateMethodFrameExit(imports)));
 
     public static IMethodFrameExitEmitter CreateMethodFrameExit(
         IRuntimeImportResolver runtimeImports) =>
@@ -306,12 +325,6 @@ internal static class EmitterTestSupport
 
     public static IReferenceComparisonEmitter CreateReferenceComparisons(
         RecordingLayoutProvider layouts) => new ReferenceComparisonEmitter(layouts);
-
-    public static IDelegateLeafEqualityEmitter CreateDelegateLeafEquality(
-        RecordingLayoutProvider layouts) => new DelegateLeafEqualityEmitter(
-        layouts,
-        layouts,
-        CreateReferenceComparisons(layouts));
 
     internal static readonly AssemblyIdentity Assembly = new("Test");
     internal static readonly EntityKey TypeKey = Key(0x02000001);
@@ -536,9 +549,9 @@ internal static class EmitterTestSupport
             StackTraceMethodPlan.Disabled,
             new RuntimeImportSelection(
                 WasmModuleProfile.CoreApplication,
-                IncludeTerminalExceptionReporter: true),
-            OptionalFunctionIndex.At(41),
-            OptionalFunctionIndex.At(42),
+                IncludeTerminalExceptionReporter: true,
+                IncludeFinalization: true),
+            FinalizationPlan.Empty,
             ManagedCallSites: [],
             ImmutableDictionary<string, ObjectArrayDelegateAdapterPlan>.Empty,
             MemberExecutionPlan.Empty);
@@ -589,6 +602,8 @@ internal static class EmitterTestSupport
         if (intrinsic is RuntimeIntrinsic.EphemeronHandleCreate or
             RuntimeIntrinsic.EphemeronHandleGetKey or
             RuntimeIntrinsic.EphemeronHandleGetValue or
+            RuntimeIntrinsic.EphemeronHandleSetTargetToNull or
+            RuntimeIntrinsic.EphemeronHandleSetValue or
             RuntimeIntrinsic.EphemeronHandleRelease)
         {
             instruction = instruction with
@@ -602,7 +617,24 @@ internal static class EmitterTestSupport
                 },
             };
         }
+        else if (intrinsic == RuntimeIntrinsic.RandomSeed)
+        {
+            instruction = instruction with
+            {
+                Target = instruction.Target with
+                {
+                    RuntimeImportSelection = instruction.Target.RuntimeImportSelection with
+                    {
+                        IncludeRandomSeed = true,
+                    },
+                },
+            };
+        }
         var method = program.GetMethod(EntryKey);
+        if (intrinsic == RuntimeIntrinsic.UnsafeAdd)
+        {
+            method = method with { Signature = MethodSignatureModel.Create(values[0], values) };
+        }
         var instance = new MethodInstanceModel(
             method,
             CliTypeIdentity.Named(Assembly, "Test", "Type", isValueType: false),
@@ -615,12 +647,6 @@ internal static class EmitterTestSupport
             WasmTargetLayout.Wasm32,
             CreateFunctionIndexResolver(program));
     }
-
-    internal static DelegateHelperTarget CreateDelegateHelperTarget() => new(
-        [CliTypeIdentity.Named(Assembly, "Test", "Callback", isValueType: false)],
-        new DelegateTraversalFunctionIndices(
-            OptionalFunctionIndex.At(40),
-            OptionalFunctionIndex.At(41)));
 
     internal static IJavaScriptImportResultEmitter CreateJavaScriptImportResults(
         RecordingLayoutProvider layouts)
@@ -706,6 +732,12 @@ internal sealed class RecordingRootPublicationEmitter(
         bool constructorCall = false) => emit(request, code, constructorCall);
 }
 
+internal sealed class RecordingStackStorageAnchorEmitter(
+    Action<InstructionEmissionRequest> emit) : IStackStorageAnchorEmitter
+{
+    public void Emit(InstructionEmissionRequest request, IWasmInstructionWriter code) => emit(request);
+}
+
 internal sealed class FakeIntrinsics : IRuntimeIntrinsicRegistry
 {
     public bool TryGetIntrinsic(EntityKey method, out RuntimeIntrinsic intrinsic)
@@ -713,6 +745,19 @@ internal sealed class FakeIntrinsics : IRuntimeIntrinsicRegistry
         intrinsic = RuntimeIntrinsic.StringLength;
         return method == StringLengthKey;
     }
+}
+
+internal sealed class EmptyTransientAggregatePromotionPlanner :
+    ITransientAggregatePromotionPlanner
+{
+    public static EmptyTransientAggregatePromotionPlanner Instance { get; } = new();
+
+    private EmptyTransientAggregatePromotionPlanner()
+    {
+    }
+
+    public TransientAggregatePromotionPlan Create(StructuredMethod method) =>
+        TransientAggregatePromotionPlan.Empty;
 }
 
 internal sealed class EmptyEnumStorageResolver : IEnumStorageResolver
@@ -758,8 +803,8 @@ internal sealed class RecordingLayoutProvider(
     public int TypeTypeId => 14;
     public int DelegateTargetOffset => 4;
     public int DelegateMethodIdOffset => 8;
-    public int DelegateLeftOffset => 12;
-    public int DelegateRightOffset => 16;
+    public int DelegateInvocationListOffset => 12;
+    public int DelegateInvocationCountOffset => 16;
     public int GetExceptionObject(ManagedExceptionKind kind) => 300 + (int)kind * 4;
     public int StaticDataEnd => 256;
     public ImmutableArray<TypeDescriptorLayout> TypeDescriptors =>

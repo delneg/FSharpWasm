@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using NetWasm.Compiler.ComponentModel;
 using NetWasm.Compiler.Core;
 
 namespace NetWasm.Compiler.Tests.Correctness;
@@ -20,7 +21,8 @@ internal sealed record CorpusCompilerRequest(
     string? StackTraceSymbolsPath,
     string? RuntimeLayoutPath,
     string? InteropManifestPath,
-    bool StructuredDiagnostics = false);
+    bool StructuredDiagnostics = false,
+    FinalWasmOptimization Optimization = FinalWasmOptimization.Oz);
 
 internal interface ICorpusCompilerRequestFactory
 {
@@ -74,6 +76,7 @@ internal sealed class CorpusCompilerRequestFactory(
                 : null,
             modulePath, compilation.Fixture.EmitStackTrace, stackTraceSymbolsPath,
             runtimeLayoutPath, interopManifestPath,
-            StructuredDiagnostics: true);
+            StructuredDiagnostics: true,
+            Optimization: compilation.Fixture.Optimization);
     }
 }

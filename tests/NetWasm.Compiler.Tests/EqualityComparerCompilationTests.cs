@@ -232,4 +232,187 @@ public sealed class EqualityComparerCompilationTests
             assets.Directory,
             41));
     }
+
+    [Fact]
+    public void CompilerDoesNotBoxClosedEquatableValueComparerCalls()
+    {
+        using var assets = TestAssets.Create();
+        var assembly = assets.CompileSource(
+            "ValueComparerAllocationFixture",
+            """
+            using System;
+            using System.Collections.Generic;
+
+            namespace ValueComparerAllocationFixture;
+
+            public static class EntryPoint
+            {
+                public static int Run(int input)
+                {
+                    var equality = EqualityComparer<int>.Default;
+                    var order = Comparer<int>.Default;
+                    _ = equality.Equals(input, input);
+                    _ = order.Compare(input, input);
+                    var before = GC.GetTotalAllocatedBytes();
+                    var checksum = 0;
+                    for (var index = 0; index < 1_000; index++)
+                    {
+                        if (equality.Equals(index, index)) checksum++;
+                        checksum += order.Compare(index, index + 1);
+                    }
+                    var allocated = GC.GetTotalAllocatedBytes() - before;
+                    return allocated == 0 && checksum == 0 ? input - input : -1;
+                }
+            }
+            """);
+        var compilation = NetWasmCompiler.Compile(new CompilerOptions(
+            assembly,
+            [assets.CoreLib],
+            "ValueComparerAllocationFixture.EntryPoint",
+            "Run",
+            []));
+
+        Assert.Equal(0, ExecuteWithNode(
+            compilation.ApplicationModule,
+            assets.Directory,
+            41));
+    }
+
+    [Fact]
+    public void CompilerSelectsUpstreamDefaultComparerFamilies()
+    {
+        using var assets = TestAssets.Create();
+        var assembly = assets.CompileSource(
+            "DefaultComparerFamilyFixture",
+            """
+            using System;
+            using System.Collections.Generic;
+
+            namespace DefaultComparerFamilyFixture;
+
+            public enum State : short { Ready = 7, Done = 9 }
+
+            public sealed class EquatableReference : IEquatable<EquatableReference>
+            {
+                public EquatableReference(int value) => Value = value;
+                public int Value { get; }
+                public bool Equals(EquatableReference? other) => other?.Value == Value;
+            }
+
+            public static class EntryPoint
+            {
+                public static int Run(int input)
+                {
+                    var result = 0;
+                    if (EqualityComparer<int>.Default is GenericEqualityComparer<int>) result |= 1;
+                    if (Comparer<int>.Default is GenericComparer<int>) result |= 2;
+                    if (EqualityComparer<int?>.Default is NullableEqualityComparer<int>) result |= 4;
+                    if (Comparer<int?>.Default is NullableComparer<int>) result |= 8;
+                    if (EqualityComparer<State>.Default is EnumEqualityComparer<State>) result |= 16;
+                    if (EqualityComparer<object>.Default is ObjectEqualityComparer<object>) result |= 32;
+                    if (Comparer<object>.Default is ObjectComparer<object>) result |= 64;
+                    if (EqualityComparer<EquatableReference>.Default is GenericEqualityComparer<EquatableReference>) result |= 128;
+                    if (EqualityComparer<string>.Default is IAlternateEqualityComparer<ReadOnlySpan<char>, string>) result |= 256;
+                    if (Comparer<State>.Default.Compare(State.Ready, State.Done) < 0) result |= 512;
+                    return result + input - input;
+                }
+            }
+            """);
+        var compilation = NetWasmCompiler.Compile(new CompilerOptions(
+            assembly,
+            [assets.CoreLib],
+            "DefaultComparerFamilyFixture.EntryPoint",
+            "Run",
+            []));
+
+        Assert.Equal(1023, ExecuteWithNode(
+            compilation.ApplicationModule,
+            assets.Directory,
+            41));
+    }
+
+    [Fact]
+    public void CompilerExecutesAlternateStringComparerContract()
+    {
+        using var assets = TestAssets.Create();
+        var assembly = assets.CompileSource(
+            "AlternateStringComparerFixture",
+            """
+            using System;
+            using System.Collections.Generic;
+
+            namespace AlternateStringComparerFixture;
+
+            public static class EntryPoint
+            {
+                public static int Run(int input)
+                {
+                    var alternate = (IAlternateEqualityComparer<ReadOnlySpan<char>, string>)EqualityComparer<string>.Default;
+                    ReadOnlySpan<char> value = "value";
+                    ReadOnlySpan<char> created = "new";
+                    return alternate.Equals(value, "value") &&
+                        !alternate.Equals(value, "other") &&
+                        alternate.GetHashCode(value) == "value".GetHashCode() &&
+                        alternate.Create(created) == "new"
+                            ? input - input
+                            : -1;
+                }
+            }
+            """);
+        var compilation = NetWasmCompiler.Compile(new CompilerOptions(
+            assembly,
+            [assets.CoreLib],
+            "AlternateStringComparerFixture.EntryPoint",
+            "Run",
+            []));
+
+        Assert.Equal(0, ExecuteWithNode(
+            compilation.ApplicationModule,
+            assets.Directory,
+            41));
+    }
+
+    [Fact]
+    public void CompilerExecutesDelegateComparerIdentityContract()
+    {
+        using var assets = TestAssets.Create();
+        var assembly = assets.CompileSource(
+            "DelegateComparerFixture",
+            """
+            using System;
+            using System.Collections.Generic;
+
+            namespace DelegateComparerFixture;
+
+            public static class EntryPoint
+            {
+                private static bool Equal(int left, int right) => left == right;
+                private static int Hash(int value) => value * 17;
+
+                public static int Run(int input)
+                {
+                    Func<int, int, bool> equals = Equal;
+                    Func<int, int> hash = Hash;
+                    var first = EqualityComparer<int>.Create(equals, hash);
+                    var second = EqualityComparer<int>.Create(equals, hash);
+                    return first.Equals(second) && first.GetHashCode() == second.GetHashCode() &&
+                        first.Equals(41, 41) && !first.Equals(41, 42) &&
+                        first.GetHashCode(41) == 697
+                            ? input - input
+                            : -1;
+                }
+            }
+            """);
+        var compilation = NetWasmCompiler.Compile(new CompilerOptions(
+            assembly,
+            [assets.CoreLib],
+            "DelegateComparerFixture.EntryPoint",
+            "Run",
+            []));
+
+        Assert.Equal(0, ExecuteWithNode(
+            compilation.ApplicationModule,
+            assets.Directory,
+            41));
+    }
 }

@@ -109,7 +109,8 @@ internal sealed class CompilationAnalysisBuilder(
             methodImplementations,
             symbols,
             asyncBindingResolver.Resolve,
-            runtimeIntrinsics).Analyze(
+            runtimeIntrinsics,
+            preparation.OptimizationSettings).Analyze(
             preparation.Entry.EntryPoint,
             preparation.Exports,
             preparation.ReachabilityRoots);

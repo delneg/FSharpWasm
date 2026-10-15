@@ -3,6 +3,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include <stdbool.h>
 
 typedef uintptr_t NetWasmCollectorDescriptor;
 typedef uintptr_t NetWasmCollectorDescriptorWord;
@@ -17,5 +18,7 @@ void *collector_allocate_exact_zeroed(
     size_t size,
     NetWasmCollectorDescriptor descriptor);
 void *collector_allocate_atomic(size_t size);
+/* Fixed collector capability, folded by native linking. */
+bool collector_atomic_allocation_is_zeroed(void);
 
 #endif

@@ -4,6 +4,94 @@ namespace NetWasm.Compiler.Tests.Correctness;
 public sealed class StaticInitializationTests(CorrectnessTestRunner runner) : CSharpSemanticTestBase(runner)
 {
     [Fact]
+    public void ConstructorAndValueMethodInitializationPreservePreciseRoots() => Run(new(
+        "InstanceInitializationRoots", "NetWasm.Correctness.InstanceInitializationRoots",
+        """
+        using System.Runtime.CompilerServices;
+        namespace NetWasm.Correctness.InstanceInitializationRoots;
+
+        public sealed class Payload { public int Value; }
+        public static class Probe { public static int Collections; }
+        public interface IRead { int Read(Payload other); }
+        public static class StaticOwner<T>
+        {
+            static StaticOwner() { Probe.Collections++; System.GC.Collect(); }
+            public static int Read(Payload first, Payload second) => first.Value + second.Value;
+        }
+        public sealed class ReferenceOwner
+        {
+            private readonly Payload _value;
+            static ReferenceOwner() { Probe.Collections++; System.GC.Collect(); }
+            [MethodImpl(MethodImplOptions.NoInlining)]
+            public ReferenceOwner(Payload value) { _value = value; }
+            public int Read(Payload other) => _value.Value + other.Value;
+        }
+        public struct ValueOwner : IRead
+        {
+            public Payload Value;
+            static ValueOwner() { Probe.Collections++; System.GC.Collect(); }
+            [MethodImpl(MethodImplOptions.NoInlining)]
+            public ValueOwner(Payload value) { Value = value; }
+            [MethodImpl(MethodImplOptions.NoInlining)]
+            public int Read(Payload other) => Value.Value + other.Value;
+        }
+        public static class EntryPoint
+        {
+            [MethodImpl(MethodImplOptions.NoInlining)]
+            private static int ReadBoxed(IRead value, Payload other) => value.Read(other);
+            [MethodImpl(MethodImplOptions.NoInlining)]
+            private static int ReadConstrained<T>(ref T value, Payload other) where T : struct, IRead
+                => value.Read(other);
+            [MethodImpl(MethodImplOptions.NoInlining)]
+            private static int ReadDelegate(ValueOwner value, Payload other)
+            {
+                System.Func<Payload, int> read = value.Read;
+                return read(other);
+            }
+            [MethodImpl(MethodImplOptions.NoInlining)]
+            private static int ReadStaticDelegate(Payload first, Payload second)
+            {
+                System.Func<Payload, Payload, int> read = StaticOwner<int>.Read;
+                return read(first, second);
+            }
+            [MethodImpl(MethodImplOptions.NoInlining)]
+            private static int ReadExpression(IRead receiver, Payload other)
+            {
+                System.Linq.Expressions.Expression<System.Func<IRead, int>> expression =
+                    item => item.Read(other);
+                return expression.Compile()(receiver);
+            }
+            public static int Run(int input)
+            {
+                Probe.Collections = 0;
+                var live = new Payload { Value = 17 };
+                var first = new Payload { Value = 13 };
+                var second = new Payload { Value = 12 };
+                ValueOwner value = default;
+                value.Value = first;
+                var result = input switch
+                {
+                    0 => new ReferenceOwner(first).Read(second),
+                    1 => new ValueOwner(first).Read(second),
+                    2 => value.Read(second),
+                    3 => ReadBoxed(value, second),
+                    4 => ReadConstrained(ref value, second),
+                    5 => ReadDelegate(value, second),
+                    6 => ReadStaticDelegate(first, second),
+                    _ => ReadExpression(value, second),
+                };
+                return Probe.Collections == 1 ? result + live.Value : -1;
+            }
+            public static int Trace() => 0;
+        }
+        """, [0, 1, 2, 3, 4, 5, 6, 7])
+    {
+        ExpectedReturnValue = 42,
+        RequiredRuntimeCapabilities = OracleRuntimeCapabilities.GarbageCollection,
+        Matrix = new(CorpusMatrixProfile.Extended, Backend: CorpusExecutionBackend.Linked),
+    });
+
+    [Fact]
     public void AllocatingStaticInitializersPreserveLiveLocalsAndCallArguments() => Run(new(
         "StaticCallInitializationRoots", "NetWasm.Correctness.StaticCallInitializationRoots",
         """

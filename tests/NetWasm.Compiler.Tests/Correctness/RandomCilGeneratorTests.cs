@@ -515,10 +515,6 @@ public sealed class RandomCilGeneratorTests
         CilOperation[] internalLowered =
         [
             CilOperation.DefaultValue,
-            CilOperation.DelegateCombine,
-            CilOperation.DelegateRemove,
-            CilOperation.DelegateEqual,
-            CilOperation.DelegateNotEqual,
             CilOperation.CompareExchange,
             CilOperation.MaterializeType,
             CilOperation.MaterializeMethod,
@@ -526,6 +522,8 @@ public sealed class RandomCilGeneratorTests
             CilOperation.GetTypeFacts,
             CilOperation.GetObjectType,
             CilOperation.InitializeArrayData,
+            CilOperation.CreateReadOnlySpanFromRva,
+            CilOperation.LoadStaticDataElement,
             CilOperation.NewRectangularArray,
             CilOperation.NewBoundedRectangularArray,
             CilOperation.LoadRectangularArrayElement,

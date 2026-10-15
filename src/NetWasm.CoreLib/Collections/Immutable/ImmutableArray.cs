@@ -166,7 +166,7 @@ namespace System.Collections.Immutable
                 // We know how long the sequence is. Linq's built-in ToArray extension method
                 // isn't as comprehensive in finding the length as we are, so call our own method
                 // to avoid reallocating arrays as the sequence is enumerated.
-                return new ImmutableArray<T>(ImmutableExtensions.ToArray(items, count));
+                return new ImmutableArray<T>(items.ToArray(count));
             }
             else
             {
@@ -336,6 +336,9 @@ namespace System.Collections.Immutable
         /// the source array.
         /// </remarks>
         public static ImmutableArray<TResult> CreateRange<TSource, TArg, TResult>(ImmutableArray<TSource> items, Func<TSource, TArg, TResult> selector, TArg arg)
+#if NET
+            where TArg : allows ref struct
+#endif
         {
             Requires.NotNull(selector, nameof(selector));
 
@@ -369,6 +372,9 @@ namespace System.Collections.Immutable
         /// included in the resulting array.
         /// </remarks>
         public static ImmutableArray<TResult> CreateRange<TSource, TArg, TResult>(ImmutableArray<TSource> items, int start, int length, Func<TSource, TArg, TResult> selector, TArg arg)
+#if NET
+            where TArg : allows ref struct
+#endif
         {
             int itemsLength = items.Length;
 

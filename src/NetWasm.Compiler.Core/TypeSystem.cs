@@ -591,6 +591,8 @@ public sealed record MethodDefinitionModel(
     public bool IsNewSlot { get; init; }
     public bool IsFinal { get; init; }
     public bool IsAbstract { get; init; }
+    public bool IsAggressiveInlining { get; init; }
+    public bool IsNoInlining { get; init; }
     public InteropImportDeclaration? JSImport { get; init; }
     public InteropExportDeclaration? JSExport { get; init; }
     public WitImportDeclaration? WitImport { get; init; }
@@ -653,6 +655,8 @@ public sealed record MethodInstanceModel(
             Definition.IsNewSlot == other.Definition.IsNewSlot &
             Definition.IsFinal == other.Definition.IsFinal &
             Definition.IsAbstract == other.Definition.IsAbstract &
+            Definition.IsAggressiveInlining == other.Definition.IsAggressiveInlining &
+            Definition.IsNoInlining == other.Definition.IsNoInlining &
             Definition.UnsafeAccessor == other.Definition.UnsafeAccessor &
             Definition.NativeImport == other.Definition.NativeImport &
             (Definition.NativeCallback is null
@@ -802,8 +806,11 @@ public enum RuntimeIntrinsic
     ArrayCopy,
     ArrayClear,
     ArrayClone,
+    ArrayCloneRange,
     StringCharacterAt,
     StringSetCharacterUnchecked,
+    StringGetRawDataReference,
+    StringEqualsOrdinal,
     GcCollect,
     WeakHandleCreate,
     WeakHandleGet,
@@ -818,6 +825,10 @@ public enum RuntimeIntrinsic
     GcMetricIsSupported,
     GcWaitForPendingFinalizers,
     ObjectIdentityHash,
+    BoxedValueClone,
+    DelegateClone,
+    RuntimeHelpersEquals,
+    RandomSeed,
     ValueTypeEquals,
     ValueTypeGetHashCode,
     SuppressFinalize,
@@ -844,6 +855,9 @@ public enum RuntimeIntrinsic
     NativeMemoryAlignedAlloc,
     NativeMemoryAlignedRealloc,
     NativeMemoryAlignedFree,
+    NativeMemoryClear,
+    NativeMemoryCopy,
+    NativeMemoryFill,
     GetArrayDataReference,
     NullableGetUnderlyingType,
     EnumEquals,
@@ -872,6 +886,13 @@ public enum RuntimeIntrinsic
     FloatingTruncate,
     FloatingRound,
     FloatingSquareRoot,
+    IntegerLeadingZeroCount,
+    IntegerLog2,
+    IntegerPopulationCount,
+    IntegerTrailingZeroCount,
+    IntegerRotateLeft,
+    IntegerRotateRight,
+    IntegerDivRem,
     ComponentReallocate,
     ComponentFree,
     ComponentResourceHandleCreate,
@@ -884,7 +905,10 @@ public enum RuntimeIntrinsic
     EphemeronHandleCreate,
     EphemeronHandleGetKey,
     EphemeronHandleGetValue,
+    EphemeronHandleSetTargetToNull,
+    EphemeronHandleSetValue,
     EphemeronHandleRelease,
+    FloatingCopySign,
 }
 
 public interface IRuntimeIntrinsicRegistry

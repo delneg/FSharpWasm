@@ -14,6 +14,99 @@ using static EmitterTestSupport;
 public sealed class StringConstructionEmitterTests
 {
     [Theory]
+    [MemberData(nameof(SpanContracts))]
+    public void CharacterSpanRequiresACompatibleFieldAndValueLayout(WasmTarget target, string contract)
+    {
+        var layouts = new RecordingLayoutProvider(WasmTargetLayout.For(target));
+        var span = new SpanLayout(layouts.Target, contract);
+        var emitter = new StringConstructionEmitter(span, span, layouts,
+            new AddressInstructionEmitter(layouts), span, span, layouts, layouts,
+            WasmRuntimeImports.CreateCatalog(), new ImplicitExceptionEmitter(layouts, layouts, 7),
+            new StringConstructionPlanResolver());
+        var signature = MethodSignatureModel.Create(CliTypeIdentity.FromStackKind(CliValueKind.Void), span.Type);
+        var request = CreateInstructionRequest(CilOperation.NewObject, [CliValueKind.ValueType]);
+        var writer = new RecordingInstructionWriter();
+
+        if (contract != "valid")
+        {
+            var error = Assert.Throws<CompilerException>(() => emitter.Emit(request, writer, signature, 0));
+            Assert.Equal(DiagnosticCode.RuntimeContract, error.Diagnostic.Code);
+            Assert.Empty(writer.ToInstructions());
+            Assert.Equal(CliValueKind.ValueType, Assert.Single(request.Stack));
+            return;
+        }
+
+        emitter.Emit(request, writer, signature, 0);
+
+        Assert.Equal(CliValueKind.ManagedReference, Assert.Single(request.Stack));
+        var instructions = writer.ToInstructions();
+        Assert.Contains(instructions, item => item.Opcode == WasmOpcodes.I32Load &&
+            item.Operand.Offset == (uint)layouts.Target.AddressSize);
+        Assert.Contains(instructions, item => item.Opcode == (target == WasmTarget.Wasm64
+            ? WasmOpcodes.I64Load : WasmOpcodes.I32Load) && item.Operand.Offset == 0);
+        Assert.Contains(instructions, item => item.Opcode == WasmOpcodes.Call);
+        Assert.Contains(instructions, item => item.Opcode == (target == WasmTarget.Wasm64
+            ? WasmOpcodes.I64Multiply : WasmOpcodes.I32Multiply));
+        Assert.Contains(WasmOpcodes.MemoryCopy, writer.ToArray());
+    }
+
+    public static TheoryData<WasmTarget, string> SpanContracts()
+    {
+        var data = new TheoryData<WasmTarget, string>();
+        string[] contracts = ["valid", "reference-missing", "length-missing", "reference-kind",
+            "element", "length-kind", "reference-size", "length-size", "reference-negative",
+            "reference-outside", "length-negative", "length-outside", "byref-map"];
+        foreach (var target in new[] { WasmTarget.Wasm32, WasmTarget.Wasm64 })
+            foreach (var contract in contracts) data.Add(target, contract);
+        return data;
+    }
+
+    private sealed class SpanLayout(WasmTargetLayout target, string contract) : ITypeDefinitionResolver,
+        IFieldRepository, IValueLayoutProvider, IInstanceFieldLayoutProvider
+    {
+        private static readonly AssemblyIdentity Assembly = new("span-construction-tests");
+        private static readonly EntityKey Owner = new(Assembly, 0x02000001);
+        private static readonly EntityKey Reference = new(Assembly, 0x04000001);
+        private static readonly EntityKey Length = new(Assembly, 0x04000002);
+        private static readonly CliTypeIdentity Character = CliTypeIdentity.Primitive("char", CliValueKind.I4);
+        public CliTypeIdentity Type { get; } = CliTypeIdentity.GenericInstantiation(
+            CliTypeIdentity.Named(Assembly, "System", "ReadOnlySpan`1", true), [Character]);
+
+        public TypeDefinitionModel ResolveTypeIdentity(CliTypeIdentity identity) =>
+            new(Owner, "System", "ReadOnlySpan`1", true, [Reference, Length], []);
+
+        public FieldDefinitionModel GetField(EntityKey key)
+        {
+            var reference = key == Reference;
+            var name = reference ? "_reference" : "_length";
+            if (contract == (reference ? "reference-missing" : "length-missing")) name = "other";
+            var type = reference ? CliTypeIdentity.ManagedByReference(Character)
+                : CliTypeIdentity.FromStackKind(CliValueKind.I4);
+            if (reference && contract == "reference-kind") type = Character;
+            if (reference && contract == "element")
+                type = CliTypeIdentity.ManagedByReference(CliTypeIdentity.FromStackKind(CliValueKind.I4));
+            if (!reference && contract == "length-kind") type = CliTypeIdentity.FromStackKind(CliValueKind.I8);
+            return new(key, Owner, name, type, false);
+        }
+
+        public ValueLayout GetValueLayout(CliTypeIdentity type) => new(type, target.AddressSize + 4, target.AddressSize, [])
+        { ByReferenceOffsets = contract == "byref-map" ? [] : [0] };
+
+        public FieldLayout GetFieldLayout(FieldInstanceModel field) => GetFieldLayout(field.Definition.Key);
+
+        public FieldLayout GetFieldLayout(EntityKey field)
+        {
+            var reference = field == Reference;
+            var offset = reference ? 0 : target.AddressSize;
+            var size = reference ? target.AddressSize : 4;
+            if (contract == (reference ? "reference-negative" : "length-negative")) offset = -1;
+            if (contract == (reference ? "reference-outside" : "length-outside")) offset = 64;
+            if (contract == (reference ? "reference-size" : "length-size")) size = 1;
+            return new(offset) { Size = size };
+        }
+    }
+
+    [Theory]
     [InlineData(WasmTarget.Wasm32)]
     [InlineData(WasmTarget.Wasm64)]
     public void RepeatedCharacterConstructorAllocatesForEachTarget(WasmTarget target)
@@ -194,9 +287,14 @@ public sealed class StringConstructionEmitterTests
             layouts,
             layouts,
             7);
+        var program = new FakeProgram();
         return Assert.IsAssignableFrom<IStringConstructionEmitter>(new StringConstructionEmitter(
+            program,
+            program,
             layouts,
             addresses,
+            layouts,
+            layouts,
             layouts,
             layouts,
             WasmRuntimeImports.CreateCatalog(),

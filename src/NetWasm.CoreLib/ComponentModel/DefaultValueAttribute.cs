@@ -1,22 +1,22 @@
 // Adapted from dotnet/runtime System.ComponentModel.DefaultValueAttribute.
 // The upstream implementation is licensed under MIT.
 
+using System.Diagnostics.CodeAnalysis;
+
 namespace System.ComponentModel
 {
     /// <summary>Specifies the default value for a property.</summary>
-    /// <remarks>
-    /// The Type/string overload is retained as a metadata carrier.  Resolving a
-    /// TypeConverter would be executable reflection and is intentionally outside
-    /// the supported CoreLib profile.
-    /// </remarks>
     [AttributeUsage(AttributeTargets.All)]
     public class DefaultValueAttribute : Attribute
     {
-        private readonly object? _value;
+        private object? _value;
+        private static readonly object s_throwSentinel = new();
+
+        internal static bool IsSupported => false;
 
         public DefaultValueAttribute(Type type, string? value)
         {
-            _value = value;
+            _value = s_throwSentinel;
         }
 
         public DefaultValueAttribute(char value) => _value = value;
@@ -29,19 +29,46 @@ namespace System.ComponentModel
         public DefaultValueAttribute(bool value) => _value = value;
         public DefaultValueAttribute(string? value) => _value = value;
         public DefaultValueAttribute(object? value) => _value = value;
+        [CLSCompliant(false)]
         public DefaultValueAttribute(sbyte value) => _value = value;
+        [CLSCompliant(false)]
         public DefaultValueAttribute(ushort value) => _value = value;
+        [CLSCompliant(false)]
         public DefaultValueAttribute(uint value) => _value = value;
+        [CLSCompliant(false)]
         public DefaultValueAttribute(ulong value) => _value = value;
 
         public virtual object? Value
         {
-            get => _value;
+            get
+            {
+                if (ReferenceEquals(_value, s_throwSentinel))
+                {
+                    throw new ArgumentException(
+                        "Runtime instantiation of this attribute is not allowed.");
+                }
+
+                return _value;
+            }
         }
 
-        public override bool Equals(object? obj) =>
-            obj is DefaultValueAttribute other && object.Equals(_value, other._value);
+        public override bool Equals([NotNullWhen(true)] object? obj)
+        {
+            if (obj == this)
+            {
+                return true;
+            }
+
+            if (obj is not DefaultValueAttribute other)
+            {
+                return false;
+            }
+
+            return Value is null ? other.Value is null : Value.Equals(other.Value);
+        }
 
         public override int GetHashCode() => _value?.GetHashCode() ?? 0;
+
+        protected void SetValue(object? value) => _value = value;
     }
 }

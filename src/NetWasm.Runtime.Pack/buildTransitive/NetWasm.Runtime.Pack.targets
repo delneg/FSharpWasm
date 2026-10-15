@@ -50,7 +50,7 @@
           DependsOnTargets="NetWasmRuntimePackWriteMaterializationIdentity"
           AfterTargets="NetWasmCompileCoreModule"
           BeforeTargets="NetWasmSdkComponentize;NetWasmSdkValidateFinalArtifactForNoBuild"
-          Condition="'$(TargetFramework)' == 'netwasm0.1' AND ('$(OutputType)' == 'Exe' OR '$(_NetWasmWorkerKind)' != '') AND '$(NetWasmRuntimeModulePath)' == '' AND '@(NetWasmComponentRuntime)' == ''">
+          Condition="'$(TargetFramework)' == 'netwasm0.1' AND ('$(OutputType)' == 'Exe' OR '$(_NetWasmWorkerKind)' != '')">
     <!-- The materializer's content cache is authoritative. Timestamp-only target
          skipping cannot detect a replaced archive whose timestamp is preserved. -->
     <Error Code="NWPACK002"

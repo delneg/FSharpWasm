@@ -69,15 +69,30 @@ public abstract class Encoding : ICloneable
     public abstract int GetMaxCharCount(int byteCount);
     public virtual int GetByteCount(char[] chars) => GetByteCount(chars, 0, chars?.Length ?? throw new ArgumentNullException());
     public virtual int GetByteCount(ReadOnlySpan<char> chars) => GetByteCount(chars.ToArray(), 0, chars.Length);
-    public virtual int GetByteCount(string s) { ArgumentNullException.ThrowIfNull(s); return GetByteCount(s.ToCharArray(), 0, s.Length); }
-    public int GetByteCount(string s, int index, int count) { ArgumentNullException.ThrowIfNull(s); ValidateRange(index, count, s.Length); return GetByteCount(s.ToCharArray(), index, count); }
+    public virtual int GetByteCount(string s) { ArgumentNullException.ThrowIfNull(s); return GetByteCount(s.AsSpan()); }
+    public int GetByteCount(string s, int index, int count) { ArgumentNullException.ThrowIfNull(s); ValidateRange(index, count, s.Length); return GetByteCount(s.AsSpan(index, count)); }
     public abstract int GetBytes(char[] chars, int charIndex, int charCount, byte[] bytes, int byteIndex);
     public unsafe virtual int GetBytes(char* chars, int charCount, byte* bytes, int byteCount) => GetBytes(new ReadOnlySpan<char>(chars, charCount), new Span<byte>(bytes, byteCount));
     public virtual byte[] GetBytes(char[] chars) => GetBytes(chars, 0, chars?.Length ?? throw new ArgumentNullException());
     public virtual byte[] GetBytes(char[] chars, int index, int count) { var result = new byte[GetByteCount(chars, index, count)]; GetBytes(chars, index, count, result, 0); return result; }
     public virtual byte[] GetBytes(string s) { ArgumentNullException.ThrowIfNull(s); return GetBytes(s, 0, s.Length); }
-    public byte[] GetBytes(string s, int index, int count) { ArgumentNullException.ThrowIfNull(s); ValidateRange(index, count, s.Length); return GetBytes(s.ToCharArray(), index, count); }
-    public virtual int GetBytes(string s, int charIndex, int charCount, byte[] bytes, int byteIndex) { ArgumentNullException.ThrowIfNull(s); return GetBytes(s.ToCharArray(), charIndex, charCount, bytes, byteIndex); }
+    public byte[] GetBytes(string s, int index, int count)
+    {
+        ArgumentNullException.ThrowIfNull(s);
+        ValidateRange(index, count, s.Length);
+        var source = s.AsSpan(index, count);
+        var result = new byte[GetByteCount(source)];
+        GetBytes(source, result);
+        return result;
+    }
+    public virtual int GetBytes(string s, int charIndex, int charCount, byte[] bytes, int byteIndex)
+    {
+        ArgumentNullException.ThrowIfNull(s);
+        ArgumentNullException.ThrowIfNull(bytes);
+        ValidateRange(charIndex, charCount, s.Length);
+        ValidateDestination(byteIndex, bytes.Length);
+        return GetBytes(s.AsSpan(charIndex, charCount), bytes.AsSpan(byteIndex));
+    }
     public virtual int GetBytes(ReadOnlySpan<char> chars, Span<byte> bytes)
     {
         var required = GetByteCount(chars);
@@ -101,10 +116,27 @@ public abstract class Encoding : ICloneable
         for (var index = 0; index < result.Length; index++) chars[index] = result[index];
         return result.Length;
     }
-    public virtual string GetString(byte[] bytes) => CreateString(GetChars(bytes));
-    public virtual string GetString(byte[] bytes, int index, int count) => CreateString(GetChars(bytes, index, count));
-    public unsafe string GetString(byte* bytes, int byteCount) => CreateString(GetChars(new ReadOnlySpan<byte>(bytes, byteCount).ToArray()));
-    public string GetString(ReadOnlySpan<byte> bytes) => CreateString(GetChars(bytes.ToArray()));
+    public virtual string GetString(byte[] bytes)
+    {
+        ArgumentNullException.ThrowIfNull(bytes);
+        return GetString(new ReadOnlySpan<byte>(bytes));
+    }
+    public virtual string GetString(byte[] bytes, int index, int count)
+    {
+        ArgumentNullException.ThrowIfNull(bytes);
+        ValidateRange(index, count, bytes.Length);
+        return GetString(new ReadOnlySpan<byte>(bytes, index, count));
+    }
+    public unsafe string GetString(byte* bytes, int byteCount) => GetString(new ReadOnlySpan<byte>(bytes, byteCount));
+    public string GetString(ReadOnlySpan<byte> bytes)
+    {
+        var charCount = GetCharCount(bytes);
+        if (charCount == 0) return string.Empty;
+        var result = new string('\0', charCount);
+        var destination = new Span<char>(ref result.GetRawStringData(), charCount);
+        var written = GetChars(bytes, destination);
+        return written == charCount ? result : throw new InvalidOperationException();
+    }
     public virtual Decoder GetDecoder() { var decoder = new EncodingDecoder(this); decoder.Fallback = DecoderFallback; return decoder; }
     public virtual Encoder GetEncoder() { var encoder = new EncodingEncoder(this); encoder.Fallback = EncoderFallback; return encoder; }
     public virtual bool TryGetBytes(ReadOnlySpan<char> chars, Span<byte> bytes, out int bytesWritten) { if (GetByteCount(chars) > bytes.Length) { bytesWritten = 0; return false; } bytesWritten = GetBytes(chars, bytes); return true; }
@@ -115,7 +147,7 @@ public abstract class Encoding : ICloneable
         // The framework implementation uses MemberwiseClone. CoreLib intentionally
         // keeps that runtime primitive out of the profile, so clone the supported
         // invariant codecs from their public constructor state instead.
-        var clone = CodePage switch
+        Encoding clone = CodePage switch
         {
             20127 => new ASCIIEncoding(),
             65001 => new UTF8Encoding(Preamble.Length != 0),
@@ -123,10 +155,10 @@ public abstract class Encoding : ICloneable
             1201 => new UnicodeEncoding(true, Preamble.Length != 0),
             12000 => new UTF32Encoding(false, Preamble.Length != 0),
             12001 => new UTF32Encoding(true, Preamble.Length != 0),
-            _ => this
+            _ => throw new PlatformNotSupportedException(
+                "Custom Encoding implementations must override Clone in the NetWasm profile.")
         };
 
-        if (ReferenceEquals(clone, this)) return this;
         clone._encoderFallback = _encoderFallback;
         clone._decoderFallback = _decoderFallback;
         clone._isReadOnly = false;
@@ -168,16 +200,20 @@ public abstract class Encoding : ICloneable
     public static Encoding GetEncoding(string name)
     {
         ArgumentNullException.ThrowIfNull(name);
-        return name switch
-        {
-            "ascii" or "ASCII" or "us-ascii" or "US-ASCII" => GetEncoding(20127),
-            "utf-8" or "UTF-8" or "utf8" or "UTF8" => GetEncoding(65001),
-            "utf-16" or "UTF-16" or "unicode" or "Unicode" => GetEncoding(1200),
-            "utf-16be" or "UTF-16BE" or "utf16be" or "UTF16BE" or "unicodeFFFE" => GetEncoding(1201),
-            "utf-32" or "UTF-32" or "utf32" or "UTF32" => GetEncoding(12000),
-            "utf-32be" or "UTF-32BE" or "utf32be" or "UTF32BE" => new UTF32Encoding(true, false),
-            _ => throw new NotSupportedException()
-        };
+        if (string.Equals(name, "ascii", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(name, "us-ascii", StringComparison.OrdinalIgnoreCase)) return GetEncoding(20127);
+        if (string.Equals(name, "utf-8", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(name, "utf8", StringComparison.OrdinalIgnoreCase)) return GetEncoding(65001);
+        if (string.Equals(name, "utf-16", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(name, "unicode", StringComparison.OrdinalIgnoreCase)) return GetEncoding(1200);
+        if (string.Equals(name, "utf-16be", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(name, "utf16be", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(name, "unicodeFFFE", StringComparison.OrdinalIgnoreCase)) return GetEncoding(1201);
+        if (string.Equals(name, "utf-32", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(name, "utf32", StringComparison.OrdinalIgnoreCase)) return GetEncoding(12000);
+        if (string.Equals(name, "utf-32be", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(name, "utf32be", StringComparison.OrdinalIgnoreCase)) return GetEncoding(12001);
+        throw new NotSupportedException();
     }
 
     public static Encoding GetEncoding(string name, EncoderFallback encoderFallback, DecoderFallback decoderFallback)
@@ -231,7 +267,6 @@ public abstract class Encoding : ICloneable
         ValidateDestination(index, length);
         if (required > length - index) throw new ArgumentException("The destination buffer is too small.");
     }
-    private static string CreateString(char[] chars) { var result = String.Empty; for (var index = 0; index < chars.Length; index++) result = String.Concat(result, new string(chars[index], 1)); return result; }
 }
 
 public sealed class EncodingInfo

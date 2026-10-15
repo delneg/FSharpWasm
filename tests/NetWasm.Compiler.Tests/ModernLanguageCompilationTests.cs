@@ -244,6 +244,50 @@ public sealed class ModernLanguageCompilationTests
     }
 
     [Fact]
+    public void CoreLibDelegateContractsAcceptByRefLikeGenericArguments()
+    {
+        using var assets = TestAssets.Create();
+        var assembly = assets.CompileSource(
+            "ByRefLikeDelegateContracts",
+            """
+            using System;
+
+            namespace ByRefLikeDelegateContracts;
+
+            public static class ContractProbe
+            {
+                public static bool Compile()
+                {
+                    Action<
+                        Span<int>, Span<int>, Span<int>, Span<int>,
+                        Span<int>, Span<int>, Span<int>, Span<int>,
+                        Span<int>, Span<int>, Span<int>, Span<int>,
+                        Span<int>, Span<int>, Span<int>, Span<int>>? action = null;
+                    Func<
+                        Span<int>, Span<int>, Span<int>, Span<int>,
+                        Span<int>, Span<int>, Span<int>, Span<int>,
+                        Span<int>, Span<int>, Span<int>, Span<int>,
+                        Span<int>, Span<int>, Span<int>, Span<int>,
+                        Span<int>>? function = null;
+                    Predicate<Span<int>>? predicate = null;
+                    Comparison<Span<int>>? comparison = null;
+                    EventHandler<Span<int>>? eventHandler = null;
+                    EventHandler<Span<int>, ReadOnlySpan<int>>? typedEventHandler = null;
+
+                    return action is null &&
+                        function is null &&
+                        predicate is null &&
+                        comparison is null &&
+                        eventHandler is null &&
+                        typedEventHandler is null;
+                }
+            }
+            """);
+
+        Assert.True(File.Exists(assembly));
+    }
+
+    [Fact]
     public void CompilerLowersIndexAndRangeAcrossArraysSpansAndStrings()
     {
         using var assets = TestAssets.Create();

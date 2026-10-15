@@ -4,6 +4,7 @@ using System.Collections.Immutable;
 using System.Linq;
 using NetWasm.Compiler.ControlFlow;
 using NetWasm.Compiler.Core;
+using NetWasm.Compiler.Core.Types;
 
 namespace NetWasm.Compiler.GarbageCollection;
 
@@ -13,7 +14,8 @@ public sealed class RootDecisionClassifier(
     IMethodRepository methods,
     IReadOnlyDictionary<string, DispatchCallSiteModel>? dispatchCallSites,
     IRuntimeAllocationSafepointClassifier runtimeSafepoints,
-    ITypeClassifier typeClassifier) :
+    ITypeClassifier typeClassifier,
+    IMethodInitializationTriggerClassifier initializationTriggers) :
     IRootDecisionClassifier
 {
     private readonly ITypeRepository _types =
@@ -29,6 +31,8 @@ public sealed class RootDecisionClassifier(
 
     private readonly ITypeClassifier _typeClassifier = typeClassifier ??
         throw new ArgumentNullException(nameof(typeClassifier));
+    private readonly IMethodInitializationTriggerClassifier _initializationTriggers = initializationTriggers ??
+        throw new ArgumentNullException(nameof(initializationTriggers));
 
     public bool Decide(RootDecisionRequest request)
     {
@@ -82,7 +86,9 @@ public sealed class RootDecisionClassifier(
         var dispatchKey = $"{caller}@{instruction.Offset:x8}";
         if (_dispatchCallSites.TryGetValue(dispatchKey, out var dispatch))
         {
-            return dispatch.Targets.Any(target => _runtimeSafepoints.Classify(target.Method) ||
+            return dispatch.Targets.Any(target =>
+                IsAllocatingMethodInitialization(target.Method.Definition, target.Method.DeclaringType, request) ||
+                _runtimeSafepoints.Classify(target.Method) ||
                 (target.Method.IsConstructed
                     ? request.AllocatingConstructedMethods.Contains(target.Method.CanonicalName)
                     : request.AllocatingMethods.Contains(target.Method.Definition.Key)));
@@ -90,13 +96,13 @@ public sealed class RootDecisionClassifier(
         return instruction.Operand switch
         {
             CilOperand.Entity target =>
-                IsAllocatingStaticCall(_methods.GetMethod(target.Key), null, request) ||
+                IsAllocatingMethodInitialization(_methods.GetMethod(target.Key), null, request) ||
                 _methods.GetMethod(target.Key).JSImport is not null ||
                 _methods.GetMethod(target.Key).NativeImport is not null ||
                 request.AllocatingMethods.Contains(target.Key) &&
                 _methods.GetMethod(target.Key).HasManagedBody,
             CilOperand.MethodInstance target =>
-                IsAllocatingStaticCall(target.Value.Definition, target.Value.DeclaringType, request) ||
+                IsAllocatingMethodInitialization(target.Value.Definition, target.Value.DeclaringType, request) ||
                 target.Value.Definition.JSImport is not null ||
                 target.Value.Definition.NativeImport is not null ||
                 (target.Value.IsConstructed
@@ -125,11 +131,11 @@ public sealed class RootDecisionClassifier(
             allocatingMethods, allocatingConstructedMethods);
     }
 
-    private bool IsAllocatingStaticCall(
+    private bool IsAllocatingMethodInitialization(
         MethodDefinitionModel method,
         CliTypeIdentity? declaringType,
         RootDecisionRequest request) =>
-        method.IsStatic && method.Name != ".cctor" &&
+        _initializationTriggers.Classify(method) &&
         IsAllocatingInitializer(method.DeclaringType, declaringType,
             request.AllocatingMethods, request.AllocatingConstructedMethods);
 

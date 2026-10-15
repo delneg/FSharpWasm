@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using System.Linq;
 using NetWasm.Compiler.Core;
 using NetWasm.Compiler.Wasm.Emission;
+using NetWasm.Compiler.Wasm.Emission.AddressTakenValues;
 using NetWasm.Compiler.Wasm.Emission.Instructions;
 using NetWasm.Compiler.Wasm.Emission.Instructions.Memory;
 using NetWasm.Compiler.Wasm.Emission.Methods;
@@ -14,6 +15,34 @@ using static EmitterTestSupport;
 
 public sealed class FieldInstructionEmitterTests
 {
+    [Theory]
+    [InlineData(CilOperation.LoadField, 1)]
+    [InlineData(CilOperation.StoreField, 2)]
+    public void SelectedAggregateProjectionDelegatesWithoutEmittingAnotherTransfer(CilOperation operation, int stackSize)
+    {
+        var request = CreateRequest(operation, stackSize);
+        var projection = new SelectedProjection();
+
+        Emit(CreateEmitter(projections: projection), request);
+
+        Assert.Same(request, projection.Request);
+        Assert.Same(GetCodeWriter(request), projection.Writer);
+        Assert.Empty(GetCodeBytes(request));
+        Assert.Equal(stackSize, request.Stack.Count);
+    }
+
+    private sealed class SelectedProjection : IAddressTakenAggregateProjectionEmitter
+    {
+        public InstructionEmissionRequest? Request { get; private set; }
+        public IWasmInstructionWriter? Writer { get; private set; }
+        public bool TryEmit(InstructionEmissionRequest request, IWasmInstructionWriter code)
+        {
+            Request = request;
+            Writer = code;
+            return true;
+        }
+    }
+
     [Theory]
     [InlineData(CilOperation.LoadField, 1, CliValueKind.I4)]
     [InlineData(CilOperation.LoadFieldAddress, 1, CliValueKind.ManagedAddress)]
@@ -118,6 +147,52 @@ public sealed class FieldInstructionEmitterTests
         Emit(emitter, request);
 
         Assert.Equal([CliValueKind.I4], request.Stack);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    public void LoadsPromotedTupleProjectionFromItsScalarLocal(int elementIndex)
+    {
+        var fieldType = CliTypeIdentity.Primitive("u8", CliValueKind.I8);
+        var tuple = CliTypeIdentity.GenericInstantiation(
+            CliTypeIdentity.Named(Assembly, "System", "ValueTuple`2", true),
+            [fieldType, fieldType]);
+        var field = new FieldDefinitionModel(
+            InstanceFieldKey,
+            TypeKey,
+            elementIndex == 0 ? "Item1" : "Item2",
+            fieldType,
+            false);
+        var plan = new TransientAggregatePromotionPlan(
+            ImmutableDictionary<int, CliTypeIdentity>.Empty.Add(7, fieldType),
+            ImmutableDictionary<int, TransientAggregateProjection>.Empty.Add(
+                0,
+                new(7, elementIndex)),
+            [],
+            []);
+        var context = CreateMethodEmissionContext() with
+        {
+            TransientAggregatePromotions = new(
+                plan,
+                ImmutableDictionary<int, TransientAggregateScalarLocals>.Empty.Add(
+                    7,
+                    new(40, 41))),
+        };
+        var request = CreateRequest(
+            CilOperation.LoadField,
+            [CliValueKind.ValueType],
+            new CilOperand.FieldInstance(new(field, tuple, fieldType)),
+            context);
+
+        Emit(CreateEmitter(), request);
+
+        var instructions = ((RecordingInstructionWriter)GetCodeWriter(request)).ToInstructions();
+        Assert.Equal(CliValueKind.I8, Assert.Single(request.Stack));
+        Assert.Equal(WasmOpcodes.LocalGet, instructions[0].Opcode);
+        Assert.Equal((uint)(40 + elementIndex), instructions[0].Operand.UnsignedValue);
+        Assert.DoesNotContain(instructions, instruction =>
+            instruction.Opcode is WasmOpcodes.I64Load or WasmOpcodes.I64Store);
     }
 
     [Fact]
@@ -297,7 +372,8 @@ public sealed class FieldInstructionEmitterTests
         ITypeRepository? types = null,
         IFieldRepository? fieldRepository = null,
         ITargetLayout? layouts = null,
-        IInstanceFieldLayoutProvider? fields = null)
+        IInstanceFieldLayoutProvider? fields = null,
+        IAddressTakenAggregateProjectionEmitter? projections = null)
     {
         var actualLayouts = layouts ?? new RecordingLayoutProvider();
         var program = new FakeProgram();
@@ -308,7 +384,8 @@ public sealed class FieldInstructionEmitterTests
             actualLayouts,
             fields ?? (IInstanceFieldLayoutProvider)actualLayouts,
             new RecordingImplicitExceptionEmitter(),
-            addresses));
+            addresses,
+            projections ?? new AddressTakenAggregateProjectionEmitter(actualLayouts)));
     }
 
     private static IInstructionCommandProvider CreateEmitter(

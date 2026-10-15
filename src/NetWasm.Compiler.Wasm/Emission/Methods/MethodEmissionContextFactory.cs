@@ -1,10 +1,14 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
+using System.Linq;
 using NetWasm.Compiler.ControlFlow.Structured;
 using NetWasm.Compiler.Core;
 
 using NetWasm.Compiler.Core.IntermediateRepresentation.Identity;
+using NetWasm.Compiler.Wasm.Emission.AddressTakenValues;
+using NetWasm.Compiler.Wasm.Emission.Values;
+using NetWasm.Compiler.Wasm.Emission.Arrays;
 
 namespace NetWasm.Compiler.Wasm.Emission.Methods;
 
@@ -18,7 +22,9 @@ internal static class MethodEmissionContextFactory
         IReadOnlyList<StructuredExceptionGroupId> exceptionGroups,
         ValueFrameLayout valueLayout,
         FilterEnvironmentLayout filterEnvironment,
-        ManagedMethodIdentity callerIdentity)
+        ManagedMethodIdentity callerIdentity,
+        ManagedAggregateSsaPlan? managedAggregateValues = null,
+        ArrayMetadataCachingPlan? arrayMetadata = null)
     {
         ArgumentNullException.ThrowIfNull(header);
         ArgumentNullException.ThrowIfNull(rootMap);
@@ -62,6 +68,88 @@ internal static class MethodEmissionContextFactory
             header,
             exceptionGroups.Count,
             valueLayout.SpilledScalarLocals);
+        var anchorLocals = ImmutableDictionary.CreateBuilder<int, int>();
+        for (var index = 0; index < rootMap.AnchorPlan.Anchors.Length; index++)
+        {
+            if (filterEnvironment.AnchorOffsets.ContainsKey(index)) continue;
+            anchorLocals.Add(index, checked(parameterCount + localTypes.Length));
+            localTypes = localTypes.Add(CliValueKind.ManagedAddress);
+        }
+        var aggregateLocals = ImmutableDictionary.CreateBuilder<
+            int,
+            TransientAggregateScalarLocals>();
+        foreach (var producer in valueLayout.TransientAggregatePromotions.Producers
+                     .OrderBy(producer => producer.Key))
+        {
+            var first = checked(parameterCount + localTypes.Length);
+            localTypes = localTypes.Add(producer.Value.StackKind);
+            var second = checked(parameterCount + localTypes.Length);
+            localTypes = localTypes.Add(producer.Value.StackKind);
+            aggregateLocals.Add(producer.Key, new(first, second));
+        }
+        var scalarShadowLocals = ImmutableDictionary.CreateBuilder<int, int>();
+        foreach (var local in valueLayout.AddressTakenScalarPromotions.PromotedLocals.Keys
+                     .Order())
+        {
+            scalarShadowLocals.Add(local, checked(parameterCount + localTypes.Length));
+            localTypes = localTypes.Add(CliValueKind.ManagedAddress);
+        }
+        var aggregateStorageLocals = ImmutableDictionary.CreateBuilder<
+            int,
+            ImmutableArray<int>>();
+        foreach (var local in valueLayout.AddressTakenAggregatePromotions.PromotedLocals
+                     .OrderBy(pair => pair.Key))
+        {
+            var storageLocals = ImmutableArray.CreateBuilder<int>(
+                local.Value.StorageSlots.Length);
+            foreach (var storage in local.Value.StorageSlots)
+            {
+                storageLocals.Add(checked(parameterCount + localTypes.Length));
+                localTypes = localTypes.Add(storage.StackKind);
+            }
+            aggregateStorageLocals.Add(local.Key, storageLocals.MoveToImmutable());
+        }
+        var managedByRefStorageLocals = ImmutableDictionary.CreateBuilder<
+            int,
+            ImmutableArray<int>>();
+        foreach (var parameter in valueLayout.ManagedByRefAggregatePromotions
+                     .PromotedParameters.OrderBy(pair => pair.Key))
+        {
+            var storageLocals = ImmutableArray.CreateBuilder<int>(
+                parameter.Value.StorageSlots.Length);
+            foreach (var storage in parameter.Value.StorageSlots)
+            {
+                storageLocals.Add(checked(parameterCount + localTypes.Length));
+                localTypes = localTypes.Add(storage.StackKind);
+            }
+            managedByRefStorageLocals.Add(
+                parameter.Key,
+                storageLocals.MoveToImmutable());
+        }
+        var aggregateValuePlan = managedAggregateValues ?? ManagedAggregateSsaPlan.Empty;
+        var aggregateValueLocals = ImmutableDictionary.CreateBuilder<
+            ManagedAggregateSsaLane,
+            int>();
+        foreach (var lane in aggregateValuePlan.Lanes
+                     .OrderBy(lane => lane.Storage.Kind)
+                     .ThenBy(lane => lane.Storage.Index)
+                     .ThenBy(lane => lane.ByteOffset))
+        {
+            aggregateValueLocals.Add(
+                lane,
+                checked(parameterCount + localTypes.Length));
+            localTypes = localTypes.Add(CliValueKind.I4);
+        }
+        var arrayPlan = arrayMetadata ?? ArrayMetadataCachingPlan.Empty;
+        var arrayLocals = ImmutableDictionary.CreateBuilder<ArrayReferenceSlot, ArrayMetadataSnapshotLocals>();
+        foreach (var slot in arrayPlan.Slots)
+        {
+            var length = checked(parameterCount + localTypes.Length);
+            localTypes = localTypes.Add(CliValueKind.I4);
+            var data = checked(parameterCount + localTypes.Length);
+            localTypes = localTypes.Add(CliValueKind.ManagedAddress);
+            arrayLocals.Add(slot, new(length, data));
+        }
         var context = new MethodEmissionContext(
             rootMap,
             localBase,
@@ -85,7 +173,24 @@ internal static class MethodEmissionContextFactory
             dispatcherProgramCounter,
             CallerIdentity: callerIdentity)
         {
+            ArrayMetadata = new(arrayPlan, arrayLocals.ToImmutable()),
             ExceptionRootSlots = exceptionRootSlots.ToImmutableDictionary(),
+            AnchorLocals = anchorLocals.ToImmutable(),
+            TransientAggregatePromotions = new(
+                valueLayout.TransientAggregatePromotions,
+                aggregateLocals.ToImmutable()),
+            AddressTakenScalarPromotions = new(
+                valueLayout.AddressTakenScalarPromotions,
+                scalarShadowLocals.ToImmutable()),
+            AddressTakenAggregatePromotions = new(
+                valueLayout.AddressTakenAggregatePromotions,
+                aggregateStorageLocals.ToImmutable()),
+            ManagedByRefAggregatePromotions = new(
+                valueLayout.ManagedByRefAggregatePromotions,
+                managedByRefStorageLocals.ToImmutable()),
+            ManagedAggregateValues = new(
+                aggregateValuePlan,
+                aggregateValueLocals.ToImmutable()),
         };
         return new MethodEmissionLayout(context, localTypes);
     }

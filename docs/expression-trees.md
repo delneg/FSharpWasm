@@ -9,22 +9,25 @@ tree parity and does not add runtime CIL generation, broad reflection,
 `Expression<TDelegate>.Compile()`, `Compile(bool preferInterpretation)`, and the
 corresponding erased `LambdaExpression` calls always select the managed
 interpreter. The `preferInterpretation` value does not select a second backend.
+`LambdaExpression.CanInterpret` is therefore `true`, while
+`LambdaExpression.CanCompileToIL` is `false`.
 
 ## Executable boundary
 
 An executable lambda has exactly one non-by-reference parameter and a non-void
 result. `Func<T, TResult>` and custom delegate types are supported when their
-`Invoke` signature has that shape. Parameter and result types can be references
-or one of these primitive value types:
+`Invoke` signature has that shape. Parameter and result values can be references,
+enums with an integer underlying type, nullable forms of the admitted value
+types, or one of these primitive value types:
 
 - `bool` and `char`;
 - `sbyte`, `byte`, `short`, `ushort`, `int`, `uint`, `long`, and `ulong`; or
 - `float` and `double`.
 
-Enums, nullable values, `decimal`, pointers, by-reference values, and other
-value types are not executable in this profile. An interface-typed reference
-can still contain a boxed value type when an admitted member access dispatches
-through that interface.
+`decimal`, `nint`, `nuint`, pointers, by-reference values, function pointers,
+open types, and other structs are not executable in this profile. An
+interface-typed reference can still contain a boxed value type when an admitted
+member access dispatches through that interface.
 
 | Node | Supported shape |
 | --- | --- |
@@ -33,13 +36,14 @@ through that interface.
 | `Add` | Built-in unchecked `short`, `ushort`, `int`, `uint`, `long`, `ulong`, `float`, and `double` addition. |
 | `Negate` | Built-in unchecked `short`, `int`, `long`, `float`, and `double` negation. |
 | `GreaterThan` and `LessThan` | Built-in signed, unsigned, and floating comparisons for the `Add` numeric set. |
+| `Equal` | Built-in primitive and nullable-primitive equality, reference identity, selected string value equality, or an explicitly supplied executable equality method. Enum and nullable-enum equality are not yet supported. |
 | `Convert` | Unchecked conversions among signed/unsigned 8-, 16-, 32-, and 64-bit integers, `float`, and `double`. |
 | `AndAlso` | Built-in Boolean short-circuit evaluation. |
 | `Conditional` | Boolean test with compatible admitted result branches, including void use inside a block. |
 | `Block` | Lexically scoped admitted locals, including shadowing and default initialization on every invocation. |
 | `Assign` | Assignment to a lambda parameter or block local; the non-void form returns the assigned value. |
 | `MemberAccess` | A readable instance field or parameterless property whose receiver is another executable reference expression. |
-| `Call` | A bounded static or reference-instance method with admitted primitive or reference arguments and a non-void admitted result. Closed generic declaring types and closed generic methods are supported. |
+| `Call` | A bounded static or reference-instance method with admitted primitive, enum, or reference arguments and a non-void admitted result. Closed generic declaring types and closed generic methods are supported. The ordinary `Call(MethodInfo, ...)` array and enumerable forwarding overloads are available without runtime method discovery. |
 
 Member receivers can be composed, such as `model.Child.Value`. Ordinary C#
 captures work when the generated display-class object is represented as a
@@ -51,8 +55,14 @@ Method calls use closed-world compiler facts rather than reflection. Static,
 nonvirtual, virtual, and interface calls are supported. An interface receiver
 can contain a boxed value type, but a value type cannot be used as the direct
 receiver expression. Every parameter and result must use the admitted value
-set above; by-reference parameters and void results are rejected. Compiler
+set above; nullable parameters, by-reference parameters, and void results are
+rejected. Selected nullable results are supported. Compiler
 intrinsics are not exposed indirectly through expression execution.
+
+Extension-method calls use the ordinary static-call expression shape. Their
+formatted expression text therefore uses static-call notation rather than
+desktop extension-call syntax; this avoids retaining runtime extension-method
+metadata.
 
 Evaluation is left-to-right. `AndAlso` and `Conditional` execute only the
 selected path, but all paths are validated before `Compile()` returns. A method
@@ -70,12 +80,15 @@ The interpreter rejects the following with `NotSupportedException`:
 
 - zero-parameter or multi-parameter lambdas, by-reference parameters, and void
   delegates;
-- method-backed operators or conversions and checked conversion nodes;
+- method-backed arithmetic or conversions, lifted method execution, and checked
+  conversion nodes; explicitly supplied non-lifted equality methods are the
+  bounded exception;
 - constructors, member assignment, delegate invocation, and method calls with
   excluded signatures or receivers;
 - nested executable lambdas, `Quote`, and `Invoke`;
 - direct value-type member receivers and nonprimitive value-type operations;
-- enum, nullable, `decimal`, pointer, and other excluded value shapes; and
+- enum equality, nullable-enum equality, `decimal`, `nint`, `nuint`, pointer,
+  function-pointer, open, and other excluded value shapes; and
 - expression node families not listed in the executable table.
 
 This rejection is atomic. An unsupported node in an unselected conditional or

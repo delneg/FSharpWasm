@@ -15,7 +15,10 @@ public sealed record StructuredMethodHeader(
     int MaxStack,
     ImmutableArray<CliValueKind> Locals,
     ImmutableArray<CliTypeIdentity> LocalSignatureTypes,
-    ImmutableArray<CilInstruction> Instructions);
+    ImmutableArray<CilInstruction> Instructions)
+{
+    public ArrayBoundsProof? ArrayBoundsProof { get; init; }
+}
 
 public sealed record StructuredMethod(
     StructuredMethodHeader Header,

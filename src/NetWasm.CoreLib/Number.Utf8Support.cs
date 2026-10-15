@@ -7,43 +7,6 @@ namespace System;
 
 internal static partial class Number
 {
-    internal const int DecimalNumberBufferLength = 31;
-    internal const int SingleNumberBufferLength = 114;
-    internal const int DoubleNumberBufferLength = 769;
-
-    internal ref struct NumberBuffer
-    {
-        public int DigitsCount;
-        public int Scale;
-        public bool IsNegative;
-        public bool HasNonZeroTail;
-        public NumberBufferKind Kind;
-        public Span<byte> Digits;
-
-        public NumberBuffer(NumberBufferKind kind, Span<byte> digits)
-        {
-            Debug.Assert(!digits.IsEmpty);
-            DigitsCount = 0;
-            Scale = 0;
-            IsNegative = false;
-            HasNonZeroTail = false;
-            Kind = kind;
-            Digits = digits;
-            Digits.Clear();
-        }
-
-        public void CheckConsistency()
-        {
-        }
-    }
-
-    internal enum NumberBufferKind : byte
-    {
-        Unknown,
-        Integer,
-        Decimal,
-        FloatingPoint,
-    }
 
     internal static T NumberToFloat<T>(ref NumberBuffer number) where T : struct
     {

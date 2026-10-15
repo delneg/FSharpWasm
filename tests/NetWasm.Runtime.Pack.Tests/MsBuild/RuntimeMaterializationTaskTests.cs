@@ -11,7 +11,9 @@ public sealed class RuntimeMaterializationTaskTests
     [Theory]
     [InlineData("", null)]
     [InlineData("Compact", "Compact")]
+    [InlineData("NetWasm", "NetWasm")]
     [InlineData("Boehm", "Boehm")]
+    [InlineData("Bump", "Bump")]
     public void ForwardsOptionalCanonicalCollectorAndResolvedMetadata(string value, string? expected)
     {
         var actor = new RecordingMaterializer(Materialization() with { GarbageCollector = expected ?? "Boehm" });

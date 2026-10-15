@@ -111,8 +111,8 @@ public sealed class RuntimeMaterializationTask : Task
         try
         {
             var garbageCollector = GarbageCollector.Length == 0 ? null : GarbageCollector;
-            if (garbageCollector is not (null or "Compact" or "Boehm"))
-                throw new InvalidOperationException("The NetWasm garbage collector must be Compact or Boehm.");
+            if (garbageCollector is not null && !RuntimeGarbageCollectors.IsSupported(garbageCollector))
+                throw new InvalidOperationException(RuntimeGarbageCollectors.ValidationMessage);
             var materialization = _materializer.Materialize(new(
                 ManifestPath,
                 RuntimeLayoutPath,

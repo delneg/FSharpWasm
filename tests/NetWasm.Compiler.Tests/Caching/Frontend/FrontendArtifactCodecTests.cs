@@ -16,6 +16,51 @@ public sealed class FrontendArtifactCodecTests
 {
     private static readonly AssemblyIdentity Assembly = new("Dependency");
 
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    public void RoundTripPreservesInliningFlagsAndDescriptorIdentity(bool aggressive, bool never)
+    {
+        var snapshot = CreateStressSnapshot();
+        var method = snapshot.Analysis.Method with
+        {
+            Definition = snapshot.Analysis.Method.Definition with
+            {
+                IsAggressiveInlining = aggressive,
+                IsNoInlining = never,
+            },
+        };
+        snapshot = snapshot with { Analysis = snapshot.Analysis with { Method = method } };
+        var encoder = Assert.IsAssignableFrom<IFrontendArtifactEncoder>(new FrontendArtifactEncoder());
+        var decoder = Assert.IsAssignableFrom<IFrontendArtifactDecoder>(new FrontendArtifactDecoder());
+        var payload = encoder.Encode(snapshot);
+        var restored = decoder.Decode(payload);
+
+        Assert.Equal(aggressive, restored.Analysis.Method.Definition.IsAggressiveInlining);
+        Assert.Equal(never, restored.Analysis.Method.Definition.IsNoInlining);
+        Assert.True(method.HasEquivalentDescriptorFacts(restored.Analysis.Method));
+        Assert.False(method.HasEquivalentDescriptorFacts(method with
+        {
+            Definition = method.Definition with { IsAggressiveInlining = !aggressive },
+        }));
+        Assert.False(method.HasEquivalentDescriptorFacts(method with
+        {
+            Definition = method.Definition with { IsNoInlining = !never },
+        }));
+        Assert.Equal(payload.ToArray(), encoder.Encode(restored).ToArray());
+    }
+
+    [Fact]
+    public void DecoderRejectsPayloadWithoutInliningFlags()
+    {
+        var payload = new FrontendArtifactEncoder().Encode(CreateStressSnapshot()).ToArray();
+        payload[4] = 17;
+        payload[5] = 0;
+        Assert.Throws<InvalidDataException>(() => new FrontendArtifactDecoder().Decode([.. payload]));
+    }
+
     [Fact]
     public void RoundTripKeepsConstructedCatchTypesInBodiesAndStructuredClauses()
     {
@@ -290,6 +335,53 @@ public sealed class FrontendArtifactCodecTests
         var payload = encoder.Encode(snapshot);
         var decoded = new FrontendArtifactDecoder().Decode(payload);
         Assert.Equal(offset, Assert.Single(decoded.Analysis.Instructions.Fields).Definition.ExplicitOffset);
+        Assert.Equal(payload.ToArray(), encoder.Encode(decoded).ToArray());
+    }
+
+    [Theory]
+    [InlineData(CilOperation.CreateReadOnlySpanFromRva)]
+    [InlineData(CilOperation.LoadStaticDataElement)]
+    public void RoundTripPreservesRvaSpanOperand(CilOperation operation)
+    {
+        var snapshot = CreateStressSnapshot();
+        var field = snapshot.Analysis.Instructions.Fields[0];
+        var element = CliTypeIdentity.Primitive("u4", CliValueKind.I4);
+        var span = CliTypeIdentity.GenericInstantiation(
+            CliTypeIdentity.Named(
+                Assembly,
+                "System",
+                "ReadOnlySpan`1",
+                isValueType: true),
+            [element]);
+        var instruction = snapshot.Analysis.Body.Instructions[0] with
+        {
+            Operation = operation,
+            Operand = new CilOperand.ReadOnlySpanData(field, span, element, 10),
+        };
+        snapshot = snapshot with
+        {
+            Analysis = snapshot.Analysis with
+            {
+                Body = snapshot.Analysis.Body with
+                {
+                    Instructions = snapshot.Analysis.Body.Instructions.SetItem(
+                        0,
+                        instruction),
+                },
+            },
+        };
+        var encoder = new FrontendArtifactEncoder();
+        var payload = encoder.Encode(snapshot);
+        var decoded = new FrontendArtifactDecoder().Decode(payload);
+
+        var restored = decoded.Analysis.Body.Instructions[0];
+        Assert.Equal(instruction.Offset, restored.Offset);
+        Assert.Equal(instruction.Operation, restored.Operation);
+        var restoredSpan = Assert.IsType<CilOperand.ReadOnlySpanData>(restored.Operand);
+        Assert.Equal(field.CanonicalName, restoredSpan.Field.CanonicalName);
+        Assert.Equal(span, restoredSpan.SpanType);
+        Assert.Equal(element, restoredSpan.ElementType);
+        Assert.Equal(10, restoredSpan.ElementCount);
         Assert.Equal(payload.ToArray(), encoder.Encode(decoded).ToArray());
     }
 

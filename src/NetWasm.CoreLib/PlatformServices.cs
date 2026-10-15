@@ -168,13 +168,19 @@ namespace System.Runtime.InteropServices
                 new TimeZoneDefinitionResolverFactory(),
                 new LocalTimeOffsetResolverFactory(new TimeZoneTransitionResolver()),
                 new UtcLocalTimeOffsetResolver(),
-                new LocalTimeOffsetResolverInstaller());
+                new LocalTimeOffsetResolverInstaller(),
+                new TimeZoneCatalogSnapshotInstaller());
 
         internal static IPlatformUtcClock CreateUtcClock() =>
             new WasiUtcClock(new WasiUtcClockSource());
 
         internal static ICommandLineArgumentSource CreateCommandLineArgumentSource() =>
             new WasiCommandLineArgumentSource(new WasiCommandLineInvoker());
+
+        internal static IManagedEntryPointArgumentSource
+            CreateManagedEntryPointArgumentSource(
+                ICommandLineArgumentSource commandLineArguments) =>
+            new ManagedEntryPointArgumentSource(commandLineArguments);
 
         internal static IEnvironmentVariableReader CreateEnvironmentVariableReader() =>
             new EnvironmentVariableReader(new WasiEnvironmentVariableSource(
@@ -226,6 +232,7 @@ namespace System.Runtime.InteropServices
     {
         private static IPlatformClock? _clock;
         private static ICommandLineArgumentSource? _commandLineArguments;
+        private static IManagedEntryPointArgumentSource? _managedEntryPointArguments;
         private static IPlatformUtcClock? _utcClock;
         private static IPlatformMonotonicClock? _monotonicClock;
         private static WasiPollableReactor? _pollableReactor;
@@ -233,6 +240,7 @@ namespace System.Runtime.InteropServices
         private static IPlatformTimerFactory? _timerFactory;
         private static IPlatformStreams? _streams;
         private static ILocalTimeOffsetResolver? _localTimeOffsets;
+        private static TimeZoneCatalogSnapshot? _timeZoneCatalogSnapshot;
         private static bool _localTimeReady;
 
         // IPlatformClock is retained as a compatibility aggregate for existing
@@ -248,6 +256,14 @@ namespace System.Runtime.InteropServices
 
         internal static string[] ReadCommandLineArguments() =>
             CommandLineArguments.Read();
+
+        internal static IManagedEntryPointArgumentSource ManagedEntryPointArguments =>
+            _managedEntryPointArguments ??=
+                WasiPlatformServicesComposition.CreateManagedEntryPointArgumentSource(
+                    CommandLineArguments);
+
+        internal static string[] ReadManagedEntryPointArguments() =>
+            ManagedEntryPointArguments.Read();
 
         internal static IPlatformUtcClock UtcClock =>
             _utcClock ??= WasiPlatformServicesComposition.CreateUtcClock();
@@ -277,6 +293,16 @@ namespace System.Runtime.InteropServices
             ILocalTimeOffsetResolver resolver)
         {
             _localTimeOffsets = resolver ?? throw new ArgumentNullException();
+        }
+
+        internal static TimeZoneCatalogSnapshot TimeZoneCatalogSnapshot =>
+            _timeZoneCatalogSnapshot ??=
+                new TimeZoneCatalogSnapshot(null, null, null);
+
+        internal static void UseTimeZoneCatalogSnapshot(
+            TimeZoneCatalogSnapshot snapshot)
+        {
+            _timeZoneCatalogSnapshot = snapshot ?? throw new ArgumentNullException();
         }
 
         internal static void PreflightLocalTime() =>

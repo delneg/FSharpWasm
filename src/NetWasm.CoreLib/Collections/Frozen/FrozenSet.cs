@@ -38,8 +38,12 @@ namespace System.Collections.Frozen
                     new EmptyFrozenSet<T>(equalityComparer);
             }
 
-            // We assume there are few-to-no duplicates when using this API.
-            HashSet<T> set = new(source.Length, equalityComparer);
+            HashSet<T> set =
+#if NET
+                new(source.Length, equalityComparer); // we assume there are few-to-no duplicates when using this API
+#else
+                new(equalityComparer);
+#endif
             foreach (T item in source)
             {
                 set.Add(item);
@@ -100,9 +104,7 @@ namespace System.Collections.Frozen
             // Optimize for value types when the default comparer is being used. In such a case, the implementation
             // may use {Equality}Comparer<T>.Default.Compare/Equals/GetHashCode directly, with generic specialization enabling
             // the Equals/GetHashCode methods to be devirtualized and possibly inlined.
-            // `default(T) is not null` identifies non-nullable value types without relying on reflection.
-            // Nullable value types use the general implementation, which preserves their comparer semantics.
-            if (default(T) is not null && ReferenceEquals(comparer, EqualityComparer<T>.Default))
+            if (typeof(T).IsValueType && ReferenceEquals(comparer, EqualityComparer<T>.Default))
             {
                 if (source.Count <= Constants.MaxItemsInSmallValueTypeFrozenCollection)
                 {
@@ -237,7 +239,9 @@ namespace System.Collections.Frozen
     /// </remarks>
     [CollectionBuilder(typeof(FrozenSet), nameof(FrozenSet.Create))]
     public abstract partial class FrozenSet<T> : ISet<T>,
+#if NET
         IReadOnlySet<T>,
+#endif
         IReadOnlyCollection<T>, ICollection
     {
         /// <summary>Initialize the set.</summary>
@@ -282,7 +286,7 @@ namespace System.Collections.Frozen
         {
             if (array != null && array.Rank != 1)
             {
-                throw new ArgumentException("The array must be one-dimensional.", nameof(array));
+                throw new ArgumentException(SR.Arg_RankMultiDimNotSupported, nameof(array));
             }
 
             T[] items = ItemsCore;
@@ -340,7 +344,15 @@ namespace System.Collections.Frozen
         /// the lookup is created, we only pay for generic virtual method invocation once.
         /// </remarks>
         private protected virtual AlternateLookupDelegate<TAlternate> GetAlternateLookupDelegate<TAlternate>()
+#if NET || NETWASM_REF_STRUCT_GENERICS
+#pragma warning disable SA1001 // Commas should be spaced correctly
+            // This method will only ever be used on .NET 9+. However, because of how everything is structured,
+            // and to avoid a proliferation of conditional files for many of the derived types (in particular
+            // for the OrdinalString* implementations), we still build this method into all builds, even though
+            // it'll be unused. But we can't use the allows ref struct constraint downlevel, hence the #if.
             where TAlternate : allows ref struct
+#pragma warning restore SA1001
+#endif
             => AlternateLookupDelegateHolder<TAlternate>.ReturnsNullRef;
 
         /// <summary>
@@ -348,14 +360,22 @@ namespace System.Collections.Frozen
         /// for the <typeparamref name="TAlternate"/>.
         /// </summary>
         internal delegate int AlternateLookupDelegate<TAlternate>(FrozenSet<T> set, TAlternate key)
+#if NET || NETWASM_REF_STRUCT_GENERICS
+#pragma warning disable SA1001 // Commas should be spaced correctly
             where TAlternate : allows ref struct
+#pragma warning restore SA1001
+#endif
             ;
 
         /// <summary>
         /// Holds an implementation of <see cref="AlternateLookupDelegate{TAlternate}"/> which always returns -1.
         /// </summary>
         private static class AlternateLookupDelegateHolder<TAlternate>
+#if NET || NETWASM_REF_STRUCT_GENERICS
+#pragma warning disable SA1001 // Commas should be spaced correctly
             where TAlternate : allows ref struct
+#pragma warning restore SA1001
+#endif
         {
             public static readonly AlternateLookupDelegate<TAlternate> ReturnsNullRef = (_, _) => -1;
         }
@@ -494,7 +514,7 @@ namespace System.Collections.Frozen
                 {
                     if ((uint)_index >= (uint)_entries.Length)
                     {
-                        throw new InvalidOperationException();
+                        ThrowHelper.ThrowInvalidOperationException();
                     }
 
                     return _entries[_index];

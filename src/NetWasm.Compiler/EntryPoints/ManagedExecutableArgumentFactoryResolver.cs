@@ -10,7 +10,7 @@ internal sealed class ManagedExecutableArgumentFactoryResolver :
 {
     private const string PlatformServicesType =
         "System.Runtime.InteropServices.PlatformServices";
-    private const string ArgumentFactoryMethod = "ReadCommandLineArguments";
+    private const string ArgumentFactoryMethod = "ReadManagedEntryPointArguments";
 
     public EntityKey? Resolve(
         CompilerEntryPointKind kind,

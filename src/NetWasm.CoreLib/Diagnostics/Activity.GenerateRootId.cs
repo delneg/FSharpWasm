@@ -5,10 +5,18 @@ namespace System.Diagnostics
 {
     partial class Activity
     {
-        private static string GenerateRootId()
+        private static unsafe string GenerateRootId()
         {
-            // Keep the frequently changing part first, matching the upstream sampling shape.
-            return "|" + (++s_currentRootId).ToString("x") + s_uniqSuffix;
+            // It is important that the part that changes frequently be first, because
+            // some sampling functions don't sample from the high entropy part of their hash function.
+            // This makes sampling based on this produce poor samples.
+            Debug.Assert(s_uniqSuffix.Length < 50); // Ensure stackalloc not too large
+            Span<char> result = stackalloc char[1 + 16 + s_uniqSuffix.Length]; // max length needed
+            result[0] = '|';
+            bool formatted = (++s_currentRootId).TryFormat(result.Slice(1), out int charsWritten, "x");
+            Debug.Assert(formatted);
+            s_uniqSuffix.AsSpan().CopyTo(result.Slice(1 + charsWritten));
+            return new string(result.Slice(0, 1 + charsWritten + s_uniqSuffix.Length));
         }
     }
 }

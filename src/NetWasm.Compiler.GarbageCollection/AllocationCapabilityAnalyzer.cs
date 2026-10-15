@@ -4,6 +4,7 @@ using System.Collections.Immutable;
 using System.Linq;
 using NetWasm.Compiler.ControlFlow;
 using NetWasm.Compiler.Core;
+using NetWasm.Compiler.Core.Types;
 
 namespace NetWasm.Compiler.GarbageCollection;
 
@@ -12,7 +13,9 @@ public sealed class AllocationCapabilityAnalyzer(
     IFieldRepository fields,
     IMethodRepository methods,
     IRuntimeAllocationSafepointClassifier runtimeSafepoints,
-    ITypeClassifier typeClassifier) : IAllocationCapabilityAnalyzer
+    IRuntimeIntrinsicRegistry intrinsics,
+    ITypeClassifier typeClassifier,
+    IMethodInitializationTriggerClassifier initializationTriggers) : IAllocationCapabilityAnalyzer
 {
     private readonly ITypeRepository _types =
         types ?? throw new ArgumentNullException(nameof(types));
@@ -22,9 +25,13 @@ public sealed class AllocationCapabilityAnalyzer(
         methods ?? throw new ArgumentNullException(nameof(methods));
     private readonly IRuntimeAllocationSafepointClassifier _runtimeSafepoints =
         runtimeSafepoints ?? throw new ArgumentNullException(nameof(runtimeSafepoints));
+    private readonly IRuntimeIntrinsicRegistry _intrinsics =
+        intrinsics ?? throw new ArgumentNullException(nameof(intrinsics));
 
     private readonly ITypeClassifier _typeClassifier = typeClassifier ??
         throw new ArgumentNullException(nameof(typeClassifier));
+    private readonly IMethodInitializationTriggerClassifier _initializationTriggers = initializationTriggers ??
+        throw new ArgumentNullException(nameof(initializationTriggers));
 
     public AllocationCapabilities Analyze(AllocationCapabilityAnalysisRequest request)
     {
@@ -55,12 +62,19 @@ public sealed class AllocationCapabilityAnalyzer(
                 pair => pair.Value.Method.DeclaringType.CanonicalName,
                 pair => pair.Key,
                 StringComparer.Ordinal);
+        var intrinsicBodies = bodies
+            .Where(pair => _intrinsics.TryGetIntrinsic(
+                pair.Value.Method.Definition.Key,
+                out _))
+            .Select(pair => pair.Key)
+            .ToHashSet(StringComparer.Ordinal);
         var allocating = bodies
             // Cached-failure dispatch can run allocating exception filters even
             // when the initializer's managed body is allocation-free.
-            .Where(pair => pair.Value.Method.Definition.Name == ".cctor" ||
+            .Where(pair => !intrinsicBodies.Contains(pair.Key) &&
+                (pair.Value.Method.Definition.Name == ".cctor" ||
                 Instructions(pair.Value).Any(instruction =>
-                CilSafepointClassifier.RequiresUnconditionalRootDecision(instruction)))
+                    CilSafepointClassifier.RequiresUnconditionalRootDecision(instruction))))
             .Select(pair => pair.Key)
             .ToHashSet(StringComparer.Ordinal);
 
@@ -70,7 +84,7 @@ public sealed class AllocationCapabilityAnalyzer(
             changed = false;
             foreach ((var identity, var body) in bodies)
             {
-                if (allocating.Contains(identity))
+                if (allocating.Contains(identity) || intrinsicBodies.Contains(identity))
                 {
                     continue;
                 }
@@ -174,6 +188,8 @@ public sealed class AllocationCapabilityAnalyzer(
         if (dispatchCallSites.TryGetValue(dispatchKey, out var dispatch))
         {
             return dispatch.Targets.Any(target =>
+                HasAllocatingInitializer(target.Method.Definition, target.Method.DeclaringType,
+                    allocating, directInitializers, constructedInitializers) ||
                 _runtimeSafepoints.Classify(target.Method) ||
                 allocating.Contains(target.Method.CanonicalName));
         }
@@ -196,14 +212,14 @@ public sealed class AllocationCapabilityAnalyzer(
                allocating.Contains(method.CanonicalName);
     }
 
-    private static bool HasAllocatingInitializer(
+    private bool HasAllocatingInitializer(
         MethodDefinitionModel method,
         CliTypeIdentity? declaringType,
         HashSet<string> allocating,
         Dictionary<EntityKey, string> directInitializers,
         Dictionary<string, string> constructedInitializers)
     {
-        if (!method.IsStatic || method.Name == ".cctor")
+        if (!_initializationTriggers.Classify(method))
             return false;
         var initializer = declaringType is { Shape: CliTypeShape.GenericInstantiation }
             ? constructedInitializers.GetValueOrDefault(declaringType.CanonicalName)

@@ -15,8 +15,6 @@ timezone_asset="$output_dir/timezones.nwtz"
 dotnet run \
   --project "$repo_root/tools/NetWasm.TimeZones/NetWasm.TimeZones.csproj" \
   --configuration Release \
-  --no-build \
-  --no-restore \
   -- generate \
   --source "$timezone_source" \
   --zone UTC \

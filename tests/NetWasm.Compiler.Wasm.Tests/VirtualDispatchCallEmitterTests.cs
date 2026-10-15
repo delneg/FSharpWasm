@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Linq;
 using NetWasm.Compiler.Core;
+using NetWasm.Compiler.Core.Types;
 using NetWasm.Compiler.Wasm.Emission;
 using NetWasm.Compiler.Wasm.Emission.Instructions;
 using NetWasm.Compiler.Wasm.Emission.Instructions.Calls;
@@ -15,6 +16,41 @@ using static EmitterTestSupport;
 
 public sealed class VirtualDispatchCallEmitterTests
 {
+    [Fact]
+    public void InitializerGuardUsesTheSelectedImplementationNotTheDeclaration()
+    {
+        var signature = MethodSignatureModel.Create(CliValueKind.I4);
+        var declaration = Method(Key(0x06000040), ReferenceType(), signature);
+        var implementation = Method(Key(0x06000041),
+            CliTypeIdentity.Named(Assembly, "Test", "ValueImplementation", true), signature);
+        var request = CreateDispatchRequest(declaration,
+            [new(implementation.DeclaringType, implementation)], [CliValueKind.ManagedReference], 1, out var indices);
+        var guards = new SelectedInitialization(implementation.Definition);
+        var emitter = CreateEmitter(new RecordingLayoutProvider(), initialization: guards, initializationTriggers: guards);
+
+        Emit((ICallEmitter)emitter, request, indices);
+
+        Assert.Equal(implementation.Definition, Assert.Single(guards.Classified));
+        var emitted = Assert.Single(guards.Requests);
+        Assert.Equal(implementation.DeclaringType, emitted.DeclaringType);
+        Assert.True(emitted.IsMethodInvocation);
+        Assert.Equal([CliValueKind.I4], request.Instruction.Stack);
+    }
+
+    private sealed class SelectedInitialization(MethodDefinitionModel selected) :
+        IMethodInitializationTriggerClassifier, IStaticInitializationEmitter
+    {
+        public List<MethodDefinitionModel> Classified { get; } = [];
+        public List<StaticInitializationEmissionRequest> Requests { get; } = [];
+        public bool Classify(MethodDefinitionModel method)
+        {
+            Classified.Add(method);
+            return method == selected;
+        }
+        public void Emit(StaticInitializationEmissionRequest request, IWasmInstructionWriter code,
+            IFunctionIndexResolver functionIndices) => Requests.Add(request);
+    }
+
     [Fact]
     public void RejectsEmissionWithoutAPlannedDispatchSite()
     {
@@ -105,6 +141,133 @@ public sealed class VirtualDispatchCallEmitterTests
         Assert.Equal([CliValueKind.I4], instruction.Stack);
         Assert.Contains(WasmOpcodes.If, code.ToArray());
         Assert.Contains(WasmOpcodes.Throw, code.ToArray());
+    }
+
+    [Fact]
+    public void EmitsOverrideCheckAndConcreteObjectFallbackOnce()
+    {
+        var signature = MethodSignatureModel.Create(CliValueKind.I4);
+        var declaration = Method(
+            Key(0x06000040),
+            ObjectType(),
+            signature);
+        var overriddenMethod = Method(
+            Key(0x06000041),
+            CliTypeIdentity.Named(Assembly, "Test", "Override", isValueType: false),
+            signature);
+        var request = CreateDispatchRequest(
+            declaration,
+            [
+                new DispatchTargetModel(
+                    CliTypeIdentity.Named(Assembly, "Test", "First", isValueType: false),
+                    declaration),
+                new DispatchTargetModel(overriddenMethod.DeclaringType, overriddenMethod),
+                new DispatchTargetModel(
+                    CliTypeIdentity.Named(Assembly, "Test", "Second", isValueType: false),
+                    declaration),
+            ],
+            [CliValueKind.ManagedReference],
+            consumed: 1,
+            out var indices);
+
+        Emit((ICallEmitter)CreateEmitter(new RecordingLayoutProvider()), request, indices);
+
+        var instructions = ((RecordingInstructionWriter)GetCodeWriter(request.Instruction))
+            .ToInstructions();
+        Assert.Single(instructions, instruction =>
+            instruction.Opcode == WasmOpcodes.I32Equal);
+        Assert.Equal(2, instructions.Count(instruction =>
+            instruction.Opcode == WasmOpcodes.Call &&
+            instruction.Operand.UnsignedValue >= 80));
+    }
+
+    [Fact]
+    public void EmitsConcreteObjectFallbackWithoutTypeChecks()
+    {
+        var signature = MethodSignatureModel.Create(CliValueKind.I4);
+        var declaration = Method(
+            Key(0x06000048),
+            ObjectType(),
+            signature);
+        var request = CreateDispatchRequest(
+            declaration,
+            [
+                new DispatchTargetModel(
+                    CliTypeIdentity.Named(
+                        Assembly,
+                        "Test",
+                        "FirstInherited",
+                        isValueType: false),
+                    declaration),
+                new DispatchTargetModel(
+                    CliTypeIdentity.Named(
+                        Assembly,
+                        "Test",
+                        "SecondInherited",
+                        isValueType: false),
+                    declaration),
+            ],
+            [CliValueKind.ManagedReference],
+            consumed: 1,
+            out var indices);
+
+        Emit((ICallEmitter)CreateEmitter(new RecordingLayoutProvider()), request, indices);
+
+        var instructions = ((RecordingInstructionWriter)GetCodeWriter(request.Instruction))
+            .ToInstructions();
+        Assert.DoesNotContain(instructions, instruction =>
+            instruction.Opcode is WasmOpcodes.I32Load or WasmOpcodes.I32Equal);
+        Assert.Single(instructions, instruction =>
+            instruction.Opcode == WasmOpcodes.Call &&
+            instruction.Operand.UnsignedValue >= 80);
+    }
+
+    [Theory]
+    [InlineData(3, false)]
+    [InlineData(4, true)]
+    public void LoadsReceiverTypeOnceAndBalancesLargerTargetSets(
+        int targetCount,
+        bool expectBalanced)
+    {
+        var signature = MethodSignatureModel.Create(CliValueKind.I4);
+        var declaration = Method(
+            Key(0x06000050),
+            ReferenceType(),
+            signature);
+        var targets = Enumerable.Range(0, targetCount)
+            .Select(index =>
+            {
+                var receiver = CliTypeIdentity.Named(
+                    Assembly,
+                    "Test",
+                    $"Receiver{index}",
+                    isValueType: false);
+                return new DispatchTargetModel(
+                    receiver,
+                    Method(Key(0x06000051 + index), receiver, signature));
+            })
+            .ToImmutableArray();
+        var request = CreateDispatchRequest(
+            declaration,
+            targets,
+            [CliValueKind.ManagedReference],
+            consumed: 1,
+            out var indices);
+
+        Emit((ICallEmitter)CreateEmitter(new RecordingLayoutProvider()), request, indices);
+
+        var instructions = ((RecordingInstructionWriter)GetCodeWriter(request.Instruction))
+            .ToInstructions();
+        Assert.Single(instructions, instruction =>
+            instruction.Opcode == WasmOpcodes.I32Load);
+        Assert.Equal(
+            expectBalanced,
+            instructions.Any(instruction =>
+                instruction.Opcode == WasmOpcodes.I32LessThanUnsigned));
+        Assert.Equal(
+            expectBalanced,
+            instructions.Any(instruction =>
+                instruction.Opcode == WasmOpcodes.Branch));
     }
 
     [Theory]
@@ -551,10 +714,13 @@ public sealed class VirtualDispatchCallEmitterTests
         IEnumToStringEmitter? enumToString = null,
         IEnumConvertEmitter? enumConvert = null,
         IValueTypeEqualsEmitter? valueTypeEquals = null,
-        IValueTypeHashCodeEmitter? valueTypeHashCode = null) => new(
+        IValueTypeHashCodeEmitter? valueTypeHashCode = null,
+        IStaticInitializationEmitter? initialization = null,
+        IMethodInitializationTriggerClassifier? initializationTriggers = null) => new(
         layouts,
         layouts,
         layouts,
+        new VirtualDispatchEmissionPlanBuilder(),
         intrinsics ?? new FakeIntrinsics(),
         new ImplicitExceptionEmitter(layouts, layouts, 7),
         enumEquals ?? new RecordingEnumEqualsEmitter(),
@@ -567,7 +733,10 @@ public sealed class VirtualDispatchCallEmitterTests
         enumConvert ?? new RecordingEnumConvertEmitter(),
         valueTypeEquals ?? new RecordingValueTypeEqualsEmitter(),
         valueTypeHashCode ?? new RecordingValueTypeHashCodeEmitter(),
-        new ConstrainedReferenceReceiverEmitter(layouts));
+        new ConstrainedReferenceReceiverEmitter(layouts),
+        initialization ?? new StaticInitializationEmitter(new FakeProgram(), new FakeProgram(),
+            new NetWasm.Compiler.Wasm.Emission.Support.AddressInstructionEmitter(layouts)),
+        initializationTriggers ?? new MethodInitializationTriggerClassifier(new FakeProgram()));
 
     private static CallEmissionRequest CreateDispatchRequest(
         MethodInstanceModel method,
@@ -615,6 +784,7 @@ public sealed class VirtualDispatchCallEmitterTests
         var directMethods = targets
             .Select((dispatchTarget, index) =>
                 (dispatchTarget.Method.Definition.Key, new WasmFunctionIndex(80 + index)))
+            .DistinctBy(pair => pair.Key)
             .ToImmutableDictionary(pair => pair.Key, pair => pair.Item2);
         var indices = new FunctionIndexMap(directMethods, [], [], []);
         functionIndices = CreateFunctionIndexResolver(program, indices);
@@ -623,6 +793,9 @@ public sealed class VirtualDispatchCallEmitterTests
 
     private static CliTypeIdentity ReferenceType() =>
         CliTypeIdentity.Named(Assembly, "Test", "Type", isValueType: false);
+
+    private static CliTypeIdentity ObjectType() =>
+        CliTypeIdentity.Named(Assembly, "System", "Object", isValueType: false);
 
     private static MethodInstanceModel Method(
         EntityKey key,

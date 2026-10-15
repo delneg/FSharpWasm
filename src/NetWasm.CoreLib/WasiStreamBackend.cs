@@ -95,8 +95,6 @@ namespace System.Runtime.InteropServices
             _handle = handle;
         }
 
-        ~WasiOutputStreamResource() => Release();
-
         internal int Handle
         {
             get
@@ -109,7 +107,6 @@ namespace System.Runtime.InteropServices
         public void Dispose()
         {
             Release();
-            GC.SuppressFinalize(this);
         }
 
         private void EnsureAlive()
@@ -270,12 +267,13 @@ namespace System.Runtime.InteropServices
             if (tag == 0)
             {
                 _resource.Drop(CanonicalAbi.ReadInt32(result, payloadOffset + 4));
+                throw new IO.IOException();
             }
-            else if (tag != 1)
-            {
-                throw new ArgumentException();
-            }
-            throw new InvalidOperationException();
+
+            if (tag == 1)
+                throw new ObjectDisposedException(null);
+
+            throw new ArgumentException();
         }
     }
 

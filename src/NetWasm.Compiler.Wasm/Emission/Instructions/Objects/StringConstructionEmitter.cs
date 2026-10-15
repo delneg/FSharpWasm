@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using NetWasm.Compiler.Core;
 using NetWasm.Compiler.Wasm.Emission.Instructions.Runtime;
 using NetWasm.Compiler.Wasm.Emission.Methods;
@@ -9,8 +10,12 @@ using NetWasm.Compiler.Wasm.Encoding;
 namespace NetWasm.Compiler.Wasm.Emission.Instructions.Objects;
 
 internal sealed class StringConstructionEmitter(
+    ITypeDefinitionResolver typeDefinitions,
+    IFieldRepository fields,
     ITargetLayout layouts,
     IAddressInstructionEmitter addresses,
+    IValueLayoutProvider values,
+    IInstanceFieldLayoutProvider instanceFields,
     ITypeLayoutProvider typeLayouts,
     IRuntimeObjectLayout objects,
     IRuntimeImportResolver runtimeImports,
@@ -37,11 +42,122 @@ internal sealed class StringConstructionEmitter(
                     argumentBase,
                     plan);
                 return;
+            case StringConstructionSourceKind.CharacterSpan:
+                EmitCharacterSpan(request, code, signature, argumentBase);
+                return;
             default:
                 throw new InvalidOperationException(
                     $"Unknown string construction source kind '{plan.SourceKind}'.");
         }
     }
+
+    private void EmitCharacterSpan(
+        InstructionEmissionRequest request,
+        IWasmInstructionWriter code,
+        MethodSignatureModel signature,
+        int argumentBase)
+    {
+        var spanType = signature.ParameterSignatureTypes[0];
+        var spanLocal = GetStackLocal(
+            request.Context,
+            argumentBase,
+            CliValueKind.ValueType);
+        var (reference, referenceLayout, length, lengthLayout) =
+            ResolveCharacterSpan(spanType);
+
+        code.Write(WasmInstruction.WithOperand(
+            WasmOpcodes.I32Constant,
+            WasmInstructionOperand.Signed(0)));
+        code.Write(LocalGet(spanLocal));
+        ManagedMemoryEmitter.EmitLoadByType(
+            code,
+            layouts.Target,
+            lengthLayout.Offset,
+            length.FieldType,
+            lengthLayout.Size);
+        code.Write(WasmInstruction.WithOperand(
+            WasmOpcodes.LocalTee,
+            WasmInstructionOperand.Unsigned(
+                (uint)request.Context.NumericTemporaryI4)));
+        Allocate(request, code);
+
+        code.Write(LocalGet(request.Context.ObjectTemporary));
+        addresses.Emit(code, objects.StringDataOffset);
+        addresses.Emit(code, AddressOperation.Add);
+        code.Write(LocalGet(spanLocal));
+        ManagedMemoryEmitter.EmitLoadByType(
+            code,
+            layouts.Target,
+            referenceLayout.Offset,
+            reference.FieldType,
+            referenceLayout.Size);
+        code.Write(LocalGet(request.Context.NumericTemporaryI4));
+        if (layouts.Target.UsesMemory64)
+        {
+            code.Write(WasmInstruction.NoOperand(WasmOpcodes.I64ExtendI32Unsigned));
+        }
+        addresses.Emit(code, sizeof(char));
+        code.Write(WasmInstruction.NoOperand(
+            layouts.Target.UsesMemory64
+                ? WasmOpcodes.I64Multiply
+                : WasmOpcodes.I32Multiply));
+        code.Write(WasmInstruction.WithOperand(
+            WasmOpcodes.Prefixed,
+            WasmInstructionOperand.PrefixedTriple(
+                WasmOpcodes.MemoryCopy,
+                0,
+                0)));
+        Publish(request, code, signature, argumentBase);
+    }
+
+    private (
+        FieldInstanceModel Reference,
+        FieldLayout ReferenceLayout,
+        FieldInstanceModel Length,
+        FieldLayout LengthLayout) ResolveCharacterSpan(CliTypeIdentity spanType)
+    {
+        var definition = typeDefinitions.ResolveTypeIdentity(spanType);
+        var resolved = definition.Fields
+            .Select(fields.GetField)
+            .Select(field => new FieldInstanceModel(
+                field,
+                spanType,
+                field.SignatureType.Substitute(spanType.TypeArguments)))
+            .ToArray();
+        var reference = resolved.SingleOrDefault(field =>
+            field.Definition.Name == "_reference");
+        var length = resolved.SingleOrDefault(field =>
+            field.Definition.Name == "_length");
+        if (reference is null || length is null ||
+            reference.FieldType.Shape != CliTypeShape.ManagedByReference ||
+            reference.FieldType.ElementType!.CanonicalName != "primitive:char" ||
+            length.FieldType.CanonicalName != "primitive:i4")
+        {
+            throw Invalid("ReadOnlySpan<char> has an incompatible field contract.");
+        }
+
+        var spanLayout = values.GetValueLayout(spanType);
+        var referenceLayout = instanceFields.GetFieldLayout(reference);
+        var lengthLayout = instanceFields.GetFieldLayout(length);
+        if (referenceLayout.Size != layouts.Target.AddressSize ||
+            lengthLayout.Size != sizeof(int) ||
+            !Contains(spanLayout, referenceLayout) ||
+            !Contains(spanLayout, lengthLayout) ||
+            !spanLayout.ByReferenceOffsets.Contains(referenceLayout.Offset))
+        {
+            throw Invalid("ReadOnlySpan<char> has an incompatible value layout.");
+        }
+
+        return (reference, referenceLayout, length, lengthLayout);
+    }
+
+    private static bool Contains(ValueLayout value, FieldLayout field) =>
+        field.Offset >= 0 &&
+        checked(field.Offset + field.Size) <= value.Size;
+
+    private static CompilerException Invalid(string message) => new(new(
+        DiagnosticCode.RuntimeContract,
+        message));
 
     private void EmitRepeatedCharacter(
         InstructionEmissionRequest request,

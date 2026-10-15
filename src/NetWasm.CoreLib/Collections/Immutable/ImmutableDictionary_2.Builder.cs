@@ -394,7 +394,7 @@ namespace System.Collections.Immutable
                     TValue value;
                     if (!this.TryGetValue(key, out value!))
                     {
-                        ImmutableDictionaryThrowHelper.ThrowKeyNotFoundException(key);
+                        ThrowHelper.ThrowKeyNotFoundException(key);
                     }
 
                     return value;
@@ -571,7 +571,7 @@ namespace System.Collections.Immutable
             /// true if the object that implements <see cref="IDictionary{TKey, TValue}"/> contains an element with the specified key; otherwise, false.
             /// </returns>
             /// <exception cref="ArgumentNullException"><paramref name="key"/> is null.</exception>
-            public bool TryGetValue(TKey key, out TValue value)
+            public bool TryGetValue(TKey key, [MaybeNullWhen(false)] out TValue value)
             {
                 return ImmutableDictionary<TKey, TValue>.TryGetValue(key, this.Origin, out value!);
             }

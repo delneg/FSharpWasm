@@ -10,6 +10,37 @@ namespace NetWasm.Compiler.Wasm.Tests;
 public sealed class UnsafeIntrinsicEmitterTests
 {
     [Theory]
+    [InlineData(WasmTarget.Wasm32, CliValueKind.ManagedAddress, CliValueKind.I4)]
+    [InlineData(WasmTarget.Wasm64, CliValueKind.ManagedAddress, CliValueKind.I4)]
+    [InlineData(WasmTarget.Wasm32, CliValueKind.ManagedAddress, CliValueKind.NativeInt)]
+    [InlineData(WasmTarget.Wasm64, CliValueKind.ManagedAddress, CliValueKind.NativeInt)]
+    [InlineData(WasmTarget.Wasm32, CliValueKind.NativeInt, CliValueKind.I4)]
+    [InlineData(WasmTarget.Wasm64, CliValueKind.NativeInt, CliValueKind.I4)]
+    public void AddUsesDeclaredAddressAndOffsetLocals(
+        WasmTarget target, CliValueKind addressKind, CliValueKind offsetKind)
+    {
+        var layout = WasmTargetLayout.For(target);
+        var layouts = new RecordingLayoutProvider(layout);
+        var request = EmitterTestSupport.CreateRuntimeIntrinsicRequest(
+            RuntimeIntrinsic.UnsafeAdd, [addressKind, offsetKind],
+            [CliTypeIdentity.FromStackKind(CliValueKind.I8)]) with
+        { Target = layout };
+
+        EmitThroughCapability(new UnsafeAddIntrinsicEmitter(layouts, layouts), request);
+
+        var bytes = EmitterTestSupport.GetCodeBytes(request.Instruction);
+        Assert.Equal(new byte[]
+        {
+            WasmOpcodes.LocalGet, (byte)request.Local(0, addressKind),
+            WasmOpcodes.LocalGet, (byte)request.Local(1, offsetKind),
+        }, bytes[..4]);
+        Assert.Equal(target == WasmTarget.Wasm64 && offsetKind == CliValueKind.I4,
+            bytes.Contains(WasmOpcodes.I64ExtendI32Signed));
+        Assert.Equal(WasmOpcodes.LocalSet, bytes[^2]);
+        Assert.Equal((byte)request.Local(0, addressKind), bytes[^1]);
+    }
+
+    [Theory]
     [InlineData(RuntimeIntrinsic.UnsafeAdd, CliValueKind.ManagedAddress, CliValueKind.I4)]
     [InlineData(RuntimeIntrinsic.UnsafeAs, CliValueKind.ManagedAddress, CliValueKind.ManagedAddress)]
     [InlineData(RuntimeIntrinsic.UnsafeAsRef, CliValueKind.NativeInt, CliValueKind.NativeInt)]

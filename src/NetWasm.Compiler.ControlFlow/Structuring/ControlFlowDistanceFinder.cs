@@ -36,7 +36,7 @@ internal sealed class ControlFlowDistanceFinder : IControlFlowDistanceFinder
             {
                 continue;
             }
-            foreach (var successor in state.Graph.Successors[item.Node])
+            foreach (var successor in state.ContinuationGraph.Successors[item.Node])
             {
                 pending.Enqueue((successor, item.Distance + 1));
             }

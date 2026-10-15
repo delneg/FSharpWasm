@@ -91,6 +91,16 @@ environment (`TZ`) and filesystem capabilities. Absent, corrupt, incompatible,
 or incomplete assets fail loudly instead of falling back to host-local time;
 there is no custom timezone WIT import. See [timezone assets](timezone-assets.md).
 
+The retained date/time profile provides Gregorian arithmetic, invariant
+formatting and parsing, ordinary non-leap file-time conversion, and selected
+IANA-zone conversion. Named cultures, alternate calendars, `IConvertible`,
+user-created `TimeZoneInfo`, legacy timezone string serialization, and automatic
+IANA/Windows identifier mapping are outside the profile. Local `DateTime`
+binary serialization is rejected because its desktop payload embeds machine
+timezone assumptions. `TimeZoneInfo.ClearCachedData()` clears facade object
+caches but deliberately preserves the immutable TZ/asset snapshot selected at
+startup; changing `TZ` during one component lifetime is unsupported.
+
 Component capabilities are Conditional too. A component receives only the
 WIT/WASI imports declared by its selected world, and its host must supply each
 one before managed code begins. Clocks, streams, randomness, filesystem access,
@@ -111,6 +121,13 @@ current managed surface is deliberately narrower:
 | CLI and processes | Selected command-line arguments, environment access, standard output/runtime diagnostics and application exit plumbing. | `System.Diagnostics.Process`, child-process creation, shell execution, process enumeration and ambient machine/user/process discovery. |
 | Concurrency | Single-reactor `Task`, `ValueTask`, cancellation, timers and readiness-driven continuations. | Managed threads, workers sharing the managed heap, a managed thread pool, `Task.Run` parallelism, blocking waits and shared-memory/atomic threading semantics. Source-compatibility shims do not provide concurrency. |
 | Host and browser services | Explicit application WIT imports and explicit JavaScript imports in the applicable output mode. | Implicit DOM, fetch, storage, registry, proxy, certificate-store or other ambient OS/browser services. |
+
+The timer entry in this profile means `TimeProvider`, `ITimer`,
+`PeriodicTimer`, cancellation deadlines and framework-owned delay/wait timers.
+The desktop `System.Threading.Timer` facade is not in the selected public
+surface. `TaskFactory` is also absent; use the retained direct `Task` APIs and
+reactor continuations. Neither omission changes the availability of
+readiness-driven async work on the single reactor.
 
 This table describes the public managed compatibility boundary. It does not
 forbid Hosting from using a capability internally, nor does it turn every
@@ -216,21 +233,21 @@ debugger backend with IDE integration are also required. PDB retention or the
 exception-trace sidecar alone does not enable interactive debugging. Source-aware
 exception reporting is an independent immediate DX priority.
 
-## Deferred non-collecting allocator mode
+## Non-collecting Bump allocator
 
-NetWasm may add an opt-in bump allocator (a non-collecting or "null GC"
-runtime mode) for short-lived applications and diagnostics. Allocation would
-advance monotonically through the managed heap and would not reclaim objects
-during execution. This can remove collector and root scanning from a failing
-program while preserving the same compiled managed workload, making it a
-useful control when diagnosing GC-lifetime defects.
+NetWasm supports an opt-in `Bump` production collector for applications whose
+lifetime and total allocation are bounded by design. Allocation advances
+monotonically through lazily allocated chunks and does not reclaim managed
+objects during execution. It is suitable for one-shot tools, plugins that
+finish and unload, and process-per-job workers with a known memory bound. It is
+also useful as a no-collection control when diagnosing collector-sensitive
+behavior, but diagnostics are not its only intended use.
 
-This mode is deferred. Precise BDWGC remains the supported managed-heap
-implementation, and a non-collecting mode must not mask defects in that
-collector. Any future implementation must be explicitly selected, document
-its unbounded-until-limit memory behavior and reduced collection/finalization
-semantics, and preserve the runtime allocation ABI so application code does
-not depend on a particular collector.
+Select it with `NetWasmGarbageCollector=Bump`. Memory grows until the application
+ends or the Wasm memory limit is reached. The SDK rejects applications that use
+finalization, weak handles or ephemeron handles with Bump. Compact remains the
+default precise tracing collector, and Boehm remains the alternative tracing
+backend.
 
 ## External toolchain blocker
 

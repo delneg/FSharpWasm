@@ -119,4 +119,82 @@ internal static class PathInternal
 
         return commonLength;
     }
+
+    internal static string RemoveRelativeSegments(string path, int rootLength)
+    {
+        var builder = new ValueStringBuilder(stackalloc char[260]);
+        if (RemoveRelativeSegments(path.AsSpan(), rootLength, ref builder))
+        {
+            path = builder.ToString();
+        }
+        else
+        {
+            builder.Dispose();
+        }
+
+        return path;
+    }
+
+    private static bool RemoveRelativeSegments(
+        ReadOnlySpan<char> path,
+        int rootLength,
+        ref ValueStringBuilder builder)
+    {
+        var skip = rootLength;
+        if (IsDirectorySeparator(path[skip - 1]))
+            skip--;
+
+        if (skip > 0)
+            builder.Append(path[..skip]);
+
+        for (var index = skip; index < path.Length; index++)
+        {
+            var character = path[index];
+            if (IsDirectorySeparator(character) && index + 1 < path.Length)
+            {
+                if (IsDirectorySeparator(path[index + 1]))
+                    continue;
+
+                if ((index + 2 == path.Length || IsDirectorySeparator(path[index + 2])) &&
+                    path[index + 1] == '.')
+                {
+                    index++;
+                    continue;
+                }
+
+                if (index + 2 < path.Length &&
+                    (index + 3 == path.Length || IsDirectorySeparator(path[index + 3])) &&
+                    path[index + 1] == '.' && path[index + 2] == '.')
+                {
+                    var segment = builder.Length - 1;
+                    for (; segment >= skip; segment--)
+                    {
+                        if (IsDirectorySeparator(builder[segment]))
+                        {
+                            builder.Length = index + 3 >= path.Length && segment == skip
+                                ? segment + 1
+                                : segment;
+                            break;
+                        }
+                    }
+
+                    if (segment < skip)
+                        builder.Length = skip;
+
+                    index += 2;
+                    continue;
+                }
+            }
+
+            builder.Append(character);
+        }
+
+        if (builder.Length == path.Length)
+            return false;
+
+        if (skip != rootLength && builder.Length < rootLength)
+            builder.Append(path[rootLength - 1]);
+
+        return true;
+    }
 }

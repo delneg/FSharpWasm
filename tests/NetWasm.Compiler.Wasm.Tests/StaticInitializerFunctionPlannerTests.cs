@@ -72,8 +72,8 @@ public sealed class StaticInitializerFunctionPlannerTests
     }
 
     private static WasmModulePlan Functions(FunctionIndexMap indices) => new(
-        default, [], [], [], StackTraceMethodPlan.Disabled, [], indices,
-        new([], default, default, default, default, default, default), default, default, default, default)
+        default, FinalizationPlan.Empty, [], [], [], StackTraceMethodPlan.Disabled, [], indices,
+        new([], default, default, default, default, default, default))
     { StaticInitializerFunctionBase = 100 };
 
     private sealed class Metadata : ITypeDescriptorSource, ITypeRepository, IMethodRepository, IStaticDataLayout

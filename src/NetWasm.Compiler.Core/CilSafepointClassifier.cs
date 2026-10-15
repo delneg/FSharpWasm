@@ -13,8 +13,6 @@ public static class CilSafepointClassifier
             CilOperation.NewRectangularArray or
             CilOperation.NewBoundedRectangularArray or
             CilOperation.Box or
-            CilOperation.DelegateCombine or
-            CilOperation.DelegateRemove or
             CilOperation.MaterializeType or
             CilOperation.GetObjectType or
             CilOperation.CallIndirect;
@@ -49,6 +47,7 @@ public static class CilSafepointClassifier
             CilOperation.LoadRectangularArrayElement or
             CilOperation.LoadRectangularArrayElementAddress or
             CilOperation.StoreRectangularArrayElement or
+            CilOperation.LoadStaticDataElement or
             CilOperation.Divide or
             CilOperation.DivideUnsigned or
             CilOperation.Remainder or
@@ -61,8 +60,6 @@ public static class CilSafepointClassifier
             CilOperation.MultiplyCheckedUnsigned or
             CilOperation.CastClass or
             CilOperation.LoadVirtualFunction or
-            CilOperation.DelegateCombine or
-            CilOperation.DelegateRemove or
             CilOperation.MaterializeType or
             CilOperation.GetObjectType or
             CilOperation.Throw or

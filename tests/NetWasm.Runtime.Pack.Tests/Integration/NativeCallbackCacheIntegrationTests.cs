@@ -212,6 +212,7 @@ public sealed class NativeCallbackCacheIntegrationTests
             target,
             applicationStaticDataEnd = compilation.StaticDataEnd,
             managedExecutableEntryPoint = (object?)null,
+            runtimeFeatures = compilation.RuntimeFeatures,
             nativeImports = compilation.NativeImports,
             nativeCallbackSupport = new
             {

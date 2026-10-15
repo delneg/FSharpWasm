@@ -267,6 +267,8 @@ public sealed class ManagedAssembly : IDisposable
                         IsNewSlot = (method.Attributes & MethodAttributes.NewSlot) != 0,
                         IsFinal = (method.Attributes & MethodAttributes.Final) != 0,
                         IsAbstract = (method.Attributes & MethodAttributes.Abstract) != 0,
+                        IsAggressiveInlining = (method.ImplAttributes & MethodImplAttributes.AggressiveInlining) != 0,
+                        IsNoInlining = (method.ImplAttributes & MethodImplAttributes.NoInlining) != 0,
                     });
             }
 

@@ -7,7 +7,8 @@ namespace System.Runtime.InteropServices.TimeZones
         ITimeZoneDefinitionResolverFactory definitions,
         ILocalTimeOffsetResolverFactory offsets,
         ILocalTimeOffsetResolver utcFallback,
-        ILocalTimeOffsetResolverInstaller installer) : ILocalTimePreflightValidator
+        ILocalTimeOffsetResolverInstaller installer,
+        ITimeZoneCatalogSnapshotInstaller catalogs) : ILocalTimePreflightValidator
     {
         internal const string AssetName = "netwasm-timezones.nwtz";
         internal const string RequiredDataVersion = "2026c";
@@ -25,6 +26,8 @@ namespace System.Runtime.InteropServices.TimeZones
             utcFallback ?? throw new ArgumentNullException();
         private readonly ILocalTimeOffsetResolverInstaller _installer =
             installer ?? throw new ArgumentNullException();
+        private readonly ITimeZoneCatalogSnapshotInstaller _catalogs =
+            catalogs ?? throw new ArgumentNullException();
 
         public void Validate()
         {
@@ -32,6 +35,7 @@ namespace System.Runtime.InteropServices.TimeZones
             if (timeZone == null || timeZone is "UTC" or "Etc/UTC")
             {
                 _installer.Install(_utcFallback);
+                _catalogs.Install(new TimeZoneCatalogSnapshot(timeZone, null, null));
                 return;
             }
             if (timeZone.Length == 0)
@@ -73,8 +77,13 @@ namespace System.Runtime.InteropServices.TimeZones
                     throw new PlatformNotSupportedException(
                         "asset data version is '" + asset.DataVersion + "'");
                 }
-                var definition = _definitions.Create(asset).Resolve(timeZone);
+                var definitions = _definitions.Create(asset);
+                var definition = definitions.Resolve(timeZone);
                 _installer.Install(_offsets.Create(definition));
+                _catalogs.Install(new TimeZoneCatalogSnapshot(
+                    timeZone,
+                    asset,
+                    definitions));
             }
             catch (PlatformNotSupportedException exception)
             {

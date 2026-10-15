@@ -58,7 +58,7 @@ public sealed class NativeCallbackThunkEmitterTests
         Assert.Equal(WasmOpcodes.Unreachable, instructions[4].Opcode);
         Assert.Equal(WasmOpcodes.End, instructions[5].Opcode);
         Assert.Same(moduleData, initialization.Request!.ModuleData);
-        Assert.True(initialization.Request.IsStaticMethodCall);
+        Assert.True(initialization.Request.IsMethodInvocation);
         Assert.Equal(callback.Method.DeclaringType, initialization.Request.DeclaringType);
         Assert.Contains(instructions, instruction =>
             instruction.Opcode == WasmOpcodes.Call &&

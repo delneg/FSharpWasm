@@ -28,6 +28,8 @@ internal static class AnalysisServiceCollectionExtensions
         services.AddSingleton<ITypeOperandResolverFactory,
             TypeOperandResolverFactory>();
         services.AddSingleton<IMethodSpecializerFactory, MethodSpecializerFactory>();
+        services.AddSingleton<IManagedMethodOptimizerFactory,
+            ManagedMethodOptimizerFactory>();
         services.AddSingleton<IDispatchTargetResolverFactory,
             DispatchTargetResolverFactory>();
         services.AddSingleton<ITypeRelationshipClassifierFactory,
@@ -60,6 +62,8 @@ internal static class AnalysisServiceCollectionExtensions
             ReachableProgramBuilderFactory>();
         services.AddSingleton<IAllocationCapabilityAnalyzerFactory,
             AllocationCapabilityAnalyzerFactory>();
+        services.AddSingleton<IManagedByRefEffectAnalyzerFactory,
+            ManagedByRefEffectAnalyzerFactory>();
         services.AddSingleton<IReachabilityLedgerFactory,
             ReachabilityLedgerFactory>();
         services.AddSingleton<IReachableMethodBatchObserver, LoggingReachableMethodBatchObserver>();

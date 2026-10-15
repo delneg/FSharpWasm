@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Immutable;
 using System.Linq;
 using NetWasm.Compiler.ControlFlow.Structured;
 using NetWasm.Compiler.Core;
@@ -9,6 +10,10 @@ using NetWasm.Compiler.Wasm.Encoding;
 using NetWasm.Compiler.Wasm.Emission.Planning;
 
 using NetWasm.Compiler.Core.IntermediateRepresentation.Identity;
+using NetWasm.Compiler.Wasm.Emission.AddressTakenValues;
+using NetWasm.Compiler.Wasm.Emission.Values;
+using NetWasm.Compiler.Wasm.Emission.Arrays;
+using NetWasm.Compiler.Wasm.Emission.CallLifetimes;
 
 namespace NetWasm.Compiler.Wasm.Emission;
 
@@ -26,7 +31,15 @@ internal sealed class ManagedMethodEmitter(
     IMethodFrameEntryEmitter frames,
     IMethodExceptionBoundaryEmitter exceptionBoundary,
     IGeneratedFunctionWriterFactory writers,
-    IInstructionCountingWriterFactory instructionWriters) : IManagedMethodEmitter
+    IInstructionCountingWriterFactory instructionWriters,
+    ITerminalBranchValueFramePlanner branchValueFrames,
+    IArrayMetadataCachingPlanner arrayMetadata,
+    IArrayMetadataSnapshotEmitter arraySnapshots,
+    IScalarCallLifetimePlanner scalarCallLifetimes,
+    IAuthoritativeRootSourceSelector authoritativeSources,
+    IAuthoritativeRootLayoutPlanner authoritativeLayouts,
+    IRootClearElisionPlanner rootClearElisions,
+    IRootValueElisionPlanner rootValueElisions) : IManagedMethodEmitter
 {
     public ManagedMethodEmission Emit(
         MethodDefinitionModel method,
@@ -38,7 +51,15 @@ internal sealed class ManagedMethodEmitter(
         RuntimeImportSelection runtimeImportSelection,
         Action<IWasmInstructionWriter, StructuredMethod, MethodEmissionContext> emitBody,
         NativeImportPlan? nativeImports = null,
-        MemberExecutionPlan? memberExecution = null)
+        MemberExecutionPlan? memberExecution = null,
+        ManagedByRefMethodEffects? byRefEffects = null,
+        AddressTakenScalarPromotionPlan? addressTakenScalarPromotions = null,
+        AddressTakenAggregatePromotionPlan? addressTakenAggregatePromotions = null,
+        ManagedByRefAggregatePromotionPlan? managedByRefAggregatePromotions = null,
+        ManagedAggregateSsaPlan? managedAggregateValues = null,
+        bool enableBranchValueFramePlacement = false,
+        bool enableArrayMetadataCaching = false,
+        bool enableScalarCallPreservation = false)
     {
         ArgumentNullException.ThrowIfNull(method);
         ArgumentNullException.ThrowIfNull(structured);
@@ -51,8 +72,20 @@ internal sealed class ManagedMethodEmitter(
         {
             Header = structured.Header with { MethodInstance = effectiveMethodInstance },
         };
-        var valueLayout = valueFrames.Create(emissionStructure.Header, nativeImports, memberExecution);
-        var filterEnvironment = filterEnvironments.Create(emissionStructure, valueLayout);
+        var valueLayout = valueFrames.Create(
+            emissionStructure,
+            nativeImports,
+            memberExecution,
+            byRefEffects,
+            addressTakenScalarPromotions,
+            addressTakenAggregatePromotions,
+            scalarCallLifetimes.Plan(emissionStructure, enableScalarCallPreservation));
+        valueLayout = valueLayout with
+        {
+            ManagedByRefAggregatePromotions = managedByRefAggregatePromotions ??
+                ManagedByRefAggregatePromotionPlan.Empty,
+        };
+        var filterEnvironment = filterEnvironments.Create(emissionStructure, valueLayout, rootMap);
         valueLayout = valueLayout with
         {
             Size = Math.Max(valueLayout.Size, filterEnvironment.Size),
@@ -63,20 +96,47 @@ internal sealed class ManagedMethodEmitter(
             ? functionTypes.Resolve(method).Parameters.Length
             : functionTypes.Resolve(effectiveMethodInstance).Parameters.Length;
         var groups = exceptionGroups.Enumerate(emissionStructure).ToArray();
+        var placement = enableBranchValueFramePlacement && filterEnvironment.Size == 0 &&
+            valueLayout.ScalarCallLifetimes.CallLocals.IsEmpty
+            ? branchValueFrames.Plan(emissionStructure, valueLayout, rootMap)
+            : null;
+        var allocationLayout = placement is null ? valueLayout : valueLayout with
+        {
+            SpilledScalarLocals = [],
+            AddressTakenScalarPromotions = new(placement.IncomingScalarLocals.ToImmutableDictionary(
+                index => index, index => emissionStructure.Header.LocalSignatureTypes[index]), []),
+        };
+        var arrayPlan = arrayMetadata.Plan(emissionStructure, enableArrayMetadataCaching);
+        var authoritative = authoritativeLayouts.Plan(rootMap,
+            authoritativeSources.Select(rootMap, allocationLayout, filterEnvironment, arrayPlan));
+        rootMap = authoritative.RootMap;
         var emissionLayout = MethodEmissionContextFactory.Create(
             emissionStructure.Header,
             rootMap,
             parameterCount,
             parameterOffset,
             groups,
-            valueLayout,
+            allocationLayout,
             filterEnvironment,
-            callerIdentity);
+            callerIdentity,
+            managedAggregateValues,
+            arrayPlan);
         var context = emissionLayout.Context with
         {
             StackTraceMethodId = stackTraceMethodId,
             RuntimeImportSelection = runtimeImportSelection,
+            AuthoritativeRootSlots = authoritative.Slots,
         };
+        if (placement is not null)
+        {
+            context = context with
+            {
+                ValueLayout = allocationLayout with { Size = 0, LocalOffsets = [], TemporaryOffsets = [] },
+                TerminalBranchValueFramePlacement = new(placement, valueLayout),
+            };
+        }
+        context = context with { RootClearElisions = rootClearElisions.Plan(emissionStructure, context) };
+        context = context with { RootValueElisions = rootValueElisions.Plan(emissionStructure, context) };
         var output = writers.Create();
         var code = instructionWriters.Create(output.Instructions);
         WasmLocalDeclarationWriter.Write(
@@ -84,7 +144,8 @@ internal sealed class ManagedMethodEmitter(
             emissionLayout.LocalTypes,
             layouts.Target);
         frames.Emit(code, emissionStructure.Header, context);
-        if (context.RootSlotCount != 0 || valueLayout.Size != 0 ||
+        arraySnapshots.Emit(code, context);
+        if (context.RootSlotCount != 0 || context.ValueLayout.Size != 0 ||
             stackTraceMethodId != 0 ||
             filterEnvironment.RootSlotCount != 0)
         {

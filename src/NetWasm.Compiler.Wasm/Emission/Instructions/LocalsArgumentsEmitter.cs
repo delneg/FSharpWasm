@@ -2,7 +2,10 @@ using NetWasm.Compiler.Wasm.Encoding;
 using System;
 using System.Collections.Immutable;
 using NetWasm.Compiler.Core;
+using NetWasm.Compiler.Wasm.Emission.AddressTakenValues;
 using NetWasm.Compiler.Wasm.Emission.Methods;
+using NetWasm.Compiler.Wasm.Emission.Values;
+using NetWasm.Compiler.Wasm.Emission.Arrays;
 
 namespace NetWasm.Compiler.Wasm.Emission.Instructions;
 
@@ -13,7 +16,11 @@ internal sealed class LocalsArgumentsEmitter(
     IArgumentTypeResolver argumentTypes,
     IArgumentSignatureTypeResolver argumentSignatureTypes,
     IValueFrameAddressEmitter valueFrameAddresses,
-    IFilterEnvironmentRootEmitter filterEnvironmentRoots) : InstructionCommandProvider
+    IFilterEnvironmentRootEmitter filterEnvironmentRoots,
+    IValueCopyEmitter valueCopies,
+    IAddressTakenAggregateSynchronizationEmitter aggregateSynchronizations,
+    IArrayMetadataSnapshotEmitter arraySnapshots) :
+    InstructionCommandProvider
 {
     public override ImmutableArray<InstructionCommand> Commands =>
     [
@@ -35,6 +42,7 @@ internal sealed class LocalsArgumentsEmitter(
     private void EmitLoadArgument(InstructionEmissionRequest request, IWasmInstructionWriter code)
     {
         var index = CilOperandReader.GetIndex(request.Instruction);
+        if (TryLoadAuthoritative(request, code, new(RootSourceKind.Argument, index))) return;
         if (TryGetFilterCapture(request.Context, true, index, out var capture))
         {
             EmitLoadFilterCapture(request, code, capture);
@@ -44,13 +52,33 @@ internal sealed class LocalsArgumentsEmitter(
         var type = argumentSignatureTypes.Resolve(request.Header, index);
         if (argumentTypes.Resolve(request.Header, index) == CliValueKind.ValueType)
         {
+            var selectedStorage = new ManagedAggregateStorageId(
+                ManagedAggregateStorageKind.Argument,
+                index);
+            var selected = request.Context.ManagedAggregateValues.Plan.Storages
+                .ContainsKey(selectedStorage);
+            if (request.Context.ValueLayout.DirectValueLoadOffsets.Contains(
+                    request.Instruction.Offset))
+            {
+                EmitValueArgumentSource(request, code, index, selected);
+                PushLocal(request, code, CliValueKind.ValueType);
+                return;
+            }
+            var layout = values.GetValueLayout(type);
             var temporaryOffset =
                 request.Context.ValueLayout.TemporaryOffsets[request.Instruction.Offset];
             valueFrameAddresses.Emit(code, request.Context, temporaryOffset);
             code.Write(WasmInstruction.WithOperand(WasmOpcodes.LocalTee, WasmInstructionOperand.Unsigned((uint)(request.Context.ObjectTemporary))));
-            code.Write(WasmInstruction.WithOperand(WasmOpcodes.LocalGet, WasmInstructionOperand.Unsigned((uint)(index + request.Context.ParameterOffset))));
-            EmitAddressConstant(code, values.GetValueLayout(type).Size);
-            code.Write(WasmInstruction.WithOperand(WasmOpcodes.Prefixed, WasmInstructionOperand.PrefixedTriple(WasmOpcodes.MemoryCopy, 0, 0)));
+            valueCopies.Emit(
+                code,
+                request.Context.ObjectTemporary,
+                layout.Size,
+                layout.Alignment,
+                writer => EmitValueArgumentSource(
+                    request,
+                    writer,
+                    index,
+                    selected));
             code.Write(WasmInstruction.WithOperand(WasmOpcodes.LocalGet, WasmInstructionOperand.Unsigned((uint)(request.Context.ObjectTemporary))));
             PushLocal(request, code, CliValueKind.ValueType);
             return;
@@ -72,9 +100,37 @@ internal sealed class LocalsArgumentsEmitter(
             argumentTypes.Resolve(request.Header, index));
     }
 
+    private void EmitValueArgumentSource(
+        InstructionEmissionRequest request,
+        IWasmInstructionWriter code,
+        int argumentIndex,
+        bool selected)
+    {
+        if (!selected)
+        {
+            EmitLocalGet(code, argumentIndex + request.Context.ParameterOffset);
+            return;
+        }
+        if (!request.Context.ValueLayout.ArgumentOffsets.TryGetValue(
+                argumentIndex,
+                out var offset))
+        {
+            throw new InvalidOperationException(
+                "A selected aggregate argument has no value-frame backing.");
+        }
+        valueFrameAddresses.Emit(code, request.Context, offset);
+    }
+
     private void EmitLoadLocal(InstructionEmissionRequest request, IWasmInstructionWriter code)
     {
         var index = CilOperandReader.GetIndex(request.Instruction);
+        if (TryLoadAuthoritative(request, code, new(RootSourceKind.Local, index))) return;
+        if (request.Context.TransientAggregatePromotions.Plan.LocalTransferOffsets.Contains(
+                request.Instruction.Offset))
+        {
+            request.Stack.Add(CliValueKind.ValueType);
+            return;
+        }
         if (TryGetFilterCapture(request.Context, false, index, out var capture))
         {
             EmitLoadFilterCapture(request, code, capture);
@@ -84,20 +140,41 @@ internal sealed class LocalsArgumentsEmitter(
         var localType = request.Header.LocalSignatureTypes[index];
         if (localType.StackKind == CliValueKind.ValueType)
         {
+            if (request.Context.AddressTakenAggregatePromotions.Plan.PromotedLocals
+                .ContainsKey(index))
+            {
+                aggregateSynchronizations.Emit(
+                    request, code, index,
+                    AddressTakenValueSynchronizationPhase.BeforeCall);
+            }
+            if (request.Context.ValueLayout.DirectValueLoadOffsets.Contains(
+                    request.Instruction.Offset))
+            {
+                EmitLocalGet(code, request.Context.LocalBase + index);
+                PushLocal(request, code, CliValueKind.ValueType);
+                return;
+            }
+            var layout = values.GetValueLayout(localType);
             var offset = request.Context.ValueLayout.TemporaryOffsets[
                 request.Instruction.Offset];
             valueFrameAddresses.Emit(code, request.Context, offset);
             code.Write(WasmInstruction.WithOperand(WasmOpcodes.LocalTee, WasmInstructionOperand.Unsigned((uint)(request.Context.ObjectTemporary))));
-            code.Write(WasmInstruction.WithOperand(WasmOpcodes.LocalGet, WasmInstructionOperand.Unsigned((uint)(request.Context.LocalBase + index))));
-            EmitAddressConstant(code, values.GetValueLayout(localType).Size);
-            code.Write(WasmInstruction.WithOperand(WasmOpcodes.Prefixed, WasmInstructionOperand.PrefixedTriple(WasmOpcodes.MemoryCopy, 0, 0)));
+            valueCopies.Emit(
+                code,
+                request.Context.ObjectTemporary,
+                layout.Size,
+                layout.Alignment,
+                writer => EmitLocalGet(
+                    writer, request.Context.LocalBase + index));
             code.Write(WasmInstruction.WithOperand(WasmOpcodes.LocalGet, WasmInstructionOperand.Unsigned((uint)(request.Context.ObjectTemporary))));
             PushLocal(request, code, CliValueKind.ValueType);
             return;
         }
         if (request.Context.ValueLayout.SpilledScalarLocals.Contains(index))
         {
-            code.Write(WasmInstruction.WithOperand(WasmOpcodes.LocalGet, WasmInstructionOperand.Unsigned((uint)(request.Context.LocalBase + index))));
+            var addressLocal = request.Context.AddressTakenScalarPromotions.ShadowLocals.TryGetValue(index, out var shadow)
+                ? shadow : request.Context.LocalBase + index;
+            code.Write(WasmInstruction.WithOperand(WasmOpcodes.LocalGet, WasmInstructionOperand.Unsigned((uint)addressLocal)));
             ManagedMemoryEmitter.EmitLoadByType(
                 code,
                 layouts.Target,
@@ -115,7 +192,14 @@ internal sealed class LocalsArgumentsEmitter(
     private void EmitStoreLocal(InstructionEmissionRequest request, IWasmInstructionWriter code)
     {
         var localIndex = CilOperandReader.GetIndex(request.Instruction);
+        if (TryStoreAuthoritative(request, code, new(RootSourceKind.Local, localIndex))) return;
         var slot = request.Stack.Count - 1;
+        if (request.Context.TransientAggregatePromotions.Plan.LocalTransferOffsets.Contains(
+                request.Instruction.Offset))
+        {
+            request.Stack.RemoveAt(slot);
+            return;
+        }
         var localType = request.Header.LocalSignatureTypes[localIndex];
         if (TryGetFilterCapture(request.Context, false, localIndex, out var capture))
         {
@@ -124,19 +208,35 @@ internal sealed class LocalsArgumentsEmitter(
         }
         if (localType.StackKind == CliValueKind.ValueType)
         {
-            code.Write(WasmInstruction.WithOperand(WasmOpcodes.LocalGet, WasmInstructionOperand.Unsigned((uint)(request.Context.LocalBase + localIndex))));
-            code.Write(WasmInstruction.WithOperand(WasmOpcodes.LocalGet, WasmInstructionOperand.Unsigned((uint)(GetStackLocal(
-                request.Context,
-                slot,
-                CliValueKind.ValueType)))));
-            EmitAddressConstant(code, values.GetValueLayout(localType).Size);
-            code.Write(WasmInstruction.WithOperand(WasmOpcodes.Prefixed, WasmInstructionOperand.PrefixedTriple(WasmOpcodes.MemoryCopy, 0, 0)));
+            var destination = request.Context.LocalBase + localIndex;
+            var layout = values.GetValueLayout(localType);
+            EmitLocalGet(code, destination);
+            valueCopies.Emit(
+                code,
+                destination,
+                layout.Size,
+                layout.Alignment,
+                writer => EmitLocalGet(
+                    writer,
+                    GetStackLocal(
+                        request.Context,
+                        slot,
+                        CliValueKind.ValueType)));
+            if (request.Context.AddressTakenAggregatePromotions.Plan.PromotedLocals
+                .ContainsKey(localIndex))
+            {
+                aggregateSynchronizations.Emit(
+                    request, code, localIndex,
+                    AddressTakenValueSynchronizationPhase.AfterCall);
+            }
             request.Stack.RemoveAt(slot);
             return;
         }
         if (request.Context.ValueLayout.SpilledScalarLocals.Contains(localIndex))
         {
-            code.Write(WasmInstruction.WithOperand(WasmOpcodes.LocalGet, WasmInstructionOperand.Unsigned((uint)(request.Context.LocalBase + localIndex))));
+            var addressLocal = request.Context.AddressTakenScalarPromotions.ShadowLocals.TryGetValue(localIndex, out var shadow)
+                ? shadow : request.Context.LocalBase + localIndex;
+            code.Write(WasmInstruction.WithOperand(WasmOpcodes.LocalGet, WasmInstructionOperand.Unsigned((uint)addressLocal)));
             code.Write(WasmInstruction.WithOperand(WasmOpcodes.LocalGet, WasmInstructionOperand.Unsigned((uint)(GetStackLocal(request.Context, slot, request.Stack[slot])))));
             ManagedMemoryEmitter.EmitStoreByType(
                 code,
@@ -148,11 +248,13 @@ internal sealed class LocalsArgumentsEmitter(
             return;
         }
         PopToLocal(request, code, request.Context.LocalBase + localIndex);
+        arraySnapshots.Emit(code, request.Context, new ArrayReferenceSlot(false, localIndex));
     }
 
     private void EmitStoreArgument(InstructionEmissionRequest request, IWasmInstructionWriter code)
     {
         var argumentIndex = CilOperandReader.GetIndex(request.Instruction);
+        if (TryStoreAuthoritative(request, code, new(RootSourceKind.Argument, argumentIndex))) return;
         var targetLocal = argumentIndex + request.Context.ParameterOffset;
         var type = argumentSignatureTypes.Resolve(request.Header, argumentIndex);
         if (TryGetFilterCapture(request.Context, true, argumentIndex, out var capture))
@@ -163,13 +265,19 @@ internal sealed class LocalsArgumentsEmitter(
         if (type.StackKind == CliValueKind.ValueType)
         {
             var slot = request.Stack.Count - 1;
-            code.Write(WasmInstruction.WithOperand(WasmOpcodes.LocalGet, WasmInstructionOperand.Unsigned((uint)(targetLocal))));
-            code.Write(WasmInstruction.WithOperand(WasmOpcodes.LocalGet, WasmInstructionOperand.Unsigned((uint)(GetStackLocal(
-                request.Context,
-                slot,
-                CliValueKind.ValueType)))));
-            EmitAddressConstant(code, values.GetValueLayout(type).Size);
-            code.Write(WasmInstruction.WithOperand(WasmOpcodes.Prefixed, WasmInstructionOperand.PrefixedTriple(WasmOpcodes.MemoryCopy, 0, 0)));
+            var layout = values.GetValueLayout(type);
+            EmitLocalGet(code, targetLocal);
+            valueCopies.Emit(
+                code,
+                targetLocal,
+                layout.Size,
+                layout.Alignment,
+                writer => EmitLocalGet(
+                    writer,
+                    GetStackLocal(
+                        request.Context,
+                        slot,
+                        CliValueKind.ValueType)));
             request.Stack.RemoveAt(slot);
             return;
         }
@@ -190,17 +298,62 @@ internal sealed class LocalsArgumentsEmitter(
             return;
         }
         PopToLocal(request, code, targetLocal);
+        arraySnapshots.Emit(code, request.Context, new ArrayReferenceSlot(true, argumentIndex));
+    }
+
+    private bool TryLoadAuthoritative(InstructionEmissionRequest request, IWasmInstructionWriter code, RootSource source)
+    {
+        if (!request.Context.AuthoritativeRootSlots.ContainsKey(source)) return false;
+        // Nonmoving collection leaves this cache valid. Addressable/captured
+        // references are excluded by the storage selector.
+        EmitLocalGet(code, source.Index + (source.Kind == RootSourceKind.Argument
+            ? request.Context.ParameterOffset : request.Context.LocalBase));
+        PushLocal(request, code, CliValueKind.ManagedReference);
+        return true;
+    }
+
+    private bool TryStoreAuthoritative(InstructionEmissionRequest request, IWasmInstructionWriter code, RootSource source)
+    {
+        if (!request.Context.AuthoritativeRootSlots.TryGetValue(source, out var slot)) return false;
+        var top = request.Stack.Count - 1;
+        EmitLocalGet(code, request.Context.RootFrame);
+        EmitLocalGet(code, GetStackLocal(request.Context, top, request.Stack[top]));
+        code.Write(WasmInstruction.WithOperand(WasmOpcodes.LocalTee,
+            WasmInstructionOperand.Unsigned((uint)(source.Index +
+                (source.Kind == RootSourceKind.Argument
+                    ? request.Context.ParameterOffset : request.Context.LocalBase)))));
+        ManagedMemoryEmitter.EmitStoreBySize(code, layouts.Target,
+            checked(slot * layouts.Target.ObjectReferenceSize), layouts.Target.ObjectReferenceSize);
+        request.Stack.RemoveAt(top);
+        return true;
     }
 
     private void EmitLoadLocalAddress(InstructionEmissionRequest request, IWasmInstructionWriter code)
     {
         var localIndex = CilOperandReader.GetIndex(request.Instruction);
+        if (request.Context.TransientAggregatePromotions.Plan.LocalTransferOffsets.Contains(
+                request.Instruction.Offset))
+        {
+            request.Stack.Add(CliValueKind.ManagedAddress);
+            return;
+        }
         if (TryGetFilterCapture(request.Context, false, localIndex, out var capture))
         {
             EmitLoadFilterCaptureAddress(request, code, capture);
             return;
         }
         var localType = request.Header.LocalSignatureTypes[localIndex];
+        if (request.Context.AddressTakenScalarPromotions.ShadowLocals.TryGetValue(
+                localIndex,
+                out var shadowLocal))
+        {
+            PushFromLocal(
+                request,
+                code,
+                shadowLocal,
+                CliValueKind.ManagedAddress);
+            return;
+        }
         if (localType.StackKind != CliValueKind.ValueType &&
             !request.Context.ValueLayout.SpilledScalarLocals.Contains(localIndex))
         {
@@ -252,6 +405,20 @@ internal sealed class LocalsArgumentsEmitter(
         InstructionEmissionRequest request, IWasmInstructionWriter code,
         FilterCapture capture)
     {
+        if (capture.Type.StackKind == CliValueKind.ValueType &&
+            !request.Context.ValueLayout.DirectValueLoadOffsets.Contains(request.Instruction.Offset))
+        {
+            var layout = values.GetValueLayout(capture.Type);
+            var offset = request.Context.ValueLayout.TemporaryOffsets[request.Instruction.Offset];
+            valueFrameAddresses.Emit(code, request.Context, offset);
+            code.Write(WasmInstruction.WithOperand(WasmOpcodes.LocalTee,
+                WasmInstructionOperand.Unsigned((uint)request.Context.ObjectTemporary)));
+            valueCopies.Emit(code, request.Context.ObjectTemporary, layout.Size, layout.Alignment,
+                writer => valueFrameAddresses.Emit(writer, request.Context, capture));
+            EmitLocalGet(code, request.Context.ObjectTemporary);
+            PushLocal(request, code, CliValueKind.ValueType);
+            return;
+        }
         valueFrameAddresses.Emit(code, request.Context, capture);
         if (capture.Type.StackKind != CliValueKind.ValueType)
         {
@@ -365,6 +532,11 @@ internal sealed class LocalsArgumentsEmitter(
                 WasmInstructionOperand.Signed(value)));
         }
     }
+
+    private static void EmitLocalGet(IWasmInstructionWriter code, int local) =>
+        code.Write(WasmInstruction.WithOperand(
+            WasmOpcodes.LocalGet,
+            WasmInstructionOperand.Unsigned((uint)local)));
 
     private int GetStackLocal(
         MethodEmissionContext context,

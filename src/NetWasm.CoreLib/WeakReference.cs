@@ -17,6 +17,12 @@ namespace System
         private int _handle;
         private bool _trackResurrection;
 
+        internal int WeakHandle
+        {
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            get => _handle;
+        }
+
         // Creates a new WeakReference that keeps track of target.
         // Assumes a Short Weak Reference (ie TrackResurrection is false.)
         public WeakReference(object? target)

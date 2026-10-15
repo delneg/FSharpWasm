@@ -23,6 +23,7 @@ public sealed class NetWasmReadCompilerBuildMetadataTaskTests
         Assert.Equal("wasm64", task.Target);
         Assert.Equal([
             "ephemeron-handles",
+            "finalization",
             "local-time",
             "structured-command-diagnostics",
         ], task.RuntimeFeatures.Select(item => item.ItemSpec));
@@ -65,6 +66,7 @@ public sealed class NetWasmReadCompilerBuildMetadataTaskTests
             Path = path;
             return new(1, "wasm64", [
                 "ephemeron-handles",
+                "finalization",
                 "local-time",
                 "structured-command-diagnostics",
             ],

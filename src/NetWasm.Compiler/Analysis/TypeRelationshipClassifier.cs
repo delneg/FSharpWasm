@@ -44,6 +44,11 @@ internal sealed class TypeRelationshipClassifier(
 
     private bool IsHierarchyAssignable(CliTypeIdentity candidate, CliTypeIdentity target)
     {
+        if (SameType(candidate, target))
+        {
+            return true;
+        }
+
         // Array identities are constructed types rather than metadata type
         // definitions. Resolve exact array compatibility before asking the
         // definition resolver for the target; this also covers arrays whose
@@ -251,7 +256,7 @@ internal sealed class TypeRelationshipClassifier(
     {
         if (SameType(candidate, target))
         {
-            return true;
+            return false;
         }
 
         if (candidate.Shape != CliTypeShape.GenericInstantiation ||

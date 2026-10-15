@@ -6,6 +6,8 @@
 // Culture, reflection metadata, and host dependencies are intentionally absent.
 
 using System.Diagnostics.CodeAnalysis;
+using System.Runtime.InteropServices;
+using System.Text;
 
 namespace System;
 
@@ -152,19 +154,37 @@ public sealed class Version : ICloneable,
 
     public string ToString(int fieldCount)
     {
-        var chars = new char[43];
-        if (!TryFormat(chars, fieldCount, out var written)) throw new ArgumentException(nameof(fieldCount));
-        return string.Create(chars, 0, written);
+        ValidateFieldCount(fieldCount);
+        if (fieldCount == 0)
+        {
+            return string.Empty;
+        }
+
+        var length = fieldCount - 1;
+        for (var index = 0; index < fieldCount; index++)
+        {
+            length += DecimalLength(GetComponent(index));
+        }
+
+        var result = new string('\0', length);
+        if (!TryFormat(new Span<char>(ref result.GetRawStringData(), length), fieldCount, out _))
+        {
+            throw new ArgumentException(nameof(fieldCount));
+        }
+        return result;
     }
 
     string IFormattable.ToString(string? format, IFormatProvider? formatProvider) => ToString();
 
     public bool TryFormat(Span<char> destination, out int charsWritten) => TryFormat(destination, DefaultFormatFieldCount, out charsWritten);
 
-    public bool TryFormat(Span<char> destination, int fieldCount, out int charsWritten)
+    public bool TryFormat(Span<char> destination, int fieldCount, out int charsWritten) =>
+        TryFormatCore(MemoryMarshal.Cast<char, Utf16Char>(destination), fieldCount, out charsWritten);
+
+    private bool TryFormatCore<TChar>(Span<TChar> destination, int fieldCount, out int charsWritten)
+        where TChar : unmanaged, IUtfChar<TChar>
     {
         ValidateFieldCount(fieldCount);
-        var values = new[] { _Major, _Minor, _Build, _Revision };
         var written = 0;
         for (var i = 0; i < fieldCount; i++)
         {
@@ -175,9 +195,9 @@ public sealed class Version : ICloneable,
                     charsWritten = 0;
                     return false;
                 }
-                destination[written++] = '.';
+                destination[written++] = TChar.CastFrom('.');
             }
-            if (!TryWriteDecimal(destination.Slice(written), values[i], out var componentWritten))
+            if (!TryWriteDecimal(destination.Slice(written), GetComponent(i), out var componentWritten))
             {
                 charsWritten = 0;
                 return false;
@@ -190,23 +210,8 @@ public sealed class Version : ICloneable,
 
     public bool TryFormat(Span<byte> utf8Destination, out int bytesWritten) => TryFormat(utf8Destination, DefaultFormatFieldCount, out bytesWritten);
 
-    public bool TryFormat(Span<byte> utf8Destination, int fieldCount, out int bytesWritten)
-    {
-        var chars = new char[43];
-        if (!TryFormat(chars, fieldCount, out var written))
-        {
-            bytesWritten = 0;
-            return false;
-        }
-        if (utf8Destination.Length < written)
-        {
-            bytesWritten = 0;
-            return false;
-        }
-        for (var i = 0; i < written; i++) utf8Destination[i] = (byte)chars[i];
-        bytesWritten = written;
-        return true;
-    }
+    public bool TryFormat(Span<byte> utf8Destination, int fieldCount, out int bytesWritten) =>
+        TryFormatCore(MemoryMarshal.Cast<byte, Utf8Char>(utf8Destination), fieldCount, out bytesWritten);
 
     bool ISpanFormattable.TryFormat(Span<char> destination, out int charsWritten, ReadOnlySpan<char> format, IFormatProvider? provider) => TryFormat(destination, out charsWritten);
     bool IUtf8SpanFormattable.TryFormat(Span<byte> destination, out int bytesWritten, ReadOnlySpan<char> format, IFormatProvider? provider) => TryFormat(destination, out bytesWritten);
@@ -219,13 +224,11 @@ public sealed class Version : ICloneable,
         return Parse(input.AsSpan());
     }
 
-    public static Version Parse(ReadOnlySpan<char> input) => ParseVersion(input, true)!;
+    public static Version Parse(ReadOnlySpan<char> input) =>
+        ParseVersion(MemoryMarshal.Cast<char, Utf16Char>(input), true)!;
 
-    public static Version Parse(ReadOnlySpan<byte> utf8Text)
-    {
-        var chars = DecodeAscii(utf8Text);
-        return Parse(chars);
-    }
+    public static Version Parse(ReadOnlySpan<byte> utf8Text) =>
+        ParseVersion(MemoryMarshal.Cast<byte, Utf8Char>(utf8Text), true)!;
 
     public static bool TryParse([NotNullWhen(true)] string? input, [NotNullWhen(true)] out Version? result)
     {
@@ -234,28 +237,20 @@ public sealed class Version : ICloneable,
             result = null;
             return false;
         }
-        result = ParseVersion(input.AsSpan(), false);
+        result = ParseVersion(MemoryMarshal.Cast<char, Utf16Char>(input.AsSpan()), false);
         return result is not null;
     }
 
     public static bool TryParse(ReadOnlySpan<char> input, [NotNullWhen(true)] out Version? result)
     {
-        result = ParseVersion(input, false);
+        result = ParseVersion(MemoryMarshal.Cast<char, Utf16Char>(input), false);
         return result is not null;
     }
 
     public static bool TryParse(ReadOnlySpan<byte> utf8Text, [NotNullWhen(true)] out Version? result)
     {
-        try
-        {
-            result = ParseVersion(DecodeAscii(utf8Text), false);
-            return result is not null;
-        }
-        catch
-        {
-            result = null;
-            return false;
-        }
+        result = ParseVersion(MemoryMarshal.Cast<byte, Utf8Char>(utf8Text), false);
+        return result is not null;
     }
 
     public static Version Parse(string s, IFormatProvider? provider) => Parse(s);
@@ -266,56 +261,95 @@ public sealed class Version : ICloneable,
     static Version IUtf8SpanParsable<Version>.Parse(ReadOnlySpan<byte> utf8Text, IFormatProvider? provider) => Parse(utf8Text);
     static bool IUtf8SpanParsable<Version>.TryParse(ReadOnlySpan<byte> utf8Text, IFormatProvider? provider, [NotNullWhen(true)] out Version? result) => TryParse(utf8Text, out result);
 
-    private static Version? ParseVersion(ReadOnlySpan<char> input, bool throwOnFailure)
+    private static Version? ParseVersion<TChar>(ReadOnlySpan<TChar> input, bool throwOnFailure)
+        where TChar : unmanaged, IUtfChar<TChar>
     {
-        var parts = new int[4];
-        var count = 0;
-        var start = 0;
-        for (var index = 0; index <= input.Length; index++)
-        {
-            if (index != input.Length && input[index] != '.') continue;
-            if (count == 4)
-            {
-                if (throwOnFailure) throw new ArgumentException("Version string must contain between two and four components.", nameof(input));
-                return null;
-            }
-            var component = input.Slice(start, index - start);
-            if (!TryParseComponent(component, out parts[count], out var failure))
-            {
-                if (throwOnFailure) ThrowParseFailure(failure, nameof(input), input);
-                return null;
-            }
-            count++;
-            start = index + 1;
-        }
-
-        if (count < 2)
+        var separator = TChar.CastFrom('.');
+        var majorEnd = input.IndexOf(separator);
+        if (majorEnd < 0)
         {
             if (throwOnFailure) throw new ArgumentException("Version string must contain at least two components.", nameof(input));
             return null;
         }
-        return count switch
+
+        var buildEnd = -1;
+        var minorEnd = input.Slice(majorEnd + 1).IndexOf(separator);
+        if (minorEnd >= 0)
         {
-            2 => new Version(parts[0], parts[1]),
-            3 => new Version(parts[0], parts[1], parts[2]),
-            _ => new Version(parts[0], parts[1], parts[2], parts[3])
-        };
+            minorEnd += majorEnd + 1;
+            buildEnd = input.Slice(minorEnd + 1).IndexOf(separator);
+            if (buildEnd >= 0)
+            {
+                buildEnd += minorEnd + 1;
+                if (input.Slice(buildEnd + 1).Contains(separator))
+                {
+                    if (throwOnFailure) throw new ArgumentException("Version string must contain between two and four components.", nameof(input));
+                    return null;
+                }
+            }
+        }
+
+        if (!TryParseComponent(input.Slice(0, majorEnd), out var major, out var failure))
+        {
+            if (throwOnFailure) ThrowParseFailure(failure, nameof(input), input);
+            return null;
+        }
+
+        if (minorEnd < 0)
+        {
+            return TryParseComponent(input.Slice(majorEnd + 1), out var minor, out failure)
+                ? new Version(major, minor)
+                : ParseFailureResult(failure, nameof(input), input, throwOnFailure);
+        }
+
+        if (!TryParseComponent(input.Slice(majorEnd + 1, minorEnd - majorEnd - 1), out var parsedMinor, out failure))
+        {
+            return ParseFailureResult(failure, nameof(input), input, throwOnFailure);
+        }
+
+        if (buildEnd < 0)
+        {
+            return TryParseComponent(input.Slice(minorEnd + 1), out var build, out failure)
+                ? new Version(major, parsedMinor, build)
+                : ParseFailureResult(failure, "build", input, throwOnFailure);
+        }
+
+        if (!TryParseComponent(input.Slice(minorEnd + 1, buildEnd - minorEnd - 1), out var parsedBuild, out failure))
+        {
+            return ParseFailureResult(failure, "build", input, throwOnFailure);
+        }
+
+        return TryParseComponent(input.Slice(buildEnd + 1), out var revision, out failure)
+            ? new Version(major, parsedMinor, parsedBuild, revision)
+            : ParseFailureResult(failure, "revision", input, throwOnFailure);
     }
 
-    private static bool TryParseComponent(ReadOnlySpan<char> component, out int value, out ParseFailure failure)
+    private static Version? ParseFailureResult<TChar>(ParseFailure failure, string parameterName, ReadOnlySpan<TChar> input, bool throwOnFailure)
+        where TChar : unmanaged, IUtfChar<TChar>
+    {
+        if (throwOnFailure)
+        {
+            ThrowParseFailure(failure, parameterName, input);
+        }
+        return null;
+    }
+
+    private static bool TryParseComponent<TChar>(ReadOnlySpan<TChar> component, out int value, out ParseFailure failure)
+        where TChar : unmanaged, IUtfChar<TChar>
     {
         var start = 0;
         var end = component.Length;
-        while (start < end && char.IsWhiteSpace(component[start])) start++;
-        while (end > start && char.IsWhiteSpace(component[end - 1])) end--;
+        while (start < end && IsWhiteSpace(component[start])) start++;
+        while (end > start && IsWhiteSpace(component[end - 1])) end--;
         if (start == end)
         {
             value = 0;
             failure = ParseFailure.Format;
             return false;
         }
-        var negative = component[start] == '-';
-        if (negative || component[start] == '+') start++;
+        var first = TChar.CastToUInt32(component[start]);
+        var negative = first == '-';
+        if (negative || first == '+') start++;
         if (start == end)
         {
             value = 0;
@@ -325,13 +359,14 @@ public sealed class Version : ICloneable,
         uint parsed = 0;
         for (var index = start; index < end; index++)
         {
-            var digit = component[index] - '0';
-            if (digit is < 0 or > 9)
+            var character = TChar.CastToUInt32(component[index]);
+            if (character is < '0' or > '9')
             {
                 value = 0;
                 failure = ParseFailure.Format;
                 return false;
             }
+            var digit = character - '0';
             if (parsed > (uint.MaxValue - (uint)digit) / 10)
             {
                 value = int.MaxValue;
@@ -357,12 +392,23 @@ public sealed class Version : ICloneable,
         return true;
     }
 
-    private static void ThrowParseFailure(ParseFailure failure, string parameterName, ReadOnlySpan<char> input)
+    private static void ThrowParseFailure<TChar>(ParseFailure failure, string parameterName, ReadOnlySpan<TChar> input)
+        where TChar : unmanaged, IUtfChar<TChar>
     {
         if (failure == ParseFailure.Negative) throw new ArgumentOutOfRangeException(parameterName, "Version components must be non-negative.");
         if (failure == ParseFailure.Overflow) throw new OverflowException();
-        throw new FormatException($"Version string '{input.ToString()}' is not valid.");
+        throw new FormatException($"Version string '{CreateInputString(input)}' is not valid.");
     }
+
+    private static string CreateInputString<TChar>(ReadOnlySpan<TChar> input)
+        where TChar : unmanaged, IUtfChar<TChar> =>
+        typeof(TChar) == typeof(Utf16Char)
+            ? MemoryMarshal.Cast<TChar, char>(input).ToString()
+            : Encoding.UTF8.GetString(MemoryMarshal.Cast<TChar, byte>(input));
+
+    private static bool IsWhiteSpace<TChar>(TChar value)
+        where TChar : unmanaged, IUtfChar<TChar> =>
+        TChar.CastToUInt32(value) is 9 or 10 or 11 or 12 or 13 or 32;
 
     private static void ValidateComponent(int value, string parameterName)
     {
@@ -376,13 +422,33 @@ public sealed class Version : ICloneable,
         if (fieldCount == 4 && _Revision == -1) throw new ArgumentException("This version has no revision component.", nameof(fieldCount));
     }
 
-    private static bool TryWriteDecimal(Span<char> destination, int value, out int written)
+    private int GetComponent(int index) => index switch
     {
-        Span<char> digits = stackalloc char[10];
+        0 => _Major,
+        1 => _Minor,
+        2 => _Build,
+        _ => _Revision,
+    };
+
+    private static int DecimalLength(int value)
+    {
+        var length = 1;
+        while (value >= 10)
+        {
+            value /= 10;
+            length++;
+        }
+        return length;
+    }
+
+    private static bool TryWriteDecimal<TChar>(Span<TChar> destination, int value, out int written)
+        where TChar : unmanaged, IUtfChar<TChar>
+    {
+        Span<byte> digits = stackalloc byte[10];
         var count = 0;
         do
         {
-            digits[count++] = (char)('0' + value % 10);
+            digits[count++] = (byte)('0' + value % 10);
             value /= 10;
         }
         while (value != 0);
@@ -391,20 +457,9 @@ public sealed class Version : ICloneable,
             written = 0;
             return false;
         }
-        for (var i = 0; i < count; i++) destination[i] = digits[count - i - 1];
+        for (var i = 0; i < count; i++) destination[i] = TChar.CastFrom(digits[count - i - 1]);
         written = count;
         return true;
-    }
-
-    private static char[] DecodeAscii(ReadOnlySpan<byte> input)
-    {
-        var chars = new char[input.Length];
-        for (var i = 0; i < input.Length; i++)
-        {
-            if (input[i] > 0x7F) throw new FormatException("Version input is not ASCII.");
-            chars[i] = (char)input[i];
-        }
-        return chars;
     }
 
     private enum ParseFailure : byte

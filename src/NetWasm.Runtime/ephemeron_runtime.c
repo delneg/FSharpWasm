@@ -37,6 +37,22 @@ netwasm_reference_t ephemeron_handle_get_value(uint32_t handle)
 }
 
 #ifndef NETWASM_RUNTIME_PACK
+__attribute__((export_name("ephemeron_handle_set_target_to_null")))
+#endif
+void ephemeron_handle_set_target_to_null(uint32_t handle)
+{
+    ephemeron_handle_table_set_target_to_null(&ephemeron_handle_table, handle);
+}
+
+#ifndef NETWASM_RUNTIME_PACK
+__attribute__((export_name("ephemeron_handle_set_value")))
+#endif
+void ephemeron_handle_set_value(uint32_t handle, netwasm_reference_t value)
+{
+    ephemeron_handle_table_set_value(&ephemeron_handle_table, handle, value);
+}
+
+#ifndef NETWASM_RUNTIME_PACK
 __attribute__((export_name("ephemeron_handle_release")))
 #endif
 void ephemeron_handle_release(uint32_t handle)

@@ -11,7 +11,7 @@ namespace System
     public class AggregateException : Exception
     {
         private readonly Exception[] _innerExceptions;
-        private ReadOnlyCollection<Exception>? _innerView;
+        private ReadOnlyCollection<Exception>? _rocView;
 
         public AggregateException() : this("One or more errors occurred.") { }
 
@@ -32,7 +32,11 @@ namespace System
             : this("One or more errors occurred.", innerExceptions) { }
 
         public AggregateException(string? message, IEnumerable<Exception> innerExceptions)
-            : this(message, Materialize(innerExceptions), cloneExceptions: false) { }
+            : this(
+                message,
+                new List<Exception>(innerExceptions ?? throw new ArgumentNullException(nameof(innerExceptions))).ToArray(),
+                cloneExceptions: false)
+        { }
 
         public AggregateException(string? message, params Exception[] innerExceptions)
             : this(message, innerExceptions ?? throw new ArgumentNullException(nameof(innerExceptions)), cloneExceptions: true) { }
@@ -49,7 +53,7 @@ namespace System
 
         public ReadOnlyCollection<Exception> InnerExceptions
         {
-            get => _innerView ??= new ReadOnlyCollection<Exception>(ToList(_innerExceptions));
+            get => _rocView ??= new ReadOnlyCollection<Exception>(_innerExceptions);
         }
 
         public override Exception GetBaseException()
@@ -68,7 +72,8 @@ namespace System
             {
                 if (!predicate(_innerExceptions[index])) (unhandled ??= new List<Exception>()).Add(_innerExceptions[index]);
             }
-            if (unhandled is not null) throw new AggregateException(Message, unhandled.ToArray());
+            if (unhandled is not null)
+                throw new AggregateException(Message, unhandled.ToArray(), cloneExceptions: false);
         }
 
         public AggregateException Flatten()
@@ -85,7 +90,10 @@ namespace System
                     else flattened.Add(inner);
                 }
             }
-            return new AggregateException(Message, flattened.ToArray());
+            return new AggregateException(
+                GetType() == typeof(AggregateException) ? base.Message : Message,
+                flattened.ToArray(),
+                cloneExceptions: false);
         }
 
         public override string Message
@@ -117,21 +125,6 @@ namespace System
                 builder.Append(_innerExceptions[index].ToString());
             }
             return builder.ToString();
-        }
-
-        private static Exception[] Materialize(IEnumerable<Exception> source)
-        {
-            ArgumentNullException.ThrowIfNull(source);
-            var list = new List<Exception>();
-            foreach (var exception in source) list.Add(exception ?? throw new ArgumentException());
-            return list.ToArray();
-        }
-
-        private static List<Exception> ToList(Exception[] source)
-        {
-            var list = new List<Exception>(source.Length);
-            for (var index = 0; index < source.Length; index++) list.Add(source[index]);
-            return list;
         }
 
     }

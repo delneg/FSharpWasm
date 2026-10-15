@@ -17,7 +17,7 @@ internal sealed class StaticInitializationEmitter(
         var definition = types.GetTypeDefinition(request.TypeDefinition);
         // BeforeFieldInit owners initialize on field access, even when another
         // reachable field access has already caused their guard to be planned.
-        if (request.IsStaticMethodCall && definition.IsBeforeFieldInit) return;
+        if (request.IsMethodInvocation && definition.IsBeforeFieldInit) return;
         var initializer = definition.Methods
             .Select(methods.GetMethod).SingleOrDefault(method => method.Name == ".cctor");
         if (initializer is null) return;

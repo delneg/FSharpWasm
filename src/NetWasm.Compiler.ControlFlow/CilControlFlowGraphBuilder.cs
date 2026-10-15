@@ -94,14 +94,21 @@ internal sealed class CilControlFlowGraphBuilder : IControlFlowGraphBuilder
         var exceptionalPredecessors = BuildPredecessors(
             immutableBlocks.Length,
             exceptionalSuccessors);
-        var roots = methodBody.ExceptionRegions
-            .SelectMany(region => region.FilterOffset is int filterOffset
-                ? new[] { region.HandlerOffset, filterOffset }
-                : [region.HandlerOffset])
-            .Select(offset => blockIndexByOffset[offset])
-            .Append(0)
-            .ToImmutableHashSet();
-        var reachable = FindReachable(successors, roots);
+        // A live protected region conservatively activates all its entries,
+        // including cleanup handlers and both sides of a filter. A dead region
+        // must not create independent roots merely because its metadata remains.
+        var exceptionEntries = immutableBlocks.ToImmutableDictionary(
+            block => block.Index,
+            block => methodBody.ExceptionRegions
+                .Where(region => block.StartOffset >= region.TryOffset &&
+                    block.StartOffset < region.TryOffset + region.TryLength)
+                .SelectMany(region => region.FilterOffset is int filterOffset
+                    ? new[] { region.HandlerOffset, filterOffset }
+                    : [region.HandlerOffset])
+                .Select(offset => blockIndexByOffset[offset])
+                .Distinct()
+                .ToImmutableArray());
+        var reachable = FindReachable(successors, exceptionEntries);
         return new ControlFlowGraph(
             methodBody,
             immutableBlocks,
@@ -222,14 +229,11 @@ internal sealed class CilControlFlowGraphBuilder : IControlFlowGraphBuilder
 
     private static ImmutableHashSet<int> FindReachable(
         ImmutableDictionary<int, ImmutableArray<int>> successors,
-        IEnumerable<int> roots)
+        ImmutableDictionary<int, ImmutableArray<int>> exceptionEntries)
     {
         var reachable = ImmutableHashSet.CreateBuilder<int>();
         var pending = new Stack<int>();
-        foreach (var root in roots)
-        {
-            pending.Push(root);
-        }
+        pending.Push(0);
         while (pending.TryPop(out var current))
         {
             if (!reachable.Add(current))
@@ -239,6 +243,10 @@ internal sealed class CilControlFlowGraphBuilder : IControlFlowGraphBuilder
             foreach (var successor in successors[current])
             {
                 pending.Push(successor);
+            }
+            foreach (var entry in exceptionEntries[current])
+            {
+                pending.Push(entry);
             }
         }
         return reachable.ToImmutable();

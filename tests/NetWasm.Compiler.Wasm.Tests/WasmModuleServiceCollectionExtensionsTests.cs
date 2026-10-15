@@ -7,6 +7,7 @@ using NetWasm.Compiler.Wasm.Emission.GeneratedFunctions;
 using NetWasm.Compiler.Wasm.Emission.Instructions;
 using NetWasm.Compiler.Wasm.Emission.Instructions.Calls;
 using NetWasm.Compiler.Wasm.Emission.Instructions.Interop;
+using NetWasm.Compiler.Wasm.Emission.Instructions.Runtime;
 using NetWasm.Compiler.Wasm.Emission.Methods;
 using NetWasm.Compiler.Wasm.Emission.Planning;
 
@@ -100,16 +101,20 @@ public sealed class WasmModuleServiceCollectionExtensionsTests
             provider.GetRequiredService<IFunctionLoader>());
         Assert.IsType<VirtualFunctionLoadEmitter>(
             provider.GetRequiredService<IVirtualFunctionLoader>());
-        Assert.IsType<DelegateCountFunctionEmitter>(
-            provider.GetRequiredService<IDelegateCountFunctionEmitter>());
-        Assert.IsType<DelegateLeafFunctionEmitter>(
-            provider.GetRequiredService<IDelegateLeafFunctionEmitter>());
-        Assert.IsType<DelegateEqualityFunctionEmitter>(
-            provider.GetRequiredService<IDelegateEqualityFunctionEmitter>());
-        Assert.IsType<DelegateRemoveFunctionEmitter>(
-            provider.GetRequiredService<IDelegateRemoveFunctionEmitter>());
         Assert.IsType<DelegateInvokeFunctionEmitter>(
             provider.GetRequiredService<IDelegateInvokeFunctionEmitter>());
+        Assert.IsType<DelegateCloneIntrinsicEmitter>(
+            provider.GetRequiredService<IRuntimeIntrinsicEmitterRegistry>()
+                .Get(RuntimeIntrinsic.DelegateClone));
+        Assert.IsType<NativeMemoryClearIntrinsicEmitter>(
+            provider.GetRequiredService<IRuntimeIntrinsicEmitterRegistry>()
+                .Get(RuntimeIntrinsic.NativeMemoryClear));
+        Assert.IsType<NativeMemoryCopyIntrinsicEmitter>(
+            provider.GetRequiredService<IRuntimeIntrinsicEmitterRegistry>()
+                .Get(RuntimeIntrinsic.NativeMemoryCopy));
+        Assert.IsType<NativeMemoryFillIntrinsicEmitter>(
+            provider.GetRequiredService<IRuntimeIntrinsicEmitterRegistry>()
+                .Get(RuntimeIntrinsic.NativeMemoryFill));
         Assert.IsType<HostCallbackFunctionEmitter>(
             provider.GetRequiredService<IHostCallbackFunctionEmitter>());
         Assert.IsType<AsyncJSImportResolveEmitter>(

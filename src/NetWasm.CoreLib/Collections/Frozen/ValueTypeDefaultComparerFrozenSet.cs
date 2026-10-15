@@ -15,6 +15,7 @@ namespace System.Collections.Frozen
     {
         internal ValueTypeDefaultComparerFrozenSet(HashSet<T> source) : base(source, Constants.KeysAreHashCodes<T>())
         {
+            Debug.Assert(typeof(T).IsValueType);
             Debug.Assert(ReferenceEquals(source.Comparer, EqualityComparer<T>.Default));
         }
 

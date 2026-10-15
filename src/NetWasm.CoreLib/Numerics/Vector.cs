@@ -9,6 +9,7 @@ using System.Runtime.CompilerServices;
 
 namespace System.Numerics
 {
+    // TODO(netwasm-simd)
     public static unsafe partial class Vector
     {
         public static bool IsHardwareAccelerated

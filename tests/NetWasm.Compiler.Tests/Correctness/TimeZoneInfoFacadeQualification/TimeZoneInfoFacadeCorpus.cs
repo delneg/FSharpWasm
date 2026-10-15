@@ -16,6 +16,10 @@ internal static class TimeZoneInfoFacadeCorpus
         CompilerCorrectnessEnvironment environment) =>
         Create(environment, "RunMissingAsset", [0]);
 
+    internal static CorpusFixture CreateLocalSemantics(
+        CompilerCorrectnessEnvironment environment) =>
+        Create(environment, "RunLocalSemantics", [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+
     internal static CorpusFixture CreateCorruptAsset(
         CompilerCorrectnessEnvironment environment) =>
         Create(environment, "RunCorruptAsset", [0]);

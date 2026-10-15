@@ -48,7 +48,7 @@ def stage(emsdk_root: Path, toolchain: Path, output: Path) -> None:
     sections = [
         "NetWasm.Runtime.Pack includes NetWasm code and selected system archives",
         f"built from Emscripten {version}. Each component retains its own terms.",
-        "\n=== NetWasm code: MIT ===\n",
+        "\n=== NetWasm runtime support: MIT, except separately identified collectors ===\n",
         NETWASM_MIT,
     ]
     for key, title, relative in SOURCES:
@@ -60,6 +60,10 @@ def stage(emsdk_root: Path, toolchain: Path, output: Path) -> None:
     for name in ("LICENSE", "NOTICE", "UPSTREAM-NOTICE"):
         sections.extend((f"\n=== Compact collector {name} ===\n",
                          (compact_root / name).read_text(encoding="utf-8")))
+    netwasm_root = compact_root.parent / "netwasm"
+    for name in ("LICENSE", "NOTICE"):
+        sections.extend((f"\n=== NetWasmGC {name} ===\n",
+                         (netwasm_root / name).read_text(encoding="utf-8")))
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text("\n".join(sections), encoding="utf-8")
 

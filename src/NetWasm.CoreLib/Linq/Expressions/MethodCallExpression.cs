@@ -55,6 +55,16 @@ namespace System.Linq.Expressions
     public abstract partial class Expression
     {
         public static MethodCallExpression Call(
+            MethodInfo method,
+            params Expression[]? arguments) =>
+            Call(null, method, arguments);
+
+        public static MethodCallExpression Call(
+            MethodInfo method,
+            IEnumerable<Expression>? arguments) =>
+            Call(null, method, arguments);
+
+        public static MethodCallExpression Call(
             Expression? instance,
             MethodInfo method,
             params Expression[]? arguments) =>

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using NetWasm.Compiler.Core;
 
@@ -24,6 +25,25 @@ internal sealed class StaticFieldStorageBuilder(
 
     public void Build()
     {
+        var spanAlignments = new Dictionary<EntityKey, int>();
+        foreach (var method in _program.Methods.Values.Concat(_program.ConstructedMethods.Values))
+        {
+            foreach (var instruction in method.Body.Instructions)
+            {
+                if (instruction.Operation is not (
+                    CilOperation.CreateReadOnlySpanFromRva or
+                    CilOperation.LoadStaticDataElement))
+                    continue;
+                if (instruction.Operand is not CilOperand.ReadOnlySpanData span)
+                    throw new CompilerException(new CompilerDiagnostic(
+                        DiagnosticCode.RuntimeContract,
+                        "RVA span creation metadata is missing during static placement."));
+                var alignment = GetValueLayout(span.ElementType).Alignment;
+                var key = span.Field.Definition.Key;
+                spanAlignments.TryGetValue(key, out var existing);
+                spanAlignments[key] = Math.Max(existing, alignment);
+            }
+        }
         foreach (var fieldKey in _program.Fields
                      .Where(key =>
                          _fields.GetField(key).IsStatic &&
@@ -33,13 +53,24 @@ internal sealed class StaticFieldStorageBuilder(
                      .ThenBy(key => key.MetadataToken))
         {
             var field = _fields.GetField(fieldKey);
-            AddStaticField(field, GetValueLayout(field.SignatureType));
+            AddStaticField(field, GetValueLayout(field.SignatureType),
+                spanAlignments.GetValueOrDefault(field.Key));
         }
         foreach (var field in _program.ConstructedFields.Values
                      .Where(field => field.Definition.IsStatic)
                      .OrderBy(field => field.CanonicalName, StringComparer.Ordinal))
         {
             var storage = GetValueLayout(field.FieldType);
+            if (!field.Definition.InitialData.IsDefaultOrEmpty)
+            {
+                // RVA data belongs to the module, even for a generic declaring type.
+                if (!_state.StaticFields.ContainsKey(field.Definition.Key))
+                    AddStaticField(field.Definition, storage,
+                        spanAlignments.GetValueOrDefault(field.Definition.Key));
+                _state.ConstructedStaticFields.Add(
+                    field.CanonicalName, _state.StaticFields[field.Definition.Key]);
+                continue;
+            }
             _state.Cursor = ManagedTypeLayoutCompiler.Align(
                 _state.Cursor,
                 storage.Alignment);
@@ -51,9 +82,13 @@ internal sealed class StaticFieldStorageBuilder(
         }
     }
 
-    private void AddStaticField(FieldDefinitionModel field, ValueLayout storage)
+    private void AddStaticField(
+        FieldDefinitionModel field,
+        ValueLayout storage,
+        int requiredAlignment)
     {
-        _state.Cursor = ManagedTypeLayoutCompiler.Align(_state.Cursor, storage.Alignment);
+        _state.Cursor = ManagedTypeLayoutCompiler.Align(
+            _state.Cursor, Math.Max(storage.Alignment, requiredAlignment));
         _state.StaticFields.Add(field.Key, new StaticFieldLayout(_state.Cursor));
         if (!field.InitialData.IsDefaultOrEmpty)
         {

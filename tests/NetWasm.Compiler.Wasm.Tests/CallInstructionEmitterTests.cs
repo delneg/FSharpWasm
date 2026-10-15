@@ -5,6 +5,7 @@ using NetWasm.Compiler.Wasm.Emission.Instructions;
 using NetWasm.Compiler.Wasm.Emission.Instructions.Calls;
 using NetWasm.Compiler.Wasm.Emission.Planning;
 using NetWasm.Compiler.Wasm.Encoding;
+using NetWasm.Compiler.Wasm.Emission.AddressTakenValues;
 
 namespace NetWasm.Compiler.Wasm.Tests;
 
@@ -21,7 +22,11 @@ public sealed class CallInstructionEmitterTests
             new FixedCallEmissionKindResolver(CallEmissionKind.Direct),
             new CallEmissionRegistry(
                 Enum.GetValues<CallEmissionKind>()
-                    .Select(kind => new CallEmissionRegistration(kind, direct))));
+                    .Select(kind => new CallEmissionRegistration(kind, direct))),
+            new AddressTakenScalarSynchronizationEmitter(
+                new RecordingLayoutProvider()),
+            new AddressTakenAggregateSynchronizationEmitter(
+                new RecordingLayoutProvider()));
         var functionIndices = CreateFunctionIndexResolver();
         var request = CreateInstructionRequest(
             CilOperation.Call,
@@ -46,7 +51,11 @@ public sealed class CallInstructionEmitterTests
             new FixedCallEmissionKindResolver(CallEmissionKind.Direct),
             new CallEmissionRegistry(
                 Enum.GetValues<CallEmissionKind>()
-                    .Select(kind => new CallEmissionRegistration(kind, direct))));
+                    .Select(kind => new CallEmissionRegistration(kind, direct))),
+            new AddressTakenScalarSynchronizationEmitter(
+                new RecordingLayoutProvider()),
+            new AddressTakenAggregateSynchronizationEmitter(
+                new RecordingLayoutProvider()));
         var constrainedType = CliTypeIdentity.Named(
             Assembly,
             "Test",
@@ -65,6 +74,63 @@ public sealed class CallInstructionEmitterTests
             CilOperation.Constrained,
             new CilOperand.TypeIdentity(constrainedType)));
         Assert.Same(constrainedType, direct.LastRequest!.ConstrainedType);
+    }
+
+    [Fact]
+    public void SequencesPlannedSynchronizationAroundTheSelectedCallEmitter()
+    {
+        var events = new List<string>();
+        var direct = new RecordingCallEmitter(() => events.Add("call"));
+        var synchronization = new RecordingSynchronizationEmitter(events);
+        var aggregateSynchronization =
+            new RecordingAggregateSynchronizationEmitter(events);
+        var emitter = new CallInstructionEmitter(
+            CreateMethodOperands(new FakeProgram()),
+            new FixedCallEmissionKindResolver(CallEmissionKind.Direct),
+            new CallEmissionRegistry(
+                Enum.GetValues<CallEmissionKind>()
+                    .Select(kind => new CallEmissionRegistration(kind, direct))),
+            synchronization,
+            aggregateSynchronization);
+        var type = CliTypeIdentity.FromStackKind(CliValueKind.I4);
+        var plan = new AddressTakenScalarPromotionPlan(
+            ImmutableDictionary<int, CliTypeIdentity>.Empty.Add(0, type),
+            ImmutableDictionary<int, AddressTakenScalarCallSynchronization>.Empty.Add(
+                0,
+                new([0], [0])));
+        var aggregateType = CliTypeIdentity.Named(
+            Assembly,
+            "Test",
+            "Aggregate",
+            isValueType: true);
+        var aggregatePlan = new AddressTakenAggregatePromotionPlan(
+            ImmutableDictionary<int, AddressTakenAggregateLocalPlan>.Empty.Add(
+                1,
+                AddressTakenAggregateLocalPlan.CreateI4Storage(aggregateType, 8)),
+            [],
+            ImmutableDictionary<int, AddressTakenAggregateCallSynchronization>.Empty
+                .Add(0, new([1], [1])));
+        var request = CreateInstructionRequest(
+            CilOperation.Call,
+            [CliValueKind.I4],
+            new CilOperand.Entity(EntryKey),
+            CreateMethodEmissionContext() with
+            {
+                AddressTakenScalarPromotions = new(plan, []),
+                AddressTakenAggregatePromotions = new(aggregatePlan, []),
+            });
+
+        Emit(emitter, request);
+
+        Assert.Equal(
+            [
+                "ScalarBeforeCall",
+                "AggregateBeforeCall",
+                "call",
+                "AggregateAfterCall",
+                "ScalarAfterCall",
+            ],
+            events);
     }
 
     private static InstructionEmissionRequest CreateCallRequest(
@@ -98,7 +164,7 @@ public sealed class CallInstructionEmitterTests
             IWasmInstructionWriter code) => kind;
     }
 
-    private sealed class RecordingCallEmitter : ICallEmitter
+    private sealed class RecordingCallEmitter(Action? onEmit = null) : ICallEmitter
     {
         public int Emissions { get; private set; }
         public IFunctionIndexResolver? FunctionIndices { get; private set; }
@@ -109,9 +175,39 @@ public sealed class CallInstructionEmitterTests
             IWasmInstructionWriter code,
             IFunctionIndexResolver functionIndices)
         {
+            onEmit?.Invoke();
             Emissions++;
             FunctionIndices = functionIndices;
             LastRequest = request;
         }
+    }
+
+    private sealed class RecordingSynchronizationEmitter(List<string> events) :
+        IAddressTakenScalarSynchronizationEmitter
+    {
+        public void Emit(
+            InstructionEmissionRequest request,
+            IWasmInstructionWriter code,
+            AddressTakenScalarCallSynchronization synchronization,
+            AddressTakenValueSynchronizationPhase phase) =>
+            events.Add($"Scalar{phase}");
+    }
+
+    private sealed class RecordingAggregateSynchronizationEmitter(
+        List<string> events) : IAddressTakenAggregateSynchronizationEmitter
+    {
+        public void Emit(
+            InstructionEmissionRequest request,
+            IWasmInstructionWriter code,
+            int localIndex,
+            AddressTakenValueSynchronizationPhase phase) =>
+            events.Add($"Aggregate{phase}{localIndex}");
+
+        public void Emit(
+            InstructionEmissionRequest request,
+            IWasmInstructionWriter code,
+            AddressTakenAggregateCallSynchronization synchronization,
+            AddressTakenValueSynchronizationPhase phase) =>
+            events.Add($"Aggregate{phase}");
     }
 }

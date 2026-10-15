@@ -26,12 +26,13 @@ namespace System.Linq.Expressions.Interpreter
             }
 
             var parameter = lambda.Parameters[0];
-            if (parameter.IsByRef || !IsSupportedValue(parameter.Type))
+            if (parameter.IsByRef ||
+                !ExpressionValidation.IsSupportedInterpreterValue(parameter.Type))
             {
                 throw Unsupported();
             }
             if (lambda.ReturnType == typeof(void) ||
-                !IsSupportedValue(lambda.ReturnType))
+                !ExpressionValidation.IsSupportedInterpreterValue(lambda.ReturnType))
             {
                 throw Unsupported();
             }
@@ -54,6 +55,11 @@ namespace System.Linq.Expressions.Interpreter
 
         private void Compile(Expression expression, bool asVoid)
         {
+            if (expression.Type != typeof(void))
+            {
+                ValidateValue(expression.Type);
+            }
+
             switch (expression.NodeType)
             {
                 case ExpressionType.Parameter:
@@ -166,7 +172,7 @@ namespace System.Linq.Expressions.Interpreter
             var parameters = method.GetParameters();
             if (!method.IsExpressionExecutable ||
                 method.ReturnType == typeof(void) ||
-                !IsSupportedValue(method.ReturnType) ||
+                !ExpressionValidation.IsSupportedInterpreterValue(method.ReturnType) ||
                 parameters.Length != expression.Arguments.Count)
             {
                 throw Unsupported();
@@ -174,7 +180,7 @@ namespace System.Linq.Expressions.Interpreter
             for (var index = 0; index < parameters.Length; index++)
             {
                 var parameterType = parameters[index].ParameterType;
-                if (parameterType.IsByRef || !IsSupportedValue(parameterType))
+                if (!IsSupportedMethodParameter(parameterType))
                 {
                     throw Unsupported();
                 }
@@ -238,16 +244,31 @@ namespace System.Linq.Expressions.Interpreter
 
         private void CompileEqual(BinaryExpression expression)
         {
+            if (expression.Left.Type != expression.Right.Type ||
+                !ExpressionValidation.IsSupportedInterpreterValue(
+                    expression.Left.Type))
+            {
+                throw Unsupported();
+            }
             Compile(expression.Left, asVoid: false);
             Compile(expression.Right, asVoid: false);
             if (expression.Method is not null)
             {
-                if (!expression.Method.IsExpressionExecutable)
+                var parameters = expression.Method.GetParameters();
+                if (!expression.Method.IsExpressionExecutable ||
+                    parameters.Length != 2 ||
+                    !IsSupportedMethodParameter(parameters[0].ParameterType) ||
+                    !IsSupportedMethodParameter(parameters[1].ParameterType))
                 {
                     throw Unsupported();
                 }
                 _instructions.EmitCall(expression.Method, argumentCount: 2);
                 return;
+            }
+            if (!ExpressionValidation.IsSupportedInterpreterEqualityOperand(
+                    expression.Left.Type))
+            {
+                throw Unsupported();
             }
             _instructions.EmitEqual(
                 expression.Left.Type,
@@ -391,33 +412,10 @@ namespace System.Linq.Expressions.Interpreter
 
         private static void ValidateValue(Type type)
         {
-            if (!IsSupportedValue(type))
+            if (!ExpressionValidation.IsSupportedInterpreterValue(type))
             {
                 throw Unsupported();
             }
-        }
-
-        private static bool IsSupportedValue(Type type)
-        {
-            if (type.IsNullable)
-            {
-                return true;
-            }
-            if (!type.IsValueType)
-            {
-                return !type.IsPointer;
-            }
-            if (type.IsEnum)
-            {
-                return true;
-            }
-            return Type.GetTypeCode(type) is
-                TypeCode.Boolean or TypeCode.Char or
-                TypeCode.SByte or TypeCode.Byte or
-                TypeCode.Int16 or TypeCode.UInt16 or
-                TypeCode.Int32 or TypeCode.UInt32 or
-                TypeCode.Int64 or TypeCode.UInt64 or
-                TypeCode.Single or TypeCode.Double;
         }
 
         private static bool IsPrimitiveNumeric(Type type) =>
@@ -427,6 +425,10 @@ namespace System.Linq.Expressions.Interpreter
                 TypeCode.Int32 or TypeCode.UInt32 or
                 TypeCode.Int64 or TypeCode.UInt64 or
                 TypeCode.Single or TypeCode.Double;
+
+        private static bool IsSupportedMethodParameter(Type type) =>
+            !type.IsByRef && !type.IsNullable &&
+            ExpressionValidation.IsSupportedInterpreterValue(type);
 
         private static bool IsArithmetic(Type type) =>
             !type.IsEnum && Type.GetTypeCode(type) is

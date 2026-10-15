@@ -83,13 +83,26 @@ public static partial class GC
     /// <summary>Gets the total bytes currently used by live managed objects.</summary>
     public static long GetTotalMemory(bool forceFullCollection)
     {
+        var size = GCMetricRuntime.Read(LiveHeapSizeMetric);
+
         if (forceFullCollection)
         {
-            WaitForPendingFinalizers();
-            Collect();
+            var repetitions = 20;
+            long difference;
+
+            do
+            {
+                WaitForPendingFinalizers();
+                Collect();
+
+                var newSize = GCMetricRuntime.Read(LiveHeapSizeMetric);
+                difference = (newSize - size) * 100 / size;
+                size = newSize;
+            }
+            while (repetitions-- > 0 && !(-5 < difference && difference < 5));
         }
 
-        return GCMetricRuntime.Read(LiveHeapSizeMetric);
+        return size;
     }
 
     /// <summary>Gets the total bytes allocated by the managed collector.</summary>
@@ -147,19 +160,12 @@ public static partial class GC
     }
 
     /// <summary>Returns the generation of a weak-reference wrapper.</summary>
-    public static int GetGeneration(WeakReference value)
+    public static int GetGeneration(WeakReference wo)
     {
-        if (value is null)
-        {
-            throw new ArgumentNullException(nameof(value));
-        }
+        var target = WeakReferenceRuntime.Get(wo.WeakHandle);
+        KeepAlive(wo);
 
-        var target = value.Target;
-        KeepAlive(value);
-        if (target is null)
-        {
-            throw new ArgumentNullException(nameof(value));
-        }
+        ArgumentNullException.ThrowIfNull(target, nameof(wo));
 
         return GetGeneration(target);
     }
@@ -186,32 +192,24 @@ public static partial class GC
             throw new ArgumentOutOfRangeException(nameof(kind));
         }
 
-        // Boehm exposes one collection kind only. Returning a synthetic
-        // ephemeral/full/background snapshot would claim information that the
-        // collector does not provide.
-        if (kind != GCKind.Any)
-        {
-            throw new PlatformNotSupportedException(
-                "Collection-kind snapshots are not available in the NetWasm collector.");
-        }
-
-        var heapSize = GCMetricRuntime.Read(HeapSizeMetric);
-        var liveHeapSize = GCMetricRuntime.Read(LiveHeapSizeMetric);
-        var fragmentedBytes = heapSize >= liveHeapSize ? heapSize - liveHeapSize : 0;
-        return new GCMemoryInfo(
-            heapSize,
-            fragmentedBytes,
-            GCMetricRuntime.Read(CollectionCountMetric),
-            GCMetricRuntime.Read(PinnedReferenceCountMetric));
+        throw new PlatformNotSupportedException(
+            "Completed-collection memory snapshots are not available in the NetWasm collector.");
     }
 
     public static void AddMemoryPressure(long bytesAllocated) =>
         throw new PlatformNotSupportedException(
             "GC memory-pressure accounting is not available in the NetWasm collector.");
 
-    public static void RemoveMemoryPressure(long bytesAllocated) =>
+    public static void RemoveMemoryPressure(long bytesAllocated)
+    {
+        if (bytesAllocated <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(bytesAllocated));
+        }
+
         throw new PlatformNotSupportedException(
             "GC memory-pressure accounting is not available in the NetWasm collector.");
+    }
 
     public static long GetAllocatedBytesForCurrentThread() =>
         throw new PlatformNotSupportedException(

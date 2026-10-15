@@ -16,7 +16,13 @@ public class ASCIIEncoding : Encoding
         return result;
     }
     public unsafe override int GetByteCount(char* chars, int count) => base.GetByteCount(chars, count);
-    public override int GetByteCount(ReadOnlySpan<char> chars) => base.GetByteCount(chars);
+    public override int GetByteCount(ReadOnlySpan<char> chars)
+    {
+        var result = 0;
+        for (var index = 0; index < chars.Length; index++)
+            result += chars[index] <= 0x7F ? 1 : ReplacementBytes(chars[index], index);
+        return result;
+    }
     public override int GetByteCount(string chars) => base.GetByteCount(chars);
     public override int GetBytes(char[] chars, int charIndex, int charCount, byte[] bytes, int byteIndex)
     {
@@ -26,14 +32,32 @@ public class ASCIIEncoding : Encoding
         return written;
     }
     public unsafe override int GetBytes(char* chars, int charCount, byte* bytes, int byteCount) => base.GetBytes(chars, charCount, bytes, byteCount);
-    public override int GetBytes(ReadOnlySpan<char> chars, Span<byte> bytes) => base.GetBytes(chars, bytes);
+    public override int GetBytes(ReadOnlySpan<char> chars, Span<byte> bytes)
+    {
+        var required = GetByteCount(chars);
+        if (required > bytes.Length) throw new ArgumentException("The destination buffer is too small.", nameof(bytes));
+        var written = 0;
+        for (var index = 0; index < chars.Length; index++)
+        {
+            var value = chars[index];
+            if (value <= 0x7F) bytes[written++] = (byte)value;
+            else written += WriteReplacement(bytes, written, value);
+        }
+        return written;
+    }
     public override int GetBytes(string chars, int charIndex, int charCount, byte[] bytes, int byteIndex) => base.GetBytes(chars, charIndex, charCount, bytes, byteIndex);
     public override int GetCharCount(byte[] bytes, int index, int count)
     {
         ArgumentNullException.ThrowIfNull(bytes); ValidateRange(index, count, bytes.Length); var result = 0; for (var offset = 0; offset < count; offset++) result += bytes[index + offset] <= 0x7F ? 1 : ReplacementChars(bytes[index + offset], index + offset); return result;
     }
     public unsafe override int GetCharCount(byte* bytes, int count) => base.GetCharCount(bytes, count);
-    public override int GetCharCount(ReadOnlySpan<byte> bytes) => base.GetCharCount(bytes);
+    public override int GetCharCount(ReadOnlySpan<byte> bytes)
+    {
+        var result = 0;
+        for (var index = 0; index < bytes.Length; index++)
+            result += bytes[index] <= 0x7F ? 1 : ReplacementChars(bytes[index], index);
+        return result;
+    }
     public override int GetChars(byte[] bytes, int byteIndex, int byteCount, char[] chars, int charIndex)
     {
         ArgumentNullException.ThrowIfNull(bytes); ArgumentNullException.ThrowIfNull(chars); ValidateRange(byteIndex, byteCount, bytes.Length); ValidateDestination(charIndex, chars.Length);
@@ -42,7 +66,19 @@ public class ASCIIEncoding : Encoding
         return written;
     }
     public unsafe override int GetChars(byte* bytes, int byteCount, char* chars, int charCount) => base.GetChars(bytes, byteCount, chars, charCount);
-    public override int GetChars(ReadOnlySpan<byte> bytes, Span<char> chars) => base.GetChars(bytes, chars);
+    public override int GetChars(ReadOnlySpan<byte> bytes, Span<char> chars)
+    {
+        var required = GetCharCount(bytes);
+        if (required > chars.Length) throw new ArgumentException("The destination buffer is too small.", nameof(chars));
+        var written = 0;
+        for (var index = 0; index < bytes.Length; index++)
+        {
+            var value = bytes[index];
+            if (value <= 0x7F) chars[written++] = (char)value;
+            else written += WriteReplacement(chars, written);
+        }
+        return written;
+    }
     public override Decoder GetDecoder() => base.GetDecoder();
     public override Encoder GetEncoder() => base.GetEncoder();
     public override string GetString(byte[] bytes, int byteIndex, int byteCount) => base.GetString(bytes, byteIndex, byteCount);
@@ -66,8 +102,11 @@ public class ASCIIEncoding : Encoding
 
     public override bool Equals(object? value) => value is ASCIIEncoding other && EncoderFallback.Equals(other.EncoderFallback) && DecoderFallback.Equals(other.DecoderFallback);
     public override int GetHashCode() => CodePage + EncoderFallback.GetHashCode() + DecoderFallback.GetHashCode();
-    private int ReplacementBytes(char value, int index) { if (UsesEncoderExceptionFallback) throw new EncoderFallbackException("Unable to encode character.", value, index); return EncoderReplacementString.Length; }
+    private int ReplacementBytes(char value, int index) { if (UsesEncoderExceptionFallback) throw new EncoderFallbackException("Unable to encode character.", value, index); return GetReplacementByteCount(); }
     private int ReplacementChars(byte value, int index) { if (UsesDecoderExceptionFallback) throw new DecoderFallbackException("Unable to decode byte.", new[] { value }, index); return DecoderReplacementString.Length; }
-    private int WriteReplacement(byte[] output, int index, char value) { var replacement = EncoderReplacementString; for (var offset = 0; offset < replacement.Length; offset++) output[index + offset] = replacement[offset] <= 0x7F ? (byte)replacement[offset] : (byte)'?'; return replacement.Length; }
+    private int WriteReplacement(byte[] output, int index, char value) { var replacement = EncoderReplacementString; for (var offset = 0; offset < replacement.Length; offset++) { if (replacement[offset] > 0x7F) throw new ArgumentException("Recursive fallback is not allowed."); output[index + offset] = (byte)replacement[offset]; } return replacement.Length; }
     private int WriteReplacement(char[] output, int index, byte value) { var replacement = DecoderReplacementString; for (var offset = 0; offset < replacement.Length; offset++) output[index + offset] = replacement[offset]; return replacement.Length; }
+    private int WriteReplacement(Span<byte> output, int index, char value) { var replacement = EncoderReplacementString; for (var offset = 0; offset < replacement.Length; offset++) { if (replacement[offset] > 0x7F) throw new ArgumentException("Recursive fallback is not allowed."); output[index + offset] = (byte)replacement[offset]; } return replacement.Length; }
+    private int WriteReplacement(Span<char> output, int index) { var replacement = DecoderReplacementString; for (var offset = 0; offset < replacement.Length; offset++) output[index + offset] = replacement[offset]; return replacement.Length; }
+    private int GetReplacementByteCount() { var replacement = EncoderReplacementString; for (var offset = 0; offset < replacement.Length; offset++) if (replacement[offset] > 0x7F) throw new ArgumentException("Recursive fallback is not allowed."); return replacement.Length; }
 }

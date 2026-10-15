@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Frozen;
 using System.Collections.Generic;
+using NetWasm.Compiler.ComponentModel.Inlining;
 using NetWasm.Compiler.ComponentModel.Node;
 
 namespace NetWasm.Compiler.ComponentModel;
@@ -18,7 +19,7 @@ public sealed class ComponentCoreModuleOptimizer(
     IBinaryenToolRunner tools,
     IFileExistence files,
     IWasmCoreModuleValidator validator,
-    IFileCopier copies) : IComponentCoreModuleOptimizer
+    IWasmCoreModuleInlineAnnotationEditor inlineAnnotations) : IComponentCoreModuleOptimizer
 {
     private static readonly FrozenDictionary<FinalWasmOptimization, string>
         OptimizationFlags = new Dictionary<FinalWasmOptimization, string>
@@ -37,8 +38,8 @@ public sealed class ComponentCoreModuleOptimizer(
         throw new ArgumentNullException(nameof(files));
     private readonly IWasmCoreModuleValidator _validator = validator ??
         throw new ArgumentNullException(nameof(validator));
-    private readonly IFileCopier _copies = copies ??
-        throw new ArgumentNullException(nameof(copies));
+    private readonly IWasmCoreModuleInlineAnnotationEditor _inlineAnnotations = inlineAnnotations ??
+        throw new ArgumentNullException(nameof(inlineAnnotations));
 
     public void Optimize(
         string inputPath,
@@ -61,7 +62,7 @@ public sealed class ComponentCoreModuleOptimizer(
         if (optimization == FinalWasmOptimization.None)
         {
             _validator.Validate(inputPath, target);
-            _copies.Copy(inputPath, outputPath);
+            _inlineAnnotations.Rewrite(inputPath, outputPath, WasmInlineAnnotationSelection.Remove);
             return;
         }
         var arguments = new List<string>
@@ -87,6 +88,7 @@ public sealed class ComponentCoreModuleOptimizer(
         var result = _tools.Run(BinaryenToolIds.WasmOpt, [.. arguments]);
         if (result.ExitCode == 0)
         {
+            _inlineAnnotations.Rewrite(outputPath, outputPath, WasmInlineAnnotationSelection.Remove);
             _validator.Validate(outputPath, target);
             return;
         }

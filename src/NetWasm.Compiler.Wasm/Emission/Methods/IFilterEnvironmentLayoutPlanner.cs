@@ -7,5 +7,6 @@ internal interface IFilterEnvironmentLayoutPlanner
 {
     FilterEnvironmentLayout Create(
         StructuredMethod method,
-        ValueFrameLayout valueLayout);
+        ValueFrameLayout valueLayout,
+        MethodRootMap rootMap);
 }

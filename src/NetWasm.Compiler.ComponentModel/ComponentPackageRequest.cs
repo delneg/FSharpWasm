@@ -1,6 +1,7 @@
 namespace NetWasm.Compiler.ComponentModel;
 
 using NetWasm.Compiler.Core.ManagedExecutables;
+using NetWasm.Compiler.ComponentModel.Optimization;
 
 public sealed record ComponentPackageRequest(
     string CoreModulePath,
@@ -11,4 +12,7 @@ public sealed record ComponentPackageRequest(
     string? RuntimeModulePath = null,
     ManagedExecutableEntryPointAbi? ManagedExecutableEntryPoint = null,
     FinalWasmOptimization Optimization = FinalWasmOptimization.Oz,
-    bool StructuredDiagnostics = false);
+    bool StructuredDiagnostics = false)
+{
+    public WasmOptimizationOverrides? OptimizationOverrides { get; init; }
+}

@@ -4,6 +4,7 @@
 // at commit 811225a482702af7ecc35d817966bc70b88a3a23.
 
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Runtime.CompilerServices;
 
 namespace System.Runtime.InteropServices
@@ -12,14 +13,22 @@ namespace System.Runtime.InteropServices
     {
         public static Span<T> AsSpan<T>(List<T>? list)
         {
-            if (list == null)
+            Span<T> span = default;
+            if (list is not null)
             {
-                return default;
+                int size = list._size;
+                T[] items = list._items;
+                Debug.Assert(items is not null);
+
+                if ((uint)size > (uint)items.Length)
+                {
+                    System.Collections.ThrowHelper.ThrowInvalidOperationException_ConcurrentOperationsNotSupported();
+                }
+
+                span = new Span<T>(ref MemoryMarshal.GetArrayDataReference(items), size);
             }
 
-            // The span aliases the active portion of the list's backing array.
-            // The caller must not add/remove items while the span is in use.
-            return new Span<T>(list.Items, 0, list.Size);
+            return span;
         }
 
         public static Span<byte> AsBytes(System.Collections.BitArray? array)
@@ -38,21 +47,24 @@ namespace System.Runtime.InteropServices
             Dictionary<TKey, TValue> dictionary,
             TKey key)
             where TKey : notnull =>
-            ref dictionary.GetValueRefOrNullRef(key);
+            ref dictionary.FindValue(key);
 
         public static ref TValue GetValueRefOrNullRef<TKey, TValue, TAlternateKey>(
             Dictionary<TKey, TValue>.AlternateLookup<TAlternateKey> dictionary,
             TAlternateKey key)
             where TKey : notnull
             where TAlternateKey : notnull, allows ref struct =>
-            ref dictionary.GetValueRefOrNullRef(key);
+            ref dictionary.FindValue(key, out _);
 
         public static ref TValue? GetValueRefOrAddDefault<TKey, TValue>(
             Dictionary<TKey, TValue> dictionary,
             TKey key,
             out bool exists)
             where TKey : notnull =>
-            ref dictionary.GetValueRefOrAddDefault(key, out exists);
+            ref Dictionary<TKey, TValue>.CollectionsMarshalHelper.GetValueRefOrAddDefault(
+                dictionary,
+                key,
+                out exists);
 
         public static ref TValue? GetValueRefOrAddDefault<TKey, TValue, TAlternateKey>(
             Dictionary<TKey, TValue>.AlternateLookup<TAlternateKey> dictionary,
@@ -66,16 +78,21 @@ namespace System.Runtime.InteropServices
         {
             if (count < 0)
             {
-                throw new ArgumentOutOfRangeException();
+                System.Collections.ThrowHelper.ThrowArgumentOutOfRangeException_NeedNonNegNum(nameof(count));
             }
-            while (list.Count < count)
+
+            list._version++;
+
+            if (count > list.Capacity)
             {
-                list.Add(default!);
+                list.Grow(count);
             }
-            while (list.Count > count)
+            else if (count < list._size && RuntimeHelpers.IsReferenceOrContainsReferences<T>())
             {
-                list.RemoveAt(list.Count - 1);
+                Array.Clear(list._items, count, list._size - count);
             }
+
+            list._size = count;
         }
     }
 }

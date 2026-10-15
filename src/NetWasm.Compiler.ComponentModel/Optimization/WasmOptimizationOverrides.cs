@@ -1,0 +1,20 @@
+namespace NetWasm.Compiler.ComponentModel.Optimization;
+
+public sealed record WasmOptimizationOverrides(
+    ManagedInliningHints ManagedInliningHints = ManagedInliningHints.Auto,
+    ManagedLoopInvariantFieldHoisting LoopInvariantFieldHoisting =
+        ManagedLoopInvariantFieldHoisting.Auto,
+    ManagedStaticDataViewElimination StaticDataViewElimination =
+        ManagedStaticDataViewElimination.Auto,
+    ManagedAddressTakenValuePromotion AddressTakenValuePromotion =
+        ManagedAddressTakenValuePromotion.Auto,
+    ManagedMethodInlining ManagedMethodInlining = ManagedMethodInlining.Auto,
+    ManagedBranchPrefixDuplication BranchPrefixDuplication =
+        ManagedBranchPrefixDuplication.Auto,
+    ManagedScalarCallPreservation ScalarCallPreservation =
+        ManagedScalarCallPreservation.Auto,
+    ManagedArrayBoundsCheckElimination ArrayBoundsCheckElimination =
+        ManagedArrayBoundsCheckElimination.Auto,
+    ManagedLoopUnrolling LoopUnrolling = ManagedLoopUnrolling.Auto,
+    ManagedConstantArgumentPropagation ConstantArgumentPropagation = ManagedConstantArgumentPropagation.Auto,
+    ManagedStaticArrayPopulationElimination StaticArrayPopulationElimination = ManagedStaticArrayPopulationElimination.Auto);

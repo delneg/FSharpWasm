@@ -13,13 +13,14 @@ namespace System.Net
     /// surface. It stores and returns data; it never opens a connection or
     /// selects an authentication transport.
     /// </remarks>
-    public class NetworkCredential : ICredentials
+    public class NetworkCredential : ICredentials, ICredentialsByHost
     {
-        private string _domain = string.Empty;
+        private string _domain;
         private string _password = string.Empty;
         private string _userName = string.Empty;
 
         public NetworkCredential()
+            : this(string.Empty, string.Empty, string.Empty)
         {
         }
 
@@ -38,8 +39,8 @@ namespace System.Net
         [AllowNull]
         public string UserName
         {
-            get => _userName;
-            set => _userName = value ?? string.Empty;
+            get { return _userName; }
+            set { _userName = value ?? string.Empty; }
         }
 
         [AllowNull]
@@ -52,12 +53,19 @@ namespace System.Net
         [AllowNull]
         public string Domain
         {
-            get => _domain;
-            set => _domain = value ?? string.Empty;
+            get { return _domain; }
+            [MemberNotNull(nameof(_domain))]
+            set { _domain = value ?? string.Empty; }
         }
 
-        public NetworkCredential GetCredential(Uri? uri, string? authenticationType) => this;
+        public NetworkCredential GetCredential(Uri? uri, string? authenticationType)
+        {
+            return this;
+        }
 
-        NetworkCredential? ICredentials.GetCredential(Uri uri, string authType) => this;
+        public NetworkCredential GetCredential(string? host, int port, string? authenticationType)
+        {
+            return this;
+        }
     }
 }

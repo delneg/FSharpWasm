@@ -79,6 +79,7 @@ internal sealed class LinkedCorpusBuildPlanFactory : ILinkedCorpusBuildPlanFacto
         var steps = ImmutableArray.CreateBuilder<LinkedCorpusBuildStep>();
         Add(LinkedCorpusBuildStage.NativeRuntime, "bash",
             [Path.Combine(request.RepositoryRoot, "eng", "build-netwasm-runtime.sh"),
+             "--collector", "tcms",
              "--runtime-layout", request.RuntimeLayoutPath, "--target", target,
              "--configuration", configuration, "--output", runtime],
             ImmutableDictionary<string, string>.Empty

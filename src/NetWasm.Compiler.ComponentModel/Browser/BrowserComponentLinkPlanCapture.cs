@@ -1,24 +1,34 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
+using NetWasm.Compiler.ComponentModel.Inlining;
 using NetWasm.Compiler.ComponentModel.Node;
 
 namespace NetWasm.Compiler.ComponentModel.Browser;
 
-internal sealed class BrowserComponentLinkPlanCapture(ImmutableHashSet<string> ownedPaths)
+internal sealed class BrowserComponentLinkPlanCapture(
+    ImmutableHashSet<string> ownedPaths,
+    string applicationModulePath,
+    string runtimeModulePath)
 {
-    private enum Phase { Text, Merged, Pruned, Optimized, Validated, Finalized, Cleanup }
+    private enum Phase { Text, ManagedSelected, RuntimeSelected, Merged, Pruned, Optimized, AnnotationsRemoved, Validated, Finalized, Cleanup }
 
     private readonly ImmutableHashSet<string> _ownedPaths = ownedPaths;
+    private readonly string _applicationModulePath = applicationModulePath;
+    private readonly string _runtimeModulePath = runtimeModulePath;
     private readonly List<BrowserWasmTextModule> _modules = [];
     private readonly List<string> _cleanup = [];
     private Phase _phase;
     private BrowserBinaryenInvocation? _merge;
+    private BrowserInlineAnnotationEdit? _managedInlining;
+    private BrowserInlineAnnotationEdit? _runtimeInlining;
     private BrowserComponentExportPruning? _exports;
     private BrowserBinaryenInvocation? _optimization;
     private BrowserCoreModuleValidation? _validation;
-    private BrowserFileCopy? _copy;
+    private BrowserInlineAnnotationEdit? _annotationCleanup;
     private bool _finalized;
+
+    public bool ManagedInliningPending => _phase == Phase.Text;
 
     public void AddText(string source, string outputPath)
     {
@@ -40,7 +50,7 @@ internal sealed class BrowserComponentLinkPlanCapture(ImmutableHashSet<string> o
         }
         if (toolId == BinaryenToolIds.WasmMerge)
         {
-            RequirePhase(Phase.Text);
+            RequirePhase(Phase.RuntimeSelected);
             if (_modules.Count == 0)
             {
                 throw new InvalidOperationException("Merge planning requires its support modules first.");
@@ -69,21 +79,51 @@ internal sealed class BrowserComponentLinkPlanCapture(ImmutableHashSet<string> o
         _phase = Phase.Pruned;
     }
 
+    public void AddManagedInlining(string inputPath, string outputPath, WasmInlineAnnotationSelection selection)
+    {
+        RequirePhase(Phase.Text);
+        if (!string.Equals(inputPath, _applicationModulePath, StringComparison.Ordinal))
+            throw new InvalidOperationException("Managed inline selection requires the application module.");
+        RequireOwnedPath(outputPath);
+        if (selection is not (WasmInlineAnnotationSelection.Preserve or WasmInlineAnnotationSelection.SizeAware))
+            throw new ArgumentOutOfRangeException(nameof(selection));
+        _managedInlining = new(inputPath, outputPath, selection);
+        _phase = Phase.ManagedSelected;
+    }
+
+    public void AddRuntimeInlining(string inputPath, string outputPath, WasmInlineAnnotationSelection selection)
+    {
+        RequirePhase(Phase.ManagedSelected);
+        if (!string.Equals(inputPath, _runtimeModulePath, StringComparison.Ordinal))
+            throw new InvalidOperationException("Runtime inline selection requires the runtime module.");
+        RequireOwnedPath(outputPath);
+        if (selection is not (WasmInlineAnnotationSelection.Preserve or WasmInlineAnnotationSelection.SizeAware))
+            throw new ArgumentOutOfRangeException(nameof(selection));
+        _runtimeInlining = new(inputPath, outputPath, selection);
+        _phase = Phase.RuntimeSelected;
+    }
+
     public bool PlannedFileExists(string path) =>
         _phase == Phase.Pruned && string.Equals(_exports!.OutputPath, path, StringComparison.Ordinal);
 
-    public void AddCopy(string inputPath, string outputPath)
+    public void AddInlineAnnotationCleanup(string inputPath, string outputPath)
     {
-        RequirePhase(Phase.Validated);
-        _copy = new(inputPath, outputPath);
-        _phase = Phase.Finalized;
-        _finalized = true;
+        var optimized = _phase == Phase.Optimized;
+        if (!optimized) RequirePhase(Phase.Validated);
+        var expected = optimized ? _optimization!.Arguments[^1] : _exports!.OutputPath;
+        if (!string.Equals(expected, inputPath, StringComparison.Ordinal) ||
+            (optimized && !string.Equals(expected, outputPath, StringComparison.Ordinal)))
+            throw new InvalidOperationException("Annotation cleanup requires the selected final core module.");
+        ArgumentException.ThrowIfNullOrWhiteSpace(outputPath);
+        _annotationCleanup = new(inputPath, outputPath, WasmInlineAnnotationSelection.Remove);
+        _phase = optimized ? Phase.AnnotationsRemoved : Phase.Finalized;
+        _finalized = !optimized;
     }
 
     public void AddValidation(BrowserCoreModuleValidation validation)
     {
         ArgumentNullException.ThrowIfNull(validation);
-        var optimized = _phase == Phase.Optimized;
+        var optimized = _phase == Phase.AnnotationsRemoved;
         if (!optimized) RequirePhase(Phase.Pruned);
         var expected = optimized ? _optimization!.Arguments[^1] : _exports!.OutputPath;
         if (!string.Equals(expected, validation.Path, StringComparison.Ordinal))
@@ -115,7 +155,7 @@ internal sealed class BrowserComponentLinkPlanCapture(ImmutableHashSet<string> o
         {
             throw new InvalidOperationException("The link producer did not capture a complete plan.");
         }
-        return new([.. _modules], _merge!, _exports!, _optimization, _validation, _copy,
+        return new([.. _modules], _managedInlining!, _runtimeInlining!, _merge!, _exports!, _optimization, _validation, _annotationCleanup!,
             [.. _cleanup]);
     }
 
@@ -167,10 +207,18 @@ internal sealed class BrowserPlannedFileExistence(BrowserComponentLinkPlanCaptur
     public bool Exists(string path) => capture.PlannedFileExists(path);
 }
 
-internal sealed class BrowserFileCopyCapture(BrowserComponentLinkPlanCapture capture) : IFileCopier
+internal sealed class BrowserInlineAnnotationCapture(BrowserComponentLinkPlanCapture capture)
+    : IWasmCoreModuleInlineAnnotationEditor
 {
-    public void Copy(string sourcePath, string destinationPath) =>
-        capture.AddCopy(sourcePath, destinationPath);
+    public void Rewrite(string inputPath, string outputPath, WasmInlineAnnotationSelection selection)
+    {
+        if (selection == WasmInlineAnnotationSelection.Remove)
+            capture.AddInlineAnnotationCleanup(inputPath, outputPath);
+        else if (capture.ManagedInliningPending)
+            capture.AddManagedInlining(inputPath, outputPath, selection);
+        else
+            capture.AddRuntimeInlining(inputPath, outputPath, selection);
+    }
 }
 
 internal sealed class BrowserCoreModuleValidationOperationCapture(BrowserComponentLinkPlanCapture capture) :

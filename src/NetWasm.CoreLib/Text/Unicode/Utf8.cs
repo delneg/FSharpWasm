@@ -20,7 +20,7 @@ public static class Utf8
         {
             var status = Rune.DecodeFromUtf16(source.Slice(charsRead), out var rune, out var consumed);
             if (status == System.Buffers.OperationStatus.NeedMoreData && !isFinalBlock) return System.Buffers.OperationStatus.NeedMoreData;
-            if (status == System.Buffers.OperationStatus.InvalidData) { if (!replaceInvalidSequences) return System.Buffers.OperationStatus.InvalidData; rune = Rune.ReplacementChar; consumed = consumed == 0 ? 1 : consumed; }
+            if (status != System.Buffers.OperationStatus.Done) { if (!replaceInvalidSequences) return System.Buffers.OperationStatus.InvalidData; rune = Rune.ReplacementChar; consumed = consumed == 0 ? 1 : consumed; }
             if (destination.Length - bytesWritten < rune.Utf8SequenceLength) return System.Buffers.OperationStatus.DestinationTooSmall;
             rune.EncodeToUtf8(destination.Slice(bytesWritten)); charsRead += consumed; bytesWritten += rune.Utf8SequenceLength;
         }
@@ -91,7 +91,7 @@ public static class Utf8
         public bool AppendFormatted(scoped ReadOnlySpan<char> value) => AppendAligned(value, 0);
         public bool AppendFormatted(scoped ReadOnlySpan<char> value, int alignment = 0, string? format = null) => AppendAligned(value, alignment);
         public bool AppendFormatted(scoped ReadOnlySpan<byte> value) => AppendBytes(value);
-        public bool AppendFormatted(scoped ReadOnlySpan<byte> value, int alignment = 0, string? format = null) => AppendBytes(value);
+        public bool AppendFormatted(scoped ReadOnlySpan<byte> value, int alignment = 0, string? format = null) => AppendAligned(value, alignment);
 
         private bool AppendAligned(string value, int alignment)
         {
@@ -105,9 +105,29 @@ public static class Utf8
         {
             var padding = Math.Max(0, (alignment < 0 ? -alignment : alignment) - value.Length);
             if (alignment > 0 && !AppendRepeated((byte)' ', padding)) return false;
-            var encoded = Encoding.UTF8.GetBytes(value.ToArray());
-            if (!AppendBytes(encoded)) return false;
+            var byteCount = GetUtf8ByteCount(value);
+            if (byteCount > _destination.Length - _index) { _success = false; return false; }
+            var status = FromUtf16(value, _destination.Slice(_index), out var charsRead, out var bytesWritten);
+            if (status != System.Buffers.OperationStatus.Done || charsRead != value.Length) { _success = false; return false; }
+            _index += bytesWritten;
             return alignment >= 0 || AppendRepeated((byte)' ', padding);
+        }
+
+        private static int GetUtf8ByteCount(ReadOnlySpan<char> value)
+        {
+            var byteCount = 0;
+            while (!value.IsEmpty)
+            {
+                var status = Rune.DecodeFromUtf16(value, out var rune, out var charsRead);
+                if (status != System.Buffers.OperationStatus.Done)
+                {
+                    rune = Rune.ReplacementChar;
+                    charsRead = charsRead == 0 ? 1 : charsRead;
+                }
+                byteCount += rune.Utf8SequenceLength;
+                value = value.Slice(charsRead);
+            }
+            return byteCount;
         }
 
         private bool AppendBytes(scoped ReadOnlySpan<byte> value)
@@ -116,6 +136,14 @@ public static class Utf8
             if (value.Length > _destination.Length - _index) { _success = false; return false; }
             for (var offset = 0; offset < value.Length; offset++) _destination[_index++] = value[offset];
             return true;
+        }
+
+        private bool AppendAligned(scoped ReadOnlySpan<byte> value, int alignment)
+        {
+            var padding = Math.Max(0, (alignment < 0 ? -alignment : alignment) - value.Length);
+            if (alignment > 0 && !AppendRepeated((byte)' ', padding)) return false;
+            if (!AppendBytes(value)) return false;
+            return alignment >= 0 || AppendRepeated((byte)' ', padding);
         }
 
         private bool AppendRepeated(byte value, int count)

@@ -97,6 +97,200 @@ cc \
 "$output_dir/collector_lifecycle_contract"
 echo "Collector lifecycle contract PASS"
 
+cc -std=c11 -Wall -Wextra -Werror \
+  -I"$workspace_dir/src/NetWasm.Runtime/collector/compact" \
+  "$script_dir/tcms_allocator_contract.c" \
+  -o "$output_dir/tcms_allocator_contract"
+"$output_dir/tcms_allocator_contract"
+echo "Compact allocator contract PASS"
+
+cc -std=c11 -Wall -Wextra -Werror \
+  -I"$workspace_dir/src/NetWasm.Runtime" \
+  -I"$workspace_dir/src/NetWasm.Runtime/collector/compact" \
+  "$workspace_dir/src/NetWasm.Runtime/collector/compact/tcms.c" \
+  "$workspace_dir/src/NetWasm.Runtime/collector/tcms_lifecycle.c" \
+  "$script_dir/tcms_runtime_lifecycle_contract.c" \
+  -o "$output_dir/tcms_runtime_lifecycle_contract"
+"$output_dir/tcms_runtime_lifecycle_contract"
+echo "Compact runtime lifecycle contract PASS"
+
+cc -std=c11 -Wall -Wextra -Werror -DTCMS_DIAGNOSTICS \
+  -I"$workspace_dir/src/NetWasm.Runtime/collector/compact" \
+  "$workspace_dir/src/NetWasm.Runtime/collector/compact/tcms.c" \
+  "$script_dir/tcms_diagnostics_contract.c" \
+  -o "$output_dir/tcms_diagnostics_contract"
+"$output_dir/tcms_diagnostics_contract"
+echo "Compact diagnostics contract PASS"
+
+cc -std=c11 -Wall -Wextra -Werror \
+  -DTCMS_DIAGNOSTICS -DTCMS_ADAPTIVE_BLOCKS \
+  -I"$workspace_dir/src/NetWasm.Runtime/collector/compact" \
+  "$workspace_dir/src/NetWasm.Runtime/collector/compact/tcms.c" \
+  "$script_dir/tcms_diagnostics_contract.c" \
+  -o "$output_dir/tcms_bitmap_diagnostics_contract"
+"$output_dir/tcms_bitmap_diagnostics_contract"
+echo "Compact bitmap diagnostics contract PASS"
+
+cc -std=c11 -Wall -Wextra -Werror \
+  -DTCMS_DIAGNOSTICS -DTCMS_ADAPTIVE_BLOCKS -DTCMS_PAGE_CACHE \
+  -I"$workspace_dir/src/NetWasm.Runtime/collector/compact" \
+  "$workspace_dir/src/NetWasm.Runtime/collector/compact/tcms.c" \
+  "$script_dir/tcms_diagnostics_contract.c" \
+  -o "$output_dir/tcms_page_cache_diagnostics_contract"
+"$output_dir/tcms_page_cache_diagnostics_contract"
+echo "Compact page-cache diagnostics contract PASS"
+
+cc -std=c11 -Wall -Wextra -Werror \
+  "$script_dir/netwasm_gc_exact_reference_bitmap_contract.c" \
+  "$workspace_dir/src/NetWasm.Runtime/collector/compact/profiles/netwasm/lifetime.c" \
+  -o "$output_dir/netwasm_gc_exact_reference_bitmap_contract"
+"$output_dir/netwasm_gc_exact_reference_bitmap_contract"
+echo "NetWasmGC exact-reference bitmap contract PASS"
+
+cc -std=c11 -Wall -Wextra -Werror \
+  -DTCMS_NATIVE_MAIN \
+  -I"$workspace_dir/src/NetWasm.Runtime/collector/compact" \
+  "$workspace_dir/src/NetWasm.Runtime/collector/compact/profiles/netwasm/gc.c" \
+  "$script_dir/netwasm_gc_interior_contract.c" \
+  -o "$output_dir/netwasm_gc_exact_reference_interior_contract"
+"$output_dir/netwasm_gc_exact_reference_interior_contract"
+echo "NetWasmGC exact-reference interior fallback contract PASS"
+
+cc -std=c11 -Wall -Wextra -Werror \
+  -DTCMS_NATIVE_MAIN \
+  -I"$workspace_dir/src/NetWasm.Runtime/collector/compact" \
+  "$workspace_dir/src/NetWasm.Runtime/collector/compact/profiles/compact/gc.c" \
+  "$workspace_dir/spikes/assemblyscript-c-gc/contract.c" \
+  -o "$output_dir/tcms_compact_source_boundary_contract"
+"$output_dir/tcms_compact_source_boundary_contract"
+echo "Compact source boundary contract PASS"
+
+cc -std=c11 -Wall -Wextra -Werror -pedantic \
+  "$workspace_dir/src/NetWasm.Runtime/collector/netwasm/netwasm_gc.c" \
+  "$script_dir/netwasm_gc_core_contract.c" \
+  -o "$output_dir/netwasm_gc_core_contract"
+"$output_dir/netwasm_gc_core_contract"
+echo "Independent NetWasmGC core contract PASS"
+
+cc -std=c11 -Wall -Wextra -Werror -pedantic \
+  "$workspace_dir/src/NetWasm.Runtime/collector/netwasm/netwasm_gc.c" \
+  "$script_dir/netwasm_gc_available_run_contract.c" \
+  -o "$output_dir/netwasm_gc_available_run_contract"
+"$output_dir/netwasm_gc_available_run_contract"
+echo "Independent NetWasmGC available-run contract PASS"
+
+cc -std=c11 -Wall -Wextra -Werror -pedantic \
+  "$script_dir/netwasm_gc_layout_contract.c" \
+  -o "$output_dir/netwasm_gc_layout_contract"
+"$output_dir/netwasm_gc_layout_contract"
+echo "Independent NetWasmGC layout and endpoint contract PASS"
+
+netwasm_gc_sources=(
+  "$workspace_dir/src/NetWasm.Runtime/collector/netwasm/netwasm_gc.c"
+  "$workspace_dir/src/NetWasm.Runtime/collector/netwasm/lifetime.c"
+  "$workspace_dir/src/NetWasm.Runtime/collector/netwasm/allocation.c"
+  "$workspace_dir/src/NetWasm.Runtime/collector/netwasm/collection.c"
+  "$workspace_dir/src/NetWasm.Runtime/collector/netwasm/ephemeron.c"
+  "$workspace_dir/src/NetWasm.Runtime/collector/netwasm/finalization.c"
+  "$workspace_dir/src/NetWasm.Runtime/collector/netwasm/identity_hash.c"
+  "$workspace_dir/src/NetWasm.Runtime/collector/netwasm/lifecycle.c"
+  "$workspace_dir/src/NetWasm.Runtime/collector/netwasm/metadata.c"
+  "$workspace_dir/src/NetWasm.Runtime/collector/netwasm/pinning.c"
+  "$workspace_dir/src/NetWasm.Runtime/collector/netwasm/reference_store.c"
+  "$workspace_dir/src/NetWasm.Runtime/collector/netwasm/roots.c"
+  "$workspace_dir/src/NetWasm.Runtime/collector/netwasm/weak_reference.c"
+)
+cc -std=c11 -Wall -Wextra -Werror -pedantic \
+  -I"$workspace_dir/src/NetWasm.Runtime" \
+  -I"$workspace_dir/src/NetWasm.Runtime/collector" \
+  "${netwasm_gc_sources[@]}" \
+  "$script_dir/netwasm_gc_runtime_contract.c" \
+  -o "$output_dir/netwasm_gc_runtime_contract"
+"$output_dir/netwasm_gc_runtime_contract"
+echo "Independent NetWasmGC runtime contract PASS"
+
+cc -std=c11 -Wall -Wextra -Werror -DTCMS_PAGE_OWNERSHIP \
+  "$script_dir/tcms_ownership_contract.c" \
+  -o "$output_dir/tcms_ownership_contract"
+"$output_dir/tcms_ownership_contract"
+echo "Compact page ownership contract PASS"
+
+cc -std=c11 -Wall -Wextra -Werror -DTCMS_BLOCK_ALLOCATION \
+  "$script_dir/tcms_blocks_contract.c" \
+  -o "$output_dir/tcms_blocks_contract"
+"$output_dir/tcms_blocks_contract"
+echo "Compact block allocation contract PASS"
+
+cc -std=c11 -Wall -Wextra -Werror -DTCMS_BITMAP_MARKING \
+  "$script_dir/tcms_blocks_contract.c" \
+  -o "$output_dir/tcms_bitmap_blocks_contract"
+"$output_dir/tcms_bitmap_blocks_contract"
+echo "Compact bitmap allocation contract PASS"
+
+cc -std=c11 -Wall -Wextra -Werror -DTCMS_BITMAP_MARKING \
+  "$script_dir/tcms_bitmap_contract.c" \
+  "$workspace_dir/src/NetWasm.Runtime/collector/compact/tcms_lifetime.c" \
+  -o "$output_dir/tcms_bitmap_contract"
+"$output_dir/tcms_bitmap_contract"
+echo "Compact bitmap tracing contract PASS"
+
+cc -std=c11 -Wall -Wextra -Werror -DTCMS_ADAPTIVE_BLOCKS \
+  "$script_dir/tcms_adaptive_blocks_contract.c" \
+  -o "$output_dir/tcms_adaptive_blocks_contract"
+"$output_dir/tcms_adaptive_blocks_contract"
+echo "Compact adaptive blocks contract PASS"
+
+# NDEBUG applies only to the included collector implementation. The same
+# contracts retain their executable assertions and side-effecting test calls.
+for optimization in Oz O3; do
+  for contract in blocks bitmap adaptive_blocks; do
+    lifetime_sources=()
+    if [[ "$contract" = bitmap ]]; then
+      lifetime_sources+=("$workspace_dir/src/NetWasm.Runtime/collector/compact/tcms_lifetime.c")
+    fi
+    cc -std=c11 -Wall -Wextra -Werror "-$optimization" \
+      -DTCMS_ADAPTIVE_BLOCKS -DTCMS_CONTRACT_RELEASE \
+      "$script_dir/tcms_${contract}_contract.c" "${lifetime_sources[@]}" \
+      -o "$output_dir/tcms_release_${contract}_${optimization}"
+    "$output_dir/tcms_release_${contract}_${optimization}"
+  done
+done
+echo "Compact release assertions-enabled contracts PASS"
+
+frame_linker_flags=(-Wl,--gc-sections)
+if [[ "$(uname -s)" = Darwin ]]; then
+  frame_linker_flags=(-Wl,-dead_strip)
+fi
+cc -std=c11 -O1 -Wall -Wextra -Werror -ffunction-sections -fdata-sections \
+  "${frame_linker_flags[@]}" -I"$workspace_dir/src/NetWasm.Runtime" \
+  "$script_dir/frame_arena_contract.c" -o "$output_dir/frame_arena_contract"
+"$output_dir/frame_arena_contract"
+cc -std=c11 -O1 -Wall -Wextra -Werror -ffunction-sections -fdata-sections \
+  -DNETWASM_BUMP_COLLECTOR "${frame_linker_flags[@]}" \
+  -I"$workspace_dir/src/NetWasm.Runtime" \
+  "$script_dir/frame_arena_contract.c" -o "$output_dir/bump_frame_arena_contract"
+"$output_dir/bump_frame_arena_contract"
+echo "Frame arena ownership contract PASS"
+
+cc -std=c11 -Wall -Wextra -Werror \
+  "$script_dir/bump_arena_contract.c" \
+  -o "$output_dir/bump_arena_contract"
+"$output_dir/bump_arena_contract"
+echo "Bump arena contract PASS"
+cc -std=c11 -Wall -Wextra -Werror \
+  "$script_dir/bump_default_capacity_contract.c" \
+  -o "$output_dir/bump_default_capacity_contract"
+"$output_dir/bump_default_capacity_contract"
+echo "Bump default capacity contract PASS"
+
+cc -std=c11 -Wall -Wextra -Werror \
+  -I"$workspace_dir/src/NetWasm.Runtime" \
+  "$script_dir/bump_weak_reference_contract.c" \
+  "$workspace_dir/src/NetWasm.Runtime/collector/bump_runtime.c" \
+  -o "$output_dir/bump_weak_reference_contract"
+"$output_dir/bump_weak_reference_contract"
+echo "Bump weak-reference contract PASS"
+
 cc \
   -std=c11 \
   -Wall \

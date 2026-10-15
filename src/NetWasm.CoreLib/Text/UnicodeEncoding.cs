@@ -52,6 +52,18 @@ public class UnicodeEncoding : Encoding
         return total;
     }
     public unsafe override int GetByteCount(char* chars, int count) => base.GetByteCount(chars, count);
+    public override int GetByteCount(ReadOnlySpan<char> chars)
+    {
+        var total = 0;
+        for (var offset = 0; offset < chars.Length; offset++)
+        {
+            var value = chars[offset];
+            if (value is >= '\uD800' and <= '\uDBFF' && offset + 1 < chars.Length && chars[offset + 1] is >= '\uDC00' and <= '\uDFFF') { total += 4; offset++; }
+            else if (value is >= '\uD800' and <= '\uDFFF') { if (UsesEncoderExceptionFallback) throw new EncoderFallbackException("Unable to encode surrogate.", value, offset); total += EncoderReplacementString.Length * 2; }
+            else total += 2;
+        }
+        return total;
+    }
     public override int GetByteCount(string s) => base.GetByteCount(s);
     public override int GetBytes(char[] chars, int charIndex, int charCount, byte[] bytes, int byteIndex)
     {
@@ -61,21 +73,80 @@ public class UnicodeEncoding : Encoding
         return written;
     }
     public unsafe override int GetBytes(char* chars, int charCount, byte* bytes, int byteCount) => base.GetBytes(chars, charCount, bytes, byteCount);
+    public override int GetBytes(ReadOnlySpan<char> chars, Span<byte> bytes)
+    {
+        var required = GetByteCount(chars);
+        if (required > bytes.Length) throw new ArgumentException("The destination buffer is too small.", nameof(bytes));
+        var written = 0;
+        for (var offset = 0; offset < chars.Length; offset++)
+        {
+            var value = chars[offset];
+            if (value is >= '\uD800' and <= '\uDBFF' && offset + 1 < chars.Length && chars[offset + 1] is >= '\uDC00' and <= '\uDFFF')
+            {
+                WriteUnit(bytes, written, value);
+                WriteUnit(bytes, written + 2, chars[++offset]);
+                written += 4;
+            }
+            else if (value is >= '\uD800' and <= '\uDFFF')
+            {
+                if (UsesEncoderExceptionFallback) throw new EncoderFallbackException("Unable to encode surrogate.", value, offset);
+                written += GetBytes(EncoderReplacementString.AsSpan(), bytes.Slice(written));
+            }
+            else { WriteUnit(bytes, written, value); written += 2; }
+        }
+        return written;
+    }
     public override int GetBytes(string s, int charIndex, int charCount, byte[] bytes, int byteIndex) => base.GetBytes(s, charIndex, charCount, bytes, byteIndex);
     public override int GetCharCount(byte[] bytes, int index, int count)
     {
-        ArgumentNullException.ThrowIfNull(bytes); ValidateRange(index, count, bytes.Length); var total = 0; for (var offset = 0; offset + 1 < count; offset += 2) { var value = ReadUnit(bytes, index + offset); if (value >= 0xD800 && value <= 0xDBFF) { if (offset + 3 < count && IsLow(ReadUnit(bytes, index + offset + 2))) { total += 2; offset += 2; } else total += ReplacementChars(bytes, index + offset); } else if (value >= 0xDC00 && value <= 0xDFFF) total += ReplacementChars(bytes, index + offset); else total++; }
-        if ((count & 1) != 0) total += ReplacementChars(bytes, index + count - 1); return total;
+        ArgumentNullException.ThrowIfNull(bytes); ValidateRange(index, count, bytes.Length); var total = 0; for (var offset = 0; offset + 1 < count; offset += 2) { var value = ReadUnit(bytes, index + offset); if (value >= 0xD800 && value <= 0xDBFF) { if (offset + 3 < count && IsLow(ReadUnit(bytes, index + offset + 2))) { total += 2; offset += 2; } else total += ReplacementChars(bytes, index + offset, 2); } else if (value >= 0xDC00 && value <= 0xDFFF) total += ReplacementChars(bytes, index + offset, 2); else total++; }
+        if ((count & 1) != 0) total += ReplacementChars(bytes, index + count - 1, 1); return total;
     }
     public unsafe override int GetCharCount(byte* bytes, int count) => base.GetCharCount(bytes, count);
+    public override int GetCharCount(ReadOnlySpan<byte> bytes)
+    {
+        var total = 0;
+        for (var offset = 0; offset + 1 < bytes.Length; offset += 2)
+        {
+            var value = ReadUnit(bytes, offset);
+            if (value is >= 0xD800 and <= 0xDBFF)
+            {
+                if (offset + 3 < bytes.Length && IsLow(ReadUnit(bytes, offset + 2))) { total += 2; offset += 2; }
+                else total += ReplacementChars(bytes, offset, 2);
+            }
+            else if (value is >= 0xDC00 and <= 0xDFFF) total += ReplacementChars(bytes, offset, 2);
+            else total++;
+        }
+        if ((bytes.Length & 1) != 0) total += ReplacementChars(bytes, bytes.Length - 1, 1);
+        return total;
+    }
     public override int GetChars(byte[] bytes, int byteIndex, int byteCount, char[] chars, int charIndex)
     {
         ArgumentNullException.ThrowIfNull(bytes); ArgumentNullException.ThrowIfNull(chars); ValidateRange(byteIndex, byteCount, bytes.Length); ValidateDestination(charIndex, chars.Length);
         EnsureDestination(charIndex, GetCharCount(bytes, byteIndex, byteCount), chars.Length); var written = 0;
-        for (var offset = 0; offset + 1 < byteCount; offset += 2) { var value = ReadUnit(bytes, byteIndex + offset); if (value >= 0xD800 && value <= 0xDBFF) { if (offset + 3 < byteCount && IsLow(ReadUnit(bytes, byteIndex + offset + 2))) { chars[charIndex + written++] = (char)value; chars[charIndex + written++] = (char)ReadUnit(bytes, byteIndex + offset + 2); offset += 2; } else written += WriteReplacement(chars, charIndex + written, bytes, byteIndex + offset); } else if (value >= 0xDC00 && value <= 0xDFFF) written += WriteReplacement(chars, charIndex + written, bytes, byteIndex + offset); else chars[charIndex + written++] = (char)value; }
-        if ((byteCount & 1) != 0) written += WriteReplacement(chars, charIndex + written, bytes, byteIndex + byteCount - 1); return written;
+        for (var offset = 0; offset + 1 < byteCount; offset += 2) { var value = ReadUnit(bytes, byteIndex + offset); if (value >= 0xD800 && value <= 0xDBFF) { if (offset + 3 < byteCount && IsLow(ReadUnit(bytes, byteIndex + offset + 2))) { chars[charIndex + written++] = (char)value; chars[charIndex + written++] = (char)ReadUnit(bytes, byteIndex + offset + 2); offset += 2; } else written += WriteReplacement(chars, charIndex + written, bytes, byteIndex + offset, 2); } else if (value >= 0xDC00 && value <= 0xDFFF) written += WriteReplacement(chars, charIndex + written, bytes, byteIndex + offset, 2); else chars[charIndex + written++] = (char)value; }
+        if ((byteCount & 1) != 0) written += WriteReplacement(chars, charIndex + written, bytes, byteIndex + byteCount - 1, 1); return written;
     }
     public unsafe override int GetChars(byte* bytes, int byteCount, char* chars, int charCount) => base.GetChars(bytes, byteCount, chars, charCount);
+    public override int GetChars(ReadOnlySpan<byte> bytes, Span<char> chars)
+    {
+        var required = GetCharCount(bytes);
+        if (required > chars.Length) throw new ArgumentException("The destination buffer is too small.", nameof(chars));
+        var written = 0;
+        for (var offset = 0; offset + 1 < bytes.Length; offset += 2)
+        {
+            var value = ReadUnit(bytes, offset);
+            if (value is >= 0xD800 and <= 0xDBFF)
+            {
+                if (offset + 3 < bytes.Length && IsLow(ReadUnit(bytes, offset + 2))) { chars[written++] = (char)value; chars[written++] = (char)ReadUnit(bytes, offset + 2); offset += 2; }
+                else written += WriteReplacement(chars, written, bytes, offset, 2);
+            }
+            else if (value is >= 0xDC00 and <= 0xDFFF) written += WriteReplacement(chars, written, bytes, offset, 2);
+            else chars[written++] = (char)value;
+        }
+        if ((bytes.Length & 1) != 0) written += WriteReplacement(chars, written, bytes, bytes.Length - 1, 1);
+        return written;
+    }
     public override Decoder GetDecoder() => base.GetDecoder();
     public override Encoder GetEncoder() => base.GetEncoder();
     public override byte[] GetPreamble() => base.GetPreamble();
@@ -85,8 +156,13 @@ public class UnicodeEncoding : Encoding
     public override bool Equals(object? value) => value is UnicodeEncoding other && _bigEndian == other._bigEndian && _emitIdentifier == other._emitIdentifier && EncoderFallback.Equals(other.EncoderFallback) && DecoderFallback.Equals(other.DecoderFallback);
     public override int GetHashCode() => CodePage + (_bigEndian ? 1 : 0) + (_emitIdentifier ? 2 : 0) + EncoderFallback.GetHashCode() + DecoderFallback.GetHashCode();
     private int ReadUnit(byte[] bytes, int index) => _bigEndian ? bytes[index] << 8 | bytes[index + 1] : bytes[index] | bytes[index + 1] << 8;
+    private int ReadUnit(ReadOnlySpan<byte> bytes, int index) => _bigEndian ? bytes[index] << 8 | bytes[index + 1] : bytes[index] | bytes[index + 1] << 8;
     private void WriteUnit(byte[] bytes, int index, int value) { if (_bigEndian) { bytes[index] = (byte)(value >> 8); bytes[index + 1] = (byte)value; } else { bytes[index] = (byte)value; bytes[index + 1] = (byte)(value >> 8); } }
+    private void WriteUnit(Span<byte> bytes, int index, int value) { if (_bigEndian) { bytes[index] = (byte)(value >> 8); bytes[index + 1] = (byte)value; } else { bytes[index] = (byte)value; bytes[index + 1] = (byte)(value >> 8); } }
     private bool IsLow(int value) => value >= 0xDC00 && value <= 0xDFFF;
-    private int ReplacementChars(byte[] bytes, int index) { if (UsesDecoderExceptionFallback) throw new DecoderFallbackException("Unable to decode bytes.", bytes, index); return DecoderReplacementString.Length; }
-    private int WriteReplacement(char[] chars, int index, byte[] bytes, int byteIndex) { var replacement = DecoderReplacementString; if (UsesDecoderExceptionFallback) throw new DecoderFallbackException("Unable to decode bytes.", bytes, byteIndex); for (var offset = 0; offset < replacement.Length; offset++) chars[index + offset] = replacement[offset]; return replacement.Length; }
+    private int ReplacementChars(byte[] bytes, int index, int count) { if (UsesDecoderExceptionFallback) throw new DecoderFallbackException("Unable to decode bytes.", CopyBytes(bytes, index, count), index); return DecoderReplacementString.Length; }
+    private int ReplacementChars(ReadOnlySpan<byte> bytes, int index, int count) { if (UsesDecoderExceptionFallback) throw new DecoderFallbackException("Unable to decode bytes.", bytes.Slice(index, count).ToArray(), index); return DecoderReplacementString.Length; }
+    private int WriteReplacement(char[] chars, int index, byte[] bytes, int byteIndex, int byteCount) { var replacement = DecoderReplacementString; if (UsesDecoderExceptionFallback) throw new DecoderFallbackException("Unable to decode bytes.", CopyBytes(bytes, byteIndex, byteCount), byteIndex); for (var offset = 0; offset < replacement.Length; offset++) chars[index + offset] = replacement[offset]; return replacement.Length; }
+    private int WriteReplacement(Span<char> chars, int index, ReadOnlySpan<byte> bytes, int byteIndex, int byteCount) { var replacement = DecoderReplacementString; if (UsesDecoderExceptionFallback) throw new DecoderFallbackException("Unable to decode bytes.", bytes.Slice(byteIndex, byteCount).ToArray(), byteIndex); for (var offset = 0; offset < replacement.Length; offset++) chars[index + offset] = replacement[offset]; return replacement.Length; }
+    private static byte[] CopyBytes(byte[] bytes, int index, int count) { var result = new byte[count]; for (var offset = 0; offset < count; offset++) result[offset] = bytes[index + offset]; return result; }
 }

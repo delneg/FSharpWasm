@@ -2,9 +2,11 @@
 // The upstream implementation is licensed under MIT.
 // Copyright (c) .NET Foundation and Contributors.
 
+using System.Buffers;
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Numerics;
+using System.Text;
 
 namespace System
 {
@@ -139,9 +141,9 @@ namespace System
                 return false;
             }
 
-            WriteUInt32BigEndian(destination, _high);
-            WriteUInt32BigEndian(destination.Slice(4), _middle);
-            WriteUInt32BigEndian(destination.Slice(8), _low);
+            WriteUInt32BigEndian(destination, High);
+            WriteUInt32BigEndian(destination.Slice(4), Mid);
+            WriteUInt32BigEndian(destination.Slice(8), Low);
             bytesWritten = byteCount;
             return true;
         }
@@ -155,9 +157,9 @@ namespace System
                 return false;
             }
 
-            WriteUInt32LittleEndian(destination, _low);
-            WriteUInt32LittleEndian(destination.Slice(4), _middle);
-            WriteUInt32LittleEndian(destination.Slice(8), _high);
+            WriteUInt32LittleEndian(destination, Low);
+            WriteUInt32LittleEndian(destination.Slice(4), Mid);
+            WriteUInt32LittleEndian(destination.Slice(8), High);
             bytesWritten = byteCount;
             return true;
         }
@@ -180,7 +182,7 @@ namespace System
         public static bool IsEvenInteger(decimal value)
         {
             var truncated = Truncate(value);
-            return value == truncated && (truncated._low & 1U) == 0;
+            return value == truncated && (truncated.Low & 1U) == 0;
         }
 
         public static bool IsFinite(decimal value) => true;
@@ -214,7 +216,7 @@ namespace System
         public static bool IsOddInteger(decimal value)
         {
             var truncated = Truncate(value);
-            return value == truncated && (truncated._low & 1U) != 0;
+            return value == truncated && (truncated.Low & 1U) != 0;
         }
 
         public static bool IsPositive(decimal value) => !value.IsNegativeValue;
@@ -236,9 +238,9 @@ namespace System
         static bool INumberBase<decimal>.IsZero(decimal value) => value.IsZero;
 
         public static decimal CopySign(decimal value, decimal sign) => new(
-            value._low,
-            value._middle,
-            value._high,
+            value.Low,
+            value.Mid,
+            value.High,
             sign.IsNegativeValue,
             value.Scale);
 
@@ -292,7 +294,7 @@ namespace System
         }
 
         public static decimal Parse(ReadOnlySpan<char> s, System.Globalization.NumberStyles style = System.Globalization.NumberStyles.Number, IFormatProvider? provider = null) =>
-            ParseCore(SpanToString(s), style);
+            ParseCore(s, style);
 
         public static decimal Parse(string s, NumberStyles style) => Parse(s, style, provider: null);
 
@@ -311,7 +313,7 @@ namespace System
             ReadOnlySpan<char> s,
             NumberStyles style,
             IFormatProvider? provider,
-            out decimal result) => TryParseCore(SpanToString(s), style, out result);
+            out decimal result) => TryParseCore(s, style, out result);
 
         public static bool TryParse(ReadOnlySpan<char> s, out decimal result) =>
             TryParse(s, NumberStyles.Number, provider: null, out result);
@@ -323,13 +325,7 @@ namespace System
             TryParse(s, NumberStyles.Number, provider, out result);
 
         public static decimal Parse(ReadOnlySpan<byte> utf8Text, System.Globalization.NumberStyles style = System.Globalization.NumberStyles.Number, IFormatProvider? provider = null)
-        {
-            if (!TryByteSpanToString(utf8Text, out var text))
-            {
-                throw new FormatException();
-            }
-            return ParseCore(text, style);
-        }
+            => ParseUtf8Core(utf8Text, style);
 
         public static decimal Parse(ReadOnlySpan<byte> utf8Text, IFormatProvider? provider) =>
             Parse(utf8Text, NumberStyles.Number, provider);
@@ -341,10 +337,7 @@ namespace System
             TryParse(utf8Text, NumberStyles.Number, provider, out result);
 
         public static bool TryParse(ReadOnlySpan<byte> utf8Text, NumberStyles style, IFormatProvider? provider, out decimal result)
-        {
-            result = default;
-            return TryByteSpanToString(utf8Text, out var text) && TryParseCore(text, style, out result);
-        }
+            => TryParseUtf8Core(utf8Text, style, out result);
 
         public static bool TryParsePartial(
             [NotNullWhen(true)] string? s,
@@ -358,7 +351,7 @@ namespace System
             NumberStyles style,
             IFormatProvider? provider,
             out decimal result,
-            out int charsConsumed) => TryParsePartialCore(SpanToString(s), style, out result, out charsConsumed);
+            out int charsConsumed) => TryParsePartialCore(s, style, out result, out charsConsumed);
 
         public static bool TryParsePartial(
             ReadOnlySpan<byte> utf8Text,
@@ -366,16 +359,7 @@ namespace System
             IFormatProvider? provider,
             out decimal result,
             out int bytesConsumed)
-        {
-            if (!TryByteSpanToString(utf8Text, out var text) ||
-                !TryParsePartialCore(text, style, out result, out bytesConsumed))
-            {
-                result = Zero;
-                bytesConsumed = 0;
-                return false;
-            }
-            return true;
-        }
+            => TryParsePartialUtf8Core(utf8Text, style, out result, out bytesConsumed);
 
         public string ToString(string? format, IFormatProvider? provider) => FormatCore(this, format);
 
@@ -383,25 +367,46 @@ namespace System
 
         public string ToString(IFormatProvider? provider) => FormatCore(this, format: null);
 
+        bool IConvertible.ToBoolean(IFormatProvider? provider) => Convert.ToBoolean(this);
+
+        char IConvertible.ToChar(IFormatProvider? provider) => throw new InvalidCastException();
+
+        sbyte IConvertible.ToSByte(IFormatProvider? provider) => Convert.ToSByte(this);
+
+        byte IConvertible.ToByte(IFormatProvider? provider) => Convert.ToByte(this);
+
+        short IConvertible.ToInt16(IFormatProvider? provider) => Convert.ToInt16(this);
+
+        ushort IConvertible.ToUInt16(IFormatProvider? provider) => Convert.ToUInt16(this);
+
+        int IConvertible.ToInt32(IFormatProvider? provider) => Convert.ToInt32(this);
+
+        uint IConvertible.ToUInt32(IFormatProvider? provider) => Convert.ToUInt32(this);
+
+        long IConvertible.ToInt64(IFormatProvider? provider) => Convert.ToInt64(this);
+
+        ulong IConvertible.ToUInt64(IFormatProvider? provider) => Convert.ToUInt64(this);
+
+        float IConvertible.ToSingle(IFormatProvider? provider) => (float)this;
+
+        double IConvertible.ToDouble(IFormatProvider? provider) => (double)this;
+
+        decimal IConvertible.ToDecimal(IFormatProvider? provider) => this;
+
+        DateTime IConvertible.ToDateTime(IFormatProvider? provider) => throw new InvalidCastException();
+
+        object IConvertible.ToType(Type conversionType, IFormatProvider? provider) =>
+            PrimitiveIntegralConversions.ToType(this, conversionType, provider);
+
         public bool TryFormat(
             Span<char> destination,
             out int charsWritten,
             ReadOnlySpan<char> format = default(System.ReadOnlySpan<char>),
             IFormatProvider? provider = null)
         {
-            var formatted = FormatCore(this, SpanToString(format));
-            if (destination.Length < formatted.Length)
-            {
-                charsWritten = 0;
-                return false;
-            }
-
-            for (var index = 0; index < formatted.Length; index++)
-            {
-                destination[index] = formatted[index];
-            }
-            charsWritten = formatted.Length;
-            return true;
+            var builder = new ValueStringBuilder(destination);
+            AppendFormatCore(ref builder, this, format);
+            return builder.TryCopyTo(destination, out charsWritten);
         }
 
         public bool TryFormat(
@@ -410,18 +415,12 @@ namespace System
             ReadOnlySpan<char> format = default(System.ReadOnlySpan<char>),
             IFormatProvider? provider = null)
         {
-            var formatted = FormatCore(this, SpanToString(format));
-            if (utf8Destination.Length < formatted.Length)
-            {
-                bytesWritten = 0;
-                return false;
-            }
-            for (var index = 0; index < formatted.Length; index++)
-            {
-                utf8Destination[index] = (byte)formatted[index];
-            }
-            bytesWritten = formatted.Length;
-            return true;
+            Span<char> buffer = stackalloc char[64];
+            var builder = new ValueStringBuilder(buffer);
+            AppendFormatCore(ref builder, this, format);
+            var success = Number.TryCopyUtf8(builder.AsSpan(), utf8Destination, out bytesWritten);
+            builder.Dispose();
+            return success;
         }
 
         static bool INumberBase<decimal>.TryConvertFromChecked<TOther>(
@@ -476,7 +475,7 @@ namespace System
             ReadOnlySpan<char> s,
             NumberStyles style,
             IFormatProvider? provider,
-            [MaybeNullWhen(false)] out decimal result) => TryParseCore(SpanToString(s), style, out result);
+            [MaybeNullWhen(false)] out decimal result) => TryParseCore(s, style, out result);
 
         public static decimal CreateChecked<TOther>(TOther value)
             where TOther : INumberBase<TOther>
@@ -973,11 +972,13 @@ namespace System
             return false;
         }
 
-        private static decimal ParseCore(string text, NumberStyles style)
+        private static decimal ParseCore(string text, NumberStyles style) =>
+            ParseCore(text.AsSpan(), style);
+
+        private static decimal ParseCore(ReadOnlySpan<char> text, NumberStyles style)
         {
-            if (!TryParseCore(text, style, out var result))
+            if (!TryParseCore(text, style, out var result, out var overflow))
             {
-                DecimalMath.TryParse(text, out _, out var overflow);
                 if (overflow)
                 {
                     throw new OverflowException();
@@ -989,9 +990,28 @@ namespace System
 
         private static bool TryParseCore(string? text, NumberStyles style, out decimal result)
         {
+            if (text == null)
+            {
+                result = Zero;
+                ValidateDecimalParseStyle(style);
+                return false;
+            }
+            return TryParseCore(text.AsSpan(), style, out result);
+        }
+
+        private static bool TryParseCore(ReadOnlySpan<char> text, NumberStyles style, out decimal result)
+            => TryParseCore(text, style, out result, out _);
+
+        private static bool TryParseCore(
+            ReadOnlySpan<char> text,
+            NumberStyles style,
+            out decimal result,
+            out bool overflow)
+        {
             result = Zero;
+            overflow = false;
             ValidateDecimalParseStyle(style);
-            if (text == null || text.Length == 0)
+            if (text.Length == 0)
             {
                 return false;
             }
@@ -1000,6 +1020,10 @@ namespace System
             var end = text.Length;
             var leadingWhite = (style & NumberStyles.AllowLeadingWhite) != 0;
             var trailingWhite = (style & NumberStyles.AllowTrailingWhite) != 0;
+            while (end > start && text[end - 1] == '\0')
+            {
+                end--;
+            }
             while (start < end && IsAsciiWhiteSpace(text[start]))
             {
                 if (!leadingWhite)
@@ -1035,6 +1059,14 @@ namespace System
                 end--;
             }
 
+            var currency = false;
+            if (start < end && text[start] == '$')
+            {
+                if ((style & NumberStyles.AllowCurrencySymbol) == 0) return false;
+                currency = true;
+                start++;
+            }
+
             var leadingSign = false;
             if (start < end && (text[start] == '+' || text[start] == '-'))
             {
@@ -1046,6 +1078,19 @@ namespace System
                 negative = text[start] == '-';
                 start++;
             }
+            if (start < end && text[start] == '$')
+            {
+                if (currency || (style & NumberStyles.AllowCurrencySymbol) == 0) return false;
+                currency = true;
+                start++;
+            }
+
+            if (start < end && text[end - 1] == '$')
+            {
+                if (currency || (style & NumberStyles.AllowCurrencySymbol) == 0) return false;
+                currency = true;
+                end--;
+            }
 
             var trailingSign = false;
             if (start < end && (text[end - 1] == '+' || text[end - 1] == '-'))
@@ -1056,19 +1101,68 @@ namespace System
                 }
                 trailingSign = true;
                 negative = text[--end] == '-';
+                if (trailingWhite)
+                {
+                    while (end > start && IsAsciiWhiteSpace(text[end - 1])) end--;
+                }
+            }
+            if (start < end && text[end - 1] == '$')
+            {
+                if (currency || (style & NumberStyles.AllowCurrencySymbol) == 0) return false;
+                currency = true;
+                end--;
             }
             if (start >= end || (trailingSign && start >= end))
             {
                 return false;
             }
 
-            var normalized = new char[end - start + 1];
+            var normalizedCapacity = end - start + 1;
+            if (normalizedCapacity <= 128)
+            {
+                Span<char> normalized = stackalloc char[normalizedCapacity];
+                return TryNormalizeAndParseDecimal(
+                    text,
+                    start,
+                    end,
+                    negative,
+                    style,
+                    normalized,
+                    out result,
+                    out overflow);
+            }
+
+            return TryNormalizeAndParseDecimal(
+                text,
+                start,
+                end,
+                negative,
+                style,
+                new char[normalizedCapacity],
+                out result,
+                out overflow);
+        }
+
+        private static bool TryNormalizeAndParseDecimal(
+            ReadOnlySpan<char> text,
+            int start,
+            int end,
+            bool negative,
+            NumberStyles style,
+            Span<char> normalized,
+            out decimal result,
+            out bool overflow)
+        {
+            result = Zero;
+            overflow = false;
             var normalizedLength = 0;
             if (negative)
             {
                 normalized[normalizedLength++] = '-';
             }
             var sawDigit = false;
+            var sawDecimalPoint = false;
+            var sawExponent = false;
             for (var index = start; index < end; index++)
             {
                 var character = text[index];
@@ -1080,11 +1174,21 @@ namespace System
                 }
                 if (character == '.' && (style & NumberStyles.AllowDecimalPoint) != 0)
                 {
+                    if (sawDecimalPoint || sawExponent)
+                    {
+                        return false;
+                    }
+                    sawDecimalPoint = true;
                     normalized[normalizedLength++] = character;
                     continue;
                 }
                 if ((character == 'e' || character == 'E') && (style & NumberStyles.AllowExponent) != 0)
                 {
+                    if (!sawDigit || sawExponent)
+                    {
+                        return false;
+                    }
+                    sawExponent = true;
                     normalized[normalizedLength++] = character;
                     continue;
                 }
@@ -1095,11 +1199,8 @@ namespace System
                     normalized[normalizedLength++] = character;
                     continue;
                 }
-                if (character == ',' && (style & NumberStyles.AllowThousands) != 0)
-                {
-                    continue;
-                }
-                if (character == '$' && (style & NumberStyles.AllowCurrencySymbol) != 0)
+                if (character == ',' && sawDigit && !sawDecimalPoint && !sawExponent &&
+                    (style & NumberStyles.AllowThousands) != 0)
                 {
                     continue;
                 }
@@ -1107,11 +1208,14 @@ namespace System
             }
             if (!sawDigit)
             {
+                result = Zero;
                 return false;
             }
 
-            var normalizedText = string.Create(normalized, 0, normalizedLength);
-            return DecimalMath.TryParse(normalizedText, out result, out _);
+            return DecimalMath.TryParse(
+                normalized[..normalizedLength],
+                out result,
+                out overflow);
         }
 
         private static void ValidateDecimalParseStyle(NumberStyles style)
@@ -1124,122 +1228,137 @@ namespace System
 
         private static string FormatCore(decimal value, string? format)
         {
-            if (format == null || format.Length == 0 || format[0] is 'G' or 'g')
-            {
-                return DecimalMath.Format(value);
-            }
-
-            var symbol = format[0];
-            var precision = ParseFormatPrecision(format, out var hasPrecision);
-            return symbol switch
-            {
-                'F' or 'f' => FormatFixed(value, hasPrecision ? precision : 2, group: false),
-                'N' or 'n' => FormatFixed(value, hasPrecision ? precision : 2, group: true),
-                'C' or 'c' => FormatCurrency(value, hasPrecision ? precision : 2),
-                'P' or 'p' => FormatPercent(value, hasPrecision ? precision : 2),
-                'E' or 'e' => FormatScientific(value, hasPrecision ? precision : 6, symbol == 'e'),
-                _ => throw new FormatException(),
-            };
+            var builder = new ValueStringBuilder(32);
+            AppendFormatCore(ref builder, value, format.AsSpan());
+            return builder.ToString();
         }
 
-        private static decimal MultiplyByHundred(decimal value) => DecimalMath.Multiply(value, new decimal(100));
+        private static void AppendFormatCore(
+            scoped ref ValueStringBuilder builder,
+            decimal value,
+            scoped ReadOnlySpan<char> format)
+        {
+            if (format.Length == 0 || format[0] is 'G' or 'g')
+            {
+                DecimalMath.AppendFormat(ref builder, value);
+                return;
+            }
+
+            var symbol = Number.ParseInvariantFormatSpecifier(format, out var parsedPrecision);
+            if (symbol == '\0')
+            {
+                var digits = DecimalMath.ToDigits(DecimalMath.Coefficient(value));
+                Number.AppendCustomInvariant(
+                    ref builder,
+                    digits,
+                    digits.Length - value.Scale,
+                    value.IsNegativeValue,
+                    Number.NumberBufferKind.Decimal,
+                    format);
+                return;
+            }
+            var hasPrecision = parsedPrecision >= 0;
+            var precision = hasPrecision ? parsedPrecision : 0;
+            switch (symbol)
+            {
+                case 'F' or 'f': AppendFixed(ref builder, value, hasPrecision ? precision : 2, group: false); break;
+                case 'N' or 'n': AppendFixed(ref builder, value, hasPrecision ? precision : 2, group: true); break;
+                case 'C' or 'c': AppendCurrency(ref builder, value, hasPrecision ? precision : 2); break;
+                case 'P' or 'p': AppendPercent(ref builder, value, hasPrecision ? precision : 2); break;
+                case 'E' or 'e': AppendScientific(ref builder, value, hasPrecision ? precision : 6, symbol == 'e'); break;
+                default: throw new FormatException();
+            }
+        }
+
+        private static decimal MultiplyByHundred(decimal value) => Multiply(value, new decimal(100));
 
         private static string FormatCurrency(decimal value, int precision)
         {
-            var formatted = FormatFixed(value, precision, group: true);
-            var result = new char[formatted.Length + 1];
-            if (formatted[0] == '-')
+            var builder = new ValueStringBuilder(32);
+            AppendCurrency(ref builder, value, precision);
+            return builder.ToString();
+        }
+
+        private static void AppendCurrency(scoped ref ValueStringBuilder builder, decimal value, int precision)
+        {
+            if (value.IsNegativeValue)
             {
-                result[0] = '-';
-                result[1] = '$';
-                for (var index = 1; index < formatted.Length; index++)
-                {
-                    result[index + 1] = formatted[index];
-                }
+                builder.Append('-');
+                builder.Append('$');
+                AppendFixed(ref builder, Abs(value), precision, group: true);
             }
             else
             {
-                result[0] = '$';
-                for (var index = 0; index < formatted.Length; index++)
-                {
-                    result[index + 1] = formatted[index];
-                }
+                builder.Append('$');
+                AppendFixed(ref builder, value, precision, group: true);
             }
-            return string.Create(result);
         }
 
         private static string FormatPercent(decimal value, int precision)
         {
-            var formatted = FormatFixed(MultiplyByHundred(value), precision, group: true);
-            var result = new char[formatted.Length + 1];
-            for (var index = 0; index < formatted.Length; index++)
-            {
-                result[index] = formatted[index];
-            }
-            result[formatted.Length] = '%';
-            return string.Create(result);
+            var builder = new ValueStringBuilder(32);
+            AppendPercent(ref builder, value, precision);
+            return builder.ToString();
         }
 
-        private static int ParseFormatPrecision(string format, out bool hasPrecision)
+        private static void AppendPercent(scoped ref ValueStringBuilder builder, decimal value, int precision)
         {
-            hasPrecision = format.Length > 1;
-            var precision = 0;
-            for (var index = 1; index < format.Length; index++)
-            {
-                var character = format[index];
-                if (character < '0' || character > '9')
-                {
-                    throw new FormatException();
-                }
-                precision = precision * 10 + character - '0';
-                if (precision > 99)
-                {
-                    throw new FormatException();
-                }
-            }
-            return precision;
+            AppendFixed(ref builder, MultiplyByHundred(value), precision, group: true);
+            builder.Append('%');
         }
 
         private static string FormatFixed(decimal value, int precision, bool group)
+        {
+            var builder = new ValueStringBuilder(32);
+            AppendFixed(ref builder, value, precision, group);
+            return builder.ToString();
+        }
+
+        private static void AppendFixed(scoped ref ValueStringBuilder builder, decimal value, int precision, bool group)
         {
             var rounded = DecimalMath.Round(value, precision, MidpointRounding.ToEven);
             var digits = DecimalMath.ToDigits(DecimalMath.Coefficient(rounded));
             var sourceIntegerDigits = digits.Length - rounded.Scale;
             var integerDigits = sourceIntegerDigits > 0 ? sourceIntegerDigits : 1;
-            var separators = group ? (integerDigits - 1) / 3 : 0;
-            var length = (rounded.IsNegativeValue ? 1 : 0) + integerDigits + separators +
-                (precision == 0 ? 0 : precision + 1);
-            var result = new char[length];
-            var destination = 0;
             if (rounded.IsNegativeValue)
             {
-                result[destination++] = '-';
+                builder.Append('-');
             }
             for (var index = 0; index < integerDigits; index++)
             {
                 if (group && index != 0 && (integerDigits - index) % 3 == 0)
                 {
-                    result[destination++] = ',';
+                    builder.Append(',');
                 }
-                result[destination++] = sourceIntegerDigits > 0 && index < sourceIntegerDigits
+                builder.Append(sourceIntegerDigits > 0 && index < sourceIntegerDigits
                     ? digits[index]
-                    : '0';
+                    : '0');
             }
             if (precision != 0)
             {
-                result[destination++] = '.';
+                builder.Append('.');
                 for (var index = 0; index < precision; index++)
                 {
                     var sourceIndex = sourceIntegerDigits + index;
-                    result[destination++] = sourceIndex >= 0 && sourceIndex < digits.Length
+                    builder.Append(sourceIndex >= 0 && sourceIndex < digits.Length
                         ? digits[sourceIndex]
-                        : '0';
+                        : '0');
                 }
             }
-            return string.Create(result);
         }
 
         private static string FormatScientific(decimal value, int precision, bool lowerExponent)
+        {
+            var builder = new ValueStringBuilder(32);
+            AppendScientific(ref builder, value, precision, lowerExponent);
+            return builder.ToString();
+        }
+
+        private static void AppendScientific(
+            scoped ref ValueStringBuilder builder,
+            decimal value,
+            int precision,
+            bool lowerExponent)
         {
             var digits = DecimalMath.ToDigits(DecimalMath.Coefficient(value));
             var negative = value.IsNegativeValue;
@@ -1270,29 +1389,28 @@ namespace System
 
             var exponentMagnitude = exponent < 0 ? -exponent : exponent;
             const int exponentDigits = 3;
-            var result = new char[(negative ? 1 : 0) + 1 + (precision == 0 ? 0 : precision + 1) + 2 + exponentDigits];
-            var destination = 0;
             if (negative)
             {
-                result[destination++] = '-';
+                builder.Append('-');
             }
-            result[destination++] = significant[0];
+            builder.Append(significant[0]);
             if (precision != 0)
             {
-                result[destination++] = '.';
+                builder.Append('.');
                 for (var index = 1; index < significant.Length; index++)
                 {
-                    result[destination++] = significant[index];
+                    builder.Append(significant[index]);
                 }
             }
-            result[destination++] = lowerExponent ? 'e' : 'E';
-            result[destination++] = exponent < 0 ? '-' : '+';
+            builder.Append(lowerExponent ? 'e' : 'E');
+            builder.Append(exponent < 0 ? '-' : '+');
+            Span<char> exponentBuffer = stackalloc char[exponentDigits];
             for (var index = exponentDigits - 1; index >= 0; index--)
             {
-                result[destination + index] = (char)('0' + exponentMagnitude % 10);
+                exponentBuffer[index] = (char)('0' + exponentMagnitude % 10);
                 exponentMagnitude /= 10;
             }
-            return string.Create(result);
+            builder.Append(exponentBuffer);
         }
 
         private static string SpanToString(ReadOnlySpan<char> value)
@@ -1305,19 +1423,99 @@ namespace System
             return string.Create(result);
         }
 
-        private static bool TryByteSpanToString(ReadOnlySpan<byte> value, out string result)
+        private static decimal ParseUtf8Core(ReadOnlySpan<byte> value, NumberStyles style)
         {
-            var characters = new char[value.Length];
-            for (var index = 0; index < value.Length; index++)
+            char[]? rentedCharacters = null;
+            Span<char> characters = value.Length <= 128
+                ? stackalloc char[value.Length]
+                : rentedCharacters = ArrayPool<char>.Shared.Rent(value.Length);
+            try
             {
-                if (value[index] > 0x7f)
+                if (!TryCopyAscii(value, characters))
                 {
-                    result = string.Empty;
+                    throw new FormatException();
+                }
+                return ParseCore(characters[..value.Length], style);
+            }
+            finally
+            {
+                if (rentedCharacters is not null)
+                {
+                    ArrayPool<char>.Shared.Return(rentedCharacters);
+                }
+            }
+        }
+
+        private static bool TryParseUtf8Core(
+            ReadOnlySpan<byte> value,
+            NumberStyles style,
+            out decimal result)
+        {
+            char[]? rentedCharacters = null;
+            Span<char> characters = value.Length <= 128
+                ? stackalloc char[value.Length]
+                : rentedCharacters = ArrayPool<char>.Shared.Rent(value.Length);
+            try
+            {
+                if (!TryCopyAscii(value, characters))
+                {
+                    result = Zero;
                     return false;
                 }
-                characters[index] = (char)value[index];
+                return TryParseCore(characters[..value.Length], style, out result);
             }
-            result = string.Create(characters);
+            finally
+            {
+                if (rentedCharacters is not null)
+                {
+                    ArrayPool<char>.Shared.Return(rentedCharacters);
+                }
+            }
+        }
+
+        private static bool TryParsePartialUtf8Core(
+            ReadOnlySpan<byte> value,
+            NumberStyles style,
+            out decimal result,
+            out int bytesConsumed)
+        {
+            char[]? rentedCharacters = null;
+            Span<char> characters = value.Length <= 128
+                ? stackalloc char[value.Length]
+                : rentedCharacters = ArrayPool<char>.Shared.Rent(value.Length);
+            try
+            {
+                if (!TryCopyAscii(value, characters))
+                {
+                    result = Zero;
+                    bytesConsumed = 0;
+                    return false;
+                }
+                return TryParsePartialCore(
+                    characters[..value.Length],
+                    style,
+                    out result,
+                    out bytesConsumed);
+            }
+            finally
+            {
+                if (rentedCharacters is not null)
+                {
+                    ArrayPool<char>.Shared.Return(rentedCharacters);
+                }
+            }
+        }
+
+        private static bool TryCopyAscii(ReadOnlySpan<byte> source, Span<char> destination)
+        {
+            for (var index = 0; index < source.Length; index++)
+            {
+                if (source[index] > 0x7f)
+                {
+                    return false;
+                }
+                destination[index] = (char)source[index];
+            }
             return true;
         }
 
@@ -1327,23 +1525,194 @@ namespace System
             out decimal result,
             out int charsConsumed)
         {
+            if (text == null)
+            {
+                result = Zero;
+                charsConsumed = 0;
+                ValidateDecimalParseStyle(style);
+                return false;
+            }
+            return TryParsePartialCore(text.AsSpan(), style, out result, out charsConsumed);
+        }
+
+        private static bool TryParsePartialCore(
+            ReadOnlySpan<char> text,
+            NumberStyles style,
+            out decimal result,
+            out int charsConsumed)
+        {
             result = Zero;
             charsConsumed = 0;
             ValidateDecimalParseStyle(style);
-            if (text == null)
+
+            var length = FindPartialDecimalLength(text, style);
+            if (length == 0)
             {
                 return false;
             }
 
-            for (var length = text.Length; length > 0; length--)
+            if (!TryParseCore(text[..length], style, out result))
             {
-                if (TryParseCore(text.Substring(0, length), style, out result))
+                result = Zero;
+                return false;
+            }
+
+            charsConsumed = length;
+            return true;
+        }
+
+        private static int FindPartialDecimalLength(ReadOnlySpan<char> text, NumberStyles style)
+        {
+            var index = 0;
+            if ((style & NumberStyles.AllowLeadingWhite) != 0)
+            {
+                while (index < text.Length && IsAsciiWhiteSpace(text[index]))
                 {
-                    charsConsumed = length;
-                    return true;
+                    index++;
                 }
             }
-            return false;
+            else if (index < text.Length && IsAsciiWhiteSpace(text[index]))
+            {
+                return 0;
+            }
+
+            var parenthesized = false;
+            if ((style & NumberStyles.AllowParentheses) != 0 && index < text.Length && text[index] == '(')
+            {
+                parenthesized = true;
+                index++;
+            }
+
+            var currency = false;
+            if ((style & NumberStyles.AllowCurrencySymbol) != 0 && index < text.Length && text[index] == '$')
+            {
+                currency = true;
+                index++;
+            }
+
+            var leadingSign = false;
+            if (index < text.Length && text[index] is '+' or '-')
+            {
+                if (parenthesized || (style & NumberStyles.AllowLeadingSign) == 0)
+                {
+                    return 0;
+                }
+                leadingSign = true;
+                index++;
+            }
+
+            if (!currency && (style & NumberStyles.AllowCurrencySymbol) != 0 &&
+                index < text.Length && text[index] == '$')
+            {
+                currency = true;
+                index++;
+            }
+
+            var sawDigit = false;
+            var sawDecimal = false;
+            var lastValid = 0;
+            while (index < text.Length)
+            {
+                var character = text[index];
+                if (character is >= '0' and <= '9')
+                {
+                    sawDigit = true;
+                    index++;
+                }
+                else if (!sawDecimal && character == '.' &&
+                    (style & NumberStyles.AllowDecimalPoint) != 0)
+                {
+                    sawDecimal = true;
+                    index++;
+                }
+                else if (character == ',' && (style & NumberStyles.AllowThousands) != 0)
+                {
+                    index++;
+                }
+                else
+                {
+                    break;
+                }
+
+                if (sawDigit && !parenthesized)
+                {
+                    lastValid = index;
+                }
+            }
+
+            if (!sawDigit)
+            {
+                return 0;
+            }
+
+            if (index < text.Length && text[index] is 'e' or 'E' &&
+                (style & NumberStyles.AllowExponent) != 0)
+            {
+                var exponentStart = index++;
+                if (index < text.Length && text[index] is '+' or '-')
+                {
+                    index++;
+                }
+                var exponentDigits = 0;
+                while (index < text.Length && text[index] is >= '0' and <= '9')
+                {
+                    exponentDigits++;
+                    index++;
+                    if (!parenthesized)
+                    {
+                        lastValid = index;
+                    }
+                }
+                if (exponentDigits == 0)
+                {
+                    index = exponentStart;
+                }
+            }
+
+            var trailingSign = false;
+            for (var token = 0; token < 2 && index < text.Length; token++)
+            {
+                if (!currency && (style & NumberStyles.AllowCurrencySymbol) != 0 && text[index] == '$')
+                {
+                    currency = true;
+                    index++;
+                }
+                else if (!trailingSign && !leadingSign && !parenthesized &&
+                    (style & NumberStyles.AllowTrailingSign) != 0 && text[index] is '+' or '-')
+                {
+                    trailingSign = true;
+                    index++;
+                }
+                else
+                {
+                    break;
+                }
+
+                if (!parenthesized)
+                {
+                    lastValid = index;
+                }
+            }
+
+            if (parenthesized)
+            {
+                if (index >= text.Length || text[index] != ')')
+                {
+                    return 0;
+                }
+                lastValid = ++index;
+            }
+
+            if ((style & NumberStyles.AllowTrailingWhite) != 0 && index == lastValid)
+            {
+                while (index < text.Length && IsAsciiWhiteSpace(text[index]))
+                {
+                    index++;
+                }
+                lastValid = index;
+            }
+
+            return lastValid;
         }
 
         private static bool IsAsciiWhiteSpace(char value) => value is ' ' or '\t' or '\r' or '\n' or '\f' or '\v';

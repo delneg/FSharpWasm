@@ -7,7 +7,8 @@ namespace NetWasm.Compiler.Wasm.Emission.Instructions;
 
 internal sealed class CilInstructionDispatcher(
     IInstructionCommandResolver commands,
-    IRootPublicationEmitter roots) : ICilInstructionDispatcher
+    IRootPublicationEmitter roots,
+    IStackStorageAnchorEmitter anchors) : ICilInstructionDispatcher
 {
     public void Emit(
         InstructionEmissionRequest request, IWasmInstructionWriter code,
@@ -16,5 +17,6 @@ internal sealed class CilInstructionDispatcher(
         ArgumentNullException.ThrowIfNull(request);
         roots.Emit(request, code);
         commands.Resolve(request.Instruction.Operation).Emit(request, code, functionIndices);
+        anchors.Emit(request, code);
     }
 }

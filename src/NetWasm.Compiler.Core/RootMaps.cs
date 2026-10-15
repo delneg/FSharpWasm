@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Linq;
 
 namespace NetWasm.Compiler.Core;
 
@@ -11,6 +12,7 @@ public enum RootSourceKind
     ManagedAddressLocal,
     ManagedAddressEvaluationStack,
     AllocationTemporary,
+    StackStorageAnchor,
 }
 
 public readonly record struct RootSource(
@@ -31,5 +33,9 @@ public sealed record MethodRootMap(
     ImmutableDictionary<RootSource, int> Slots,
     ImmutableDictionary<int, SafepointRootMap> Safepoints)
 {
-    public int SlotCount => Slots.Count;
+    public StackStorageAnchorPlan AnchorPlan { get; init; } = StackStorageAnchorPlan.Empty;
+
+    public int SlotCount => Slots.Count == 0
+        ? 0
+        : checked(Slots.Values.Max() + 1);
 }

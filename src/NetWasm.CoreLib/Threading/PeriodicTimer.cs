@@ -5,7 +5,6 @@
 
 using System.Threading.Tasks;
 using System.Threading.Tasks.Sources;
-using System.Runtime.InteropServices;
 
 namespace System.Threading
 {
@@ -14,8 +13,8 @@ namespace System.Threading
     {
         private const long MaxSupportedMilliseconds = uint.MaxValue - 1L;
 
+        private readonly ITimer _timer;
         private readonly State _state;
-        private readonly TimeProvider _timeProvider;
         private TimeSpan _period;
 
         public PeriodicTimer(TimeSpan period)
@@ -25,11 +24,27 @@ namespace System.Threading
 
         public PeriodicTimer(TimeSpan period, TimeProvider timeProvider)
         {
-            ValidatePeriod(period, out _);
-            _timeProvider = timeProvider ?? throw new ArgumentNullException(nameof(timeProvider));
+            if (!IsValidPeriod(period))
+            {
+                GC.SuppressFinalize(this);
+                throw new ArgumentOutOfRangeException(nameof(period));
+            }
+            if (timeProvider is null)
+            {
+                GC.SuppressFinalize(this);
+                throw new ArgumentNullException(nameof(timeProvider));
+            }
+
             _period = period;
-            _state = new State(this);
-            _state.Schedule();
+            _state = new State();
+            using (ExecutionContext.SuppressFlow())
+            {
+                _timer = timeProvider.CreateTimer(
+                    static state => ((State)state!).Signal(),
+                    _state,
+                    period,
+                    period);
+            }
         }
 
         public TimeSpan Period
@@ -37,78 +52,57 @@ namespace System.Threading
             get => _period;
             set
             {
-                ValidatePeriod(value, out _);
-                _state.ChangePeriod(value);
+                if (!IsValidPeriod(value))
+                {
+                    throw new ArgumentOutOfRangeException(nameof(value));
+                }
+
                 _period = value;
+                if (!_timer.Change(value, value))
+                {
+                    throw new ObjectDisposedException(nameof(PeriodicTimer));
+                }
             }
         }
 
         public ValueTask<bool> WaitForNextTickAsync(
-            CancellationToken cancellationToken = default(System.Threading.CancellationToken)) =>
-            _state.WaitForNextTickAsync(cancellationToken);
+            CancellationToken cancellationToken = default) =>
+            _state.WaitForNextTickAsync(this, cancellationToken);
 
-        public void Dispose() => _state.Stop();
-
-        private static void ValidatePeriod(TimeSpan period, out ulong milliseconds)
+        public void Dispose()
         {
-            var value = period.Ticks / TimeSpan.TicksPerMillisecond;
-            if (period.Ticks < TimeSpan.TicksPerMillisecond || value < 1 || value > MaxSupportedMilliseconds)
-            {
-                throw new ArgumentOutOfRangeException(nameof(period));
-            }
+            GC.SuppressFinalize(this);
+            _timer.Dispose();
+            _state.Signal(stopping: true);
+        }
 
-            milliseconds = (ulong)value;
+        ~PeriodicTimer() => Dispose();
+
+        private static bool IsValidPeriod(TimeSpan period)
+        {
+            var milliseconds = (long)period.TotalMilliseconds;
+            return (milliseconds >= 1 &&
+                    milliseconds <= MaxSupportedMilliseconds) ||
+                period == Timeout.InfiniteTimeSpan;
         }
 
         private sealed class State : IValueTaskSource<bool>
         {
-            private readonly PeriodicTimer _owner;
-            private ITimer? _schedule;
-            private CancellationTokenRegistration _registration;
+            private PeriodicTimer? _owner;
             private ManualResetValueTaskSourceCore<bool> _source;
-            private bool _activeWait;
-            private bool _signaled;
+            private CancellationTokenRegistration _registration;
             private bool _stopped;
-            private bool _cancelledWait;
-            private bool _waitCompleted;
-            private bool _waitCompletedByTick;
-            private CancellationToken _waitCancellationToken;
+            private bool _signaled;
+            private bool _activeWait;
 
-            internal State(PeriodicTimer owner) => _owner = owner;
-
-            internal void Schedule()
-            {
-                if (_stopped)
-                {
-                    return;
-                }
-
-                ValidatePeriod(_owner._period, out var milliseconds);
-                _schedule = _owner._timeProvider.CreateTimer(
-                    _ => SignalTick(),
-                    null,
-                    TimeSpan.FromMilliseconds((long)milliseconds),
-                    TimeSpan.FromMilliseconds(-1));
-            }
-
-            internal void ChangePeriod(TimeSpan period)
-            {
-                if (_stopped)
-                {
-                    throw new ObjectDisposedException(nameof(PeriodicTimer));
-                }
-
-                _schedule?.Dispose();
-                _schedule = null;
-                _owner._period = period;
-                Schedule();
-            }
-
-            internal ValueTask<bool> WaitForNextTickAsync(CancellationToken cancellationToken)
+            internal ValueTask<bool> WaitForNextTickAsync(
+                PeriodicTimer owner,
+                CancellationToken cancellationToken)
             {
                 if (_activeWait)
                 {
-                    throw new InvalidOperationException("Only one WaitForNextTickAsync operation may be active at a time.");
+                    throw new InvalidOperationException(
+                        "Only one WaitForNextTickAsync operation may be active at a time.");
                 }
                 if (cancellationToken.IsCancellationRequested)
                 {
@@ -123,63 +117,40 @@ namespace System.Threading
                     return new ValueTask<bool>(!_stopped);
                 }
 
+                _owner = owner;
                 _activeWait = true;
-                _cancelledWait = false;
-                _waitCompleted = false;
-                _waitCompletedByTick = false;
-                _waitCancellationToken = cancellationToken;
-                _registration = cancellationToken.Register(CancelWait);
+                _registration = cancellationToken.UnsafeRegister(
+                    static (state, token) =>
+                        ((State)state!).Signal(cancellationToken: token),
+                    this);
                 return new ValueTask<bool>(this, _source.Version);
             }
 
-            internal void Stop()
+            internal void Signal(
+                bool stopping = false,
+                CancellationToken cancellationToken = default)
             {
-                if (_stopped)
+                _stopped |= stopping;
+                if (_signaled)
                 {
                     return;
                 }
 
-                _stopped = true;
-                _schedule?.Dispose();
-                _schedule = null;
                 _signaled = true;
-                if (_activeWait && !_waitCompleted)
-                {
-                    _waitCompleted = true;
-                    _source.SetResult(false);
-                }
-            }
-
-            private void SignalTick()
-            {
-                _schedule = null;
-                if (_stopped)
+                if (!_activeWait)
                 {
                     return;
                 }
 
-                var wasSignaled = _signaled;
-                _signaled = true;
-                if (_activeWait && !_waitCompleted && !wasSignaled)
+                if (cancellationToken.IsCancellationRequested)
                 {
-                    _waitCompleted = true;
-                    _waitCompletedByTick = true;
+                    _source.SetException(new OperationCanceledException(
+                        cancellationToken));
+                }
+                else
+                {
                     _source.SetResult(true);
                 }
-                Schedule();
-            }
-
-            private void CancelWait()
-            {
-                if (!_activeWait || _stopped || _waitCompleted)
-                {
-                    return;
-                }
-
-                _cancelledWait = true;
-                _waitCompleted = true;
-                _source.SetException(new OperationCanceledException(
-                    _waitCancellationToken));
             }
 
             bool IValueTaskSource<bool>.GetResult(short token)
@@ -188,25 +159,24 @@ namespace System.Threading
                 try
                 {
                     _source.GetResult(token);
-                    return !_stopped && !_cancelledWait;
                 }
                 finally
                 {
                     _source.Reset();
                     _registration = default;
                     _activeWait = false;
-                    _cancelledWait = false;
-                    _waitCompleted = false;
-                    _waitCancellationToken = default;
-                    if (!_stopped && _waitCompletedByTick)
+                    _owner = null;
+                    if (!_stopped)
                     {
                         _signaled = false;
                     }
-                    _waitCompletedByTick = false;
                 }
+
+                return !_stopped;
             }
 
-            ValueTaskSourceStatus IValueTaskSource<bool>.GetStatus(short token) => _source.GetStatus(token);
+            ValueTaskSourceStatus IValueTaskSource<bool>.GetStatus(short token) =>
+                _source.GetStatus(token);
 
             void IValueTaskSource<bool>.OnCompleted(
                 Action<object?> continuation,

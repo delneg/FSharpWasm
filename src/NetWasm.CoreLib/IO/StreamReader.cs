@@ -35,6 +35,28 @@ namespace System.IO
         private bool _checkPreamble;
         private bool _isBlocked;
         private readonly bool _closable;
+        private bool _asyncIOInProgress;
+
+        private void CheckAsyncTaskInProgress()
+        {
+            if (_asyncIOInProgress)
+                throw new InvalidOperationException("The stream is currently in use by a previous operation.");
+        }
+
+        private ThrowOnReadsScope GuardAgainstOtherReads() => new(this);
+
+        private readonly struct ThrowOnReadsScope : IDisposable
+        {
+            private readonly StreamReader _reader;
+
+            internal ThrowOnReadsScope(StreamReader reader)
+            {
+                reader._asyncIOInProgress = true;
+                _reader = reader;
+            }
+
+            public void Dispose() => _reader._asyncIOInProgress = false;
+        }
 
         private StreamReader()
         {
@@ -112,6 +134,7 @@ namespace System.IO
 
         public void DiscardBufferedData()
         {
+            CheckAsyncTaskInProgress();
             ThrowIfDisposed();
             _byteLength = 0;
             _bytePosition = 0;
@@ -125,6 +148,7 @@ namespace System.IO
         {
             get
             {
+                CheckAsyncTaskInProgress();
                 ThrowIfDisposed();
                 if (_charPosition < _charLength)
                 {
@@ -137,6 +161,7 @@ namespace System.IO
 
         public override int Peek()
         {
+            CheckAsyncTaskInProgress();
             ThrowIfDisposed();
             if (_charPosition == _charLength && ReadBuffer() == 0)
             {
@@ -148,6 +173,7 @@ namespace System.IO
 
         public override int Read()
         {
+            CheckAsyncTaskInProgress();
             ThrowIfDisposed();
             if (_charPosition == _charLength && ReadBuffer() == 0)
             {
@@ -175,6 +201,7 @@ namespace System.IO
 
         private int ReadSpan(Span<char> buffer)
         {
+            CheckAsyncTaskInProgress();
             ThrowIfDisposed();
             var total = 0;
             var remaining = buffer.Length;
@@ -206,6 +233,7 @@ namespace System.IO
 
         public override string ReadToEnd()
         {
+            CheckAsyncTaskInProgress();
             ThrowIfDisposed();
             var builder = new Text.StringBuilder(_charLength - _charPosition);
             do
@@ -228,6 +256,7 @@ namespace System.IO
             {
                 throw new ArgumentException("Offset and length were out of bounds for the array.");
             }
+            CheckAsyncTaskInProgress();
             ThrowIfDisposed();
             return base.ReadBlock(buffer, index, count);
         }
@@ -239,6 +268,8 @@ namespace System.IO
                 return base.ReadBlock(buffer);
             }
 
+            CheckAsyncTaskInProgress();
+            ThrowIfDisposed();
             var total = 0;
             int read;
             do
@@ -253,6 +284,7 @@ namespace System.IO
 
         public override string? ReadLine()
         {
+            CheckAsyncTaskInProgress();
             ThrowIfDisposed();
             if (_charPosition == _charLength && ReadBuffer() == 0)
             {
@@ -292,6 +324,318 @@ namespace System.IO
                     return builder.ToString();
                 }
             }
+        }
+
+        public override Task<string?> ReadLineAsync() => ReadLineAsync(default).AsTask();
+
+        public override ValueTask<string?> ReadLineAsync(CancellationToken cancellationToken)
+        {
+            if (GetType() != typeof(StreamReader))
+                return base.ReadLineAsync(cancellationToken);
+
+            ThrowIfDisposed();
+            CheckAsyncTaskInProgress();
+            return new ValueTask<string?>(ReadLineAsyncInternal(cancellationToken));
+        }
+
+        private async Task<string?> ReadLineAsyncInternal(CancellationToken cancellationToken)
+        {
+            using ThrowOnReadsScope _ = GuardAgainstOtherReads();
+            if (_charPosition == _charLength &&
+                await ReadBufferAsync(cancellationToken).ConfigureAwait(false) == 0)
+            {
+                return null;
+            }
+
+            var builder = new Text.StringBuilder();
+            while (true)
+            {
+                var start = _charPosition;
+                while (_charPosition < _charLength &&
+                    _charBuffer[_charPosition] is not '\r' and not '\n')
+                {
+                    _charPosition++;
+                }
+
+                builder.Append(new ReadOnlySpan<char>(_charBuffer, start, _charPosition - start));
+                if (_charPosition < _charLength)
+                {
+                    var terminator = _charBuffer[_charPosition++];
+                    if (terminator == '\r')
+                    {
+                        if (_charPosition == _charLength)
+                            await ReadBufferAsync(cancellationToken).ConfigureAwait(false);
+                        if (_charPosition < _charLength && _charBuffer[_charPosition] == '\n')
+                            _charPosition++;
+                    }
+                    return builder.ToString();
+                }
+
+                if (await ReadBufferAsync(cancellationToken).ConfigureAwait(false) == 0)
+                    return builder.ToString();
+            }
+        }
+
+        public override Task<string> ReadToEndAsync() => ReadToEndAsync(default);
+
+        public override Task<string> ReadToEndAsync(CancellationToken cancellationToken)
+        {
+            if (GetType() != typeof(StreamReader))
+                return base.ReadToEndAsync(cancellationToken);
+
+            ThrowIfDisposed();
+            CheckAsyncTaskInProgress();
+            return ReadToEndAsyncInternal(cancellationToken);
+        }
+
+        private async Task<string> ReadToEndAsyncInternal(CancellationToken cancellationToken)
+        {
+            using ThrowOnReadsScope _ = GuardAgainstOtherReads();
+            var builder = new Text.StringBuilder(_charLength - _charPosition);
+            do
+            {
+                builder.Append(_charBuffer, _charPosition, _charLength - _charPosition);
+                _charPosition = _charLength;
+                await ReadBufferAsync(cancellationToken).ConfigureAwait(false);
+            }
+            while (_charLength > 0);
+            return builder.ToString();
+        }
+
+        public override Task<int> ReadAsync(char[] buffer, int index, int count)
+        {
+            ArgumentNullException.ThrowIfNull(buffer);
+            ArgumentOutOfRangeException.ThrowIfNegative(index);
+            ArgumentOutOfRangeException.ThrowIfNegative(count);
+            if (buffer.Length - index < count)
+                throw new ArgumentException("Offset and length were out of bounds for the array.");
+            if (GetType() != typeof(StreamReader))
+                return base.ReadAsync(buffer, index, count);
+
+            ThrowIfDisposed();
+            CheckAsyncTaskInProgress();
+            return ReadAsyncWithGuard(new Memory<char>(buffer, index, count), default);
+        }
+
+        private async Task<int> ReadAsyncWithGuard(Memory<char> buffer, CancellationToken cancellationToken)
+        {
+            using ThrowOnReadsScope _ = GuardAgainstOtherReads();
+            return await ReadAsyncInternal(buffer, cancellationToken).ConfigureAwait(false);
+        }
+
+        public override ValueTask<int> ReadAsync(
+            Memory<char> buffer,
+            CancellationToken cancellationToken = default)
+        {
+            if (GetType() != typeof(StreamReader))
+                return base.ReadAsync(buffer, cancellationToken);
+
+            ThrowIfDisposed();
+            CheckAsyncTaskInProgress();
+            if (cancellationToken.IsCancellationRequested)
+                return ValueTask.FromCanceled<int>(cancellationToken);
+            return ReadAsyncInternal(buffer, cancellationToken);
+        }
+
+        internal override async ValueTask<int> ReadAsyncInternal(
+            Memory<char> buffer,
+            CancellationToken cancellationToken)
+        {
+            if (_charPosition == _charLength &&
+                await ReadBufferAsync(cancellationToken).ConfigureAwait(false) == 0)
+            {
+                return 0;
+            }
+
+            var charsRead = 0;
+            var count = buffer.Length;
+            var readToUserBuffer = false;
+            while (count > 0)
+            {
+                var available = _charLength - _charPosition;
+                if (available == 0)
+                {
+                    _charLength = 0;
+                    _charPosition = 0;
+                    if (!_checkPreamble)
+                        _byteLength = 0;
+                    readToUserBuffer = count >= _maxCharsPerBuffer;
+
+                    do
+                    {
+                        if (_checkPreamble)
+                        {
+                            var read = await _stream.ReadAsync(
+                                new Memory<byte>(_byteBuffer, _bytePosition, _byteBuffer.Length - _bytePosition),
+                                cancellationToken).ConfigureAwait(false);
+                            if (read == 0)
+                            {
+                                if (_byteLength > 0)
+                                {
+                                    if (readToUserBuffer)
+                                    {
+                                        available = _decoder.GetChars(
+                                            new ReadOnlySpan<byte>(_byteBuffer, 0, _byteLength),
+                                            buffer.Span.Slice(charsRead),
+                                            flush: false);
+                                        _charLength = 0;
+                                    }
+                                    else
+                                    {
+                                        available = _decoder.GetChars(
+                                            _byteBuffer, 0, _byteLength, _charBuffer, 0);
+                                        _charLength += available;
+                                    }
+                                }
+                                _isBlocked = true;
+                                break;
+                            }
+                            _byteLength += read;
+                        }
+                        else
+                        {
+                            _byteLength = await _stream.ReadAsync(
+                                new Memory<byte>(_byteBuffer), cancellationToken).ConfigureAwait(false);
+                            if (_byteLength == 0)
+                            {
+                                _isBlocked = true;
+                                break;
+                            }
+                        }
+
+                        _isBlocked = _byteLength < _byteBuffer.Length;
+                        if (IsPreamble())
+                            continue;
+                        if (_detectEncoding && _byteLength >= 2)
+                        {
+                            DetectEncoding();
+                            readToUserBuffer = count >= _maxCharsPerBuffer;
+                        }
+
+                        _charPosition = 0;
+                        if (readToUserBuffer)
+                        {
+                            available = _decoder.GetChars(
+                                new ReadOnlySpan<byte>(_byteBuffer, 0, _byteLength),
+                                buffer.Span.Slice(charsRead),
+                                flush: false);
+                            _charLength = 0;
+                        }
+                        else
+                        {
+                            available = _decoder.GetChars(_byteBuffer, 0, _byteLength, _charBuffer, 0);
+                            _charLength += available;
+                        }
+                    }
+                    while (available == 0);
+
+                    if (available == 0)
+                        break;
+                }
+
+                if (available > count)
+                    available = count;
+                if (!readToUserBuffer)
+                {
+                    new Span<char>(_charBuffer, _charPosition, available)
+                        .CopyTo(buffer.Span.Slice(charsRead));
+                    _charPosition += available;
+                }
+                charsRead += available;
+                count -= available;
+                if (_isBlocked)
+                    break;
+            }
+            return charsRead;
+        }
+
+        public override Task<int> ReadBlockAsync(char[] buffer, int index, int count)
+        {
+            ArgumentNullException.ThrowIfNull(buffer);
+            ArgumentOutOfRangeException.ThrowIfNegative(index);
+            ArgumentOutOfRangeException.ThrowIfNegative(count);
+            if (buffer.Length - index < count)
+                throw new ArgumentException("Offset and length were out of bounds for the array.");
+            if (GetType() != typeof(StreamReader))
+                return base.ReadBlockAsync(buffer, index, count);
+
+            ThrowIfDisposed();
+            CheckAsyncTaskInProgress();
+            return ReadBlockAsyncWithGuard(new Memory<char>(buffer, index, count), default).AsTask();
+        }
+
+        public override ValueTask<int> ReadBlockAsync(
+            Memory<char> buffer,
+            CancellationToken cancellationToken = default)
+        {
+            if (GetType() != typeof(StreamReader))
+                return base.ReadBlockAsync(buffer, cancellationToken);
+
+            ThrowIfDisposed();
+            CheckAsyncTaskInProgress();
+            if (cancellationToken.IsCancellationRequested)
+                return ValueTask.FromCanceled<int>(cancellationToken);
+            return ReadBlockAsyncWithGuard(buffer, cancellationToken);
+        }
+
+        private async ValueTask<int> ReadBlockAsyncWithGuard(
+            Memory<char> buffer,
+            CancellationToken cancellationToken)
+        {
+            using ThrowOnReadsScope _ = GuardAgainstOtherReads();
+            return await ReadBlockAsyncInternal(buffer, cancellationToken).ConfigureAwait(false);
+        }
+
+        private async ValueTask<int> ReadBufferAsync(CancellationToken cancellationToken)
+        {
+            _charLength = 0;
+            _charPosition = 0;
+            if (!_checkPreamble)
+                _byteLength = 0;
+
+            var eof = false;
+            do
+            {
+                if (_checkPreamble)
+                {
+                    var read = await _stream.ReadAsync(
+                        _byteBuffer.AsMemory(_bytePosition), cancellationToken).ConfigureAwait(false);
+                    if (read == 0)
+                    {
+                        eof = true;
+                        break;
+                    }
+                    _byteLength += read;
+                }
+                else
+                {
+                    _byteLength = await _stream.ReadAsync(
+                        new Memory<byte>(_byteBuffer), cancellationToken).ConfigureAwait(false);
+                    if (_byteLength == 0)
+                    {
+                        eof = true;
+                        break;
+                    }
+                }
+
+                _isBlocked = _byteLength < _byteBuffer.Length;
+                if (IsPreamble())
+                    continue;
+                if (_detectEncoding && _byteLength >= 2)
+                    DetectEncoding();
+                _charLength = _decoder.GetChars(
+                    _byteBuffer, 0, _byteLength, _charBuffer, 0, flush: false);
+            }
+            while (_charLength == 0);
+
+            if (eof)
+            {
+                _charLength = _decoder.GetChars(
+                    _byteBuffer, 0, _byteLength, _charBuffer, 0, flush: true);
+                _bytePosition = 0;
+                _byteLength = 0;
+            }
+            return _charLength;
         }
 
         private int ReadBuffer()

@@ -3,6 +3,7 @@ using System;
 using System.Collections.Immutable;
 using NetWasm.Compiler.Core;
 using NetWasm.Compiler.Wasm.Emission.Methods;
+using NetWasm.Compiler.Wasm.Emission.AddressTakenValues;
 
 namespace NetWasm.Compiler.Wasm.Emission.Instructions;
 
@@ -10,7 +11,8 @@ internal sealed class ValueObjectBlockMemoryEmitter(
     ITargetLayout layouts,
     IValueLayoutProvider values,
     ICilTypeOperandResolver types,
-    IRuntimeImportResolver runtimeImports) : InstructionCommandProvider
+    IRuntimeImportResolver runtimeImports,
+    IAddressTakenAggregateProjectionEmitter aggregateProjections) : InstructionCommandProvider
 {
     public override ImmutableArray<InstructionCommand> Commands =>
     [
@@ -128,6 +130,10 @@ internal sealed class ValueObjectBlockMemoryEmitter(
 
     private void EmitLoadObject(InstructionEmissionRequest request, IWasmInstructionWriter code)
     {
+        if (aggregateProjections.TryEmit(request, code))
+        {
+            return;
+        }
         var slot = request.Stack.Count - 1;
         var type = types.Resolve(request.Instruction, request.Header.MethodInstance);
         var layout = values.GetValueLayout(type);
@@ -167,6 +173,10 @@ internal sealed class ValueObjectBlockMemoryEmitter(
 
     private void EmitStoreObject(InstructionEmissionRequest request, IWasmInstructionWriter code)
     {
+        if (aggregateProjections.TryEmit(request, code))
+        {
+            return;
+        }
         var destination = request.Stack.Count - 2;
         var type = types.Resolve(request.Instruction, request.Header.MethodInstance);
         var layout = values.GetValueLayout(type);

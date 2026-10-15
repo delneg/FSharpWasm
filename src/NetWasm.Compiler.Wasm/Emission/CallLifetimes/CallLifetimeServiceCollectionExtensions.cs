@@ -1,0 +1,16 @@
+using Microsoft.Extensions.DependencyInjection;
+using NetWasm.Compiler.ControlFlow;
+
+namespace NetWasm.Compiler.Wasm.Emission.CallLifetimes;
+
+internal static class CallLifetimeServiceCollectionExtensions
+{
+    public static IServiceCollection AddScalarCallPreservation(this IServiceCollection services)
+    {
+        services.AddSingleton<IScalarCallLifetimePlanner>(_ => new ScalarCallLifetimePlanner(
+            new ControlFlowGraphBuilderFactory().Create(),
+            new ControlFlowNaturalLoopAnalyzer(new ControlFlowDominanceAnalyzer())));
+        services.AddSingleton<IScalarCallPreservationEmitter, ScalarCallPreservationEmitter>();
+        return services;
+    }
+}

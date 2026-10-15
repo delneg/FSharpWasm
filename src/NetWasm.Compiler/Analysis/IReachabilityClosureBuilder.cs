@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using NetWasm.Compiler;
 using NetWasm.Compiler.Core;
 
@@ -9,5 +10,6 @@ internal interface IReachabilityClosureBuilder
     ReachableProgram Build(
         MethodDefinitionModel? entryPoint,
         IEnumerable<ProgramExport> requestedExports,
-        ReachabilityRoots? roots = null);
+        ReachabilityRoots? roots = null,
+        ImmutableDictionary<string, CilMethodBody>? rewrittenBodies = null);
 }

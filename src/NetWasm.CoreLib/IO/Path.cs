@@ -3,8 +3,8 @@
 //
 // Adapted from dotnet/runtime System.Private.CoreLib (commit
 // 811225a482702af7ecc35d817966bc70b88a3a23). Only deterministic lexical path
-// operations are retained; full-path, existence, temporary-file, and other
-// ambient platform operations are intentionally outside NetWasm.
+// operations are retained; ambient-current-directory, existence, temporary-file,
+// and other filesystem operations are intentionally outside NetWasm.
 
 using System.Diagnostics.CodeAnalysis;
 using System.Text;
@@ -13,10 +13,19 @@ namespace System.IO;
 
 public static class Path
 {
+    private const int KeyLength = 8;
+
+    [Obsolete("Path.InvalidPathChars has been deprecated. Use GetInvalidPathChars or GetInvalidFileNameChars instead.")]
+    public static readonly char[] InvalidPathChars = GetInvalidPathChars();
+
     public static readonly char DirectorySeparatorChar = PathInternal.DirectorySeparatorChar;
     public static readonly char AltDirectorySeparatorChar = PathInternal.AltDirectorySeparatorChar;
     public static readonly char VolumeSeparatorChar = PathInternal.VolumeSeparatorChar;
     public static readonly char PathSeparator = PathInternal.PathSeparator;
+
+    public static char[] GetInvalidFileNameChars() => ['\0', '/'];
+
+    public static char[] GetInvalidPathChars() => ['\0'];
 
     public static string? ChangeExtension(string? path, string? extension)
     {
@@ -163,6 +172,18 @@ public static class Path
         return lastPeriod < 0 ? fileName : fileName.Slice(0, lastPeriod);
     }
 
+    public static unsafe string GetRandomFileName()
+    {
+        var key = stackalloc byte[KeyLength];
+        Security.Cryptography.RandomNumberGeneratorImplementation.FillSpan(
+            new Span<byte>(key, KeyLength));
+        return string.Create(
+            12,
+            (IntPtr)key,
+            static (characters, state) =>
+                Populate83FileNameFromRandomBytes((byte*)state, KeyLength, characters));
+    }
+
     public static bool IsPathFullyQualified(string path)
     {
         ArgumentNullException.ThrowIfNull(path);
@@ -204,7 +225,7 @@ public static class Path
         ArgumentNullException.ThrowIfNull(path1);
         ArgumentNullException.ThrowIfNull(path2);
         ArgumentNullException.ThrowIfNull(path3);
-        return CombineInternal(CombineInternal(path1, path2), path3);
+        return CombineInternal(path1, path2, path3);
     }
 
     public static string Combine(string path1, string path2, string path3, string path4)
@@ -213,7 +234,7 @@ public static class Path
         ArgumentNullException.ThrowIfNull(path2);
         ArgumentNullException.ThrowIfNull(path3);
         ArgumentNullException.ThrowIfNull(path4);
-        return CombineInternal(CombineInternal(CombineInternal(path1, path2), path3), path4);
+        return CombineInternal(path1, path2, path3, path4);
     }
 
     public static string Combine(params string[] paths)
@@ -224,41 +245,110 @@ public static class Path
 
     public static string Combine(params ReadOnlySpan<string> paths)
     {
-        var result = string.Empty;
+        var maximumLength = 0;
+        var firstComponent = 0;
         for (var index = 0; index < paths.Length; index++)
         {
             ArgumentNullException.ThrowIfNull(paths[index], nameof(paths));
-            if (paths[index].Length != 0)
+            if (paths[index].Length == 0)
             {
-                result = result.Length == 0 ? paths[index] : CombineInternal(result, paths[index]);
+                continue;
             }
+
+            if (IsPathRooted(paths[index]))
+            {
+                firstComponent = index;
+                maximumLength = paths[index].Length;
+            }
+            else
+            {
+                maximumLength += paths[index].Length;
+            }
+
+            if (!PathInternal.IsDirectorySeparator(paths[index][^1]))
+                maximumLength++;
         }
 
-        return result;
+        var builder = new ValueStringBuilder(stackalloc char[260]);
+        builder.EnsureCapacity(maximumLength);
+        for (var index = firstComponent; index < paths.Length; index++)
+        {
+            if (paths[index].Length == 0)
+                continue;
+
+            if (builder.Length != 0 && !PathInternal.IsDirectorySeparator(builder[^1]))
+                builder.Append(DirectorySeparatorChar);
+
+            builder.Append(paths[index]);
+        }
+
+        return builder.ToString();
     }
 
-    public static string Join(ReadOnlySpan<char> path1, ReadOnlySpan<char> path2) =>
-        JoinNonEmpty(path1, path2);
+    public static string Join(ReadOnlySpan<char> path1, ReadOnlySpan<char> path2)
+    {
+        if (path1.IsEmpty)
+            return path2.ToString();
+        if (path2.IsEmpty)
+            return path1.ToString();
+        return JoinInternal(path1, path2);
+    }
 
-    public static string Join(ReadOnlySpan<char> path1, ReadOnlySpan<char> path2, ReadOnlySpan<char> path3) =>
-        JoinNonEmpty(path1, path2, path3);
+    public static string Join(ReadOnlySpan<char> path1, ReadOnlySpan<char> path2, ReadOnlySpan<char> path3)
+    {
+        if (path1.IsEmpty)
+            return Join(path2, path3);
+        if (path2.IsEmpty)
+            return Join(path1, path3);
+        if (path3.IsEmpty)
+            return Join(path1, path2);
+        return JoinInternal(path1, path2, path3);
+    }
 
-    public static string Join(ReadOnlySpan<char> path1, ReadOnlySpan<char> path2, ReadOnlySpan<char> path3, ReadOnlySpan<char> path4) =>
-        JoinNonEmpty(path1, path2, path3, path4);
+    public static string Join(ReadOnlySpan<char> path1, ReadOnlySpan<char> path2, ReadOnlySpan<char> path3, ReadOnlySpan<char> path4)
+    {
+        if (path1.IsEmpty)
+            return Join(path2, path3, path4);
+        if (path2.IsEmpty)
+            return Join(path1, path3, path4);
+        if (path3.IsEmpty)
+            return Join(path1, path2, path4);
+        if (path4.IsEmpty)
+            return Join(path1, path2, path3);
+        return JoinInternal(path1, path2, path3, path4);
+    }
 
     public static string Join(string? path1, string? path2)
     {
-        return JoinStrings(path1, path2);
+        if (string.IsNullOrEmpty(path1))
+            return path2 ?? string.Empty;
+        if (string.IsNullOrEmpty(path2))
+            return path1!;
+        return JoinInternal(path1, path2);
     }
 
     public static string Join(string? path1, string? path2, string? path3)
     {
-        return JoinStrings(path1, path2, path3);
+        if (string.IsNullOrEmpty(path1))
+            return Join(path2, path3);
+        if (string.IsNullOrEmpty(path2))
+            return Join(path1, path3);
+        if (string.IsNullOrEmpty(path3))
+            return Join(path1, path2);
+        return JoinInternal(path1, path2, path3);
     }
 
     public static string Join(string? path1, string? path2, string? path3, string? path4)
     {
-        return JoinStrings(path1, path2, path3, path4);
+        if (string.IsNullOrEmpty(path1))
+            return Join(path2, path3, path4);
+        if (string.IsNullOrEmpty(path2))
+            return Join(path1, path3, path4);
+        if (string.IsNullOrEmpty(path3))
+            return Join(path1, path2, path4);
+        if (string.IsNullOrEmpty(path4))
+            return Join(path1, path2, path3);
+        return JoinInternal(path1, path2, path3, path4);
     }
 
     public static string Join(params string?[] paths)
@@ -269,16 +359,29 @@ public static class Path
 
     public static string Join(params ReadOnlySpan<string?> paths)
     {
-        var builder = new StringBuilder();
+        if (paths.IsEmpty)
+            return string.Empty;
+
+        var maximumLength = paths.Length - 1;
+        foreach (var path in paths)
+            maximumLength += path?.Length ?? 0;
+
+        var builder = new ValueStringBuilder(stackalloc char[260]);
+        builder.EnsureCapacity(maximumLength);
         for (var index = 0; index < paths.Length; index++)
         {
             var path = paths[index];
             if (string.IsNullOrEmpty(path))
-            {
                 continue;
+
+            if (builder.Length != 0 &&
+                !PathInternal.IsDirectorySeparator(builder[^1]) &&
+                !PathInternal.IsDirectorySeparator(path![0]))
+            {
+                builder.Append(DirectorySeparatorChar);
             }
 
-            AppendJoined(builder, path.AsSpan());
+            builder.Append(path);
         }
 
         return builder.ToString();
@@ -385,6 +488,27 @@ public static class Path
 
     public static bool IsPathRooted(ReadOnlySpan<char> path) => PathInternal.StartsWithDirectorySeparator(path);
 
+    public static string GetFullPath(string path, string basePath)
+    {
+        ArgumentNullException.ThrowIfNull(path);
+        ArgumentNullException.ThrowIfNull(basePath);
+        if (!IsPathFullyQualified(basePath))
+            throw new ArgumentException("The base path is not fully qualified.", nameof(basePath));
+        if (basePath.Contains('\0') || path.Contains('\0'))
+            throw new ArgumentException("Null characters are not allowed in paths.");
+
+        return GetFullPathInternal(
+            IsPathFullyQualified(path) ? path : CombineInternal(basePath, path));
+    }
+
+    private static string GetFullPathInternal(string path)
+    {
+        var collapsed = PathInternal.RemoveRelativeSegments(
+            path,
+            PathInternal.GetRootLength(path.AsSpan()));
+        return collapsed.Length == 0 ? PathInternal.DirectorySeparatorCharAsString : collapsed;
+    }
+
     public static string GetRelativePath(string relativeTo, string path)
     {
         ArgumentNullException.ThrowIfNull(relativeTo);
@@ -399,11 +523,18 @@ public static class Path
             throw new ArgumentException("The path is empty.", nameof(path));
         }
 
-        // The desktop implementation resolves both values against the current directory.
-        // NetWasm deliberately has no ambient current directory, so normalize lexical
-        // segments in place and retain relative-vs-rooted identity.
-        relativeTo = NormalizeRelativePath(relativeTo);
-        path = NormalizeRelativePath(path);
+        if (IsPathFullyQualified(relativeTo) && IsPathFullyQualified(path))
+        {
+            relativeTo = GetFullPathInternal(relativeTo);
+            path = GetFullPathInternal(path);
+        }
+        else
+        {
+            // Relative inputs have no ambient current directory in the NetWasm profile.
+            // Preserve the established deterministic lexical behavior instead.
+            relativeTo = NormalizeRelativePath(relativeTo);
+            path = NormalizeRelativePath(path);
+        }
 
         if (!PathInternal.AreRootsEqual(relativeTo, path))
         {
@@ -434,7 +565,8 @@ public static class Path
             return ".";
         }
 
-        var builder = new StringBuilder(Math.Max(relativeTo.Length, path.Length));
+        var builder = new ValueStringBuilder(stackalloc char[260]);
+        builder.EnsureCapacity(Math.Max(relativeTo.Length, path.Length));
         if (commonLength < relativeToLength)
         {
             builder.Append("..");
@@ -468,7 +600,13 @@ public static class Path
             builder.Append(path.AsSpan(commonLength, differenceLength));
         }
 
-        return builder.Length == 0 ? "." : builder.ToString();
+        if (builder.Length == 0)
+        {
+            builder.Dispose();
+            return ".";
+        }
+
+        return builder.ToString();
     }
 
     public static string TrimEndingDirectorySeparator(string path) => PathInternal.TrimEndingDirectorySeparator(path)!;
@@ -491,69 +629,141 @@ public static class Path
             return second.Length == 0 ? first : second;
         }
 
-        return JoinNonEmpty(first.AsSpan(), second.AsSpan());
+        return JoinInternal(first.AsSpan(), second.AsSpan());
     }
 
-    private static string JoinNonEmpty(ReadOnlySpan<char> path1, ReadOnlySpan<char> path2)
+    private static string CombineInternal(string first, string second, string third)
     {
-        var builder = new StringBuilder();
-        if (!path1.IsEmpty)
-        {
-            AppendJoined(builder, path1);
-        }
-
-        if (!path2.IsEmpty)
-        {
-            AppendJoined(builder, path2);
-        }
-
-        return builder.ToString();
+        if (first.Length == 0)
+            return CombineInternal(second, third);
+        if (second.Length == 0)
+            return CombineInternal(first, third);
+        if (third.Length == 0)
+            return CombineInternal(first, second);
+        if (IsPathRooted(third.AsSpan()))
+            return third;
+        if (IsPathRooted(second.AsSpan()))
+            return CombineInternal(second, third);
+        return JoinInternal(first.AsSpan(), second.AsSpan(), third.AsSpan());
     }
 
-    private static string JoinNonEmpty(ReadOnlySpan<char> path1, ReadOnlySpan<char> path2, ReadOnlySpan<char> path3)
+    private static string CombineInternal(string first, string second, string third, string fourth)
     {
-        var builder = JoinNonEmpty(path1, path2);
-        return path3.IsEmpty ? builder : JoinNonEmpty(builder.AsSpan(), path3);
+        if (first.Length == 0)
+            return CombineInternal(second, third, fourth);
+        if (second.Length == 0)
+            return CombineInternal(first, third, fourth);
+        if (third.Length == 0)
+            return CombineInternal(first, second, fourth);
+        if (fourth.Length == 0)
+            return CombineInternal(first, second, third);
+        if (IsPathRooted(fourth.AsSpan()))
+            return fourth;
+        if (IsPathRooted(third.AsSpan()))
+            return CombineInternal(third, fourth);
+        if (IsPathRooted(second.AsSpan()))
+            return CombineInternal(second, third, fourth);
+        return JoinInternal(first.AsSpan(), second.AsSpan(), third.AsSpan(), fourth.AsSpan());
     }
 
-    private static string JoinNonEmpty(ReadOnlySpan<char> path1, ReadOnlySpan<char> path2, ReadOnlySpan<char> path3, ReadOnlySpan<char> path4)
+    private static string JoinInternal(ReadOnlySpan<char> first, ReadOnlySpan<char> second)
     {
-        var builder = JoinNonEmpty(path1, path2, path3);
-        return path4.IsEmpty ? builder : JoinNonEmpty(builder.AsSpan(), path4);
-    }
-
-    private static string JoinStrings(string? path1, string? path2, string? path3 = null, string? path4 = null)
-    {
-        var builder = new StringBuilder();
-        AppendJoinedIfPresent(builder, path1);
-        AppendJoinedIfPresent(builder, path2);
-        AppendJoinedIfPresent(builder, path3);
-        AppendJoinedIfPresent(builder, path4);
-        return builder.ToString();
-    }
-
-    private static void AppendJoinedIfPresent(StringBuilder builder, string? path)
-    {
-        if (!string.IsNullOrEmpty(path))
-        {
-            AppendJoined(builder, path.AsSpan());
-        }
-    }
-
-    private static void AppendJoined(StringBuilder builder, ReadOnlySpan<char> path)
-    {
-        if (builder.Length == 0)
-        {
-            builder.Append(path);
-            return;
-        }
-
-        if (!PathInternal.IsDirectorySeparator(builder[^1]) && !PathInternal.IsDirectorySeparator(path[0]))
-        {
+        var needsSeparator = !PathInternal.IsDirectorySeparator(first[^1]) &&
+            !PathInternal.IsDirectorySeparator(second[0]);
+        var builder = new ValueStringBuilder(stackalloc char[260]);
+        builder.EnsureCapacity(first.Length + second.Length + (needsSeparator ? 1 : 0));
+        builder.Append(first);
+        if (needsSeparator)
             builder.Append(DirectorySeparatorChar);
-        }
+        builder.Append(second);
+        return builder.ToString();
+    }
 
-        builder.Append(path);
+    private static string JoinInternal(ReadOnlySpan<char> first, ReadOnlySpan<char> second, ReadOnlySpan<char> third)
+    {
+        var firstSeparator = !PathInternal.IsDirectorySeparator(first[^1]) &&
+            !PathInternal.IsDirectorySeparator(second[0]);
+        var secondSeparator = !PathInternal.IsDirectorySeparator(second[^1]) &&
+            !PathInternal.IsDirectorySeparator(third[0]);
+        var builder = new ValueStringBuilder(stackalloc char[260]);
+        builder.EnsureCapacity(
+            first.Length + second.Length + third.Length +
+            (firstSeparator ? 1 : 0) + (secondSeparator ? 1 : 0));
+        builder.Append(first);
+        if (firstSeparator)
+            builder.Append(DirectorySeparatorChar);
+        builder.Append(second);
+        if (secondSeparator)
+            builder.Append(DirectorySeparatorChar);
+        builder.Append(third);
+        return builder.ToString();
+    }
+
+    private static string JoinInternal(
+        ReadOnlySpan<char> first,
+        ReadOnlySpan<char> second,
+        ReadOnlySpan<char> third,
+        ReadOnlySpan<char> fourth)
+    {
+        var firstSeparator = !PathInternal.IsDirectorySeparator(first[^1]) &&
+            !PathInternal.IsDirectorySeparator(second[0]);
+        var secondSeparator = !PathInternal.IsDirectorySeparator(second[^1]) &&
+            !PathInternal.IsDirectorySeparator(third[0]);
+        var thirdSeparator = !PathInternal.IsDirectorySeparator(third[^1]) &&
+            !PathInternal.IsDirectorySeparator(fourth[0]);
+        var builder = new ValueStringBuilder(stackalloc char[260]);
+        builder.EnsureCapacity(
+            first.Length + second.Length + third.Length + fourth.Length +
+            (firstSeparator ? 1 : 0) + (secondSeparator ? 1 : 0) +
+            (thirdSeparator ? 1 : 0));
+        builder.Append(first);
+        if (firstSeparator)
+            builder.Append(DirectorySeparatorChar);
+        builder.Append(second);
+        if (secondSeparator)
+            builder.Append(DirectorySeparatorChar);
+        builder.Append(third);
+        if (thirdSeparator)
+            builder.Append(DirectorySeparatorChar);
+        builder.Append(fourth);
+        return builder.ToString();
+    }
+
+    private static ReadOnlySpan<byte> Base32Characters =>
+        "abcdefghijklmnopqrstuvwxyz012345"u8;
+
+    internal static unsafe void Populate83FileNameFromRandomBytes(
+        byte* bytes,
+        int byteCount,
+        Span<char> characters)
+    {
+        var byte0 = bytes[0];
+        var byte1 = bytes[1];
+        var byte2 = bytes[2];
+        var byte3 = bytes[3];
+        var byte4 = bytes[4];
+
+        characters[11] = (char)Base32Characters[bytes[7] & 0x1F];
+        characters[0] = (char)Base32Characters[byte0 & 0x1F];
+        characters[1] = (char)Base32Characters[byte1 & 0x1F];
+        characters[2] = (char)Base32Characters[byte2 & 0x1F];
+        characters[3] = (char)Base32Characters[byte3 & 0x1F];
+        characters[4] = (char)Base32Characters[byte4 & 0x1F];
+        characters[5] = (char)Base32Characters[
+            ((byte0 & 0xE0) >> 5) | ((byte3 & 0x60) >> 2)];
+        characters[6] = (char)Base32Characters[
+            ((byte1 & 0xE0) >> 5) | ((byte4 & 0x60) >> 2)];
+
+        byte2 >>= 5;
+        if ((byte3 & 0x80) != 0)
+            byte2 |= 0x08;
+        if ((byte4 & 0x80) != 0)
+            byte2 |= 0x10;
+
+        characters[7] = (char)Base32Characters[byte2];
+        characters[8] = '.';
+        characters[9] = (char)Base32Characters[bytes[5] & 0x1F];
+        characters[10] = (char)Base32Characters[bytes[6] & 0x1F];
     }
 
     private static string NormalizeRelativePath(string path)

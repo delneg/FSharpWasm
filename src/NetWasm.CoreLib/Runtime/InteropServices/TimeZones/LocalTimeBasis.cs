@@ -4,5 +4,6 @@ namespace System.Runtime.InteropServices.TimeZones
     {
         Utc,
         Local,
+        LocalAmbiguousDaylight,
     }
 }

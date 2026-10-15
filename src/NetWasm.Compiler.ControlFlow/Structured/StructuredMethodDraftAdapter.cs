@@ -55,7 +55,10 @@ internal sealed class StructuredMethodDraftAdapter(
                 source.MaxStack,
                 source.Locals,
                 source.LocalSignatureTypes,
-                source.Instructions),
+                source.Instructions)
+            {
+                ArrayBoundsProof = source.ExceptionRegions.IsEmpty ? source.ArrayBoundsProof : null,
+            },
             new(method.ValidatedGraph.Graph.Entry.Index),
             definitions,
             body,

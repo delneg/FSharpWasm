@@ -7,6 +7,7 @@ using NetWasm.Compiler.Wasm.Emission;
 using NetWasm.Compiler.Wasm.Emission.GeneratedFunctions;
 using NetWasm.Compiler.Wasm.Emission.Methods;
 using NetWasm.Compiler.Wasm.Emission.Planning;
+using NetWasm.Compiler.Wasm.Encoding;
 
 namespace NetWasm.Compiler.Wasm.Tests;
 
@@ -43,11 +44,12 @@ public sealed class FilterFuncletEmitterTests
             new FilterFunclet(1, new ManagedMethodIdentity("test-filter"), method,
                 CreateFilterClause(StructuredSequence.Empty)),
             environment,
+            EmptyRootMap(),
             sequence,
             plan);
 
         Assert.Same(plan, valueFrames.MemberExecution);
-        Assert.Same(method.Header, valueFrames.Header);
+        Assert.Same(method, valueFrames.Method);
         Assert.NotNull(emittedContext);
         Assert.Equal(8, emittedContext.ValueLayout.MemberResultOffsets[7]);
         Assert.Equal(scratch with { Size = environment.Size }, emittedContext.ValueLayout);
@@ -107,6 +109,7 @@ layouts,
                         0,
                         8,
                         []),
+                    EmptyRootMap(),
                     sequence);
 
         Assert.NotNull(context);
@@ -133,6 +136,7 @@ layouts,
                 CreateFilterMethod(program),
                 CreateFilterClause(StructuredSequence.Empty)),
             CreateEnvironment(rootFrameOffset: 0),
+            EmptyRootMap(),
             CreateSequence());
 
         Assert.Contains(WasmOpcodes.I32Load, emission.Body);
@@ -152,10 +156,74 @@ layouts,
                 CreateFilterMethod(program),
                 CreateFilterClause(StructuredSequence.Empty)),
             CreateEnvironment(rootFrameOffset: 8),
+            EmptyRootMap(),
             CreateSequence());
 
         Assert.Contains(WasmOpcodes.I32Add, emission.Body);
         Assert.Contains(WasmOpcodes.I32Load, emission.Body);
+    }
+
+    [Fact]
+    public void LoadsParentRootFrameAndKeepsEvaluationAnchorsFunctionLocal()
+    {
+        var program = new FakeProgram();
+        var layouts = new RecordingLayoutProvider(WasmTargetLayout.Wasm32);
+        var writers = new RecordingWriterFactory();
+        var backingType = CliTypeIdentity.Named(
+            Assembly,
+            "Tests",
+            "Backing",
+            isValueType: true);
+        var rootMap = new MethodRootMap(EntryKey, [], [])
+        {
+            AnchorPlan = new(
+            [
+                new(new(StackStorageLocationKind.EvaluationStack, 0), backingType),
+                new(new(StackStorageLocationKind.Local, 0), backingType),
+            ],
+            []),
+        };
+        var environment = new FilterEnvironmentLayout(20, 0, 4, [])
+        {
+            ParentRootFrameOffset = 12,
+            AnchorOffsets = ImmutableDictionary<int, int>.Empty.Add(1, 8),
+        };
+        MethodEmissionContext? context = null;
+        var sequence = new FilterSequenceEmitterAdapter((_, _, _, emittedContext) =>
+        {
+            context = emittedContext;
+            return new ManagedMethodSequenceEmission([]);
+        });
+        var emitter = new FilterFuncletEmitter(
+            layouts,
+            CreateValueFrameLayoutPlanner(program, layouts),
+            new ExceptionPayloadBlockEmitter(layouts),
+            writers);
+
+        ((IFilterFuncletEmitter)emitter).Emit(
+            new FilterFunclet(
+                1,
+                new ManagedMethodIdentity("test-filter"),
+                CreateFilterMethod(program),
+                CreateFilterClause(StructuredSequence.Empty)),
+            environment,
+            rootMap,
+            sequence);
+
+        Assert.NotNull(context);
+        Assert.Same(rootMap, context.RootMap);
+        var anchor = Assert.Single(context.AnchorLocals);
+        Assert.Equal(0, anchor.Key);
+        Assert.DoesNotContain(1, context.AnchorLocals.Keys);
+        var instructions = writers.Instructions.ToInstructions();
+        Assert.Equal(2, instructions.Count(instruction =>
+            instruction.Opcode == WasmOpcodes.I32Load));
+        Assert.Contains(instructions, instruction =>
+            instruction.Opcode == WasmOpcodes.LocalSet &&
+            instruction.Operand.UnsignedValue == context.RootFrame);
+        Assert.Contains(instructions, instruction =>
+            instruction.Opcode == WasmOpcodes.I32Constant &&
+            instruction.Operand.SignedValue == environment.ParentRootFrameOffset);
     }
 
     [Fact]
@@ -173,11 +241,13 @@ layouts,
         var emitter = CreateEmitter(WasmTarget.Wasm32);
 
         Assert.Throws<ArgumentNullException>(() =>
-            emitter.Emit(null!, environment, sequence));
+            emitter.Emit(null!, environment, EmptyRootMap(), sequence));
         Assert.Throws<ArgumentNullException>(() =>
-            emitter.Emit(filter, null!, sequence));
+            emitter.Emit(filter, null!, EmptyRootMap(), sequence));
         Assert.Throws<ArgumentNullException>(() =>
-            emitter.Emit(filter, environment, null!));
+            emitter.Emit(filter, environment, null!, sequence));
+        Assert.Throws<ArgumentNullException>(() =>
+            emitter.Emit(filter, environment, EmptyRootMap(), null!));
     }
 
     [Fact]
@@ -194,6 +264,7 @@ layouts,
                     CreateFilterMethod(program),
                     CreateFilterClause(filterBody: null)),
                 CreateEnvironment(rootFrameOffset: 0),
+                EmptyRootMap(),
                 CreateSequence()));
     }
 
@@ -216,14 +287,21 @@ layouts,
     private sealed class RecordingValueFramePlanner(ValueFrameLayout result) : IValueFrameLayoutPlanner
     {
         public MemberExecutionPlan? MemberExecution { get; private set; }
-        public StructuredMethodHeader? Header { get; private set; }
+        public StructuredMethod? Method { get; private set; }
 
         public ValueFrameLayout Create(
-            StructuredMethodHeader header,
+            StructuredMethod method,
             NativeImportPlan? nativeImports = null,
-            MemberExecutionPlan? memberExecution = null)
+            MemberExecutionPlan? memberExecution = null,
+            ManagedByRefMethodEffects? byRefEffects = null,
+            NetWasm.Compiler.Wasm.Emission.AddressTakenValues.AddressTakenScalarPromotionPlan?
+                addressTakenScalarPromotions = null,
+            NetWasm.Compiler.Wasm.Emission.AddressTakenValues.AddressTakenAggregatePromotionPlan?
+                addressTakenAggregatePromotions = null,
+            NetWasm.Compiler.Wasm.Emission.CallLifetimes.ScalarCallLifetimePlan?
+                scalarCallLifetimes = null)
         {
-            Header = header;
+            Method = method;
             MemberExecution = memberExecution;
             return result;
         }
@@ -254,8 +332,24 @@ layouts,
     private static FilterEnvironmentLayout CreateEnvironment(int rootFrameOffset) =>
         new(16, rootFrameOffset, 8, []);
 
+    private static MethodRootMap EmptyRootMap() => new(EntryKey, [], []);
+
     private static FilterSequenceEmitterAdapter CreateSequence() =>
         new FilterSequenceEmitterAdapter(
             (_, _, _, _) => new ManagedMethodSequenceEmission(
                 ImmutableDictionary<int, int>.Empty.Add(0, 1)));
+
+    private sealed class RecordingWriterFactory : IGeneratedFunctionWriterFactory
+    {
+        public RecordingInstructionWriter Instructions { get; } = new();
+
+        public GeneratedFunctionWriterLease Create()
+        {
+            var buffer = new WasmBinaryBuffer();
+            return new(
+                new WasmBinaryWriter(buffer),
+                new WasmBinarySnapshotReader(buffer),
+                Instructions);
+        }
+    }
 }

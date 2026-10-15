@@ -34,7 +34,8 @@ public sealed class ComponentPackageExecution(
                 request.Target,
                 request.ManagedExecutableEntryPoint,
                 request.Optimization,
-                request.StructuredDiagnostics));
+                request.StructuredDiagnostics)
+            { OptimizationOverrides = request.OptimizationOverrides });
             componentCoreModule = workspace.LinkedModulePath;
         }
         var embedArguments = new List<string>

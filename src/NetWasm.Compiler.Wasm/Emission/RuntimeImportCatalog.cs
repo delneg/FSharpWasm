@@ -20,15 +20,12 @@ internal enum RuntimeImportSymbol
     BeginRethrow,
     AllocateReferenceArray,
     AllocateString,
-    SuppressFinalize,
-    ReRegisterForFinalize,
     ReportUnobservedTaskException,
     IsAssignable,
     EndCatch,
     ExceptionFrameEnter,
     ExceptionFrameLeave,
     ExceptionFrameTargetClause,
-    FinalizerSafepoint,
     RegisterValueType,
     AllocateValueArray,
     AllocateRectangularArray,
@@ -56,8 +53,9 @@ internal enum RuntimeImportSymbol
     GcHandleRelease,
     GcGetMetric,
     GcMetricIsSupported,
-    GcWaitForPendingFinalizers,
     ObjectIdentityHash,
+    BoxedValueClone,
+    RuntimeHelpersEquals,
     NativeAlloc,
     NativeRealloc,
     NativeFree,
@@ -77,7 +75,16 @@ internal enum RuntimeImportSymbol
     EphemeronHandleCreate,
     EphemeronHandleGetKey,
     EphemeronHandleGetValue,
+    EphemeronHandleSetTargetToNull,
+    EphemeronHandleSetValue,
     EphemeronHandleRelease,
+    SuppressFinalize,
+    ReRegisterForFinalize,
+    FinalizerSafepoint,
+    GcWaitForPendingFinalizers,
+    InitializeFinalization,
+    AllocateFinalizable,
+    RandomSeed,
 }
 
 internal readonly record struct RuntimeImportBinding(
@@ -154,7 +161,11 @@ internal sealed class RuntimeImportCatalog : IRuntimeImportResolver
     }
 
     private static RuntimeImportSelection DefaultSelection(WasmModuleProfile profile) =>
-        new(profile, profile == WasmModuleProfile.CoreApplication);
+        new(
+            profile,
+            profile == WasmModuleProfile.CoreApplication,
+            IncludeFinalization: true,
+            IncludeRandomSeed: true);
 
     private static bool IsIncluded(
         RuntimeImportSymbol symbol,
@@ -170,7 +181,17 @@ internal sealed class RuntimeImportCatalog : IRuntimeImportResolver
             (RuntimeImportSymbol.EphemeronHandleCreate or
              RuntimeImportSymbol.EphemeronHandleGetKey or
              RuntimeImportSymbol.EphemeronHandleGetValue or
+             RuntimeImportSymbol.EphemeronHandleSetTargetToNull or
+             RuntimeImportSymbol.EphemeronHandleSetValue or
              RuntimeImportSymbol.EphemeronHandleRelease)) &&
+        (selection.IncludeFinalization || symbol is not
+            (RuntimeImportSymbol.InitializeFinalization or
+             RuntimeImportSymbol.AllocateFinalizable or
+             RuntimeImportSymbol.SuppressFinalize or
+             RuntimeImportSymbol.ReRegisterForFinalize or
+             RuntimeImportSymbol.FinalizerSafepoint or
+             RuntimeImportSymbol.GcWaitForPendingFinalizers)) &&
+        (selection.IncludeRandomSeed || symbol != RuntimeImportSymbol.RandomSeed) &&
         (selection.IncludeTerminalExceptionRaise ||
             symbol != RuntimeImportSymbol.ManagedTerminalExceptionRaise) &&
         (selection.ModuleProfile == WasmModuleProfile.ComponentCoreModule

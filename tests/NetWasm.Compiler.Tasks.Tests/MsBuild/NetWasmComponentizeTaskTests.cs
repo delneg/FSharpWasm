@@ -1,3 +1,4 @@
+using NetWasm.Compiler.ComponentModel.Optimization;
 using Microsoft.Build.Framework;
 using Microsoft.Build.Utilities;
 using NetWasm.Compiler.ComponentModel;
@@ -12,6 +13,35 @@ namespace NetWasm.Compiler.Tasks.Tests.MsBuild;
 
 public sealed class NetWasmComponentizeTaskTests
 {
+    [Theory]
+    [InlineData("Auto", ManagedInliningHints.Auto)]
+    [InlineData("IgnoreAggressive", ManagedInliningHints.IgnoreAggressive)]
+    [InlineData("Preserve", ManagedInliningHints.Preserve)]
+    public void PassesHintOverrideToNormalBuildSession(string value, ManagedInliningHints expected)
+    {
+        var sessions = new RecordingSessionFactory();
+        var task = CreateTask(sessions, new RecordingManifestInputsReader(),
+            new RecordingManifestWriter(), new RecordingEntryPointReader());
+        task.ManagedInliningHints = value;
+        Assert.True(task.Execute());
+        Assert.Equal(expected, sessions.Session.Request!.OptimizationOverrides?.ManagedInliningHints ?? ManagedInliningHints.Auto);
+    }
+
+    [Fact]
+    public void InvalidHintsFailBeforeCreatingSession()
+    {
+        var sessions = new RecordingSessionFactory();
+        var build = new RecordingBuildEngine();
+        var task = CreateTask(sessions, new RecordingManifestInputsReader(),
+            new RecordingManifestWriter(), new RecordingEntryPointReader());
+        task.ManagedInliningHints = "invalid";
+        task.BuildEngine = build;
+        Assert.False(task.Execute());
+        Assert.Null(sessions.WasmToolsCommand);
+        Assert.Empty(task.Components);
+        Assert.Single(build.Errors);
+    }
+
     [Theory]
     [InlineData("wasm32", "wasm32", "", "", "")]
     [InlineData("wasm64", "wasm64", "command", "1.28.1", "0.20.1")]
@@ -200,19 +230,21 @@ public sealed class NetWasmComponentizeTaskTests
 
         Assert.Throws<ArgumentNullException>(() =>
             new NetWasmComponentizeTask(
-                null!, inputs, new ComponentWitWorldSelector(), manifests, entries));
+                null!, inputs, new ComponentWitWorldSelector(), manifests, entries, new ManagedInliningHintsParser()));
         Assert.Throws<ArgumentNullException>(() =>
             new NetWasmComponentizeTask(
-                sessions, null!, new ComponentWitWorldSelector(), manifests, entries));
+                sessions, null!, new ComponentWitWorldSelector(), manifests, entries, new ManagedInliningHintsParser()));
         Assert.Throws<ArgumentNullException>(() =>
-            new NetWasmComponentizeTask(sessions, inputs, null!, manifests, entries));
-        Assert.Throws<ArgumentNullException>(() =>
-            new NetWasmComponentizeTask(
-                sessions, inputs, new ComponentWitWorldSelector(), null!, entries));
+            new NetWasmComponentizeTask(sessions, inputs, null!, manifests, entries, new ManagedInliningHintsParser()));
         Assert.Throws<ArgumentNullException>(() =>
             new NetWasmComponentizeTask(
-                sessions, inputs, new ComponentWitWorldSelector(), manifests, null!));
+                sessions, inputs, new ComponentWitWorldSelector(), null!, entries, new ManagedInliningHintsParser()));
+        Assert.Throws<ArgumentNullException>(() =>
+            new NetWasmComponentizeTask(
+                sessions, inputs, new ComponentWitWorldSelector(), manifests, null!, new ManagedInliningHintsParser()));
         Assert.NotNull(new NetWasmComponentizeTask());
+        Assert.Throws<ArgumentNullException>(() =>
+            new NetWasmComponentizeTask(sessions, inputs, new ComponentWitWorldSelector(), manifests, entries, null!));
     }
 
     [Fact]
@@ -260,7 +292,7 @@ public sealed class NetWasmComponentizeTaskTests
             inputs,
             new ComponentWitWorldSelector(),
             manifests,
-            entries)
+            entries, new ManagedInliningHintsParser())
         {
             InputAssemblyPath = "app.dll",
             CoreModulePath = "app.wasm",

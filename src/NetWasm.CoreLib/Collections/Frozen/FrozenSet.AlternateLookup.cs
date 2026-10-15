@@ -7,6 +7,7 @@
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
+using System.Runtime.CompilerServices;
 
 namespace System.Collections.Frozen
 {
@@ -27,7 +28,7 @@ namespace System.Collections.Frozen
         {
             if (!TryGetAlternateLookup(out AlternateLookup<TAlternate> lookup))
             {
-                throw new InvalidOperationException();
+                ThrowHelper.ThrowIncompatibleComparer();
             }
 
             return lookup;
@@ -68,7 +69,7 @@ namespace System.Collections.Frozen
         private protected IAlternateEqualityComparer<TAlternate, T> GetAlternateEqualityComparer<TAlternate>() where TAlternate : allows ref struct
         {
             Debug.Assert(Comparer is IAlternateEqualityComparer<TAlternate, T>, "Must have already been verified");
-            return (IAlternateEqualityComparer<TAlternate, T>)Comparer;
+            return Unsafe.As<IAlternateEqualityComparer<TAlternate, T>>(Comparer);
         }
 
         /// <summary>

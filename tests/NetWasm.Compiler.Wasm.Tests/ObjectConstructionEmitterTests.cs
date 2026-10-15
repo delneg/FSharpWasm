@@ -34,7 +34,59 @@ public sealed class ObjectConstructionEmitterTests
         Assert.Equal([false, false, true], safepoints);
         Assert.Equal([CliValueKind.ManagedReference], request.Stack);
         Assert.Equal(TypeKey, layouts.ObjectRequest);
-        Assert.Contains(WasmOpcodes.Call, GetCodeBytes(request));
+        var calls = Assert.IsType<RecordingInstructionWriter>(GetCodeWriter(request))
+            .ToInstructions()
+            .Where(static instruction => instruction.Opcode == WasmOpcodes.Call)
+            .ToArray();
+        Assert.Contains(
+            calls,
+            instruction => instruction.Operand.UnsignedValue ==
+                (uint)WasmRuntimeImports.CreateCatalog().Resolve(
+                    RuntimeImportSymbol.Allocate,
+                    request.Target.RuntimeImportSelection));
+    }
+
+    [Fact]
+    public void FinalizableReferenceUsesTheDedicatedAllocationCapability()
+    {
+        var program = new FakeProgram();
+        var layouts = new RecordingLayoutProvider();
+        var original = CreateInstructionRequest(
+            CilOperation.NewObject,
+            operand: new CilOperand.Entity(ConstructorKey));
+        var selection = original.Target.RuntimeImportSelection with
+        {
+            IncludeFinalization = true,
+        };
+        var request = original with
+        {
+            Target = original.Target with
+            {
+                RuntimeImportSelection = selection,
+                Finalization = new FinalizationPlan([9], false),
+            },
+        };
+        var writer = new RecordingInstructionWriter();
+        RegisterInstructionWriter(request, writer);
+        var imports = WasmRuntimeImports.CreateCatalog();
+
+        Emit(
+            (IInstructionCommandProvider)CreateEmitter(layouts, (_, _, _) => { }),
+            request,
+            CreateFunctionIndexResolver(program));
+
+        Assert.Contains(
+            writer.ToInstructions(),
+            instruction => instruction.Opcode == WasmOpcodes.Call &&
+                instruction.Operand.UnsignedValue == (uint)imports.Resolve(
+                    RuntimeImportSymbol.AllocateFinalizable,
+                    selection));
+        Assert.DoesNotContain(
+            writer.ToInstructions(),
+            instruction => instruction.Opcode == WasmOpcodes.Call &&
+                instruction.Operand.UnsignedValue == (uint)imports.Resolve(
+                    RuntimeImportSymbol.Allocate,
+                    selection));
     }
 
     [Fact]
@@ -417,8 +469,12 @@ public sealed class ObjectConstructionEmitterTests
         IImplicitExceptionEmitter exceptions = new ImplicitExceptionEmitter(layouts, layouts, 7);
         IRootPublicationEmitter roots = new RecordingRootPublicationEmitter(safepoint);
         strings ??= new StringConstructionEmitter(
+            program,
+            program,
             layouts,
             addresses,
+            layouts,
+            layouts,
             layouts,
             layouts,
             WasmRuntimeImports.CreateCatalog(),
@@ -430,7 +486,8 @@ public sealed class ObjectConstructionEmitterTests
             exceptions,
             roots,
             new NativeIntegerConstructionEmitter(layouts, conversions),
-            strings);
+            strings,
+            new StaticInitializationEmitter(program, program, addresses));
     }
 
     private static void Emit<TProvider>(

@@ -8,6 +8,17 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include "tcms_diagnostics.h"
+
+#if defined(TCMS_ADAPTIVE_BLOCKS) && !defined(TCMS_BITMAP_MARKING)
+#define TCMS_BITMAP_MARKING
+#endif
+#if defined(TCMS_BITMAP_MARKING) && !defined(TCMS_BLOCK_ALLOCATION)
+#define TCMS_BLOCK_ALLOCATION
+#endif
+#if defined(TCMS_BLOCK_ALLOCATION) && !defined(TCMS_PAGE_OWNERSHIP)
+#define TCMS_PAGE_OWNERSHIP
+#endif
 
 typedef struct {
     const size_t *offsets;
@@ -19,6 +30,16 @@ typedef struct {
 typedef void *(*TcmsAllocate)(size_t bytes, size_t alignment);
 typedef void (*TcmsRelease)(void *address, size_t bytes, size_t alignment);
 typedef union TcmsObject TcmsObject;
+#ifdef TCMS_BITMAP_MARKING
+typedef union TcmsLarge TcmsLarge;
+#endif
+#ifdef TCMS_PAGE_OWNERSHIP
+typedef struct TcmsPage TcmsPage;
+#endif
+#ifdef TCMS_BLOCK_ALLOCATION
+typedef struct TcmsBlock TcmsBlock;
+typedef struct TcmsBlockClass TcmsBlockClass;
+#endif
 typedef struct { TcmsObject *first, *last; } TcmsList;
 typedef struct Tcms Tcms;
 typedef struct {
@@ -30,14 +51,36 @@ struct Tcms {
     TcmsAllocate allocate;
     TcmsRelease release;
     size_t objects, bytes, threshold, minimum_threshold;
-    TcmsObject **index;
-    size_t index_capacity;
+    TcmsObject **object_table, **large_objects;
+    size_t object_table_capacity, large_object_count, large_object_capacity;
     TcmsObject *scan_cursor;
     const TcmsHooks *hooks;
     void *extension;
     void (*trace_roots)(Tcms *, void *);
     void *root_state;
     bool white, collecting;
+#ifdef TCMS_PAGE_OWNERSHIP
+    TcmsPage *pages;
+    size_t page_capacity, page_count, page_used;
+#ifdef TCMS_PAGE_CACHE
+    uintptr_t cached_page_key;
+    TcmsPage *cached_page;
+#endif
+#endif
+#ifdef TCMS_BLOCK_ALLOCATION
+    TcmsBlock *blocks, *empty_blocks;
+    TcmsBlockClass *block_classes;
+    size_t active_classes, reserved_bytes, block_bytes, empty_block_count;
+#endif
+#ifdef TCMS_BITMAP_MARKING
+    TcmsLarge *large_head, *pending_large;
+    TcmsBlock *pending_blocks;
+    size_t marked_bytes, marked_objects;
+#endif
+#ifdef TCMS_DIAGNOSTICS
+    /* Borrowed diagnostic state; initialize and attach after tcms_initialize. */
+    TcmsDiagnostics *diagnostics;
+#endif
 };
 
 typedef enum {

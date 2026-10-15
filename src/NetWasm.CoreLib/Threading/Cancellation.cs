@@ -168,7 +168,7 @@ namespace System.Threading
         private bool _cancelled;
         private bool _disposed;
         private CallbackNode? _callbacks;
-        private IDisposable? _scheduledCancellation;
+        private ITimer? _scheduledCancellation;
         private TimeProvider? _timeProvider;
 
         private static CancellationTokenSource CreateCanceledSource()
@@ -182,15 +182,27 @@ namespace System.Threading
         {
         }
 
-        public CancellationTokenSource(TimeSpan delay) => ScheduleCancellation(delay);
+        public CancellationTokenSource(TimeSpan delay)
+            : this(delay, TimeProvider.System)
+        {
+        }
 
         public CancellationTokenSource(TimeSpan delay, TimeProvider timeProvider)
         {
             _timeProvider = timeProvider ?? throw new ArgumentNullException(nameof(timeProvider));
-            ScheduleCancellation(delay);
+            var milliseconds = GetMilliseconds(delay);
+            InitializeWithTimer(milliseconds);
         }
 
-        public CancellationTokenSource(int millisecondsDelay) => ScheduleCancellation(millisecondsDelay);
+        public CancellationTokenSource(int millisecondsDelay)
+        {
+            if (millisecondsDelay < -1)
+            {
+                throw new ArgumentOutOfRangeException(nameof(millisecondsDelay));
+            }
+            _timeProvider = TimeProvider.System;
+            InitializeWithTimer(millisecondsDelay);
+        }
 
         public bool IsCancellationRequested => _cancelled;
 
@@ -325,16 +337,21 @@ namespace System.Threading
         public bool TryReset()
         {
             ThrowIfDisposed();
-            // A token must never transition from canceled back to non-canceled.
-            // Reset is only valid before cancellation has been requested; it
-            // clears registrations so the source can be reused by its owner.
             if (_cancelled)
             {
                 return false;
             }
 
-            _scheduledCancellation?.Dispose();
-            _scheduledCancellation = null;
+            if (_scheduledCancellation is not null &&
+                (_scheduledCancellation is not PlatformTimer platformTimer ||
+                    !_scheduledCancellation.Change(
+                        Timeout.InfiniteTimeSpan,
+                        Timeout.InfiniteTimeSpan) ||
+                    platformTimer.HasFired))
+            {
+                return false;
+            }
+
             while (_callbacks is not null)
             {
                 var callback = _callbacks;
@@ -472,46 +489,66 @@ namespace System.Threading
 
         private void ScheduleCancellation(TimeSpan delay)
         {
-            var milliseconds = (long)delay.TotalMilliseconds;
-            if (milliseconds < -1 || milliseconds > uint.MaxValue - 1)
-            {
-                throw new ArgumentOutOfRangeException();
-            }
-
-            ScheduleCancellation((int)milliseconds);
+            ScheduleCancellation(GetMilliseconds(delay));
         }
 
-        private void ScheduleCancellation(int millisecondsDelay)
+        private void ScheduleCancellation(long millisecondsDelay)
         {
             ThrowIfDisposed();
-            if (millisecondsDelay < -1)
+            if (millisecondsDelay < -1 ||
+                millisecondsDelay > uint.MaxValue - 1L)
             {
-                throw new ArgumentOutOfRangeException();
+                throw new ArgumentOutOfRangeException(nameof(millisecondsDelay));
             }
 
-            _scheduledCancellation?.Dispose();
-            _scheduledCancellation = null;
             if (_cancelled || millisecondsDelay == -1)
             {
+                _scheduledCancellation?.Change(
+                    Timeout.InfiniteTimeSpan,
+                    Timeout.InfiniteTimeSpan);
                 return;
             }
 
-            _scheduledCancellation = _timeProvider is null ||
-                ReferenceEquals(_timeProvider, TimeProvider.System)
-                ? PlatformServices.Scheduler.Schedule(
-                    CancelFromSchedule,
-                    checked((ulong)millisecondsDelay * 1_000_000UL))
-                : _timeProvider.CreateTimer(
-                    _ => CancelFromSchedule(),
-                    null,
-                    TimeSpan.FromMilliseconds(millisecondsDelay),
-                    TimeSpan.FromMilliseconds(-1));
+            EnsureTimer().Change(
+                TimeSpan.FromMilliseconds(millisecondsDelay),
+                Timeout.InfiniteTimeSpan);
         }
 
-        private void CancelFromSchedule()
+        private void InitializeWithTimer(long millisecondsDelay)
         {
-            _scheduledCancellation = null;
-            Cancel();
+            if (millisecondsDelay == 0)
+            {
+                _cancelled = true;
+                return;
+            }
+
+            _scheduledCancellation = CreateTimer(
+                TimeSpan.FromMilliseconds(millisecondsDelay));
+        }
+
+        private ITimer EnsureTimer() => _scheduledCancellation ??=
+            CreateTimer(Timeout.InfiniteTimeSpan);
+
+        private ITimer CreateTimer(TimeSpan dueTime)
+        {
+            using (ExecutionContext.SuppressFlow())
+            {
+                return (_timeProvider ?? TimeProvider.System).CreateTimer(
+                    static state => ((CancellationTokenSource)state!).Cancel(),
+                    this,
+                    dueTime,
+                    Timeout.InfiniteTimeSpan);
+            }
+        }
+
+        private static long GetMilliseconds(TimeSpan delay)
+        {
+            var milliseconds = (long)delay.TotalMilliseconds;
+            if (milliseconds < -1 || milliseconds > uint.MaxValue - 1L)
+            {
+                throw new ArgumentOutOfRangeException(nameof(delay));
+            }
+            return milliseconds;
         }
 
         private void ThrowIfDisposed()
@@ -709,16 +746,13 @@ namespace System.Threading
 
             internal bool Unregister()
             {
-                if (!_registered)
+                if (!_registered || _executing)
                 {
                     return false;
                 }
 
                 _registered = false;
-                if (!_executing)
-                {
-                    Source.Remove(this);
-                }
+                Source.Remove(this);
 
                 return true;
             }

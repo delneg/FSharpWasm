@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Immutable;
+using NetWasm.Compiler.ComponentModel.Optimization;
 using Draft = NetWasm.Compiler.ControlFlow.Draft;
 using Final = NetWasm.Compiler.ControlFlow.Structured;
 
@@ -43,7 +44,9 @@ public sealed class ValidatedStructuredMethodBuilderFactory : IValidatedStructur
             throw new ArgumentNullException(nameof(dispatcherBoundaries));
     }
 
-    public IValidatedStructuredMethodBuilder Create()
+    public IValidatedStructuredMethodBuilder Create(
+        BranchPrefixDuplicationPolicy branchPrefixDuplication =
+            BranchPrefixDuplicationPolicy.SizeAware)
     {
         var controlFlowProjector = new Final.StructuredControlFlowProjector();
         var distances = new ControlFlowDistanceFinder();
@@ -54,8 +57,22 @@ public sealed class ValidatedStructuredMethodBuilderFactory : IValidatedStructur
         var conditionalBranches = new CilConditionalBranchClassifier();
         var wholeRegionDispatchers = new WholeRegionDispatcherBuilder(conditionalBranches);
         var exceptionAwareDispatcherBlocks = new ExceptionAwareDispatcherBlockSelector();
-        var exceptionAwareDispatcherShells = new ExceptionAwareDispatcherShellBuilder(wholeRegionDispatchers, exceptionAwareDispatcherBlocks);
+        var exceptionAwareDispatcherShells = new ExceptionAwareDispatcherShellBuilder(
+            wholeRegionDispatchers,
+            exceptionAwareDispatcherBlocks,
+            new DispatcherLoopIslandSelector());
         var branchOverlaps = new BranchReachabilityOverlapClassifier(reachableBlocks);
+        var cycles = new ControlFlowCycleClassifier();
+        var subgraphCycles = new ControlFlowSubgraphCycleClassifier(
+            _components,
+            cycles);
+        var branchJoins = new TerminalBranchJoinSelector(new BranchJoinSelector(
+            joins,
+            reachableBlocks,
+            distances,
+            branchOverlaps,
+            subgraphCycles,
+            branchPrefixDuplication));
         var domains = new ControlFlowDomainFinder(reachableBlocks);
         var exitExtensions = new LoopExitExtensionCollector();
         var exitPartitions = new LoopExitPartitioner(exitExtensions, _reachableSetOverlaps);
@@ -67,7 +84,8 @@ public sealed class ValidatedStructuredMethodBuilderFactory : IValidatedStructur
             reachableBlocks,
             errors,
             exitPartitions,
-            new LoopContinueTargetFinder(joins));
+            new LoopContinueTargetFinder(joins, reachableBlocks),
+            new LoopRegionEligibilityClassifier(subgraphCycles));
         var structuredControlFlow = new StructuredControlFlowBuilder(
             exceptionAwareDispatcherShells,
             new StructuredSequenceStepChain(
@@ -86,7 +104,7 @@ public sealed class ValidatedStructuredMethodBuilderFactory : IValidatedStructur
                     new BranchingSequenceStepExecutor(
                         joins,
                         reachableBlocks,
-                        distances,
+                        branchJoins,
                         branchOverlaps,
                         new DispatcherExitSelector())]));
         var stateBuilder = new ControlFlowStructuringStateBuilder(
@@ -95,7 +113,7 @@ public sealed class ValidatedStructuredMethodBuilderFactory : IValidatedStructur
             _naturalLoops,
             domains,
             loops,
-            new ControlFlowCycleClassifier());
+            cycles);
         var ranges = new BlockRangeStructurer(structuredControlFlow);
         var exceptionGroups = new ExceptionGroupStructurer(
             new ExceptionScopeFinder(),

@@ -31,6 +31,12 @@ internal static class WasmModuleBuilderFactory
                 new WasmSectionWriter(unsigned),
                 static buffer => new WasmBinaryWriter(buffer),
                 static buffer => new WasmBinarySnapshotReader(buffer),
-                output => new WasmInstructionWriter(output, instructionEncoders)));
+                output => new WasmInstructionWriter(output, instructionEncoders),
+                new FunctionInlineAnnotationWriter(
+                    unsigned,
+                    new Utf8StringEncoder(unsigned),
+                    new WasmSectionWriter(unsigned),
+                    static buffer => new WasmBinaryWriter(buffer),
+                    static buffer => new WasmBinarySnapshotReader(buffer))));
     }
 }

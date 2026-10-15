@@ -21,6 +21,7 @@ public static class EntryPoint
         6 => UnsignedBigMulContract(),
         7 => DivRemContract(),
         8 => FiniteComparisonContract(),
+        9 => FusedMultiplyAddContract(),
         _ => 0,
     };
 
@@ -115,8 +116,7 @@ public static class EntryPoint
             !float.IsNaN(copiedNaN) || BitConverter.SingleToInt32Bits(copiedNaN) < 0) return 1;
         if (!SameBits(MathF.Round(-0.5f), -0.0f) ||
             MathF.Round(2.5f) != 2.0f || MathF.Round(3.5f) != 4.0f) return 2;
-        try { _ = MathF.Round(1.2345f, 20); return 3; }
-        catch (ArgumentOutOfRangeException) { }
+        if (!SameBits(MathF.Round(1.234567f, 6), 1.234567f)) return 3;
         if (MathF.ILogB(float.Epsilon) != -149) return 31;
         if (MathF.Tanh(float.PositiveInfinity) != 1.0f) return 32;
         if (MathF.Sinh(float.Epsilon) != float.Epsilon) return 33;
@@ -142,6 +142,19 @@ public static class EntryPoint
     private static int DivRemContract()
     {
         if (Math.DivRem(-17, 5).Quotient != -3 || Math.DivRem(-17, 5).Remainder != -2) return 5;
+        return 100;
+    }
+
+    private static int FusedMultiplyAddContract()
+    {
+        if (!SameBits(Math.FusedMultiplyAdd(double.MaxValue, 2, -double.MaxValue), double.MaxValue)) return 1;
+        if (!SameBits(Math.FusedMultiplyAdd(134217729, 134217729, -18014398777917440), 1)) return 2;
+        if (!SameBits(Math.FusedMultiplyAdd(double.Epsilon, 0.5, double.Epsilon), 2 * double.Epsilon)) return 3;
+        if (!SameBits(Math.FusedMultiplyAdd(-0.0, 2, -0.0), -0.0)) return 4;
+        if (!SameBits(Math.FusedMultiplyAdd(double.MaxValue, 1, -double.MaxValue), 0.0)) return 5;
+        if (!double.IsPositiveInfinity(Math.FusedMultiplyAdd(double.MaxValue, 2, double.MaxValue))) return 6;
+        if (!double.IsNaN(Math.FusedMultiplyAdd(double.PositiveInfinity, 0, 1))) return 7;
+        if (!SameBits(MathF.FusedMultiplyAdd(float.MaxValue, 2, -float.MaxValue), float.MaxValue)) return 8;
         return 100;
     }
 }

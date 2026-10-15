@@ -1,5 +1,9 @@
 using Microsoft.Extensions.DependencyInjection;
 using NetWasm.Compiler.Wasm.Emission;
+using NetWasm.Compiler.Wasm.Emission.AddressTakenValues;
+using NetWasm.Compiler.Wasm.Emission.Values;
+using NetWasm.Compiler.Wasm.Emission.Arrays;
+using NetWasm.Compiler.Wasm.Emission.CallLifetimes;
 
 namespace NetWasm.Compiler.Wasm.Emission.Methods;
 
@@ -8,6 +12,10 @@ internal static class MethodEmissionServiceCollectionExtensions
     public static IServiceCollection AddWasmMethodEmission(
         this IServiceCollection services)
     {
+        services.AddAddressTakenValuePromotion();
+        services.AddManagedValuePlanning();
+        services.AddArrayMetadataCaching();
+        services.AddScalarCallPreservation();
         services.AddSingleton<IManagedDefinitionFunctionAppender,
             ManagedDefinitionFunctionAppender>();
         services.AddSingleton<IManagedDefinitionSetAppender,
@@ -24,6 +32,10 @@ internal static class MethodEmissionServiceCollectionExtensions
             FilterEmissionCountMerger>();
         services.AddSingleton<IManagedMethodFunctionTypeResolver,
             ManagedMethodFunctionTypeResolver>();
+        services.AddSingleton<IDirectValueLoadSelector,
+            DirectValueLoadSelector>();
+        services.AddSingleton<ITransientAggregatePromotionPlanner,
+            TransientAggregatePromotionPlanner>();
         services.AddSingleton<IValueFrameLayoutPlanner, ValueFrameLayoutPlanner>();
         services.AddSingleton<FilterEnvironmentLayoutPlanner>();
         services.AddSingleton<IFilterEnvironmentLayoutPlanner>(provider =>
@@ -31,6 +43,8 @@ internal static class MethodEmissionServiceCollectionExtensions
         services.AddSingleton<ValueFrameAddressEmitter>();
         services.AddSingleton<IValueFrameAddressEmitter>(provider =>
             provider.GetRequiredService<ValueFrameAddressEmitter>());
+        services.AddSingleton<IValueFrameInitializationEmitter,
+            ValueFrameInitializationEmitter>();
         services.AddSingleton<IFilterEnvironmentRootEmitter,
             FilterEnvironmentRootEmitter>();
         services.AddSingleton<IStackTraceFrameEntryEmitter,
@@ -40,11 +54,18 @@ internal static class MethodEmissionServiceCollectionExtensions
         services.AddSingleton<IStackTraceFrameExitEmitter,
             StackTraceFrameExitEmitter>();
         services.AddSingleton<IMethodFrameEntryEmitter, MethodFrameEntryEmitter>();
+        services.AddSingleton<IValueFrameEntryEmitter, ValueFrameEntryEmitter>();
+        services.AddSingleton<ITerminalBranchValueFramePlanner, TerminalBranchValueFramePlanner>();
+        services.AddSingleton<ITerminalBranchValueFrameEmitter, TerminalBranchValueFrameEmitter>();
         services.AddSingleton<IMethodFrameExitEmitter, MethodFrameExitEmitter>();
         services.AddSingleton<MethodExceptionBoundaryEmitter>();
         services.AddSingleton<IMethodExceptionBoundaryEmitter>(provider =>
             provider.GetRequiredService<MethodExceptionBoundaryEmitter>());
         services.AddSingleton<ManagedMethodEmitter>();
+        services.AddSingleton<IAuthoritativeRootSourceSelector, AuthoritativeRootSourceSelector>();
+        services.AddSingleton<IAuthoritativeRootLayoutPlanner, AuthoritativeRootLayoutPlanner>();
+        services.AddSingleton<IRootClearElisionPlanner, RootClearElisionPlanner>();
+        services.AddSingleton<IRootValueElisionPlanner, RootValueElisionPlanner>();
         services.AddSingleton<IInstructionCountingWriterFactory,
             InstructionCountingWriterFactory>();
         services.AddSingleton<IManagedMethodEmitter>(provider =>
@@ -52,9 +73,12 @@ internal static class MethodEmissionServiceCollectionExtensions
         services.AddSingleton<ExceptionRegionEmitter>();
         services.AddSingleton<IExceptionRegionEmitter>(provider =>
             provider.GetRequiredService<ExceptionRegionEmitter>());
+        services.AddSingleton<IDispatcherBranchTablePlanner,
+            DispatcherBranchTablePlanner>();
         services.AddSingleton<IControlFlowDispatcherEmitter,
             ControlFlowDispatcherEmitter>();
         services.AddSingleton<StructuredControlFlowEmitter>();
+        services.AddSingleton<IStructuredConditionValueEmitter, StructuredConditionValueEmitter>();
         services.AddSingleton<IStructuredControlFlowEmitter>(provider =>
             provider.GetRequiredService<StructuredControlFlowEmitter>());
         services.AddSingleton<IStructuredLeaveEmitter, StructuredLeaveEmitter>();

@@ -1,5 +1,7 @@
 using System.Collections.Immutable;
 using NetWasm.Compiler.Core;
+using NetWasm.Compiler.ComponentModel;
+using NetWasm.Compiler.ComponentModel.Optimization;
 using NetWasm.Compiler.Layout;
 using NetWasm.Compiler.Wasm;
 using NetWasm.Compiler.Wasm.Emission;
@@ -39,7 +41,9 @@ public sealed record CompilerOptions(
     bool UseJavaScriptExportBoundary = false,
     string? ProjectDirectory = null,
     string? PathMap = null,
-    bool StructuredDiagnostics = false);
+    bool StructuredDiagnostics = false,
+    FinalWasmOptimization Optimization = FinalWasmOptimization.Oz,
+    WasmOptimizationOverrides? OptimizationOverrides = null);
 
 public sealed partial record CompilationResult(
     byte[] ApplicationModule,

@@ -2,6 +2,10 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using System.ComponentModel;
+using System.Diagnostics.CodeAnalysis;
+using System.Runtime.InteropServices;
+
 namespace System
 {
     public readonly struct TimeOnly : IComparable, IComparable<TimeOnly>, IEquatable<TimeOnly>,
@@ -18,10 +22,21 @@ namespace System
         }
         public TimeOnly(int hour, int minute, int second, int millisecond)
         {
-            if ((uint)hour >= 24 || (uint)minute >= 60 || (uint)second >= 60 ||
-                (uint)millisecond >= 1000)
+            if ((uint)hour >= 24)
             {
-                throw new ArgumentOutOfRangeException();
+                throw new ArgumentOutOfRangeException(nameof(hour));
+            }
+            if ((uint)minute >= 60)
+            {
+                throw new ArgumentOutOfRangeException(nameof(minute));
+            }
+            if ((uint)second >= 60)
+            {
+                throw new ArgumentOutOfRangeException(nameof(second));
+            }
+            if ((uint)millisecond >= 1000)
+            {
+                throw new ArgumentOutOfRangeException(nameof(millisecond));
             }
             _ticks = hour * TimeSpan.TicksPerHour + minute * TimeSpan.TicksPerMinute
                 + second * TimeSpan.TicksPerSecond
@@ -30,10 +45,25 @@ namespace System
 
         public TimeOnly(int hour, int minute, int second, int millisecond, int microsecond)
         {
-            if ((uint)hour >= 24 || (uint)minute >= 60 || (uint)second >= 60 ||
-                (uint)millisecond >= 1000 || (uint)microsecond >= 1000)
+            if ((uint)hour >= 24)
             {
-                throw new ArgumentOutOfRangeException();
+                throw new ArgumentOutOfRangeException(nameof(hour));
+            }
+            if ((uint)minute >= 60)
+            {
+                throw new ArgumentOutOfRangeException(nameof(minute));
+            }
+            if ((uint)second >= 60)
+            {
+                throw new ArgumentOutOfRangeException(nameof(second));
+            }
+            if ((uint)millisecond >= 1000)
+            {
+                throw new ArgumentOutOfRangeException(nameof(millisecond));
+            }
+            if ((uint)microsecond >= 1000)
+            {
+                throw new ArgumentOutOfRangeException(nameof(microsecond));
             }
             _ticks = hour * TimeSpan.TicksPerHour + minute * TimeSpan.TicksPerMinute
                 + second * TimeSpan.TicksPerSecond
@@ -73,9 +103,13 @@ namespace System
 
         public bool IsBetween(TimeOnly start, TimeOnly end)
         {
-            return start._ticks <= end._ticks
-                ? _ticks - start._ticks < end._ticks - start._ticks
-                : _ticks - end._ticks >= start._ticks - end._ticks;
+            var time = (ulong)_ticks;
+            var startTicks = (ulong)start._ticks;
+            var endTicks = (ulong)end._ticks;
+
+            return startTicks <= endTicks
+                ? time - startTicks < endTicks - startTicks
+                : time - endTicks >= startTicks - endTicks;
         }
 
         public static TimeOnly FromTicks(long ticks)
@@ -98,15 +132,18 @@ namespace System
                 ? CompareTo(other)
                 : throw new ArgumentException();
         public bool Equals(TimeOnly value) => _ticks == value._ticks;
-        public override bool Equals(object? value) => value is TimeOnly other && Equals(other);
+        public override bool Equals([NotNullWhen(true)] object? value) =>
+            value is TimeOnly other && Equals(other);
         public override int GetHashCode() => unchecked((int)_ticks) ^ (int)(_ticks >> 32);
 
+        [EditorBrowsable(EditorBrowsableState.Never)]
         public void Deconstruct(out int hour, out int minute)
         {
             hour = Hour;
             minute = Minute;
         }
 
+        [EditorBrowsable(EditorBrowsableState.Never)]
         public void Deconstruct(out int hour, out int minute, out int second)
         {
             hour = Hour;
@@ -114,6 +151,7 @@ namespace System
             second = Second;
         }
 
+        [EditorBrowsable(EditorBrowsableState.Never)]
         public void Deconstruct(out int hour, out int minute, out int second, out int millisecond)
         {
             hour = Hour;
@@ -122,6 +160,7 @@ namespace System
             millisecond = Millisecond;
         }
 
+        [EditorBrowsable(EditorBrowsableState.Never)]
         public void Deconstruct(
             out int hour, out int minute, out int second, out int millisecond, out int microsecond)
         {
@@ -131,198 +170,273 @@ namespace System
             millisecond = Millisecond;
             microsecond = Microsecond;
         }
-        public string ToLongTimeString() => ToString();
+        public string ToLongTimeString() => ToString("T");
         public string ToShortTimeString() => ToString();
-        public string ToString(IFormatProvider? provider) => ToString();
-        public string ToString(string? format) => FormatInvariant(format);
-        public string ToString(string? format, IFormatProvider? provider) => FormatInvariant(format);
-        public override string ToString() => InvariantDateTimeText.TwoDigits(Hour) + ":"
-            + InvariantDateTimeText.TwoDigits(Minute) + ":"
-            + InvariantDateTimeText.TwoDigits(Second)
-            + InvariantDateTimeText.Fraction(_ticks);
+        public string ToString(IFormatProvider? provider) => FormatInvariant(null, provider);
+        public string ToString([StringSyntax(StringSyntaxAttribute.TimeOnlyFormat)] string? format) =>
+            FormatInvariant(format, null);
+        public string ToString(
+            [StringSyntax(StringSyntaxAttribute.TimeOnlyFormat)] string? format,
+            IFormatProvider? provider) => FormatInvariant(format, provider);
+        public override string ToString() => FormatInvariant(null, null);
 
         public bool TryFormat(Span<char> destination, out int charsWritten,
+            [StringSyntax(StringSyntaxAttribute.TimeOnlyFormat)]
             ReadOnlySpan<char> format = default(System.ReadOnlySpan<char>), IFormatProvider? provider = null) =>
-            TryCopy(FormatInvariant(format.Length == 0 ? null : string.Create(format.ToArray())),
-                destination, out charsWritten);
+            TryFormatCore(
+                MemoryMarshal.Cast<char, Utf16Char>(destination),
+                out charsWritten,
+                format,
+                provider);
 
         public bool TryFormat(Span<byte> utf8Destination, out int bytesWritten,
-            ReadOnlySpan<char> format = default(System.ReadOnlySpan<char>), IFormatProvider? provider = null)
+            [StringSyntax(StringSyntaxAttribute.TimeOnlyFormat)]
+            ReadOnlySpan<char> format = default(System.ReadOnlySpan<char>), IFormatProvider? provider = null) =>
+            TryFormatCore(
+                MemoryMarshal.Cast<byte, Utf8Char>(utf8Destination),
+                out bytesWritten,
+                format,
+                provider);
+
+        public static TimeOnly Parse(string s) =>
+            Parse(s, null, System.Globalization.DateTimeStyles.None);
+
+        public static TimeOnly Parse(string s, IFormatProvider? provider) =>
+            Parse(s, provider, System.Globalization.DateTimeStyles.None);
+
+        public static TimeOnly Parse(string s, IFormatProvider? provider,
+            System.Globalization.DateTimeStyles style = System.Globalization.DateTimeStyles.None)
         {
-            var text = FormatInvariant(format.Length == 0 ? null : string.Create(format.ToArray()));
-            if (utf8Destination.Length < text.Length)
-            {
-                bytesWritten = 0;
-                return false;
-            }
-            for (var index = 0; index < text.Length; index++) utf8Destination[index] = (byte)text[index];
-            bytesWritten = text.Length;
-            return true;
+            ArgumentNullException.ThrowIfNull(s);
+            return Parse(s.AsSpan(), provider, style);
         }
 
-        public static TimeOnly Parse(string value)
+        public static TimeOnly Parse(ReadOnlySpan<char> s, IFormatProvider? provider) =>
+            Parse(s, provider, System.Globalization.DateTimeStyles.None);
+
+        public static TimeOnly Parse(ReadOnlySpan<char> s, IFormatProvider? provider = null,
+            System.Globalization.DateTimeStyles style = System.Globalization.DateTimeStyles.None)
         {
-            if (value == null)
+            ValidateStyles(style);
+            return InvariantDateOnlyTimeOnlyParser.TryParseTime(
+                s,
+                System.Globalization.DateTimeFormatInfo.GetInstance(provider),
+                style,
+                out var result)
+                ? result
+                : throw new FormatException();
+        }
+
+        public static bool TryParse([NotNullWhen(true)] string? s, out TimeOnly result) =>
+            TryParse(s, null, System.Globalization.DateTimeStyles.None, out result);
+
+        public static bool TryParse([NotNullWhen(true)] string? s, IFormatProvider? provider, out TimeOnly result) =>
+            TryParse(s, provider, System.Globalization.DateTimeStyles.None, out result);
+
+        public static bool TryParse([NotNullWhen(true)] string? s, IFormatProvider? provider,
+            System.Globalization.DateTimeStyles style, out TimeOnly result)
+        {
+            if (s is null)
             {
-                throw new ArgumentNullException();
+                result = default;
+                return false;
             }
-            if (!TryParse(value, out var result))
+            return TryParse(s.AsSpan(), provider, style, out result);
+        }
+
+        public static bool TryParse(ReadOnlySpan<char> s, out TimeOnly result) =>
+            TryParse(s, null, System.Globalization.DateTimeStyles.None, out result);
+
+        public static bool TryParse(ReadOnlySpan<char> s, IFormatProvider? provider,
+            out TimeOnly result) => TryParse(s, provider, System.Globalization.DateTimeStyles.None, out result);
+
+        public static bool TryParse(ReadOnlySpan<char> s, IFormatProvider? provider,
+            System.Globalization.DateTimeStyles style, out TimeOnly result)
+        {
+            ValidateStyles(style);
+            return InvariantDateOnlyTimeOnlyParser.TryParseTime(
+                s,
+                System.Globalization.DateTimeFormatInfo.GetInstance(provider),
+                style,
+                out result);
+        }
+
+        public static TimeOnly ParseExact(
+            string s,
+            [StringSyntax(StringSyntaxAttribute.TimeOnlyFormat)] string format) =>
+            ParseExact(s, format, null, System.Globalization.DateTimeStyles.None);
+
+        public static TimeOnly ParseExact(
+            string s,
+            [StringSyntax(StringSyntaxAttribute.TimeOnlyFormat)] string format,
+            IFormatProvider? provider,
+            System.Globalization.DateTimeStyles style = System.Globalization.DateTimeStyles.None)
+        {
+            ArgumentNullException.ThrowIfNull(s);
+            ArgumentNullException.ThrowIfNull(format);
+            return ParseExact(s.AsSpan(), format.AsSpan(), provider, style);
+        }
+
+        public static TimeOnly ParseExact(
+            string s,
+            [StringSyntax(StringSyntaxAttribute.TimeOnlyFormat)] string[] formats) =>
+            ParseExact(s, formats, null, System.Globalization.DateTimeStyles.None);
+
+        public static TimeOnly ParseExact(
+            string s,
+            [StringSyntax(StringSyntaxAttribute.TimeOnlyFormat)] string[] formats,
+            IFormatProvider? provider,
+            System.Globalization.DateTimeStyles style = System.Globalization.DateTimeStyles.None)
+        {
+            ArgumentNullException.ThrowIfNull(s);
+            return ParseExact(s.AsSpan(), formats, provider, style);
+        }
+
+        public static TimeOnly ParseExact(
+            ReadOnlySpan<char> s,
+            [StringSyntax(StringSyntaxAttribute.TimeOnlyFormat)] ReadOnlySpan<char> format,
+            IFormatProvider? provider = null,
+            System.Globalization.DateTimeStyles style = System.Globalization.DateTimeStyles.None)
+        {
+            ValidateStyles(style);
+            var parseResult = TryParseExactCore(s, format, provider, style, out var result);
+            return parseResult switch
+            {
+                InvariantDateTimeParseResult.Success => result,
+                _ => throw new FormatException(),
+            };
+        }
+
+        public static TimeOnly ParseExact(
+            ReadOnlySpan<char> s,
+            [StringSyntax(StringSyntaxAttribute.TimeOnlyFormat)] string[] formats) =>
+            ParseExact(s, formats, null, System.Globalization.DateTimeStyles.None);
+
+        public static TimeOnly ParseExact(
+            ReadOnlySpan<char> s,
+            [StringSyntax(StringSyntaxAttribute.TimeOnlyFormat)] string[] formats,
+            IFormatProvider? provider,
+            System.Globalization.DateTimeStyles style = System.Globalization.DateTimeStyles.None)
+        {
+            return TryParseExact(s, formats, provider, style, out var result)
+                ? result
+                : throw new FormatException();
+        }
+
+        public static bool TryParseExact(
+            [NotNullWhen(true)] string? s,
+            [NotNullWhen(true), StringSyntax(StringSyntaxAttribute.TimeOnlyFormat)] string? format,
+            out TimeOnly result) =>
+            TryParseExact(s, format, null, System.Globalization.DateTimeStyles.None, out result);
+
+        public static bool TryParseExact(
+            [NotNullWhen(true)] string? s,
+            [NotNullWhen(true), StringSyntax(StringSyntaxAttribute.TimeOnlyFormat)] string? format,
+            IFormatProvider? provider,
+            System.Globalization.DateTimeStyles style, out TimeOnly result)
+        {
+            if (s is null || format is null)
+            {
+                result = default;
+                return false;
+            }
+            return TryParseExact(s.AsSpan(), format.AsSpan(), provider, style, out result);
+        }
+
+        public static bool TryParseExact(
+            [NotNullWhen(true)] string? s,
+            [NotNullWhen(true), StringSyntax(StringSyntaxAttribute.TimeOnlyFormat)] string?[]? formats,
+            out TimeOnly result) =>
+            TryParseExact(s, formats, null, System.Globalization.DateTimeStyles.None, out result);
+
+        public static bool TryParseExact(
+            [NotNullWhen(true)] string? s,
+            [NotNullWhen(true), StringSyntax(StringSyntaxAttribute.TimeOnlyFormat)] string?[]? formats,
+            IFormatProvider? provider,
+            System.Globalization.DateTimeStyles style, out TimeOnly result)
+        {
+            if (s is null)
+            {
+                result = default;
+                return false;
+            }
+            return TryParseExact(s.AsSpan(), formats, provider, style, out result);
+        }
+
+        public static bool TryParseExact(
+            ReadOnlySpan<char> s,
+            [StringSyntax(StringSyntaxAttribute.TimeOnlyFormat)] ReadOnlySpan<char> format,
+            out TimeOnly result) => TryParseExact(s, format, null,
+                System.Globalization.DateTimeStyles.None, out result);
+
+        public static bool TryParseExact(
+            ReadOnlySpan<char> s,
+            [StringSyntax(StringSyntaxAttribute.TimeOnlyFormat)] ReadOnlySpan<char> format,
+            IFormatProvider? provider,
+            System.Globalization.DateTimeStyles style,
+            out TimeOnly result)
+        {
+            ValidateStyles(style);
+            var parseResult = TryParseExactCore(s, format, provider, style, out result);
+            if (parseResult == InvariantDateTimeParseResult.BadFormat)
             {
                 throw new FormatException();
             }
-            return result;
+            return parseResult == InvariantDateTimeParseResult.Success;
         }
 
-        public static TimeOnly Parse(string value, IFormatProvider? provider) => Parse(value);
+        public static bool TryParseExact(
+            ReadOnlySpan<char> s,
+            [NotNullWhen(true), StringSyntax(StringSyntaxAttribute.TimeOnlyFormat)] string?[]? formats,
+            out TimeOnly result) => TryParseExact(s, formats, null,
+                System.Globalization.DateTimeStyles.None, out result);
 
-        public static TimeOnly Parse(string value, IFormatProvider? provider,
-            System.Globalization.DateTimeStyles style = System.Globalization.DateTimeStyles.None)
-        {
-            ValidateStyles(style);
-            return TryParse(value, provider, style, out var result)
-                ? result : throw new FormatException();
-        }
-
-        public static TimeOnly Parse(ReadOnlySpan<char> value, IFormatProvider? provider) =>
-            Parse(string.Create(value.ToArray()), provider);
-
-        public static TimeOnly Parse(ReadOnlySpan<char> value, IFormatProvider? provider = null,
-            System.Globalization.DateTimeStyles style = System.Globalization.DateTimeStyles.None) =>
-            Parse(string.Create(value.ToArray()), provider, style);
-        public static bool TryParse(string? value, out TimeOnly result)
-        {
-            result = default;
-            if (value == null || value.Length < 5 ||
-                !InvariantDateTimeText.TryReadDigits(value, 0, 2, out var hour) ||
-                !InvariantDateTimeText.HasSeparator(value, 2, ':') ||
-                !InvariantDateTimeText.TryReadDigits(value, 3, 2, out var minute))
-            {
-                return false;
-            }
-            var second = 0;
-            var fraction = 0L;
-            if (value.Length > 5)
-            {
-                if (!InvariantDateTimeText.HasSeparator(value, 5, ':') ||
-                    !InvariantDateTimeText.TryReadDigits(value, 6, 2, out second))
-                {
-                    return false;
-                }
-                if (value.Length > 8 &&
-                    (!InvariantDateTimeText.HasSeparator(value, 8, '.') ||
-                     !InvariantDateTimeText.TryReadFraction(value, 9, value.Length, out fraction)))
-                {
-                    return false;
-                }
-            }
-            if (hour >= 24 || minute >= 60 || second >= 60)
-            {
-                return false;
-            }
-            result = new TimeOnly(hour * TimeSpan.TicksPerHour
-                + minute * TimeSpan.TicksPerMinute
-                + second * TimeSpan.TicksPerSecond
-                + fraction);
-            return true;
-        }
-
-        public static bool TryParse(string? value, IFormatProvider? provider, out TimeOnly result) =>
-            TryParse(value, provider, System.Globalization.DateTimeStyles.None, out result);
-
-        public static bool TryParse(string? value, IFormatProvider? provider,
-            System.Globalization.DateTimeStyles style, out TimeOnly result)
-        {
-            ValidateStyles(style);
-            value = TrimWhiteSpace(value, style);
-            return TryParse(value, out result);
-        }
-
-        public static bool TryParse(ReadOnlySpan<char> value, out TimeOnly result) =>
-            TryParse(string.Create(value.ToArray()), out result);
-
-        public static bool TryParse(ReadOnlySpan<char> value, IFormatProvider? provider,
-            out TimeOnly result) => TryParse(value, provider, System.Globalization.DateTimeStyles.None, out result);
-
-        public static bool TryParse(ReadOnlySpan<char> value, IFormatProvider? provider,
-            System.Globalization.DateTimeStyles style, out TimeOnly result) =>
-            TryParse(string.Create(value.ToArray()), provider, style, out result);
-
-        public static TimeOnly ParseExact(string value, string format) =>
-            ParseExact(value, format, null, System.Globalization.DateTimeStyles.None);
-
-        public static TimeOnly ParseExact(string value, string format, IFormatProvider? provider,
-            System.Globalization.DateTimeStyles style = System.Globalization.DateTimeStyles.None)
-        {
-            return TryParseExact(value, format, provider, style, out var result)
-                ? result : throw new FormatException();
-        }
-
-        public static TimeOnly ParseExact(string value, string[] formats) =>
-            ParseExact(value, formats, null, System.Globalization.DateTimeStyles.None);
-
-        public static TimeOnly ParseExact(string value, string[] formats, IFormatProvider? provider,
-            System.Globalization.DateTimeStyles style = System.Globalization.DateTimeStyles.None)
-        {
-            return TryParseExact(value, formats, provider, style, out var result)
-                ? result : throw new FormatException();
-        }
-
-        public static TimeOnly ParseExact(ReadOnlySpan<char> value, ReadOnlySpan<char> format,
-            IFormatProvider? provider = null,
-            System.Globalization.DateTimeStyles style = System.Globalization.DateTimeStyles.None) =>
-            ParseExact(string.Create(value.ToArray()), string.Create(format.ToArray()), provider, style);
-
-        public static TimeOnly ParseExact(ReadOnlySpan<char> value, string[] formats) =>
-            ParseExact(value, formats, null, System.Globalization.DateTimeStyles.None);
-
-        public static TimeOnly ParseExact(ReadOnlySpan<char> value, string[] formats,
+        public static bool TryParseExact(
+            ReadOnlySpan<char> s,
+            [NotNullWhen(true), StringSyntax(StringSyntaxAttribute.TimeOnlyFormat)] string?[]? formats,
             IFormatProvider? provider,
-            System.Globalization.DateTimeStyles style = System.Globalization.DateTimeStyles.None) =>
-            ParseExact(string.Create(value.ToArray()), formats, provider, style);
-
-        public static bool TryParseExact(string? value, string? format, out TimeOnly result) =>
-            TryParseExact(value, format, null, System.Globalization.DateTimeStyles.None, out result);
-
-        public static bool TryParseExact(string? value, string? format, IFormatProvider? provider,
-            System.Globalization.DateTimeStyles style, out TimeOnly result)
+            System.Globalization.DateTimeStyles style,
+            out TimeOnly result)
         {
             ValidateStyles(style);
-            result = default;
-            if (!IsSupportedFormat(format)) return false;
-            return TryParse(value, provider, style, out result);
-        }
-
-        public static bool TryParseExact(string? value, string?[]? formats, out TimeOnly result) =>
-            TryParseExact(value, formats, null, System.Globalization.DateTimeStyles.None, out result);
-
-        public static bool TryParseExact(string? value, string?[]? formats, IFormatProvider? provider,
-            System.Globalization.DateTimeStyles style, out TimeOnly result)
-        {
-            ValidateStyles(style);
-            result = default;
-            if (formats == null) return false;
+            if (formats is null)
+            {
+                throw new ArgumentException(null, nameof(style));
+            }
             for (var index = 0; index < formats.Length; index++)
             {
-                if (TryParseExact(value, formats[index], provider, style, out result)) return true;
+                if (string.IsNullOrEmpty(formats[index]))
+                {
+                    throw new FormatException();
+                }
             }
+
+            var dateTimeFormat = System.Globalization.DateTimeFormatInfo.GetInstance(provider);
+            for (var index = 0; index < formats.Length; index++)
+            {
+                var format = formats[index]!.AsSpan();
+                var formatInfo = IsInvariantStandardFormat(format)
+                    ? System.Globalization.DateTimeFormatInfo.InvariantInfo
+                    : dateTimeFormat;
+                var parseResult = InvariantDateOnlyTimeOnlyParser.TryParseTimeExact(
+                    s,
+                    format,
+                    formatInfo,
+                    style,
+                    out result);
+                if (parseResult == InvariantDateTimeParseResult.Success)
+                {
+                    return true;
+                }
+                if (parseResult == InvariantDateTimeParseResult.BadFormat)
+                {
+                    break;
+                }
+            }
+
+            result = default;
             return false;
         }
-
-        public static bool TryParseExact(ReadOnlySpan<char> value, ReadOnlySpan<char> format,
-            out TimeOnly result) => TryParseExact(value, format, null,
-                System.Globalization.DateTimeStyles.None, out result);
-
-        public static bool TryParseExact(ReadOnlySpan<char> value, ReadOnlySpan<char> format,
-            IFormatProvider? provider, System.Globalization.DateTimeStyles style, out TimeOnly result) =>
-            TryParseExact(string.Create(value.ToArray()), string.Create(format.ToArray()), provider, style, out result);
-
-        public static bool TryParseExact(ReadOnlySpan<char> value, string?[]? formats,
-            out TimeOnly result) => TryParseExact(value, formats, null,
-                System.Globalization.DateTimeStyles.None, out result);
-
-        public static bool TryParseExact(ReadOnlySpan<char> value, string?[]? formats,
-            IFormatProvider? provider, System.Globalization.DateTimeStyles style, out TimeOnly result) =>
-            TryParseExact(string.Create(value.ToArray()), formats, provider, style, out result);
         public static TimeSpan operator -(TimeOnly left, TimeOnly right)
         {
             var difference = left._ticks - right._ticks;
@@ -364,53 +478,284 @@ namespace System
             return ticks < 0 ? ticks + TimeSpan.TicksPerDay : ticks;
         }
 
-        private string FormatInvariant(string? format)
+        private string FormatInvariant(string? format, IFormatProvider? provider)
         {
-            if (format is not null && format.Length != 0 &&
-                format != "t" && format != "T" && format != "g" && format != "G" &&
-                format != "O" && format != "o")
+            if (string.IsNullOrEmpty(format))
+            {
+                format = "t";
+            }
+
+            if (format.Length == 1)
+            {
+                switch (format[0])
+                {
+                    case 'O':
+                    case 'o':
+                        return InvariantDateTimeText.TwoDigits(Hour) + ":" +
+                            InvariantDateTimeText.TwoDigits(Minute) + ":" +
+                            InvariantDateTimeText.TwoDigits(Second) + "." +
+                            (_ticks % TimeSpan.TicksPerSecond).ToString().PadLeft(7, '0');
+                    case 'R':
+                    case 'r':
+                        return FormatCustom("HH:mm:ss");
+                    case 't':
+                        {
+                            var dateTimeFormat =
+                                System.Globalization.DateTimeFormatInfo.GetInstance(provider);
+                            return FormatCustom(dateTimeFormat.ShortTimePattern);
+                        }
+                    case 'T':
+                        {
+                            var dateTimeFormat =
+                                System.Globalization.DateTimeFormatInfo.GetInstance(provider);
+                            return FormatCustom(dateTimeFormat.LongTimePattern);
+                        }
+                    default:
+                        throw new FormatException();
+                }
+            }
+
+            if (!IsValidCustomTimeFormat(format, throwOnError: true))
             {
                 throw new FormatException();
             }
-            return ToString();
+            System.Globalization.DateTimeFormatInfo.GetInstance(provider);
+            return FormatCustom(format);
         }
 
-        private static bool IsSupportedFormat(string? format) =>
-            format is not null && (format.Length == 0 || format is "t" or "T" or "g" or "G" or "O" or "o");
+        private string FormatCustom(string format) => InvariantDateTimePattern.Format(
+            new DateTime(_ticks),
+            format,
+            hasOffset: false,
+            default,
+            explicitOffset: false);
 
-        private static string? TrimWhiteSpace(string? value, System.Globalization.DateTimeStyles style)
+        private bool TryFormatCore<TChar>(
+            Span<TChar> destination,
+            out int charsWritten,
+            ReadOnlySpan<char> format,
+            IFormatProvider? provider)
+            where TChar : unmanaged, IUtfChar<TChar>
         {
-            if (value is null || (style & System.Globalization.DateTimeStyles.AllowWhiteSpaces) == 0)
+            if (format.Length == 0)
             {
-                return value;
+                format = "t";
             }
-            var start = 0;
-            var end = value.Length;
-            while (start < end && IsWhiteSpace(value[start])) start++;
-            while (end > start && IsWhiteSpace(value[end - 1])) end--;
-            return start == 0 && end == value.Length ? value : value.Substring(start, end - start);
+
+            if (format.Length == 1)
+            {
+                switch (format[0])
+                {
+                    case 'O':
+                    case 'o':
+                        return TryFormatO(destination, out charsWritten);
+                    case 'R':
+                    case 'r':
+                        return TryFormatR(destination, out charsWritten);
+                    case 't':
+                        format = System.Globalization.DateTimeFormatInfo
+                            .GetInstance(provider).ShortTimePattern;
+                        break;
+                    case 'T':
+                        format = System.Globalization.DateTimeFormatInfo
+                            .GetInstance(provider).LongTimePattern;
+                        break;
+                    default:
+                        throw new FormatException();
+                }
+            }
+            else
+            {
+                if (!IsValidCustomTimeFormat(format, throwOnError: false))
+                {
+                    throw new FormatException();
+                }
+                System.Globalization.DateTimeFormatInfo.GetInstance(provider);
+            }
+
+            Span<char> initialBuffer = stackalloc char[64];
+            var output = new Text.ValueStringBuilder(initialBuffer);
+            try
+            {
+                InvariantDateTimePattern.AppendFormat(
+                    ref output,
+                    new DateTime(_ticks),
+                    format,
+                    hasOffset: false,
+                    default,
+                    explicitOffset: false);
+                return TryCopyOutput(ref output, destination, out charsWritten);
+            }
+            finally
+            {
+                output.Dispose();
+            }
         }
+
+        private bool TryFormatO<TChar>(Span<TChar> destination, out int charsWritten)
+            where TChar : unmanaged, IUtfChar<TChar>
+        {
+            if (destination.Length < 16)
+            {
+                charsWritten = 0;
+                return false;
+            }
+
+            WriteTwoDigits(destination, 0, Hour);
+            destination[2] = TChar.CastFrom(':');
+            WriteTwoDigits(destination, 3, Minute);
+            destination[5] = TChar.CastFrom(':');
+            WriteTwoDigits(destination, 6, Second);
+            destination[8] = TChar.CastFrom('.');
+            WriteSevenDigits(
+                destination,
+                9,
+                (int)(_ticks % TimeSpan.TicksPerSecond));
+            charsWritten = 16;
+            return true;
+        }
+
+        private bool TryFormatR<TChar>(Span<TChar> destination, out int charsWritten)
+            where TChar : unmanaged, IUtfChar<TChar>
+        {
+            if (destination.Length < 8)
+            {
+                charsWritten = 0;
+                return false;
+            }
+
+            WriteTwoDigits(destination, 0, Hour);
+            destination[2] = TChar.CastFrom(':');
+            WriteTwoDigits(destination, 3, Minute);
+            destination[5] = TChar.CastFrom(':');
+            WriteTwoDigits(destination, 6, Second);
+            charsWritten = 8;
+            return true;
+        }
+
+        private static bool TryCopyOutput<TChar>(
+            ref Text.ValueStringBuilder output,
+            Span<TChar> destination,
+            out int charsWritten)
+            where TChar : unmanaged, IUtfChar<TChar>
+        {
+            var source = output.AsSpan();
+            if (typeof(TChar) == typeof(Utf8Char))
+            {
+                var bytes = MemoryMarshal.Cast<TChar, byte>(destination);
+                var byteCount = Text.Encoding.UTF8.GetByteCount(source);
+                if (bytes.Length < byteCount)
+                {
+                    charsWritten = 0;
+                    return false;
+                }
+
+                charsWritten = Text.Encoding.UTF8.GetBytes(source, bytes);
+                return true;
+            }
+
+            if (destination.Length < source.Length)
+            {
+                charsWritten = 0;
+                return false;
+            }
+
+            for (var index = 0; index < source.Length; index++)
+            {
+                destination[index] = TChar.CastFrom(source[index]);
+            }
+            charsWritten = source.Length;
+            return true;
+        }
+
+        private static void WriteTwoDigits<TChar>(
+            Span<TChar> destination,
+            int offset,
+            int value)
+            where TChar : unmanaged, IUtfChar<TChar>
+        {
+            destination[offset] = TChar.CastFrom('0' + value / 10);
+            destination[offset + 1] = TChar.CastFrom('0' + value % 10);
+        }
+
+        private static void WriteSevenDigits<TChar>(
+            Span<TChar> destination,
+            int offset,
+            int value)
+            where TChar : unmanaged, IUtfChar<TChar>
+        {
+            var divisor = 1_000_000;
+            for (var index = 0; index < 7; index++)
+            {
+                destination[offset + index] = TChar.CastFrom('0' + value / divisor % 10);
+                divisor /= 10;
+            }
+        }
+
+        private static bool IsValidCustomTimeFormat(ReadOnlySpan<char> format, bool throwOnError)
+        {
+            for (var index = 0; index < format.Length; index++)
+            {
+                switch (format[index])
+                {
+                    case '\\':
+                        if (++index < format.Length) continue;
+                        break;
+                    case '\'':
+                    case '"':
+                        {
+                            var quote = format[index++];
+                            while (index < format.Length && format[index] != quote) index++;
+                            if (index < format.Length) continue;
+                            break;
+                        }
+                    case 'd':
+                    case 'M':
+                    case 'y':
+                    case '/':
+                    case 'z':
+                    case 'k':
+                        if (!throwOnError) return false;
+                        throw new FormatException();
+                    default:
+                        continue;
+                }
+
+                if (!throwOnError) return false;
+                throw new FormatException();
+            }
+
+            return true;
+        }
+
+        private static InvariantDateTimeParseResult TryParseExactCore(
+            ReadOnlySpan<char> s,
+            ReadOnlySpan<char> format,
+            IFormatProvider? provider,
+            System.Globalization.DateTimeStyles style,
+            out TimeOnly result)
+        {
+            var formatInfo = IsInvariantStandardFormat(format)
+                ? System.Globalization.DateTimeFormatInfo.InvariantInfo
+                : System.Globalization.DateTimeFormatInfo.GetInstance(provider);
+            return InvariantDateOnlyTimeOnlyParser.TryParseTimeExact(
+                s,
+                format,
+                formatInfo,
+                style,
+                out result);
+        }
+
+        private static bool IsInvariantStandardFormat(ReadOnlySpan<char> format) =>
+            format.Length == 1 && (format[0] | 0x20) is 'o' or 'r';
 
         private static void ValidateStyles(System.Globalization.DateTimeStyles style)
         {
             if ((style & ~System.Globalization.DateTimeStyles.AllowWhiteSpaces) != 0)
             {
-                throw new ArgumentException();
+                throw new ArgumentException(null, nameof(style));
             }
         }
 
-        private static bool IsWhiteSpace(char value) => value is ' ' or '\t' or '\r' or '\n' or '\f' or '\v';
-
-        private static bool TryCopy(string text, Span<char> destination, out int charsWritten)
-        {
-            if (destination.Length < text.Length)
-            {
-                charsWritten = 0;
-                return false;
-            }
-            for (var index = 0; index < text.Length; index++) destination[index] = text[index];
-            charsWritten = text.Length;
-            return true;
-        }
     }
 }

@@ -1,4 +1,6 @@
+using System;
 using NetWasm.Compiler.Core;
+using NetWasm.Compiler.Wasm.Emission.Planning;
 using NetWasm.Compiler.Wasm.Encoding;
 
 namespace NetWasm.Compiler.Wasm.Emission;
@@ -38,6 +40,21 @@ internal sealed class ImplicitExceptionEmitter : IImplicitExceptionEmitter
         code.Write(WasmInstruction.WithOperand(
             WasmOpcodes.Throw,
             WasmInstructionOperand.Unsigned(0)));
+    }
+
+    public void Emit(
+        IWasmInstructionWriter code,
+        ManagedExceptionKind kind,
+        OptionalFunctionIndex throwFunctionIndex)
+    {
+        ArgumentNullException.ThrowIfNull(code);
+        var functionIndex = throwFunctionIndex.Value;
+        var exception = _exceptions.GetExceptionObject(kind);
+        EmitReferenceConstant(code, exception);
+        code.Write(WasmInstruction.WithOperand(
+            WasmOpcodes.Call,
+            WasmInstructionOperand.Unsigned((uint)functionIndex)));
+        code.Write(WasmInstruction.NoOperand(WasmOpcodes.Unreachable));
     }
 
     private void EmitReferenceConstant(IWasmInstructionWriter code, int value)

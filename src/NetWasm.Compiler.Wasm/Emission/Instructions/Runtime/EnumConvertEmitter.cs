@@ -216,38 +216,38 @@ internal sealed class EnumConvertEmitter(
             code.Write(WasmInstruction.NoOperand(WasmOpcodes.I32And));
             code.Write(WasmInstruction.WithOperand(
                 WasmOpcodes.I32Store,
-                WasmInstructionOperand.Memory(2, 12)));
+                WasmInstructionOperand.Memory(2, 0)));
 
             Get(code, result);
             Get(code, temporary);
             Get(code, result);
             code.Write(WasmInstruction.WithOperand(
                 WasmOpcodes.I32Load,
-                WasmInstructionOperand.Memory(2, 12)));
+                WasmInstructionOperand.Memory(2, 0)));
             WriteI32(code, 31);
             code.Write(WasmInstruction.NoOperand(WasmOpcodes.I32ShiftRightSigned));
             code.Write(WasmInstruction.NoOperand(WasmOpcodes.I32Xor));
             Get(code, result);
             code.Write(WasmInstruction.WithOperand(
                 WasmOpcodes.I32Load,
-                WasmInstructionOperand.Memory(2, 12)));
+                WasmInstructionOperand.Memory(2, 0)));
             WriteI32(code, 31);
             code.Write(WasmInstruction.NoOperand(WasmOpcodes.I32ShiftRightSigned));
             code.Write(WasmInstruction.NoOperand(WasmOpcodes.I32Subtract));
             code.Write(WasmInstruction.WithOperand(
                 WasmOpcodes.I32Store,
-                WasmInstructionOperand.Memory(2, 0)));
+                WasmInstructionOperand.Memory(2, 8)));
         }
         else
         {
-            StoreFromI32(code, result, 0, temporary);
+            StoreFromI32(code, result, 8, temporary);
         }
 
         StoreI32(code, result, 4, 0);
-        StoreI32(code, result, 8, 0);
+        StoreI32(code, result, 12, 0);
         if (unsigned)
         {
-            StoreI32(code, result, 12, 0);
+            StoreI32(code, result, 0, 0);
         }
     }
 
@@ -268,30 +268,30 @@ internal sealed class EnumConvertEmitter(
             code.Write(WasmInstruction.NoOperand(WasmOpcodes.I32WrapI64));
             code.Write(WasmInstruction.WithOperand(
                 WasmOpcodes.I32Store,
-                WasmInstructionOperand.Memory(2, 12)));
+                WasmInstructionOperand.Memory(2, 0)));
 
             Get(code, temporary);
             Get(code, result);
             code.Write(WasmInstruction.WithOperand(
                 WasmOpcodes.I32Load,
-                WasmInstructionOperand.Memory(2, 12)));
+                WasmInstructionOperand.Memory(2, 0)));
             code.Write(WasmInstruction.NoOperand(WasmOpcodes.I64ExtendI32Signed));
             code.Write(WasmInstruction.NoOperand(WasmOpcodes.I64Xor));
             Get(code, result);
             code.Write(WasmInstruction.WithOperand(
                 WasmOpcodes.I32Load,
-                WasmInstructionOperand.Memory(2, 12)));
+                WasmInstructionOperand.Memory(2, 0)));
             code.Write(WasmInstruction.NoOperand(WasmOpcodes.I64ExtendI32Signed));
             code.Write(WasmInstruction.NoOperand(WasmOpcodes.I64Subtract));
             Set(code, temporary);
         }
 
-        StoreFromI64Low(code, result, 0, temporary);
-        StoreFromI64High(code, result, 4, temporary);
-        StoreI32(code, result, 8, 0);
+        StoreFromI64Low(code, result, 8, temporary);
+        StoreFromI64High(code, result, 12, temporary);
+        StoreI32(code, result, 4, 0);
         if (unsigned)
         {
-            StoreI32(code, result, 12, 0);
+            StoreI32(code, result, 0, 0);
         }
     }
 

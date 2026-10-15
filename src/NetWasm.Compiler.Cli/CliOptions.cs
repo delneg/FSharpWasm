@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Immutable;
 using NetWasm.Compiler.ComponentModel;
+using NetWasm.Compiler.ComponentModel.Optimization;
 using NetWasm.Compiler.Core;
 
 namespace NetWasm.Compiler.Cli;
@@ -18,6 +19,7 @@ internal sealed record ComponentizeCliOptions(
     string? Preview2ShimVersion,
     FinalWasmOptimization Optimization)
 {
+    public string? ManagedInliningHints { get; init; }
     public static ComponentizeCliOptions Parse(string[] arguments)
     {
         string? coreModule = null;
@@ -31,6 +33,7 @@ internal sealed record ComponentizeCliOptions(
         string? jcoVersion = null;
         string? preview2ShimVersion = null;
         string? optimization = null;
+        string? managedInliningHints = null;
         CliOptionReader.Read(arguments, (option, value) =>
         {
             switch (option)
@@ -46,6 +49,7 @@ internal sealed record ComponentizeCliOptions(
                 case "--jco-version": jcoVersion = SetOnce(jcoVersion, value, option); break;
                 case "--preview2-shim-version": preview2ShimVersion = SetOnce(preview2ShimVersion, value, option); break;
                 case "--optimization": optimization = SetOnce(optimization, value, option); break;
+                case "--managed-inlining-hints": managedInliningHints = SetOnce(managedInliningHints, value, option); break;
                 default:
                     throw CliOptionException.Create(
                     $"unknown componentize option '{option}'");
@@ -62,7 +66,8 @@ internal sealed record ComponentizeCliOptions(
             interopManifest,
             jcoVersion,
             preview2ShimVersion,
-            ParseOptimization(optimization));
+            ParseOptimization(optimization))
+        { ManagedInliningHints = managedInliningHints };
     }
 
     private static WasmTarget ParseTarget(string? value) => value switch
@@ -111,6 +116,19 @@ internal sealed record CompileCliOptions(
     CompilerEntryPointKind EntryPointKind = CompilerEntryPointKind.RawFunction,
     bool UseJavaScriptExportBoundary = false)
 {
+    public FinalWasmOptimization Optimization { get; init; } =
+        FinalWasmOptimization.Oz;
+    public string? ManagedLoopInvariantFieldHoisting { get; init; }
+    public string? ManagedStaticDataViewElimination { get; init; }
+    public string? ManagedAddressTakenValuePromotion { get; init; }
+    public string? ManagedMethodInlining { get; init; }
+    public string? ManagedBranchPrefixDuplication { get; init; }
+    public string? ManagedScalarCallPreservation { get; init; }
+    public string? ManagedArrayBoundsCheckElimination { get; init; }
+    public string? ManagedLoopUnrolling { get; init; }
+    public string? ManagedConstantArgumentPropagation { get; init; }
+    public string? ManagedStaticArrayPopulationElimination { get; init; }
+
     public static CompileCliOptions Parse(string[] arguments)
     {
         ArgumentNullException.ThrowIfNull(arguments);
@@ -127,6 +145,17 @@ internal sealed record CompileCliOptions(
         string? wit = null;
         string? world = null;
         string? javaScriptExportBoundary = null;
+        string? optimization = null;
+        string? managedLoopInvariantFieldHoisting = null;
+        string? managedStaticDataViewElimination = null;
+        string? managedAddressTakenValuePromotion = null;
+        string? managedMethodInlining = null;
+        string? managedBranchPrefixDuplication = null;
+        string? managedScalarCallPreservation = null;
+        string? managedArrayBoundsCheckElimination = null;
+        string? managedLoopUnrolling = null;
+        string? managedConstantArgumentPropagation = null;
+        string? managedStaticArrayPopulationElimination = null;
         var references = ImmutableArray.CreateBuilder<string>();
         var exports = ImmutableArray.CreateBuilder<RequestedExport>();
         var sources = ImmutableArray.CreateBuilder<string>();
@@ -149,6 +178,56 @@ internal sealed record CompileCliOptions(
                 case "--javascript-export-boundary":
                     javaScriptExportBoundary =
                     SetOnce(javaScriptExportBoundary, value, option); break;
+                case "--optimization":
+                    optimization = SetOnce(optimization, value, option); break;
+                case "--managed-loop-invariant-field-hoisting":
+                    managedLoopInvariantFieldHoisting = SetOnce(
+                        managedLoopInvariantFieldHoisting,
+                        value,
+                        option);
+                    break;
+                case "--managed-static-data-view-elimination":
+                    managedStaticDataViewElimination = SetOnce(
+                        managedStaticDataViewElimination,
+                        value,
+                        option);
+                    break;
+                case "--managed-address-taken-value-promotion":
+                    managedAddressTakenValuePromotion = SetOnce(
+                        managedAddressTakenValuePromotion,
+                        value,
+                        option);
+                    break;
+                case "--managed-method-inlining":
+                    managedMethodInlining = SetOnce(
+                        managedMethodInlining,
+                        value,
+                        option);
+                    break;
+                case "--managed-branch-prefix-duplication":
+                    managedBranchPrefixDuplication = SetOnce(
+                        managedBranchPrefixDuplication,
+                        value,
+                        option);
+                    break;
+                case "--managed-scalar-call-preservation":
+                    managedScalarCallPreservation = SetOnce(
+                        managedScalarCallPreservation,
+                        value,
+                        option);
+                    break;
+                case "--managed-array-bounds-check-elimination":
+                    managedArrayBoundsCheckElimination = SetOnce(managedArrayBoundsCheckElimination, value, option);
+                    break;
+                case "--managed-loop-unrolling":
+                    managedLoopUnrolling = SetOnce(managedLoopUnrolling, value, option);
+                    break;
+                case "--managed-constant-argument-propagation":
+                    managedConstantArgumentPropagation = SetOnce(managedConstantArgumentPropagation, value, option);
+                    break;
+                case "--managed-static-array-population-elimination":
+                    managedStaticArrayPopulationElimination = SetOnce(managedStaticArrayPopulationElimination, value, option);
+                    break;
                 case "--reference": references.Add(value); break;
                 case "--export": exports.Add(ParseExport(value)); break;
                 case "--source": sources.Add(value); break;
@@ -199,7 +278,20 @@ internal sealed record CompileCliOptions(
                 "true" => true,
                 _ => throw CliOptionException.Create(
                     "javascript export boundary must be 'true' or 'false'"),
-            });
+            })
+        {
+            Optimization = ParseOptimization(optimization),
+            ManagedLoopInvariantFieldHoisting = managedLoopInvariantFieldHoisting,
+            ManagedStaticDataViewElimination = managedStaticDataViewElimination,
+            ManagedAddressTakenValuePromotion = managedAddressTakenValuePromotion,
+            ManagedMethodInlining = managedMethodInlining,
+            ManagedBranchPrefixDuplication = managedBranchPrefixDuplication,
+            ManagedScalarCallPreservation = managedScalarCallPreservation,
+            ManagedArrayBoundsCheckElimination = managedArrayBoundsCheckElimination,
+            ManagedLoopUnrolling = managedLoopUnrolling,
+            ManagedConstantArgumentPropagation = managedConstantArgumentPropagation,
+            ManagedStaticArrayPopulationElimination = managedStaticArrayPopulationElimination,
+        };
     }
 
     private static RequestedExport ParseExport(string value)
@@ -225,6 +317,19 @@ internal sealed record CompileCliOptions(
         }
         return (parts[0], parts[1]);
     }
+
+    private static FinalWasmOptimization ParseOptimization(string? value) => value switch
+    {
+        null or "Oz" => FinalWasmOptimization.Oz,
+        "None" or "none" => FinalWasmOptimization.None,
+        "O0" => FinalWasmOptimization.O0,
+        "O1" => FinalWasmOptimization.O1,
+        "O2" => FinalWasmOptimization.O2,
+        "O3" => FinalWasmOptimization.O3,
+        "Os" => FinalWasmOptimization.Os,
+        _ => throw CliOptionException.Create(
+            "optimization must be 'none', 'O0', 'O1', 'O2', 'O3', 'Os' or 'Oz'"),
+    };
 
     private static string SetOnce(string? current, string value, string option) =>
         current is null

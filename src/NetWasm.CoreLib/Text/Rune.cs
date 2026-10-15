@@ -315,8 +315,11 @@ public readonly partial struct Rune : IComparable, IComparable<Rune>, IEquatable
     {
         if (input is null) throw new ArgumentNullException();
         if ((uint)index >= (uint)input.Length) throw new ArgumentOutOfRangeException();
-        var status = DecodeFromUtf16(new ReadOnlySpan<char>(input.ToCharArray(), index, input.Length - index), out value, out _);
-        return status == System.Buffers.OperationStatus.Done;
+        var first = input[index];
+        if (TryCreate(first, out value)) return true;
+        if (index + 1 < input.Length && TryCreate(first, input[index + 1], out value)) return true;
+        value = default;
+        return false;
     }
 
     public int CompareTo(Rune other) => _value.CompareTo(other._value);

@@ -12,7 +12,6 @@ namespace System
         IUtf8SpanFormattable
     {
         private const int MaxOffsetMinutes = 14 * 60;
-        private const long FileTimeOffsetTicks = 504911232000000000L;
         private const long UnixEpochTicks = GregorianDateMath.UnixEpochTicks;
         private readonly long _utcTicks;
         private readonly short _offsetMinutes;
@@ -48,7 +47,9 @@ namespace System
                 PlatformServices.EnsureLocalTimeReady();
                 var localOffset = PlatformServices.LocalTimeOffsets.Resolve(
                     dateTime.Ticks,
-                    LocalTimeBasis.Local);
+                    dateTime.IsAmbiguousDaylightSavingTime()
+                        ? LocalTimeBasis.LocalAmbiguousDaylight
+                        : LocalTimeBasis.Local);
                 if (offset.Ticks != localOffset.Ticks)
                 {
                     throw new ArgumentException();
@@ -60,7 +61,7 @@ namespace System
             dateTime.Ticks,
             dateTime.Kind == DateTimeKind.Utc
                 ? TimeSpan.Zero
-                : ResolveLocalOffset(dateTime.Ticks))
+                : ResolveLocalOffset(dateTime))
         {
         }
 
@@ -135,7 +136,7 @@ namespace System
         public DateTime UtcDateTime { get { return new(_utcTicks, DateTimeKind.Utc); } }
         public DateTime LocalDateTime
         {
-            get { return new DateTime(Ticks, DateTimeKind.Local); }
+            get { return UtcDateTime.ToLocalTime(); }
         }
         public DateTimeOffset ToLocalTime()
         {
@@ -151,12 +152,14 @@ namespace System
             return new DateTimeOffset(localTicks, new TimeSpan(offset.Ticks));
         }
 
-        private static TimeSpan ResolveLocalOffset(long ticks)
+        private static TimeSpan ResolveLocalOffset(DateTime dateTime)
         {
             PlatformServices.EnsureLocalTimeReady();
             return new TimeSpan(PlatformServices.LocalTimeOffsets.Resolve(
-                ticks,
-                LocalTimeBasis.Local).Ticks);
+                dateTime.Ticks,
+                dateTime.IsAmbiguousDaylightSavingTime()
+                    ? LocalTimeBasis.LocalAmbiguousDaylight
+                    : LocalTimeBasis.Local).Ticks);
         }
         public DateTimeOffset ToUniversalTime() => new(_utcTicks, TimeSpan.Zero);
         public DateTime Date { get { return DateTime.Date; } }
@@ -188,7 +191,7 @@ namespace System
         public DateTimeOffset AddYears(int value) => Add(DateTime.AddYears(value));
         public DateTimeOffset AddTicks(long value) => Add(DateTime.AddTicks(value));
         public DateTimeOffset ToOffset(TimeSpan offset) => new(checked(_utcTicks + offset.Ticks), offset);
-        public DateTimeOffset Subtract(TimeSpan value) => Add(-value);
+        public DateTimeOffset Subtract(TimeSpan value) => Add(DateTime.Subtract(value));
         public TimeSpan Subtract(DateTimeOffset value) => new(checked(_utcTicks - value._utcTicks));
 
         public static int Compare(DateTimeOffset left, DateTimeOffset right) => left._utcTicks.CompareTo(right._utcTicks);
@@ -201,8 +204,8 @@ namespace System
         public override bool Equals(object? value) => value is DateTimeOffset other && Equals(other);
         public override int GetHashCode() => _utcTicks.GetHashCode();
 
-        public static DateTimeOffset FromFileTime(long fileTime) => throw new PlatformNotSupportedException(
-            "File-time conversion to local time zones is unavailable in the invariant profile.");
+        public static DateTimeOffset FromFileTime(long fileTime) =>
+            new(DateTime.FromFileTimeUtc(fileTime).ToLocalTime());
 
         public static DateTimeOffset FromUnixTimeSeconds(long seconds) =>
             FromUnixTime(seconds, TimeSpan.TicksPerSecond);
@@ -210,7 +213,7 @@ namespace System
         public static DateTimeOffset FromUnixTimeMilliseconds(long milliseconds) =>
             FromUnixTime(milliseconds, TimeSpan.TicksPerMillisecond);
 
-        public long ToFileTime() => checked(_utcTicks + FileTimeOffsetTicks);
+        public long ToFileTime() => UtcDateTime.ToFileTimeUtc();
 
         public long ToUnixTimeSeconds() =>
             (long)((ulong)_utcTicks / TimeSpan.TicksPerSecond)
@@ -220,7 +223,8 @@ namespace System
             (long)((ulong)_utcTicks / TimeSpan.TicksPerMillisecond)
                 - UnixEpochTicks / TimeSpan.TicksPerMillisecond;
 
-        public override string ToString() => DateTime.ToString() + FormatOffset();
+        public override string ToString() =>
+            DateTime.FormatGeneral(includeSeconds: true) + " " + FormatOffset();
         public string ToString(string? format) => FormatInvariant(format);
         public string ToString(IFormatProvider? formatProvider) => ToString();
         public string ToString(string? format, IFormatProvider? formatProvider) => FormatInvariant(format);
@@ -338,24 +342,96 @@ namespace System
             System.Globalization.DateTimeStyles styles, out DateTimeOffset result)
         {
             ValidateStyles(styles);
+            styles &= ~(
+                System.Globalization.DateTimeStyles.RoundtripKind |
+                System.Globalization.DateTimeStyles.AssumeLocal);
             result = default;
             if (value is null || format is null)
             {
                 return false;
             }
+            value = TrimWhiteSpace(value, styles);
             var parsed = format switch
             {
                 "O" or "o" => TryParseInvariant(value, requireFixedFraction: true, out result),
-                "G" or "g" => TryParseInvariant(value, requireFixedFraction: false, out result),
+                "G" => TryParseLocalGeneral(
+                    value,
+                    includeSeconds: true,
+                    styles,
+                    out result),
+                "g" => TryParseLocalGeneral(
+                    value,
+                    includeSeconds: false,
+                    styles,
+                    out result),
                 _ when format == InvariantDateTimeText.Rfc3339Format =>
                     TryParseInvariant(value, requireFixedFraction: false, out result),
-                _ => false,
+                _ => TryParseCustomExact(value, format, styles, out result),
             };
             if (parsed && (styles & System.Globalization.DateTimeStyles.AdjustToUniversal) != 0)
             {
                 result = result.ToUniversalTime();
             }
             return parsed;
+        }
+
+        private static bool TryParseCustomExact(
+            string value,
+            string format,
+            System.Globalization.DateTimeStyles styles,
+            out DateTimeOffset result)
+        {
+            result = default;
+            if (!InvariantDateTimePattern.TryParse(
+                value,
+                format,
+                out var clock,
+                out var hasOffset,
+                out var offset,
+                out var utcDesignator))
+            {
+                return false;
+            }
+            try
+            {
+                result = hasOffset || utcDesignator
+                    ? new DateTimeOffset(clock, offset)
+                    : (styles & System.Globalization.DateTimeStyles.AssumeUniversal) != 0
+                        ? new DateTimeOffset(clock, TimeSpan.Zero)
+                    : new DateTimeOffset(clock);
+                return true;
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+
+        private static bool TryParseLocalGeneral(
+            string value,
+            bool includeSeconds,
+            System.Globalization.DateTimeStyles styles,
+            out DateTimeOffset result)
+        {
+            result = default;
+            if (!InvariantDateTimeText.TryParseGeneral(
+                value,
+                includeSeconds,
+                out var dateTime))
+            {
+                return false;
+            }
+            try
+            {
+                result = (styles & System.Globalization.DateTimeStyles.AssumeUniversal) != 0
+                    ? new DateTimeOffset(dateTime, TimeSpan.Zero)
+                    : new DateTimeOffset(dateTime);
+                return true;
+            }
+            catch (Exception)
+            {
+                return false;
+            }
         }
 
         public static DateTimeOffset ParseExact(ReadOnlySpan<char> value, ReadOnlySpan<char> format,
@@ -439,11 +515,14 @@ namespace System
 
         private static int ValidateOffset(TimeSpan offset)
         {
-            if (offset.Ticks % TimeSpan.TicksPerMinute != 0 ||
-                offset.Ticks < -MaxOffsetMinutes * TimeSpan.TicksPerMinute ||
-                offset.Ticks > MaxOffsetMinutes * TimeSpan.TicksPerMinute)
+            if (offset.Ticks % TimeSpan.TicksPerMinute != 0)
             {
                 throw new ArgumentException();
+            }
+            if (offset.Ticks < -MaxOffsetMinutes * TimeSpan.TicksPerMinute ||
+                offset.Ticks > MaxOffsetMinutes * TimeSpan.TicksPerMinute)
+            {
+                throw new ArgumentOutOfRangeException(nameof(offset));
             }
             return (int)(offset.Ticks / TimeSpan.TicksPerMinute);
         }
@@ -454,14 +533,27 @@ namespace System
             {
                 return InvariantDateTimeText.FormatRfc3339(DateTime, FormatOffset());
             }
-            if (format is not null && format.Length != 0 && format != "O" && format != "o"
+            if (format is { Length: 1 } && format != "O" && format != "o"
                 && format != "G" && format != "g")
             {
                 throw new FormatException();
             }
-            return format is "O" or "o"
-                ? DateTime.ToString("O") + FormatOffset()
-                : ToString();
+            if (format is { Length: > 1 })
+            {
+                return InvariantDateTimePattern.Format(
+                    DateTime,
+                    format,
+                    hasOffset: true,
+                    Offset,
+                    explicitOffset: true);
+            }
+            return format switch
+            {
+                "O" or "o" => DateTime.ToString("O") + FormatOffset(),
+                "G" => DateTime.FormatGeneral(includeSeconds: true),
+                "g" => DateTime.FormatGeneral(includeSeconds: false),
+                _ => ToString(),
+            };
         }
 
         private string FormatOffset()
@@ -512,6 +604,11 @@ namespace System
                 if (sign == '-') offsetMinutes = -offsetMinutes;
             }
 
+            if (dateEnd > 0 && value[dateEnd - 1] == ' ')
+            {
+                dateEnd--;
+            }
+
             if (requireFixedFraction
                 && (dateEnd != 27
                     || !InvariantDateTimeText.HasSeparator(value, 19, '.')
@@ -538,6 +635,25 @@ namespace System
         }
 
         private static bool IsWhiteSpace(char value) => value is ' ' or '\t' or '\r' or '\n' or '\f' or '\v';
+
+        private static string TrimWhiteSpace(
+            string value,
+            System.Globalization.DateTimeStyles styles)
+        {
+            var start = 0;
+            var end = value.Length;
+            if ((styles & System.Globalization.DateTimeStyles.AllowLeadingWhite) != 0)
+            {
+                while (start < end && IsWhiteSpace(value[start])) start++;
+            }
+            if ((styles & System.Globalization.DateTimeStyles.AllowTrailingWhite) != 0)
+            {
+                while (end > start && IsWhiteSpace(value[end - 1])) end--;
+            }
+            return start == 0 && end == value.Length
+                ? value
+                : value.Substring(start, end - start);
+        }
 
         private static void ValidateStyles(System.Globalization.DateTimeStyles styles)
         {

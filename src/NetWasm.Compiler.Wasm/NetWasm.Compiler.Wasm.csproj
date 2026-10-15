@@ -5,7 +5,9 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.0" />
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.0" />
+    <ProjectReference Include="../NetWasm.Compiler.ComponentModel/NetWasm.Compiler.ComponentModel.csproj" />
     <ProjectReference Include="../NetWasm.Compiler.Core/NetWasm.Compiler.Core.csproj" />
     <ProjectReference Include="../NetWasm.Compiler.ControlFlow/NetWasm.Compiler.ControlFlow.csproj" />
+    <ProjectReference Include="../NetWasm.Compiler.GarbageCollection/NetWasm.Compiler.GarbageCollection.csproj" />
   </ItemGroup>
 </Project>

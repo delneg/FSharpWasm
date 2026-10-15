@@ -8,17 +8,34 @@ namespace NetWasm.Runtime.Pack.Tests.Materialization;
 public sealed class RuntimeModuleMaterializerTests
 {
     [Theory]
-    [InlineData("wasm32", null)]
-    [InlineData("wasm64", null)]
-    [InlineData("wasm32", "Boehm")]
-    [InlineData("wasm64", "Boehm")]
-    [InlineData("wasm32", "Compact")]
-    [InlineData("wasm64", "Compact")]
-    public void MaterializesAndValidatesTargetSpecificRuntime(string target, string? collector)
+    [InlineData("wasm32", null, RuntimeWasmOptimization.Oz)]
+    [InlineData("wasm32", null, RuntimeWasmOptimization.O3)]
+    [InlineData("wasm64", null, RuntimeWasmOptimization.Oz)]
+    [InlineData("wasm64", null, RuntimeWasmOptimization.O3)]
+    [InlineData("wasm32", "Boehm", RuntimeWasmOptimization.Oz)]
+    [InlineData("wasm32", "Boehm", RuntimeWasmOptimization.O3)]
+    [InlineData("wasm64", "Boehm", RuntimeWasmOptimization.Oz)]
+    [InlineData("wasm64", "Boehm", RuntimeWasmOptimization.O3)]
+    [InlineData("wasm32", "Compact", RuntimeWasmOptimization.Oz)]
+    [InlineData("wasm32", "Compact", RuntimeWasmOptimization.O3)]
+    [InlineData("wasm64", "Compact", RuntimeWasmOptimization.Oz)]
+    [InlineData("wasm64", "Compact", RuntimeWasmOptimization.O3)]
+    [InlineData("wasm32", "NetWasm", RuntimeWasmOptimization.Oz)]
+    [InlineData("wasm32", "NetWasm", RuntimeWasmOptimization.O3)]
+    [InlineData("wasm64", "NetWasm", RuntimeWasmOptimization.Oz)]
+    [InlineData("wasm64", "NetWasm", RuntimeWasmOptimization.O3)]
+    [InlineData("wasm32", "Bump", RuntimeWasmOptimization.Oz)]
+    [InlineData("wasm32", "Bump", RuntimeWasmOptimization.O3)]
+    [InlineData("wasm64", "Bump", RuntimeWasmOptimization.Oz)]
+    [InlineData("wasm64", "Bump", RuntimeWasmOptimization.O3)]
+    public void MaterializesAndValidatesTargetSpecificRuntime(string target, string? collector, RuntimeWasmOptimization mode)
     {
         using var directory = new TemporaryDirectory();
         var manifest = RuntimePackTestData.Manifest();
-        var sourceLayout = new RuntimeLayout(2, target, 65_537);
+        var sourceLayout = new RuntimeLayout(2, target, 65_537)
+        {
+            RuntimeFeatures = collector == "Bump" ? [] : default,
+        };
         var calculatedLayout = RuntimePackTestData.Layout(target);
         var manifests = new RecordingManifestReader(manifest);
         var layouts = new RecordingLayoutReader(sourceLayout);
@@ -39,6 +56,7 @@ public sealed class RuntimeModuleMaterializerTests
         var request = Request(directory, target) with
         {
             GarbageCollector = collector,
+            Optimization = mode,
             InitialHeapSizeBytes = 131_072,
             MaximumMemorySizeBytes = calculatedLayout.MaximumMemorySizeBytes,
         };
@@ -46,11 +64,12 @@ public sealed class RuntimeModuleMaterializerTests
         var capability = Assert.IsAssignableFrom<IRuntimeModuleMaterializer>(materializer);
         var result = capability.Materialize(request);
 
+        var profilePath = mode == RuntimeWasmOptimization.O3 ? "speed/" : string.Empty;
         Assert.Equal(target, result.Target);
         Assert.Equal(collector ?? "Boehm", result.GarbageCollector);
-        Assert.EndsWith($"{target}/{result.GarbageCollector.ToLowerInvariant()}/libnetwasm-runtime.a", assets.Verifications[0].Path,
+        Assert.EndsWith($"{target}/{result.GarbageCollector.ToLowerInvariant()}/{profilePath}libnetwasm-runtime.a", assets.Verifications[0].Path,
             StringComparison.Ordinal);
-        Assert.EndsWith($"{target}/{result.GarbageCollector.ToLowerInvariant()}/libgc.a", assets.Verifications[1].Path,
+        Assert.EndsWith($"{target}/{result.GarbageCollector.ToLowerInvariant()}/{profilePath}libgc.a", assets.Verifications[1].Path,
             StringComparison.Ordinal);
         Assert.Equal(Path.GetFullPath(request.OutputPath), result.OutputPath);
         Assert.Equal(new Sha256ArtifactDigestCalculator().Calculate(request.OutputPath), result.Sha256);
@@ -513,19 +532,31 @@ public sealed class RuntimeModuleMaterializerTests
         IRuntimeNativeModuleMaterializer? nativeModules = null) =>
         new(
             manifests,
-            new RuntimePackTargetSelector(),
+            new RuntimePackTargetSelector(new RuntimeOptimizationPolicyResolver()),
             layouts,
             memoryLayouts,
             assetDigests,
+            new RuntimeCollectorCompatibilityValidator(),
             linkArguments,
             optimizationArguments,
             new RuntimeMaterializationCacheKeyBuilder(),
             new RuntimeMaterializationCacheReader(),
             cacheWriter ?? new RuntimeMaterializationCacheWriter(),
-            new RuntimeArtifactPublisher(new Sha256ArtifactDigestCalculator()),
+            new RuntimeArtifactPublisher(
+                new Sha256ArtifactDigestCalculator(),
+                new RuntimeArtifactWriter()),
+            new RuntimeArtifactWriter(),
+            new PassthroughInlineIntentWriter(),
             commands,
             artifactDigests,
             nativeModules ?? new RejectingNativeMaterializer());
+
+    private sealed class PassthroughInlineIntentWriter : IRuntimeInlineIntentWriter
+    {
+        public byte[] Write(
+            ReadOnlyMemory<byte> module,
+            ImmutableArray<RuntimeFunctionInlineIntent> intents) => module.ToArray();
+    }
 
     private sealed class RejectingNativeMaterializer : IRuntimeNativeModuleMaterializer
     {

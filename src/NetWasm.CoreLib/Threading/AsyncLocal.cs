@@ -35,8 +35,6 @@ namespace System.Threading
                 _valueChangedHandler is not null);
         }
 
-        bool IAsyncLocal.HasValueChangedHandler => _valueChangedHandler is not null;
-
         void IAsyncLocal.OnValueChanged(
             object? previousValue,
             object? currentValue,
@@ -57,8 +55,6 @@ namespace System.Threading
     /// <summary>Internal non-generic callback contract used by ExecutionContext.</summary>
     internal interface IAsyncLocal
     {
-        bool HasValueChangedHandler { get; }
-
         void OnValueChanged(object? previousValue, object? currentValue, bool contextChanged);
     }
 }

@@ -1,7 +1,10 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 // Adapted from dotnet/runtime System.Private.CoreLib (commit
-// 811225a482702af7ecc35d817966bc70b88a3a23); asynchronous members omitted.
+// 811225a482702af7ecc35d817966bc70b88a3a23).
+
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace System.IO
 {
@@ -90,6 +93,52 @@ namespace System.IO
             _position = value.Length;
             return position == 0 ? value : value.Substring(position);
         }
+
+        public override Task<string?> ReadLineAsync() => Task.FromResult(ReadLine());
+
+        public override ValueTask<string?> ReadLineAsync(CancellationToken cancellationToken) =>
+            cancellationToken.IsCancellationRequested
+                ? ValueTask.FromCanceled<string?>(cancellationToken)
+                : new ValueTask<string?>(ReadLine());
+
+        public override Task<string> ReadToEndAsync() => Task.FromResult(ReadToEnd());
+
+        public override Task<string> ReadToEndAsync(CancellationToken cancellationToken) =>
+            cancellationToken.IsCancellationRequested
+                ? Task.FromCanceled<string>(cancellationToken)
+                : Task.FromResult(ReadToEnd());
+
+        public override Task<int> ReadAsync(char[] buffer, int index, int count)
+        {
+            ArgumentNullException.ThrowIfNull(buffer);
+            ArgumentOutOfRangeException.ThrowIfNegative(index);
+            ArgumentOutOfRangeException.ThrowIfNegative(count);
+            if (buffer.Length - index < count)
+                throw new ArgumentException("Offset and length were out of bounds for the array.");
+
+            return Task.FromResult(Read(buffer, index, count));
+        }
+
+        public override ValueTask<int> ReadAsync(Memory<char> buffer, CancellationToken cancellationToken = default) =>
+            cancellationToken.IsCancellationRequested
+                ? ValueTask.FromCanceled<int>(cancellationToken)
+                : new ValueTask<int>(Read(buffer.Span));
+
+        public override Task<int> ReadBlockAsync(char[] buffer, int index, int count)
+        {
+            ArgumentNullException.ThrowIfNull(buffer);
+            ArgumentOutOfRangeException.ThrowIfNegative(index);
+            ArgumentOutOfRangeException.ThrowIfNegative(count);
+            if (buffer.Length - index < count)
+                throw new ArgumentException("Offset and length were out of bounds for the array.");
+
+            return Task.FromResult(ReadBlock(buffer, index, count));
+        }
+
+        public override ValueTask<int> ReadBlockAsync(Memory<char> buffer, CancellationToken cancellationToken = default) =>
+            cancellationToken.IsCancellationRequested
+                ? ValueTask.FromCanceled<int>(cancellationToken)
+                : new ValueTask<int>(ReadBlock(buffer.Span));
 
         public override string? ReadLine()
         {

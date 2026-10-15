@@ -18,6 +18,12 @@ public sealed class WasmModuleTargetFactoryTests
     {
         var program = new FakeProgram();
         var request = WithEntryPointCallable(CreateEmissionRequest(program));
+        var byRefEffects = new ManagedByRefEffects(
+            System.Collections.Immutable.ImmutableDictionary<string,
+                ManagedByRefMethodEffects>.Empty.Add(
+                    "method",
+                    new([0], [], [])));
+        request = request with { ManagedByRefEffects = byRefEffects };
         var layouts = new RecordingLayoutProvider();
         var factory = new WasmModuleTargetFactory(
             new WasmModulePlanner(
@@ -30,7 +36,8 @@ public sealed class WasmModuleTargetFactoryTests
             new DisabledStackTraceMethodPlanBuilder(),
                 new WasmModulePlanInvariantValidator(),
                 new NativeImportPlanner(NativeAbiTestSupport.ScalarPlanner()),
-                NativeAbiTestSupport.CallbackPlanner()),
+                NativeAbiTestSupport.CallbackPlanner(),
+                new FinalizationPlanBuilder(layouts, new FakeIntrinsics())),
             new ModuleDataPlanner(
                 layouts,
                 layouts,
@@ -45,6 +52,7 @@ public sealed class WasmModuleTargetFactoryTests
         Assert.Equal(target.Plan.FunctionIndices, target.Instructions.FunctionIndices);
         Assert.Equal(target.ModuleData, target.Instructions.ModuleData);
         Assert.Same(target.Plan.NativeImports, target.Instructions.NativeImports);
+        Assert.Same(byRefEffects, target.Instructions.ManagedByRefEffects);
     }
 
     [Fact]
@@ -59,6 +67,10 @@ public sealed class WasmModuleTargetFactoryTests
             {
                 ["constructed"] = constructed,
             },
+            ConstructedRootMaps = new Dictionary<string, MethodRootMap>
+            {
+                ["constructed"] = request.RootMaps.Values.Single(),
+            },
         };
         var layouts = new RecordingLayoutProvider();
         var factory = new WasmModuleTargetFactory(
@@ -72,7 +84,8 @@ public sealed class WasmModuleTargetFactoryTests
             new DisabledStackTraceMethodPlanBuilder(),
                 new WasmModulePlanInvariantValidator(),
                 new NativeImportPlanner(NativeAbiTestSupport.ScalarPlanner()),
-                NativeAbiTestSupport.CallbackPlanner()),
+                NativeAbiTestSupport.CallbackPlanner(),
+                new FinalizationPlanBuilder(layouts, new FakeIntrinsics())),
             new ModuleDataPlanner(
                 layouts,
                 layouts,

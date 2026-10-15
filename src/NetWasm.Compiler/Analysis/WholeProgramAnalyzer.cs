@@ -42,7 +42,8 @@ internal sealed class ReachabilityClosureBuilder(
     IMemberExecutionPlanner memberExecutions,
     IBaseTypeResolver baseTypes,
     IFinalizerResolver finalizerResolver,
-    INullableTypeResolver nullableTypes) : IReachabilityClosureBuilder
+    INullableTypeResolver nullableTypes,
+    IMethodInitializationTriggerClassifier initializationTriggers) : IReachabilityClosureBuilder
 {
     private readonly IReachabilityClosureObserver _closureObserver =
         closureObserver ?? throw new ArgumentNullException(nameof(closureObserver));
@@ -83,11 +84,14 @@ internal sealed class ReachabilityClosureBuilder(
         finalizerResolver ?? throw new ArgumentNullException(nameof(finalizerResolver));
     private readonly INullableTypeResolver _nullableTypes = nullableTypes ??
         throw new ArgumentNullException(nameof(nullableTypes));
+    private readonly IMethodInitializationTriggerClassifier _initializationTriggers = initializationTriggers ??
+        throw new ArgumentNullException(nameof(initializationTriggers));
 
     public ReachableProgram Build(
         MethodDefinitionModel? entryPoint,
         IEnumerable<ProgramExport> requestedExports,
-        ReachabilityRoots? roots = null)
+        ReachabilityRoots? roots = null,
+        ImmutableDictionary<string, CilMethodBody>? rewrittenBodies = null)
     {
         ArgumentNullException.ThrowIfNull(requestedExports);
         roots ??= ReachabilityRoots.Empty;
@@ -236,7 +240,10 @@ internal sealed class ReachabilityClosureBuilder(
                     {
                         continue;
                     }
-                    methodRequests.Add(new ReachableMethodRequest(methodInstance));
+                    methodRequests.Add(new ReachableMethodRequest(methodInstance)
+                    {
+                        RewrittenBody = rewrittenBodies?.GetValueOrDefault(methodInstance.CanonicalName),
+                    });
                 }
                 foreach (var analysis in _methodBatchAnalyzer.Analyze(
                              methodRequests.ToImmutable()))
@@ -269,7 +276,7 @@ internal sealed class ReachabilityClosureBuilder(
                         dispatchTargets.Add(work.DispatchKey, targets);
                     }
                     targets.TryAdd(target.ReceiverType.CanonicalName, target);
-                    EnqueueInstance(target.Method);
+                    VisitMethod(CilOperation.CallVirtual, target.Method);
                     if (work.Declaration.Operation == CilOperation.LoadVirtualFunction)
                     {
                         callableMethods.TryAdd(target.Method.CanonicalName, target.Method);
@@ -806,8 +813,7 @@ internal sealed class ReachabilityClosureBuilder(
         void VisitMethod(CilOperation operation, MethodInstanceModel target)
         {
             EnqueueInstance(target);
-            if (target.Definition.IsStatic && target.Definition.Name != ".cctor" &&
-                !_typeRepository.GetTypeDefinition(target.Definition.DeclaringType).IsBeforeFieldInit)
+            if (_initializationTriggers.Classify(target.Definition))
             {
                 EnsureTypeInitialized(target.Definition.DeclaringType, target.DeclaringType);
             }
@@ -932,7 +938,7 @@ internal sealed class ReachabilityClosureBuilder(
 
         void AddMemberExecutionValue(CliTypeIdentity type)
         {
-            if (type.StackKind != CliValueKind.ManagedReference)
+            if (type.StackKind is not (CliValueKind.ManagedReference or CliValueKind.Void))
             {
                 AddAllocatedType(_nullableTypes.Resolve(type) ?? type);
             }

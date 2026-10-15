@@ -58,6 +58,7 @@ static void mark_ephemerons(Tcms *gc, Lifetime *lifetime)
     do {
         changed = false;
         for (EphemeronRecord *entry = lifetime->ephemerons; entry != NULL; entry = entry->next) {
+            TCMS_COUNT(gc, lifetime_records, 1);
             if (available_slot(gc, entry->key) && available_slot(gc, entry->value) &&
                 *entry->key != 0 && tcms_is_marked(gc, *entry->key))
                 changed = tcms_mark(gc, *entry->value) || changed;
@@ -70,6 +71,7 @@ static void clear_weak(Tcms *gc, Lifetime *lifetime, TcmsWeakLifetime phase)
 {
     WeakRecord **link = &lifetime->weak;
     while (*link != NULL) {
+        TCMS_COUNT(gc, lifetime_records, 1);
         WeakRecord *entry = *link;
         bool available = available_slot(gc, entry->slot);
         /* All managed slot allocations still exist during the short phase.
@@ -89,18 +91,24 @@ static void complete_mark(Tcms *gc)
     Lifetime *lifetime = gc->extension;
     /* Pending and currently executing callbacks are strong roots, including
      * their complete graphs across GC initiated inside another callback. */
-    for (FinalizerRecord *entry = lifetime->finalizers; entry != NULL; entry = entry->next)
+    for (FinalizerRecord *entry = lifetime->finalizers; entry != NULL; entry = entry->next) {
+        TCMS_COUNT(gc, lifetime_records, 1);
         if (entry->queued || entry->running) tcms_mark(gc, entry->object);
+    }
     tcms_drain_mark(gc);
     mark_ephemerons(gc, lifetime);
     clear_weak(gc, lifetime, TCMS_WEAK_SHORT);
 
     /* Snapshot the whole eligible set before promoting any finalizable graph. */
-    for (FinalizerRecord *entry = lifetime->finalizers; entry != NULL; entry = entry->next)
+    for (FinalizerRecord *entry = lifetime->finalizers; entry != NULL; entry = entry->next) {
+        TCMS_COUNT(gc, lifetime_records, 1);
         if (!entry->queued && !entry->running && entry->function != NULL &&
             !tcms_is_marked(gc, entry->object)) entry->queued = true;
-    for (FinalizerRecord *entry = lifetime->finalizers; entry != NULL; entry = entry->next)
+    }
+    for (FinalizerRecord *entry = lifetime->finalizers; entry != NULL; entry = entry->next) {
+        TCMS_COUNT(gc, lifetime_records, 1);
         if (entry->queued) tcms_mark(gc, entry->object);
+    }
     tcms_drain_mark(gc);
     /* Dependent values of finalization-promoted keys must survive too. */
     mark_ephemerons(gc, lifetime);
@@ -108,6 +116,7 @@ static void complete_mark(Tcms *gc)
 
     EphemeronRecord **link = &lifetime->ephemerons;
     while (*link != NULL) {
+        TCMS_COUNT(gc, lifetime_records, 1);
         EphemeronRecord *entry = *link;
         bool available = available_slot(gc, entry->key) && available_slot(gc, entry->value);
         if (!available || !tcms_is_marked(gc, *entry->key)) {

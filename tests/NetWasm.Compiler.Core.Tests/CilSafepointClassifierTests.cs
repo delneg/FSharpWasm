@@ -10,8 +10,6 @@ public sealed class CilSafepointClassifierTests
     [InlineData(CilOperation.NewRectangularArray)]
     [InlineData(CilOperation.NewBoundedRectangularArray)]
     [InlineData(CilOperation.Box)]
-    [InlineData(CilOperation.DelegateCombine)]
-    [InlineData(CilOperation.DelegateRemove)]
     [InlineData(CilOperation.MaterializeType)]
     [InlineData(CilOperation.GetObjectType)]
     [InlineData(CilOperation.CallIndirect)]
@@ -28,6 +26,7 @@ public sealed class CilSafepointClassifierTests
     [InlineData(CilOperation.LoadRectangularArrayElementAddress)]
     [InlineData(CilOperation.StoreRectangularArrayElement)]
     [InlineData(CilOperation.CompareExchange)]
+    [InlineData(CilOperation.LoadStaticDataElement)]
     public void RectangularAccessRetainsExceptionalLiveness(CilOperation operation)
     {
         Assert.True(CilSafepointClassifier.MayTransferControlExceptionally(Instruction(operation)));

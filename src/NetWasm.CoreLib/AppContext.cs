@@ -12,8 +12,8 @@ namespace System;
 
 public static partial class AppContext
 {
-    private static readonly Dictionary<string, object?> s_dataStore = new();
-    private static readonly Dictionary<string, bool> s_switches = new();
+    private static Dictionary<string, object?>? s_dataStore;
+    private static Dictionary<string, bool>? s_switches;
 
     public static string BaseDirectory
     {
@@ -30,29 +30,44 @@ public static partial class AppContext
     public static object? GetData(string name)
     {
         ArgumentNullException.ThrowIfNull(name);
-        lock (s_dataStore)
+
+        Dictionary<string, object?>? dataStore = s_dataStore;
+        if (dataStore is null)
         {
-            return s_dataStore.TryGetValue(name, out var data) ? data : null;
+            return null;
+        }
+
+        lock (dataStore)
+        {
+            return dataStore.TryGetValue(name, out var data) ? data : null;
         }
     }
 
     public static void SetData(string name, object? data)
     {
         ArgumentNullException.ThrowIfNull(name);
-        lock (s_dataStore)
+
+        // TODO(netwasm-threading)
+        Dictionary<string, object?> dataStore = s_dataStore ??= new();
+        lock (dataStore)
         {
-            s_dataStore[name] = data;
+            dataStore[name] = data;
         }
     }
 
     public static bool TryGetSwitch(string switchName, out bool isEnabled)
     {
         ArgumentException.ThrowIfNullOrEmpty(switchName);
-        lock (s_switches)
+
+        Dictionary<string, bool>? switches = s_switches;
+        if (switches is not null)
         {
-            if (s_switches.TryGetValue(switchName, out isEnabled))
+            lock (switches)
             {
-                return true;
+                if (switches.TryGetValue(switchName, out isEnabled))
+                {
+                    return true;
+                }
             }
         }
 
@@ -68,9 +83,12 @@ public static partial class AppContext
     public static void SetSwitch(string switchName, bool isEnabled)
     {
         ArgumentException.ThrowIfNullOrEmpty(switchName);
-        lock (s_switches)
+
+        // TODO(netwasm-threading)
+        Dictionary<string, bool> switches = s_switches ??= new();
+        lock (switches)
         {
-            s_switches[switchName] = isEnabled;
+            switches[switchName] = isEnabled;
         }
     }
 }

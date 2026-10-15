@@ -343,7 +343,7 @@ namespace System.Collections.Immutable
             // Let's not implement in terms of ImmutableList.Remove so that we're
             // not unnecessarily generating a new list object for each item.
             ImmutableList<T>.Node result = _root;
-            foreach (T item in items)
+            foreach (T item in items.GetEnumerableDisposable<T, Enumerator>())
             {
                 int index = result.IndexOf(item, equalityComparer);
                 if (index >= 0)
@@ -401,7 +401,7 @@ namespace System.Collections.Immutable
             int index = this.IndexOf(oldValue, equalityComparer);
             if (index < 0)
             {
-                throw new ArgumentException("The old value was not found.", nameof(oldValue));
+                throw new ArgumentException(SR.CannotFindOldValue, nameof(oldValue));
             }
 
             return this.SetItem(index, newValue);
@@ -896,7 +896,9 @@ namespace System.Collections.Immutable
         /// </returns>
         IEnumerator<T> IEnumerable<T>.GetEnumerator()
         {
-            return this.GetEnumerator();
+            return this.IsEmpty ?
+                GenericEmptyEnumerator<T>.Instance :
+                this.GetEnumerator();
         }
 
         #endregion
@@ -1177,7 +1179,7 @@ namespace System.Collections.Immutable
             // index into that sequence like a list, so the one possible piece of
             // garbage produced is a temporary array to store the list while
             // we build the tree.
-            IReadOnlyList<T> list = items as IReadOnlyList<T> ?? new List<T>(items);
+            IReadOnlyList<T> list = items.AsReadOnlyList();
             if (list.Count == 0)
             {
                 return Empty;

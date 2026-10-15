@@ -249,7 +249,7 @@ namespace System.Collections.Immutable
                 TValue value;
                 if (!this.TryGetValue(key, out value!))
                 {
-                    ImmutableDictionaryThrowHelper.ThrowKeyNotFoundException(key);
+                    ThrowHelper.ThrowKeyNotFoundException(key);
                 }
 
                 return value;
@@ -410,7 +410,7 @@ namespace System.Collections.Immutable
         /// <summary>
         /// See the <see cref="IImmutableDictionary{TKey, TValue}"/> interface.
         /// </summary>
-        public bool TryGetValue(TKey key, out TValue value)
+        public bool TryGetValue(TKey key, [MaybeNullWhen(false)] out TValue value)
         {
             Requires.NotNullAllowStructs(key, nameof(key));
             return TryGetValue(key, this.Origin, out value!);
@@ -803,7 +803,7 @@ namespace System.Collections.Immutable
         IEnumerator<KeyValuePair<TKey, TValue>> IEnumerable<KeyValuePair<TKey, TValue>>.GetEnumerator()
         {
             return this.IsEmpty ?
-                this.GetEnumerator() :
+                GenericEmptyEnumerator<KeyValuePair<TKey, TValue>>.Instance :
                 this.GetEnumerator();
         }
 

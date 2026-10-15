@@ -1,6 +1,8 @@
 // Adapted from dotnet/runtime System.Runtime.Versioning metadata declarations.
 // The upstream implementation is licensed under MIT.
 
+using System.Diagnostics;
+
 namespace System.Runtime.Versioning
 {
     [Flags]
@@ -110,6 +112,7 @@ namespace System.Runtime.Versioning
     }
 
     [AttributeUsage(AttributeTargets.Method | AttributeTargets.Field | AttributeTargets.Property | AttributeTargets.Constructor, Inherited = false)]
+    [Conditional("RESOURCE_ANNOTATION_WORK")]
     public sealed class ResourceExposureAttribute : Attribute
     {
         public ResourceExposureAttribute(ResourceScope exposureLevel) => ResourceExposureLevel = exposureLevel;
@@ -131,7 +134,12 @@ namespace System.Runtime.Versioning
     [AttributeUsage(AttributeTargets.Assembly, AllowMultiple = false, Inherited = false)]
     public sealed class TargetFrameworkAttribute : Attribute
     {
-        public TargetFrameworkAttribute(string frameworkName) => FrameworkName = frameworkName;
+        public TargetFrameworkAttribute(string frameworkName)
+        {
+            ArgumentNullException.ThrowIfNull(frameworkName);
+            FrameworkName = frameworkName;
+        }
+
         public string FrameworkName { get; }
         public string? FrameworkDisplayName { get; set; }
     }

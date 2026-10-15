@@ -19,9 +19,13 @@ namespace System
         private const long UnixEpochTicks = 621355968000000000;
         private const long TicksPerSecond = 10_000_000;
         private const string UtcId = "UTC";
-        private const string LocalId = "Local";
 
         private static readonly TimeZoneInfo s_utc = CreateUtc();
+        private static readonly TransitionTime s_daylightRuleMarker =
+            TransitionTime.CreateFixedDateRule(
+                DateTime.MinValue.AddMilliseconds(2),
+                1,
+                1);
         private static TimeZoneInfo? s_local;
         private static TimeZoneCatalog? s_catalog;
 
@@ -31,7 +35,9 @@ namespace System
         private readonly string _daylightName;
         private readonly TimeZoneDefinition _definition;
         private readonly ITimeZoneTransitionResolver _transitions;
-        private readonly AdjustmentRule[] _adjustmentRules;
+        private AdjustmentRule[]? _adjustmentRules;
+        private readonly bool _supportsDaylightSavingTime;
+        private readonly bool _hasIanaId;
         private readonly bool _isUtc;
         private readonly bool _isLocal;
 
@@ -41,6 +47,7 @@ namespace System
             ITimeZoneTransitionResolver transitions,
             bool isUtc,
             bool isLocal,
+            bool hasIanaId,
             AdjustmentRule[]? adjustmentRules = null)
         {
             _id = id ?? throw new ArgumentNullException();
@@ -48,10 +55,12 @@ namespace System
             _transitions = transitions ?? throw new ArgumentNullException();
             _isUtc = isUtc;
             _isLocal = isLocal;
+            _hasIanaId = hasIanaId;
             _displayName = id;
             _standardName = id;
             _daylightName = id;
-            _adjustmentRules = adjustmentRules ?? CreateAdjustmentRules(definition);
+            _adjustmentRules = adjustmentRules;
+            _supportsDaylightSavingTime = HasDaylightTransitions(definition);
         }
 
         public string Id => _id;
@@ -62,25 +71,12 @@ namespace System
 
         public string DaylightName => _daylightName;
 
-        public TimeSpan BaseUtcOffset =>
-            TimeSpan.FromSeconds(ResolveBaseUtcOffsetSeconds(_definition));
+        public TimeSpan BaseUtcOffset => TimeSpan.FromSeconds(
+            NormalizeOffsetToMinute(ResolveBaseUtcOffsetSeconds(_definition)));
 
-        public bool SupportsDaylightSavingTime
-        {
-            get
-            {
-                foreach (var transition in _definition.Transitions)
-                {
-                    if (transition.IsDaylightSavingTime)
-                    {
-                        return true;
-                    }
-                }
-                return false;
-            }
-        }
+        public bool SupportsDaylightSavingTime => _supportsDaylightSavingTime;
 
-        public bool HasIanaId => _id == UtcId || _id.Contains('/');
+        public bool HasIanaId => _hasIanaId;
 
         public static TimeZoneInfo Utc => s_utc;
 
@@ -193,21 +189,24 @@ namespace System
             return GetAmbiguousTimeOffsets(ConvertTime(dateTimeOffset, this).DateTime);
         }
 
-        public AdjustmentRule[] GetAdjustmentRules() => (AdjustmentRule[])_adjustmentRules.Clone();
+        public AdjustmentRule[] GetAdjustmentRules() =>
+            (AdjustmentRule[])GetOrCreateAdjustmentRules().Clone();
 
         public bool HasSameRules(TimeZoneInfo other)
         {
             ArgumentNullException.ThrowIfNull(other);
+            var rules = GetOrCreateAdjustmentRules();
+            var otherRules = other.GetOrCreateAdjustmentRules();
             if (BaseUtcOffset != other.BaseUtcOffset ||
                 SupportsDaylightSavingTime != other.SupportsDaylightSavingTime ||
-                _adjustmentRules.Length != other._adjustmentRules.Length)
+                rules.Length != otherRules.Length)
             {
                 return false;
             }
 
-            for (var index = 0; index < _adjustmentRules.Length; index++)
+            for (var index = 0; index < rules.Length; index++)
             {
-                if (!_adjustmentRules[index].Equals(other._adjustmentRules[index]))
+                if (!rules[index].Equals(otherRules[index]))
                 {
                     return false;
                 }
@@ -222,11 +221,6 @@ namespace System
             {
                 return Utc;
             }
-            if (id == LocalId)
-            {
-                return Local;
-            }
-
             try
             {
                 return (s_catalog ??= new TimeZoneCatalog()).Resolve(id);
@@ -301,6 +295,19 @@ namespace System
             ArgumentNullException.ThrowIfNull(sourceTimeZone);
             ArgumentNullException.ThrowIfNull(destinationTimeZone);
 
+            var sourceKind = sourceTimeZone._isUtc
+                ? DateTimeKind.Utc
+                : sourceTimeZone._isLocal
+                    ? DateTimeKind.Local
+                    : DateTimeKind.Unspecified;
+            if (dateTime.Kind != DateTimeKind.Unspecified &&
+                dateTime.Kind != sourceKind)
+            {
+                throw new ArgumentException(
+                    "The supplied DateTime.Kind does not match the source timezone.",
+                    nameof(sourceTimeZone));
+            }
+
             if (sourceTimeZone.IsInvalidTime(dateTime))
             {
                 throw new ArgumentException(
@@ -308,18 +315,37 @@ namespace System
                     nameof(dateTime));
             }
 
+            if (dateTime.Kind != DateTimeKind.Unspecified &&
+                sourceKind == (destinationTimeZone._isUtc
+                    ? DateTimeKind.Utc
+                    : destinationTimeZone._isLocal
+                        ? DateTimeKind.Local
+                        : DateTimeKind.Unspecified))
+            {
+                return dateTime;
+            }
+
             var utcTicks = sourceTimeZone.GetUtcTicks(dateTime, throwOnInvalid: true);
             var destination = destinationTimeZone._transitions.Resolve(
                 destinationTimeZone._definition,
                 utcTicks,
                 LocalTimeBasis.Utc);
-            var targetTicks = checked(utcTicks + destination.Ticks);
+            var targetTicks = utcTicks + destination.Ticks;
+            if ((ulong)targetTicks > (ulong)DateTime.MaxTicks)
+            {
+                targetTicks = targetTicks < 0 ? 0 : DateTime.MaxTicks;
+            }
             var kind = destinationTimeZone._isUtc
                 ? DateTimeKind.Utc
                 : destinationTimeZone._isLocal
                     ? DateTimeKind.Local
                     : DateTimeKind.Unspecified;
-            return new DateTime(targetTicks, kind);
+            return kind == DateTimeKind.Local
+                ? new DateTime(
+                    targetTicks,
+                    DateTimeKind.Local,
+                    destination.IsAmbiguousDaylightSavingTime)
+                : new DateTime(targetTicks, kind);
         }
 
         public static DateTimeOffset ConvertTime(
@@ -465,6 +491,7 @@ namespace System
                 new TimeZoneTransitionResolver(),
                 isUtc: true,
                 isLocal: false,
+                hasIanaId: true,
                 Array.Empty<AdjustmentRule>());
         }
 
@@ -500,8 +527,10 @@ namespace System
             var offset = _transitions.Resolve(
                 _definition,
                 localTicks,
-                LocalTimeBasis.Local);
-            return checked(localTicks - offset.Ticks);
+                dateTime.IsAmbiguousDaylightSavingTime()
+                    ? LocalTimeBasis.LocalAmbiguousDaylight
+                    : LocalTimeBasis.Local);
+            return localTicks - offset.Ticks;
         }
 
         private long GetLocalTicksForInspection(DateTime dateTime)
@@ -524,22 +553,9 @@ namespace System
 
         private bool IsInvalidLocalTicks(long localTicks)
         {
-            var transitions = _definition.Transitions;
-            var previousOffset = _definition.InitialOffsetSeconds;
-            foreach (var transition in transitions)
-            {
-                if (transition.OffsetSeconds > previousOffset)
-                {
-                    var start = AddSeconds(transition.UnixSeconds, previousOffset);
-                    var end = AddSeconds(transition.UnixSeconds, transition.OffsetSeconds);
-                    if (localTicks >= start && localTicks < end)
-                    {
-                        return true;
-                    }
-                }
-                previousOffset = transition.OffsetSeconds;
-            }
-            return false;
+            return TimeZoneTransitionResolver.IsInvalidLocalTime(
+                _definition,
+                localTicks);
         }
 
         private bool TryGetAmbiguousOffsets(
@@ -547,23 +563,16 @@ namespace System
             out TimeSpan first,
             out TimeSpan second)
         {
-            var previousOffset = _definition.InitialOffsetSeconds;
-            foreach (var transition in _definition.Transitions)
+            if (TimeZoneTransitionResolver.TryGetAmbiguousOffsets(
+                _definition,
+                localTicks,
+                out var firstSeconds,
+                out var secondSeconds))
             {
-                if (transition.OffsetSeconds < previousOffset)
-                {
-                    var start = AddSeconds(transition.UnixSeconds, transition.OffsetSeconds);
-                    var end = AddSeconds(transition.UnixSeconds, previousOffset);
-                    if (localTicks >= start && localTicks < end)
-                    {
-                        first = TimeSpan.FromSeconds(previousOffset);
-                        second = TimeSpan.FromSeconds(transition.OffsetSeconds);
-                        return true;
-                    }
-                }
-                previousOffset = transition.OffsetSeconds;
+                first = TimeSpan.FromSeconds(firstSeconds);
+                second = TimeSpan.FromSeconds(secondSeconds);
+                return true;
             }
-
             first = default;
             second = default;
             return false;
@@ -603,6 +612,25 @@ namespace System
             return definition.InitialOffsetSeconds;
         }
 
+        private static bool HasDaylightTransitions(TimeZoneDefinition definition)
+        {
+            if (definition.InitialDaylightSavingTime)
+            {
+                return true;
+            }
+            foreach (var transition in definition.Transitions)
+            {
+                if (transition.IsDaylightSavingTime)
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        private AdjustmentRule[] GetOrCreateAdjustmentRules() =>
+            _adjustmentRules ??= CreateAdjustmentRules(_definition);
+
         private static AdjustmentRule[] CreateAdjustmentRules(
             TimeZoneDefinition definition)
         {
@@ -612,43 +640,104 @@ namespace System
             }
 
             var rules = new List<AdjustmentRule>(definition.Transitions.Length + 1);
+            var baseOffsetSeconds = NormalizeOffsetToMinute(
+                ResolveBaseUtcOffsetSeconds(definition));
             var start = DateTime.MinValue;
-            var previousOffset = definition.InitialOffsetSeconds;
+            var periodOffsetSeconds = definition.InitialOffsetSeconds;
+            var periodIsDaylight = definition.InitialDaylightSavingTime;
             foreach (var transition in definition.Transitions)
             {
-                var endTicks = AddSeconds(transition.UnixSeconds, previousOffset);
-                var end = ToDate(endTicks);
-                if (start <= end)
+                var transitionTicks = AddSeconds(transition.UnixSeconds, 0);
+                if (transitionTicks <= DateTime.MinValue.Ticks)
                 {
-                    rules.Add(AdjustmentRule.CreateFixedOffsetRule(
-                        start,
-                        end,
-                        TimeSpan.FromSeconds(previousOffset - definition.InitialOffsetSeconds)));
+                    periodOffsetSeconds = transition.OffsetSeconds;
+                    periodIsDaylight = transition.IsDaylightSavingTime;
+                    continue;
                 }
-                start = ToDate(AddSeconds(transition.UnixSeconds, transition.OffsetSeconds));
-                previousOffset = transition.OffsetSeconds;
+                if (transitionTicks > DateTime.MaxValue.Ticks)
+                {
+                    break;
+                }
+
+                var transitionInstant = new DateTime(transitionTicks, DateTimeKind.Utc);
+                rules.Add(CreateTransitionPeriodRule(
+                    start,
+                    transitionInstant.AddTicks(-1),
+                    baseOffsetSeconds,
+                    periodOffsetSeconds,
+                    periodIsDaylight));
+                start = transitionInstant;
+                periodOffsetSeconds = transition.OffsetSeconds;
+                periodIsDaylight = transition.IsDaylightSavingTime;
             }
 
-            if (start <= DateTime.MaxValue.Date)
-            {
-                rules.Add(AdjustmentRule.CreateFixedOffsetRule(
-                    start,
-                    DateTime.MaxValue.Date,
-                    TimeSpan.FromSeconds(previousOffset - definition.InitialOffsetSeconds)));
-            }
+            rules.Add(CreateTransitionPeriodRule(
+                start,
+                DateTime.MaxValue,
+                baseOffsetSeconds,
+                periodOffsetSeconds,
+                periodIsDaylight));
             return rules.ToArray();
         }
 
-        private static DateTime ToDate(long ticks)
+        private static AdjustmentRule CreateTransitionPeriodRule(
+            DateTime start,
+            DateTime end,
+            int baseOffsetSeconds,
+            int periodOffsetSeconds,
+            bool isDaylight)
         {
-            var clamped = ticks < DateTime.MinValue.Ticks
-                ? DateTime.MinValue.Ticks
-                : ticks > DateTime.MaxValue.Ticks
-                    ? DateTime.MaxValue.Ticks
-                    : ticks;
-            var value = new DateTime(clamped, DateTimeKind.Unspecified);
-            return new DateTime(value.Year, value.Month, value.Day);
+            var transitionOffset = TimeSpan.FromSeconds(periodOffsetSeconds) -
+                TimeSpan.FromSeconds(baseOffsetSeconds);
+            if (transitionOffset.Ticks % TimeSpan.TicksPerMinute != 0)
+            {
+                transitionOffset = new TimeSpan(
+                    transitionOffset.Hours,
+                    transitionOffset.Minutes,
+                    0);
+            }
+
+            var daylightDelta = isDaylight ? transitionOffset : TimeSpan.Zero;
+            var baseUtcOffsetDelta = isDaylight ? TimeSpan.Zero : transitionOffset;
+            var rule = AdjustmentRule.CreateAdjustmentRule(
+                start,
+                end,
+                daylightDelta,
+                isDaylight ? s_daylightRuleMarker : default,
+                default,
+                baseUtcOffsetDelta,
+                noDaylightTransitions: true);
+            return NormalizeAdjustmentRuleOffset(baseOffsetSeconds, rule);
         }
+
+        private static AdjustmentRule NormalizeAdjustmentRuleOffset(
+            int baseOffsetSeconds,
+            AdjustmentRule rule)
+        {
+            var utcOffset = TimeSpan.FromSeconds(baseOffsetSeconds) +
+                rule.BaseUtcOffsetDelta +
+                (rule.HasDaylightSaving ? rule.DaylightDelta : TimeSpan.Zero);
+            var maximum = TimeSpan.FromHours(14);
+            var minimum = TimeSpan.FromHours(-14);
+            var adjustment = utcOffset > maximum
+                ? maximum - utcOffset
+                : utcOffset < minimum
+                    ? minimum - utcOffset
+                    : TimeSpan.Zero;
+            return adjustment == TimeSpan.Zero
+                ? rule
+                : AdjustmentRule.CreateAdjustmentRule(
+                    rule.DateStart,
+                    rule.DateEnd,
+                    rule.DaylightDelta,
+                    rule.DaylightTransitionStart,
+                    rule.DaylightTransitionEnd,
+                    rule.BaseUtcOffsetDelta + adjustment,
+                    rule.NoDaylightTransitions);
+        }
+
+        private static int NormalizeOffsetToMinute(int offsetSeconds) =>
+            offsetSeconds / 60 * 60;
 
         private static PlatformNotSupportedException UnsupportedCustomZone() =>
             new("Custom timezone definitions are not supported.");
@@ -661,27 +750,18 @@ namespace System
             private readonly ITimeZoneTransitionResolver _transitions =
                 new TimeZoneTransitionResolver();
             private readonly Dictionary<string, TimeZoneInfo> _zones =
-                new Dictionary<string, TimeZoneInfo>(StringComparer.OrdinalIgnoreCase);
+                new Dictionary<string, TimeZoneInfo>(StringComparer.Ordinal);
 
             internal TimeZoneCatalog()
             {
-                _localId = ReadLocalId();
+                var snapshot = PlatformServices.TimeZoneCatalogSnapshot;
+                _localId = snapshot.LocalId;
                 if (_localId == null || _localId == UtcId || _localId == "Etc/UTC")
                 {
                     return;
                 }
-
-                try
-                {
-                    _asset = ReadAsset();
-                    _definitions = new TimeZoneDefinitionResolverFactory().Create(_asset);
-                }
-                catch (TimeZoneAssetValidationException exception)
-                {
-                    throw new InvalidTimeZoneException(
-                        "The selected timezone asset is invalid.",
-                        exception);
-                }
+                _asset = snapshot.Asset;
+                _definitions = snapshot.Definitions;
             }
 
             internal TimeZoneInfo CreateLocal()
@@ -689,11 +769,12 @@ namespace System
                 if (_localId == null || _localId == UtcId || _localId == "Etc/UTC")
                 {
                     return new TimeZoneInfo(
-                        LocalId,
+                        UtcId,
                         s_utc._definition,
                         s_utc._transitions,
                         isUtc: false,
                         isLocal: true,
+                        hasIanaId: true,
                         Array.Empty<AdjustmentRule>());
                 }
                 return Create(_localId, isLocal: true);
@@ -731,31 +812,12 @@ namespace System
                     _transitions,
                     isUtc: false,
                     isLocal,
+                    hasIanaId: true,
                     null);
                 _zones[id] = zone;
                 return zone;
             }
 
-            private static string? ReadLocalId() =>
-                new EnvironmentVariableReader(
-                    new WasiEnvironmentVariableSource(new WasiEnvironmentInvoker()))
-                    .Read("TZ");
-
-            private static TimeZoneAsset ReadAsset()
-            {
-                var bytes = new TimeZoneAssetByteReader(
-                    new WasiPreopenedDirectorySource(new WasiPreopensInvoker()),
-                    new WasiReadOnlyFileOpener(new WasiDescriptorOpenInvoker()),
-                    new WasiReadOnlyFileReader(new WasiDescriptorReadInvoker()),
-                    new WasiDescriptorReleaser()).Read(LocalTimePreflightValidator.AssetName);
-                var asset = new TimeZoneAssetParser(new TimeZoneAssetDigestCalculator()).Parse(bytes);
-                if (asset.DataVersion != LocalTimePreflightValidator.RequiredDataVersion)
-                {
-                    throw new PlatformNotSupportedException(
-                        "The timezone asset data version is not supported.");
-                }
-                return asset;
-            }
         }
     }
 }

@@ -10,7 +10,8 @@ public sealed class ComponentCoreModuleWorkspace : IDisposable
         string hostModulePath,
         string managedExecutableAdapterModulePath,
         string mergedModulePath,
-        string sanitizedModulePath)
+        string sanitizedModulePath,
+        string sanitizedRuntimeModulePath)
     {
         _deletions = deletions ?? throw new ArgumentNullException(nameof(deletions));
         EnvironmentModulePath = environmentModulePath ??
@@ -23,6 +24,8 @@ public sealed class ComponentCoreModuleWorkspace : IDisposable
             throw new ArgumentNullException(nameof(mergedModulePath));
         SanitizedModulePath = sanitizedModulePath ??
             throw new ArgumentNullException(nameof(sanitizedModulePath));
+        SanitizedRuntimeModulePath = sanitizedRuntimeModulePath ??
+            throw new ArgumentNullException(nameof(sanitizedRuntimeModulePath));
     }
 
     public string EnvironmentModulePath { get; }
@@ -35,6 +38,8 @@ public sealed class ComponentCoreModuleWorkspace : IDisposable
 
     public string SanitizedModulePath { get; }
 
+    public string SanitizedRuntimeModulePath { get; }
+
     private readonly IFileDeleter _deletions;
 
     public void Dispose()
@@ -44,5 +49,6 @@ public sealed class ComponentCoreModuleWorkspace : IDisposable
         _deletions.Delete(ManagedExecutableAdapterModulePath);
         _deletions.Delete(MergedModulePath);
         _deletions.Delete(SanitizedModulePath);
+        _deletions.Delete(SanitizedRuntimeModulePath);
     }
 }

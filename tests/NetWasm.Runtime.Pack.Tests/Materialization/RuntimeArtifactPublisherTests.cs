@@ -6,7 +6,9 @@ namespace NetWasm.Runtime.Pack.Tests.Materialization;
 
 public sealed class RuntimeArtifactPublisherTests
 {
-    private readonly RuntimeArtifactPublisher _publisher = new(new Sha256ArtifactDigestCalculator());
+    private readonly RuntimeArtifactPublisher _publisher = new(
+        new Sha256ArtifactDigestCalculator(),
+        new RuntimeArtifactWriter());
 
     [Fact]
     public void PublishesMissingOrChangedOutput()

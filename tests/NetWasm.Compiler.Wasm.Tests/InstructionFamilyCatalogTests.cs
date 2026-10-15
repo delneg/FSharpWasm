@@ -12,12 +12,12 @@ public sealed class InstructionFamilyCatalogTests
     [InlineData(CilOperation.AddChecked, "Numeric")]
     [InlineData(CilOperation.CopyBlock, "ValueObjectBlockMemory")]
     [InlineData(CilOperation.StoreField, "ArraysFieldsStatics")]
+    [InlineData(CilOperation.LoadStaticDataElement, "ArraysFieldsStatics")]
     [InlineData(CilOperation.Box, "AllocationBoxingTypes")]
     [InlineData(CilOperation.MaterializeMethod, "AllocationBoxingTypes")]
     [InlineData(CilOperation.MaterializeField, "AllocationBoxingTypes")]
     [InlineData(CilOperation.GetTypeFacts, "AllocationBoxingTypes")]
     [InlineData(CilOperation.CallVirtual, "CallsAndCallableLoading")]
-    [InlineData(CilOperation.DelegateCombine, "Delegates")]
     [InlineData(CilOperation.BranchIfTrue, "StructuredControlFlow")]
     [InlineData(CilOperation.Throw, "ExceptionsAndRoots")]
     public void OperationHasMeaningfulFamily(
@@ -53,7 +53,7 @@ public sealed class InstructionFamilyCatalogTests
         var registrations = new[]
         {
             Registration(InstructionFamily.Numeric, CilOperation.Nop),
-            Registration(InstructionFamily.Delegates, CilOperation.Nop),
+            Registration(InstructionFamily.CallsAndCallableLoading, CilOperation.Nop),
         };
 
         var exception = Assert.Throws<InvalidOperationException>(() =>

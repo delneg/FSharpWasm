@@ -21,21 +21,20 @@ namespace System
             _length = array.Length;
         }
 
-        public ReadOnlySpan(T[] array, int start, int length)
+        public ReadOnlySpan(T[]? array, int start, int length)
         {
             if (array == null)
             {
-                throw new ArgumentNullException();
+                if (start != 0 || length != 0)
+                {
+                    throw new ArgumentOutOfRangeException();
+                }
+                _reference = ref Unsafe.NullRef<T>();
+                _length = 0;
+                return;
             }
-            if (start < 0)
-            {
-                throw new ArgumentOutOfRangeException();
-            }
-            if (length < 0)
-            {
-                throw new ArgumentOutOfRangeException();
-            }
-            if (start > array.Length - length)
+            if ((uint)start > (uint)array.Length ||
+                (uint)length > (uint)(array.Length - start))
             {
                 throw new ArgumentOutOfRangeException();
             }
@@ -58,6 +57,10 @@ namespace System
 
         public unsafe ReadOnlySpan(void* pointer, int length)
         {
+            if (RuntimeHelpers.IsReferenceOrContainsReferences<T>())
+            {
+                throw new ArgumentException();
+            }
             if (length < 0)
             {
                 throw new ArgumentOutOfRangeException();
@@ -74,6 +77,11 @@ namespace System
         public bool IsEmpty
         {
             get => _length == 0;
+        }
+
+        internal ref T DangerousReference
+        {
+            get => ref _reference;
         }
 
         public static ReadOnlySpan<T> Empty
@@ -108,10 +116,11 @@ namespace System
         }
 
         public static bool operator ==(ReadOnlySpan<T> left, ReadOnlySpan<T> right) =>
-            throw new PlatformNotSupportedException();
+            left._length == right._length &&
+            Unsafe.AreSame(ref left._reference, ref right._reference);
 
         public static bool operator !=(ReadOnlySpan<T> left, ReadOnlySpan<T> right) =>
-            throw new PlatformNotSupportedException();
+            !(left == right);
 
         public override bool Equals(object? value) =>
             throw new NotSupportedException();
@@ -206,18 +215,30 @@ namespace System
 
         public void CopyTo(Span<T> destination)
         {
-            var source = new Span<T>(ref _reference, _length);
-            source.CopyTo(destination);
+            if ((uint)_length <= (uint)destination.Length)
+            {
+                Buffer.Memmove(
+                    ref destination.DangerousReference,
+                    ref _reference,
+                    _length);
+                return;
+            }
+
+            throw new ArgumentException();
         }
 
         public bool TryCopyTo(Span<T> destination)
         {
-            if (_length > destination.Length)
+            if ((uint)_length <= (uint)destination.Length)
             {
-                return false;
+                Buffer.Memmove(
+                    ref destination.DangerousReference,
+                    ref _reference,
+                    _length);
+                return true;
             }
-            CopyTo(destination);
-            return true;
+
+            return false;
         }
 
         public T[] ToArray()

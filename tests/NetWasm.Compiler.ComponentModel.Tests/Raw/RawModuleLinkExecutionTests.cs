@@ -1,10 +1,62 @@
 using NetWasm.Compiler.ComponentModel.Raw;
+using NetWasm.Compiler.ComponentModel.Inlining;
+using NetWasm.Compiler.ComponentModel.Optimization;
 
 namespace NetWasm.Compiler.ComponentModel.Tests.Raw;
 
 public sealed class RawModuleLinkExecutionTests
 {
-    private static readonly string[] ExpectedStages = ["environment", "merge", "optimize", "publish"];
+    private static readonly string[] ExpectedStages =
+        ["environment", "managed-inlining", "runtime-inlining", "merge", "optimize", "publish"];
+
+    [Fact]
+    public void ResolvesOnceAndForwardsEffectiveSettingsWithoutReinterpretingPreset()
+    {
+        var stages = new RecordingStages();
+        var resolver = new RecordingSettingsResolver();
+        var options = new WasmOptimizationOverrides(ManagedInliningHints.Preserve);
+        var request = new RawModuleLinkRequest("application", "runtime", "output", ComponentTarget.Wasm32Wasi02)
+        { OptimizationOverrides = options };
+        var execution = Assert.IsAssignableFrom<IRawModuleLinkExecution>(new RawModuleLinkExecution(
+            stages, stages, stages, stages, stages, resolver, stages));
+        execution.Run(request, CreateWorkspace(stages));
+        Assert.Equal(1, resolver.Calls);
+        Assert.Equal((FinalWasmOptimization.Oz, options), resolver.Request);
+        Assert.Equal(
+            ("application", Path.Combine("temporary", "sanitized.wasm"), WasmInlineAnnotationSelection.Preserve),
+            stages.Inlinings[0]);
+        Assert.Equal(
+            ("runtime", Path.Combine("temporary", "runtime-sanitized.wasm"), WasmInlineAnnotationSelection.SizeAware),
+            stages.Inlinings[1]);
+        Assert.Equal(FinalWasmOptimization.O1, stages.Optimization!.Value.Item4);
+    }
+
+    [Fact]
+    public void InvalidOverrideDisposesWorkspaceWithoutStartingLinkWork()
+    {
+        var stages = new RecordingStages();
+        var request = new RawModuleLinkRequest("application", "runtime", "output", ComponentTarget.Wasm32Wasi02,
+            FinalWasmOptimization.None)
+        { OptimizationOverrides = new(ManagedInliningHints.Preserve) };
+        Assert.Throws<ArgumentException>(() => CreateExecution(stages).Run(request, CreateWorkspace(stages)));
+        Assert.Equal(["delete"], stages.Calls);
+    }
+
+    private sealed class RecordingSettingsResolver : IWasmOptimizationSettingsResolver
+    {
+        public int Calls { get; private set; }
+        public (FinalWasmOptimization, WasmOptimizationOverrides?) Request { get; private set; }
+
+        public WasmOptimizationSettings Resolve(FinalWasmOptimization preset, WasmOptimizationOverrides? options = null)
+        {
+            Calls++;
+            Request = (preset, options);
+            return new(
+                FinalWasmOptimization.O1,
+                WasmInlineAnnotationSelection.Preserve,
+                WasmInlineAnnotationSelection.SizeAware);
+        }
+    }
 
     [Theory]
     [InlineData("wasm32")]
@@ -16,21 +68,30 @@ public sealed class RawModuleLinkExecutionTests
 
         CreateExecution(stages).Run(request, CreateWorkspace(stages));
 
-        Assert.Equal(["environment", "merge", "optimize", "publish", "delete"], stages.Calls);
+        Assert.Equal(["environment", "managed-inlining", "runtime-inlining", "merge", "optimize", "publish", "delete"], stages.Calls);
         Assert.Equal((Path.Combine("temporary", "environment.wasm"), request.Target), stages.Environment);
-        Assert.Equal(new ComponentCoreModuleMergeRequest("application", "runtime",
+        Assert.Equal(new ComponentCoreModuleMergeRequest(Path.Combine("temporary", "sanitized.wasm"),
+            Path.Combine("temporary", "runtime-sanitized.wasm"),
             Path.Combine("temporary", "environment.wasm"), Path.Combine("temporary", "merged.wasm"), request.Target), stages.Merge);
         Assert.Equal((Path.Combine("temporary", "merged.wasm"), "linked", request.Target,
             FinalWasmOptimization.Oz), stages.Optimization);
         Assert.Equal(("linked", "output"), stages.Publication);
         Assert.Equal("temporary", stages.DeletedDirectory);
+        Assert.Equal(
+            [
+                ("application", Path.Combine("temporary", "sanitized.wasm"), WasmInlineAnnotationSelection.SizeAware),
+                ("runtime", Path.Combine("temporary", "runtime-sanitized.wasm"), WasmInlineAnnotationSelection.SizeAware),
+            ],
+            stages.Inlinings);
     }
 
     [Theory]
     [InlineData("environment", 1)]
-    [InlineData("merge", 2)]
-    [InlineData("optimize", 3)]
-    [InlineData("publish", 4)]
+    [InlineData("managed-inlining", 2)]
+    [InlineData("runtime-inlining", 3)]
+    [InlineData("merge", 4)]
+    [InlineData("optimize", 5)]
+    [InlineData("publish", 6)]
     public void FailureStopsLaterWorkAndDisposesOwnedWorkspace(string stage, int count)
     {
         var stages = new RecordingStages { FailingStage = stage };
@@ -58,12 +119,24 @@ public sealed class RawModuleLinkExecutionTests
     public void RequiresEveryCapability()
     {
         var stages = new RecordingStages();
-        Assert.Throws<ArgumentNullException>(() => new RawModuleLinkExecution(null!, stages, stages, stages, stages));
-        Assert.Throws<ArgumentNullException>(() => new RawModuleLinkExecution(stages, null!, stages, stages, stages));
-        Assert.Throws<ArgumentNullException>(() => new RawModuleLinkExecution(stages, stages, null!, stages, stages));
-        Assert.Throws<ArgumentNullException>(() => new RawModuleLinkExecution(stages, stages, stages, null!, stages));
-        Assert.Throws<ArgumentNullException>(() => new RawModuleLinkExecution(stages, stages, stages, stages, null!));
+        Assert.Throws<ArgumentNullException>(() => new RawModuleLinkExecution(null!, stages, stages, stages, stages, new WasmOptimizationSettingsResolver(), stages));
+        Assert.Throws<ArgumentNullException>(() => new RawModuleLinkExecution(stages, null!, stages, stages, stages, new WasmOptimizationSettingsResolver(), stages));
+        Assert.Throws<ArgumentNullException>(() => new RawModuleLinkExecution(stages, stages, null!, stages, stages, new WasmOptimizationSettingsResolver(), stages));
+        Assert.Throws<ArgumentNullException>(() => new RawModuleLinkExecution(stages, stages, stages, null!, stages, new WasmOptimizationSettingsResolver(), stages));
+        Assert.Throws<ArgumentNullException>(() => new RawModuleLinkExecution(stages, stages, stages, stages, null!, new WasmOptimizationSettingsResolver(), stages));
+        Assert.Throws<ArgumentNullException>(() => new RawModuleLinkExecution(stages, stages, stages, stages, stages, null!, stages));
+        Assert.Throws<ArgumentNullException>(() => new RawModuleLinkExecution(stages, stages, stages, stages, stages, new WasmOptimizationSettingsResolver(), null!));
         Assert.Empty(stages.Calls);
+    }
+
+    [Fact]
+    public void RejectsUnknownModeBeforeCreatingSupportModules()
+    {
+        var stages = new RecordingStages();
+        Assert.Throws<ArgumentOutOfRangeException>(() => CreateExecution(stages).Run(
+            new("application", "runtime", "output", ComponentTarget.Wasm32Wasi02,
+                (FinalWasmOptimization)255), CreateWorkspace(stages)));
+        Assert.Equal(["delete"], stages.Calls);
     }
 
     [Theory]
@@ -78,7 +151,7 @@ public sealed class RawModuleLinkExecutionTests
             InternalApplicationExports = [new("callback", 0)],
         };
         CreateExecution(stages).Run(request, CreateWorkspace(stages));
-        Assert.Equal(["environment", "merge", "exports", "optimize", "publish", "delete"], stages.Calls);
+        Assert.Equal(["environment", "managed-inlining", "runtime-inlining", "merge", "exports", "optimize", "publish", "delete"], stages.Calls);
         Assert.Null(stages.Selection!.ComponentPrefix);
         Assert.Equal(
             request.InternalRuntimeExports.AddRange(
@@ -94,7 +167,7 @@ public sealed class RawModuleLinkExecutionTests
         var request = new RawModuleLinkRequest("application", "runtime", "output", ComponentTarget.Wasm32Wasi02)
         { InternalRuntimeExports = [new("native", 0)] };
         Assert.Same(stages.Failure, Assert.Throws<InvalidOperationException>(() => CreateExecution(stages).Run(request, CreateWorkspace(stages))));
-        Assert.Equal(["environment", "merge", "exports", "delete"], stages.Calls);
+        Assert.Equal(["environment", "managed-inlining", "runtime-inlining", "merge", "exports", "delete"], stages.Calls);
         Assert.Null(stages.Optimization);
         Assert.Null(stages.Publication);
     }
@@ -116,13 +189,14 @@ public sealed class RawModuleLinkExecutionTests
     }
 
     private static IRawModuleLinkExecution CreateExecution(RecordingStages stages) =>
-        Assert.IsAssignableFrom<IRawModuleLinkExecution>(new RawModuleLinkExecution(stages, stages, stages, stages, stages));
+        Assert.IsAssignableFrom<IRawModuleLinkExecution>(new RawModuleLinkExecution(stages, stages, stages, stages, stages, new WasmOptimizationSettingsResolver(), stages));
 
     private static ComponentPackageWorkspace CreateWorkspace(RecordingStages stages) =>
         new(stages, "temporary", "linked", "embedded", "unstripped", "component");
 
     private sealed class RecordingStages : IEmscriptenEnvironmentShimWriter,
-        IComponentCoreModuleMergeRunner, IComponentCoreModuleOptimizer, IFileMover, IDirectoryDeleter, IWasmCoreModuleExportEditor
+        IComponentCoreModuleMergeRunner, IComponentCoreModuleOptimizer, IFileMover, IDirectoryDeleter,
+        IWasmCoreModuleExportEditor, IWasmCoreModuleInlineAnnotationEditor
     {
         public List<string> Calls { get; } = [];
         public string? FailingStage { get; init; }
@@ -133,6 +207,13 @@ public sealed class RawModuleLinkExecutionTests
         public (string, string)? Publication { get; private set; }
         public string? DeletedDirectory { get; private set; }
         public WasmExportSelection? Selection { get; private set; }
+        public List<(string, string, WasmInlineAnnotationSelection)> Inlinings { get; } = [];
+
+        public void Rewrite(string inputPath, string outputPath, WasmInlineAnnotationSelection selection)
+        {
+            Enter(inputPath == "application" ? "managed-inlining" : "runtime-inlining");
+            Inlinings.Add((inputPath, outputPath, selection));
+        }
         public void Rewrite(string inputPath, string outputPath, WasmExportSelection selection)
         {
             Enter("exports");

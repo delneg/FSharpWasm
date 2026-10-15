@@ -17,6 +17,8 @@ public class ExternalException : SystemException
 
     public ExternalException(string? message, int errorCode) : base(message) =>
         HResult = errorCode;
+
+    public virtual int ErrorCode => HResult;
 }
 
 public class COMException : ExternalException

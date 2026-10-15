@@ -2,11 +2,11 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using NetWasm.Compiler.Core.Types;
 using NetWasm.Compiler.Wasm.Emission.Instructions.Calls;
-using NetWasm.Compiler.Wasm.Emission.Instructions.Delegates;
 using NetWasm.Compiler.Wasm.Emission.Instructions.Memory;
 using NetWasm.Compiler.Wasm.Emission.Instructions.NativeIntegers;
 using NetWasm.Compiler.Wasm.Emission.Instructions.Objects;
 using NetWasm.Compiler.Wasm.Emission.Exceptions;
+using NetWasm.Compiler.Wasm.Emission.Instructions.Runtime;
 
 namespace NetWasm.Compiler.Wasm.Emission.Instructions;
 
@@ -17,7 +17,6 @@ internal static class InstructionEmissionServiceCollectionExtensions
     {
         services.AddSingleton<INativeIntegerConversionEmitter,
             NativeIntegerConversionEmitter>();
-        services.AddWasmDelegateInstructions();
         services.AddWasmMemoryInstructions();
         services.AddWasmObjectInstructions();
 
@@ -26,6 +25,9 @@ internal static class InstructionEmissionServiceCollectionExtensions
         services.AddSingleton<IArgumentTypeResolver, ArgumentTypeResolver>();
         services.AddSingleton<IArgumentSignatureTypeResolver,
             ArgumentSignatureTypeResolver>();
+        services.AddSingleton<BulkValueCopyEmitter>();
+        services.AddSingleton<IValueCopyEmitter>(provider =>
+            new SmallValueCopyEmitter(provider.GetRequiredService<BulkValueCopyEmitter>()));
         services.AddSingleton<IImplicitExceptionEmitter, ImplicitExceptionEmitter>();
         services.AddSingleton<IExceptionPayloadBlockEmitter,
             ExceptionPayloadBlockEmitter>();
@@ -59,6 +61,8 @@ internal static class InstructionEmissionServiceCollectionExtensions
 
         services.AddSingleton<IInstructionDispatcherFactory,
             InstructionDispatcherFactory>();
+        services.AddSingleton<IStackStorageAnchorValueEmitter, StackStorageAnchorValueEmitter>();
+        services.AddSingleton<IStackStorageAnchorEmitter, StackStorageAnchorEmitter>();
         services.AddSingleton<ICilInstructionDispatcher>(provider =>
             provider.GetRequiredService<IInstructionDispatcherFactory>().Create());
         return services;

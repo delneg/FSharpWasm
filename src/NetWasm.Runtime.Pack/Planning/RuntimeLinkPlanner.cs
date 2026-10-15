@@ -18,12 +18,20 @@ public static class RuntimeLinkPlanner
         ArgumentNullException.ThrowIfNull(request);
         ValidateVirtualPath(request.AssetRoot);
         ValidateVirtualPath(request.OutputPath);
-        var manifest = RuntimePackManifestReader.ReadJson(request.ManifestJson);
+        var manifest = new RuntimePackManifestParser().Parse(request.ManifestJson);
         if (!Enum.IsDefined(request.Optimization))
         {
             throw new ArgumentOutOfRangeException(nameof(request));
         }
-        var target = new RuntimePackTargetSelector().Select(manifest, request.Target, request.GarbageCollector);
+        var policies = new RuntimeOptimizationPolicyResolver();
+        var target = new RuntimePackTargetSelector(policies).Select(
+            manifest, request.Target, request.GarbageCollector, request.Optimization);
+        new RuntimeCollectorCompatibilityValidator().Validate(
+            target,
+            new RuntimeLayout(3, request.Target, request.ApplicationStaticDataEnd)
+            {
+                RuntimeFeatures = request.RuntimeFeatures,
+            });
         var layout = new RuntimeMemoryLayoutCalculator(new RuntimeMemoryPlanBuilder()).Calculate(new(
             target, manifest.WasmPageSize, request.ApplicationStaticDataEnd,
             request.InitialHeapSizeBytes, request.MaximumMemorySizeBytes));
@@ -120,7 +128,7 @@ public static class RuntimeLinkPlanner
         paths[Path.GetFullPath(request.OutputPath)] = request.OutputPath;
         var virtualArguments = arguments.Select(argument => MapPathArgument(argument, paths))
             .ToImmutableArray();
-        var optimizationArguments = new RuntimeOptimizationArgumentBuilder()
+        var optimizationArguments = new RuntimeOptimizationArgumentBuilder(policies)
             .Build(new(target, request.OutputPath, request.Optimization)
             {
                 RuntimeGlobalBase = layout.RuntimeGlobalBase,

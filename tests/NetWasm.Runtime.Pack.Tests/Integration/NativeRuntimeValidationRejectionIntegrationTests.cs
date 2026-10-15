@@ -138,6 +138,7 @@ public sealed class NativeRuntimeValidationRejectionIntegrationTests
                 schemaVersion = 3,
                 target,
                 applicationStaticDataEnd = 65_537,
+                runtimeFeatures = Array.Empty<string>(),
                 nativeImports = new[] { new { libraryName = "probe", entryPoint = "native_probe", parameters = Array.Empty<string>(), returnType = "i32" } },
             }));
             Request = new(Path.Combine(assetRoot, "runtime-pack.json"), layout, assetRoot,

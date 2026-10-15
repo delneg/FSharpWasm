@@ -6,6 +6,8 @@ using NetWasm.Compiler.Core;
 using NetWasm.Compiler.Wasm.Emission.Instructions;
 using NetWasm.Compiler.Wasm.Emission.Planning;
 using NetWasm.Compiler.Wasm.Encoding;
+using NetWasm.Compiler.Wasm.Emission.Values;
+using NetWasm.Compiler.Wasm.Emission.CallLifetimes;
 
 namespace NetWasm.Compiler.Wasm.Emission.Methods;
 
@@ -16,7 +18,12 @@ internal sealed class ManagedMethodSequenceEmitter(
     IStructuredLeaveEmitter leaves,
     IBranchComparisonEmitter branchComparisons,
     ICilInstructionDispatcher instructionDispatcher,
-    IStackTraceFrameLocationEmitter stackTraceLocations) : IManagedMethodSequenceEmitter
+    IStackTraceFrameLocationEmitter stackTraceLocations,
+    IManagedAggregateValueInstructionEmitter managedAggregateValues,
+    IManagedAggregateValueReloadEmitter managedAggregateReloads,
+    ITerminalBranchValueFrameEmitter branchValueFrames,
+    IScalarCallPreservationEmitter scalarCalls) :
+    IManagedMethodSequenceEmitter
 {
     public ManagedMethodSequenceEmission Emit(
         IWasmInstructionWriter code,
@@ -38,6 +45,11 @@ internal sealed class ManagedMethodSequenceEmitter(
 
         var blockEmissionCounts = new Dictionary<int, int>();
         var explicitlyOriginalBlocks = new HashSet<int>();
+        context = context with
+        {
+            EmittedExceptionGroups = [],
+            RecordOriginalBlockOwnership = true,
+        };
         EmitSequence(
             code,
             method,
@@ -68,6 +80,17 @@ internal sealed class ManagedMethodSequenceEmitter(
         int? loopContinueDepth,
         int? exceptionLeaveDepth)
     {
+        if (ReferenceEquals(sequence, method.Body) && context.TerminalBranchValueFramePlacement is { } placement)
+        {
+            branchValueFrames.Emit(code, header, context with { TerminalBranchValueFramePlacement = null }, placement,
+                (condition, conditionContext) => EmitBlock(code, method, header, condition, true,
+                    condition.Role == StructuredBlockRole.Owner, conditionContext, target, functionIndices,
+                    blockEmissionCounts, explicitlyOriginalBlocks),
+                (body, bodyContext) => EmitSequence(code, method, header, body, bodyContext, target,
+                    functionIndices, blockEmissionCounts, explicitlyOriginalBlocks,
+                    loopBreakDepth, loopContinueDepth, exceptionLeaveDepth));
+            return;
+        }
         controlFlow.Emit(
             code,
             method,
@@ -163,7 +186,7 @@ internal sealed class ManagedMethodSequenceEmitter(
     {
         var definition = structured.Blocks[occurrence.Block];
         var blockIndex = occurrence.Block.Value;
-        if (recordOriginal)
+        if (recordOriginal && context.RecordOriginalBlockOwnership)
         {
             if (explicitlyOriginalBlocks.Add(blockIndex))
             {
@@ -306,14 +329,19 @@ internal sealed class ManagedMethodSequenceEmitter(
                     instruction.SourceOffset),
                 context.RuntimeImportSelection);
         }
-        instructionDispatcher.Emit(new(
+        var request = new InstructionEmissionRequest(
             header,
-                instruction,
-                stack,
-                context,
-                target),
-            code,
-            functionIndices);
+            instruction,
+            stack,
+            context,
+            target);
+        scalarCalls.Emit(request, code, ScalarCallPreservationPhase.BeforeCall);
+        if (!managedAggregateValues.TryEmit(request, code))
+        {
+            instructionDispatcher.Emit(request, code, functionIndices);
+        }
+        managedAggregateReloads.Emit(request, code);
+        scalarCalls.Emit(request, code, ScalarCallPreservationPhase.AfterNormalReturn);
     }
 
     private int GetStackLocal(

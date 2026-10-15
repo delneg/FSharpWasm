@@ -61,6 +61,7 @@ public sealed class NativeRuntimeMaterializationIntegrationTests
         File.WriteAllText(layout, JsonSerializer.Serialize(new
         {
             schemaVersion = 3, target, applicationStaticDataEnd = 65_537,
+            runtimeFeatures = Array.Empty<string>(),
             nativeImports = new[]
             {
                 new { libraryName = "mule", entryPoint = "native_mule_probe", parameters = Array.Empty<string>(), returnType = "i32" },

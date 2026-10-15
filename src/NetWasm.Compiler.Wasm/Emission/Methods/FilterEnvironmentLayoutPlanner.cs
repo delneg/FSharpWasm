@@ -16,10 +16,12 @@ internal sealed class FilterEnvironmentLayoutPlanner(
 {
     public FilterEnvironmentLayout Create(
         StructuredMethod method,
-        ValueFrameLayout valueLayout)
+        ValueFrameLayout valueLayout,
+        MethodRootMap rootMap)
     {
         ArgumentNullException.ThrowIfNull(method);
         ArgumentNullException.ThrowIfNull(valueLayout);
+        ArgumentNullException.ThrowIfNull(rootMap);
 
         var header = method.Header;
         var slots = new HashSet<CapturedSlot>();
@@ -50,6 +52,19 @@ internal sealed class FilterEnvironmentLayoutPlanner(
                         argument,
                         CilOperandReader.GetIndex(instruction)));
                 }
+                if (rootMap.Safepoints.TryGetValue(instruction.Offset, out var safepoint))
+                {
+                    foreach (var source in safepoint.Roots.Concat(safepoint.ConstructorCallRoots))
+                    {
+                        CapturedSlot? root = source.Kind switch
+                        {
+                            RootSourceKind.Argument or RootSourceKind.ManagedAddressArgument => new(true, source.Index),
+                            RootSourceKind.Local or RootSourceKind.ManagedAddressLocal => new(false, source.Index),
+                            _ => null,
+                        };
+                        if (root is { } captured) slots.Add(captured);
+                    }
+                }
             }
         }
         if (!hasFilters)
@@ -60,6 +75,16 @@ internal sealed class FilterEnvironmentLayoutPlanner(
         var size = valueLayout.Size;
         var rootFrameOffset = size;
         size = checked(size + layouts.Target.AddressSize);
+        var parentRootFrameOffset = size;
+        size = checked(size + layouts.Target.AddressSize);
+        var anchorOffsets = ImmutableDictionary.CreateBuilder<int, int>();
+        foreach (var (anchor, index) in rootMap.AnchorPlan.Anchors.Select((anchor, index) => (anchor, index))
+                     .Where(item => item.anchor.Location.Kind == StackStorageLocationKind.Local))
+        {
+            size = Align(size, layouts.Target.AddressSize);
+            anchorOffsets.Add(index, size);
+            size = checked(size + layouts.Target.AddressSize);
+        }
         var rootSlot = 0;
         var captures = ImmutableDictionary.CreateBuilder<CapturedSlot, FilterCapture>();
         foreach (var slot in slots
@@ -107,7 +132,11 @@ internal sealed class FilterEnvironmentLayoutPlanner(
             Align(size, layouts.Target.ObjectReferenceAlignment),
             rootSlot,
             rootFrameOffset,
-            captures.ToImmutable());
+            captures.ToImmutable())
+        {
+            ParentRootFrameOffset = parentRootFrameOffset,
+            AnchorOffsets = anchorOffsets.ToImmutable(),
+        };
     }
 
     private static int Align(int value, int alignment) =>

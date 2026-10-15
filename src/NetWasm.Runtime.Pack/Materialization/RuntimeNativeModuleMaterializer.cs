@@ -26,6 +26,8 @@ internal sealed class RuntimeNativeModuleMaterializer(
     IRuntimeMaterializationCacheReader cacheReader,
     IRuntimeMaterializationCacheWriter cacheWriter,
     IRuntimeArtifactPublisher publisher,
+    IRuntimeArtifactWriter artifactWriter,
+    IRuntimeInlineIntentWriter inlineIntents,
     IRuntimeArtifactReader artifacts,
     IRuntimeNativeArchiveSnapshotter snapshots,
     ICommandInvoker commands,
@@ -140,7 +142,7 @@ internal sealed class RuntimeNativeModuleMaterializer(
             {
                 using var warmWorkspace = workspaces.Create(consumer.LogDirectory);
                 var warmOutput = Path.Combine(warmWorkspace.DirectoryPath, "cached-runtime.wasm");
-                publisher.PublishIfDifferent(warmOutput, cached.Bytes!, cached.Sha256!);
+                artifactWriter.Write(warmOutput, cached.Bytes!);
                 validation.Validate(new(profile, consumer.Target, warmOutput, consumer.WasmToolsNodePath,
                     consumer.WasmToolsCommandPath, consumer.WasmToolsModulePath,
                     Path.Combine(warmWorkspace.LogDirectoryPath, "native-cache-validate.log")));
@@ -160,10 +162,9 @@ internal sealed class RuntimeNativeModuleMaterializer(
             ownedCallbackPath = Path.Combine(
                 workspace.DirectoryPath,
                 callbackSupport.FileName);
-            publisher.PublishIfDifferent(
+            artifactWriter.Write(
                 ownedCallbackPath,
-                callbackObject!,
-                callbackSupport.Sha256);
+                callbackObject!);
             ownedCallbackAllowPath = Path.Combine(
                 workspace.DirectoryPath,
                 "combined.allow-undefined");
@@ -174,10 +175,9 @@ internal sealed class RuntimeNativeModuleMaterializer(
                 artifacts.Read(runtimeAllowedPath),
                 callbackSupport.Callbacks.Select(
                     callback => callback.RuntimeImportSymbol));
-            publisher.PublishIfDifferent(
+            artifactWriter.Write(
                 ownedCallbackAllowPath,
-                allowed,
-                Convert.ToHexString(SHA256.HashData(allowed)).ToLowerInvariant());
+                allowed);
         }
         var selectedArchives = bindings.Select(binding => binding.Provider)
             .DistinctBy(provider => provider.Path, StringComparer.Ordinal).ToImmutableArray();
@@ -226,6 +226,9 @@ internal sealed class RuntimeNativeModuleMaterializer(
                     RuntimeGlobalBase = plan.RuntimeGlobalBase,
                 }),
                 Path.Combine(workspace.LogDirectoryPath, "native-optimize.log")));
+        var annotated = inlineIntents.Write(
+            artifacts.Read(output), request.Manifest.InlineIntents);
+        artifactWriter.Write(output, annotated);
         validation.Validate(new(profile, consumer.Target, output, consumer.WasmToolsNodePath,
             consumer.WasmToolsCommandPath, consumer.WasmToolsModulePath,
             Path.Combine(workspace.LogDirectoryPath, "native-validate.log")));

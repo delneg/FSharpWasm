@@ -214,6 +214,7 @@ internal static class CorrectnessTestAssets
         """,
         [0, 1, 2, 3, 4, 5, 6, 7, 8]) with
     {
+        CaptureCompilerDiagnostics = true,
         ExposesLegacyTrace = false,
         ExecuteWasm64 = true,
         ExecuteOptimizedWasm = true,

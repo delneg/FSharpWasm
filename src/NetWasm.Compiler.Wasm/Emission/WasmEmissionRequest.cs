@@ -53,6 +53,9 @@ public sealed record WasmEmissionRequest(
 
     public ImmutableArray<ManagedDelegateBinding> DelegateBindings { get; init; } = [];
 
+    public ManagedByRefEffects ManagedByRefEffects { get; init; } =
+        ManagedByRefEffects.Empty;
+
     public ImmutableDictionary<string, ObjectArrayDelegateAdapterPlan>
         ObjectArrayDelegateAdapters
     { get; init; } = ImmutableDictionary<string, ObjectArrayDelegateAdapterPlan>.Empty;
@@ -73,6 +76,13 @@ public sealed record WasmEmissionRequest(
     public bool UseJavaScriptExportBoundary { get; init; }
 
     public bool StructuredDiagnostics { get; init; }
+
+    public bool EnableAddressTakenAggregatePromotion { get; init; }
+
+    public bool EnableBranchValueFramePlacement { get; init; }
+
+    public bool EnableArrayMetadataCaching { get; init; }
+    public bool EnableScalarCallPreservation { get; init; }
 
     public ImmutableDictionary<EntityKey, ImmutableArray<WasmSourceLocation>>
         SourceLocations

@@ -11,5 +11,5 @@ internal interface IControlFlowDispatcherEmitter
         ControlFlowDispatcherEmissionRequest request,
         Action<StructuredDispatcherBlock> emitBlock,
         Action<StructuredDispatcherBlock> emitCondition,
-        Action<StructuredSequence> emitSequence);
+        Action<StructuredSequence, int> emitSequence);
 }

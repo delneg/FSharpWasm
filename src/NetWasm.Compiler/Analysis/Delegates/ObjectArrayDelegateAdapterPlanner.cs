@@ -81,10 +81,9 @@ internal sealed class ObjectArrayDelegateAdapterPlanner(
 
         var invoke = ResolveInvoke(factory, delegateType);
         bool supported = invoke.Signature.ParameterSignatureTypes.Length == 1 &&
-            invoke.Signature.ParameterSignatureTypes[0].StackKind !=
-                CliValueKind.ManagedAddress &&
-            invoke.Signature.ReturnType is not (
-                CliValueKind.Void or CliValueKind.ManagedAddress);
+            IsRepresentableGenericArgument(
+                invoke.Signature.ParameterSignatureTypes[0]) &&
+            IsRepresentableGenericArgument(invoke.Signature.ReturnSignatureType);
         if (!supported)
         {
             return new(
@@ -108,6 +107,24 @@ internal sealed class ObjectArrayDelegateAdapterPlanner(
                     invoke.Signature.ReturnSignatureType,
                 ]));
         return new(factory, delegateType, invoke, target, IsSupported: true);
+    }
+
+    private static bool IsRepresentableGenericArgument(CliTypeIdentity type)
+    {
+        while (type.Shape == CliTypeShape.Modified)
+        {
+            type = type.ElementType!;
+        }
+
+        return !type.ContainsGenericParameters &&
+            type.Shape is not (
+                CliTypeShape.ManagedByReference or
+                CliTypeShape.UnmanagedPointer or
+                CliTypeShape.FunctionPointer) &&
+            type.StackKind is not (
+                CliValueKind.Void or
+                CliValueKind.ManagedAddress or
+                CliValueKind.Unknown);
     }
 
     private MethodInstanceModel ResolveInvoke(

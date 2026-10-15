@@ -6,4 +6,7 @@ internal readonly record struct RuntimeImportSelection(
     bool IncludeStackTrace = false,
     bool IncludeExceptionCapture = false,
     bool IncludeEphemeronHandles = false,
-    bool IncludeTerminalExceptionRaise = true);
+    bool IncludeTerminalExceptionRaise = true,
+    bool IncludeFinalization = false,
+    bool IncludeWeakHandles = false,
+    bool IncludeRandomSeed = false);

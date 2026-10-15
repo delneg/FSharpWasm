@@ -7,4 +7,4 @@ internal sealed record StaticInitializationEmissionRequest(
     EntityKey TypeDefinition,
     CliTypeIdentity? DeclaringType,
     ModuleDataPlan ModuleData,
-    bool IsStaticMethodCall = false);
+    bool IsMethodInvocation = false);

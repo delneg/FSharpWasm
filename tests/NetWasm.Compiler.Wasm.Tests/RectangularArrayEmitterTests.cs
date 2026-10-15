@@ -265,6 +265,39 @@ public sealed class RectangularArrayEmitterTests
     }
 
     [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ImmediateValueTransferUsesValidatedAddressWithoutSnapshot(bool memory64)
+    {
+        var layouts = new RecordingLayoutProvider(
+            memory64 ? WasmTargetLayout.Wasm64 : WasmTargetLayout.Wasm32);
+        var addresses = new RecordingRectangularAddressEmitter(memory64);
+        var value = CliTypeIdentity.Named(Assembly, "Test", "Value", true);
+        var context = CreateMethodEmissionContext(3) with
+        {
+            ValueLayout = new ValueFrameLayout(0, [], [], [], [])
+            {
+                DirectValueLoadOffsets = [0],
+            },
+        };
+        var request = CreateInstructionRequest(
+            CilOperation.LoadRectangularArrayElement,
+            [CliValueKind.ManagedReference, CliValueKind.I4, CliValueKind.I4],
+            new CilOperand.TypeIdentity(CliTypeIdentity.Array(value, 2)),
+            context,
+            3);
+        IInstructionCommandProvider emitter =
+            new RectangularArrayElementLoadEmitter(layouts, layouts, addresses);
+
+        Emit(emitter, request);
+
+        Assert.NotNull(addresses.Request);
+        Assert.Equal([CliValueKind.ValueType], request.Stack);
+        Assert.DoesNotContain(WasmOpcodes.Prefixed, GetCodeBytes(request));
+        Assert.Contains(WasmOpcodes.LocalSet, GetCodeBytes(request));
+    }
+
+    [Theory]
     [InlineData(CliValueKind.I4, false)]
     [InlineData(CliValueKind.ValueType, false)]
     [InlineData(CliValueKind.ValueType, true)]
@@ -377,7 +410,7 @@ public sealed class RectangularArrayEmitterTests
     private static IRectangularArrayElementAddressEmitter ThroughAddressContract(
         IRectangularArrayElementAddressEmitter emitter) => emitter;
 
-    private sealed class RecordingRectangularAddressEmitter :
+    private sealed class RecordingRectangularAddressEmitter(bool memory64 = false) :
         IRectangularArrayElementAddressEmitter
     {
         public RectangularArrayElementAddressRequest? Request { get; private set; }
@@ -388,7 +421,7 @@ public sealed class RectangularArrayEmitterTests
         {
             Request = request;
             code.Write(WasmInstruction.WithOperand(
-                WasmOpcodes.I32Constant,
+                memory64 ? WasmOpcodes.I64Constant : WasmOpcodes.I32Constant,
                 WasmInstructionOperand.Signed(0)));
         }
     }

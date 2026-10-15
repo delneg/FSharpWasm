@@ -37,8 +37,10 @@ internal sealed class CompilerBuildMetadataReader : ICompilerBuildMetadataReader
         var features = value.EnumerateArray().Select(item => item.GetString()).ToArray();
         if (features.Any(feature => feature is not (
                 NetWasmRuntimeFeatureIds.EphemeronHandles or
+                NetWasmRuntimeFeatureIds.Finalization or
                 NetWasmRuntimeFeatureIds.LocalTime or
-                NetWasmRuntimeFeatureIds.StructuredCommandDiagnostics))
+                NetWasmRuntimeFeatureIds.StructuredCommandDiagnostics or
+                NetWasmRuntimeFeatureIds.WeakHandles))
             || features.Distinct(StringComparer.Ordinal).Count() != features.Length
             || !features.SequenceEqual(features.Order(StringComparer.Ordinal)))
         {

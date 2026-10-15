@@ -209,6 +209,8 @@ public sealed class ExceptionAndReturnEmitterTests
         Emit(CreateEmitter(), instanceRequest);
 
         Assert.Contains(WasmOpcodes.Prefixed, GetCodeBytes(valueRequest));
+        Assert.DoesNotContain(WasmOpcodes.I32Load, GetCodeBytes(valueRequest));
+        Assert.DoesNotContain(WasmOpcodes.I32Store, GetCodeBytes(valueRequest));
         Assert.Contains(WasmOpcodes.Return, GetCodeBytes(voidRequest));
         Assert.Contains(WasmOpcodes.Return, GetCodeBytes(instanceRequest));
     }
@@ -240,7 +242,8 @@ public sealed class ExceptionAndReturnEmitterTests
             new ExceptionAndReturnEmitter(layouts, layouts, actualImports,
                 exceptions, CreateMethodFrameExit(actualImports),
                 CreateFilterEnvironmentRoots(layouts),
-                addresses),
+                addresses,
+                new SmallValueCopyEmitter(new BulkValueCopyEmitter(layouts))),
         }.Cast<IInstructionCommandProvider>().Single();
     }
 

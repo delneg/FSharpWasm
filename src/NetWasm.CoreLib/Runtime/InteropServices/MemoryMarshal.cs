@@ -19,6 +19,35 @@ namespace System.Runtime.InteropServices
         public static System.Memory<T> AsMemory<T>(System.ReadOnlyMemory<T> memory) =>
             memory.DangerousAsMemory();
 
+        public static System.Memory<T> CreateFromPinnedArray<T>(
+            T[]? array,
+            int start,
+            int length)
+        {
+            if (array is null)
+            {
+                if (start != 0 || length != 0)
+                {
+                    throw new ArgumentOutOfRangeException();
+                }
+                return default;
+            }
+            if (!typeof(T).IsValueType && array.GetType() != typeof(T[]))
+            {
+                throw new ArrayTypeMismatchException();
+            }
+            if ((uint)start > (uint)array.Length ||
+                (uint)length > (uint)(array.Length - start))
+            {
+                throw new ArgumentOutOfRangeException();
+            }
+
+            return new System.Memory<T>(
+                (object)array,
+                start | System.ReadOnlyMemory<T>.PrePinnedFlag,
+                length);
+        }
+
         public static bool TryGetArray<T>(
             System.ReadOnlyMemory<T> memory,
             out System.ArraySegment<T> segment) =>
@@ -53,15 +82,8 @@ namespace System.Runtime.InteropServices
         public static ref T GetReference<T>(System.Span<T> span) =>
             ref span.DangerousReference;
 
-        public static ref T GetReference<T>(System.ReadOnlySpan<T> span)
-        {
-            if (span.IsEmpty)
-            {
-                return ref System.Runtime.CompilerServices.Unsafe.NullRef<T>();
-            }
-
-            return ref System.Runtime.CompilerServices.Unsafe.AsRef(in span[0]);
-        }
+        public static ref T GetReference<T>(System.ReadOnlySpan<T> span) =>
+            ref span.DangerousReference;
 
         public static ref T GetArrayDataReference<T>(T[] array)
         {

@@ -12,45 +12,14 @@ namespace System.Numerics
     /// <summary>
     /// Represents a shortened (16-bit) version of 32 bit floating-point value (<see cref="float"/>).
     /// </summary>
-    public readonly partial struct BFloat16
+    public readonly struct BFloat16
         : IComparable,
+          ISpanFormattable,
           IComparable<BFloat16>,
           IEquatable<BFloat16>,
-          IFormattable,
-          IParsable<BFloat16>,
-          ISpanFormattable,
-          ISpanParsable<BFloat16>,
-          IUtf8SpanFormattable,
-          IUtf8SpanParsable<BFloat16>,
-          IAdditionOperators<BFloat16, BFloat16, BFloat16>,
-          IAdditiveIdentity<BFloat16, BFloat16>,
           IBinaryFloatingPointIeee754<BFloat16>,
-          IBinaryNumber<BFloat16>,
-          IBitwiseOperators<BFloat16, BFloat16, BFloat16>,
-          IComparisonOperators<BFloat16, BFloat16, bool>,
-          IDecrementOperators<BFloat16>,
-          IDivisionOperators<BFloat16, BFloat16, BFloat16>,
-          IEqualityOperators<BFloat16, BFloat16, bool>,
-          IExponentialFunctions<BFloat16>,
-          IFloatingPoint<BFloat16>,
-          IFloatingPointConstants<BFloat16>,
-          IFloatingPointIeee754<BFloat16>,
-          IHyperbolicFunctions<BFloat16>,
-          IIncrementOperators<BFloat16>,
-          ILogarithmicFunctions<BFloat16>,
           IMinMaxValue<BFloat16>,
-          IModulusOperators<BFloat16, BFloat16, BFloat16>,
-          IMultiplicativeIdentity<BFloat16, BFloat16>,
-          IMultiplyOperators<BFloat16, BFloat16, BFloat16>,
-          INumber<BFloat16>,
-          INumberBase<BFloat16>,
-          IPowerFunctions<BFloat16>,
-          IRootFunctions<BFloat16>,
-          ISignedNumber<BFloat16>,
-          ISubtractionOperators<BFloat16, BFloat16, BFloat16>,
-          ITrigonometricFunctions<BFloat16>,
-          IUnaryNegationOperators<BFloat16, BFloat16>,
-          IUnaryPlusOperators<BFloat16, BFloat16>,
+          IUtf8SpanFormattable,
           IBinaryFloatParseAndFormatInfo<BFloat16>
     {
         private const NumberStyles DefaultParseStyle = NumberStyles.Float | NumberStyles.AllowThousands;
@@ -58,6 +27,8 @@ namespace System.Numerics
         // Constants for manipulating the private bit-representation
 
         internal const ushort SignMask = 0x8000;
+        internal const int SignShift = 15;
+        internal const byte ShiftedSignMask = SignMask >> SignShift;
 
         internal const ushort BiasedExponentMask = 0x7F80;
         internal const int BiasedExponentShift = 7;
@@ -65,6 +36,9 @@ namespace System.Numerics
         internal const byte ShiftedBiasedExponentMask = BiasedExponentMask >> BiasedExponentShift;
 
         internal const ushort TrailingSignificandMask = 0x007F;
+
+        internal const byte MinSign = 0;
+        internal const byte MaxSign = 1;
 
         internal const byte MinBiasedExponent = 0x00;
         internal const byte MaxBiasedExponent = 0xFF;
@@ -107,19 +81,19 @@ namespace System.Numerics
 
         // Well-defined and commonly used values
 
-        public static BFloat16 Epsilon { get => new BFloat16(EpsilonBits); }
+        public static BFloat16 Epsilon => new BFloat16(EpsilonBits);
 
-        public static BFloat16 PositiveInfinity { get => new BFloat16(PositiveInfinityBits); }
+        public static BFloat16 PositiveInfinity => new BFloat16(PositiveInfinityBits);
 
-        public static BFloat16 NegativeInfinity { get => new BFloat16(NegativeInfinityBits); }
+        public static BFloat16 NegativeInfinity => new BFloat16(NegativeInfinityBits);
 
-        public static BFloat16 NaN { get => new BFloat16(NegativeQNaNBits); }
+        public static BFloat16 NaN => new BFloat16(NegativeQNaNBits);
 
         /// <inheritdoc cref="IMinMaxValue{TSelf}.MinValue" />
-        public static BFloat16 MinValue { get => new BFloat16(MinValueBits); }
+        public static BFloat16 MinValue => new BFloat16(MinValueBits);
 
         /// <inheritdoc cref="IMinMaxValue{TSelf}.MaxValue" />
-        public static BFloat16 MaxValue { get => new BFloat16(MaxValueBits); }
+        public static BFloat16 MaxValue => new BFloat16(MaxValueBits);
 
         internal readonly ushort _value;
 
@@ -194,6 +168,13 @@ namespace System.Numerics
         {
             uint bits = value._value;
             return (bits & ~SignMask) > PositiveInfinityBits;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        internal static bool IsNaNOrZero(BFloat16 value)
+        {
+            uint bits = value._value;
+            return ((bits - 1) & ~SignMask) >= PositiveInfinityBits;
         }
 
         /// <summary>Determines whether the specified value is negative.</summary>
@@ -272,7 +253,7 @@ namespace System.Numerics
         /// <param name="style">The <see cref="NumberStyles"/> used to parse the input.</param>
         /// <param name="provider">A format provider.</param>
         /// <returns>The equivalent <see cref="BFloat16"/> value representing the input string. If the input exceeds BFloat16's range, a <see cref="PositiveInfinity"/> or <see cref="NegativeInfinity"/> is returned. </returns>
-        public static BFloat16 Parse(string s, System.Globalization.NumberStyles style = System.Globalization.NumberStyles.AllowDecimalPoint | System.Globalization.NumberStyles.AllowExponent | System.Globalization.NumberStyles.AllowLeadingSign | System.Globalization.NumberStyles.AllowLeadingWhite | System.Globalization.NumberStyles.AllowThousands | System.Globalization.NumberStyles.AllowTrailingWhite, IFormatProvider? provider = null)
+        public static BFloat16 Parse(string s, NumberStyles style = DefaultParseStyle, IFormatProvider? provider = null)
         {
             if (s is null)
             {
@@ -288,7 +269,7 @@ namespace System.Numerics
         /// <param name="style">The <see cref="NumberStyles"/> used to parse the input.</param>
         /// <param name="provider">A format provider. </param>
         /// <returns>The equivalent <see cref="BFloat16"/> value representing the input string. If the input exceeds BFloat16's range, a <see cref="PositiveInfinity"/> or <see cref="NegativeInfinity"/> is returned. </returns>
-        public static BFloat16 Parse(ReadOnlySpan<char> s, System.Globalization.NumberStyles style = System.Globalization.NumberStyles.AllowDecimalPoint | System.Globalization.NumberStyles.AllowExponent | System.Globalization.NumberStyles.AllowLeadingSign | System.Globalization.NumberStyles.AllowLeadingWhite | System.Globalization.NumberStyles.AllowThousands | System.Globalization.NumberStyles.AllowTrailingWhite, IFormatProvider? provider = null)
+        public static BFloat16 Parse(ReadOnlySpan<char> s, NumberStyles style = DefaultParseStyle, IFormatProvider? provider = null)
         {
             NumberFormatInfo.ValidateParseStyleFloatingPoint(style);
             return Number.ParseFloat<char, BFloat16>(s, style, NumberFormatInfo.GetInstance(provider));
@@ -438,13 +419,13 @@ namespace System.Numerics
         /// <param name="format">A span containing the characters that represent a standard or custom format string that defines the acceptable format for <paramref name="destination"/>.</param>
         /// <param name="provider">An optional object that supplies culture-specific formatting information for <paramref name="destination"/>.</param>
         /// <returns></returns>
-        public bool TryFormat(Span<char> destination, out int charsWritten, [StringSyntax(StringSyntaxAttribute.NumericFormat)] ReadOnlySpan<char> format = default(System.ReadOnlySpan<char>), IFormatProvider? provider = null)
+        public bool TryFormat(Span<char> destination, out int charsWritten, [StringSyntax(StringSyntaxAttribute.NumericFormat)] ReadOnlySpan<char> format = default, IFormatProvider? provider = null)
         {
             return Number.TryFormatFloat(this, format, NumberFormatInfo.GetInstance(provider), destination, out charsWritten);
         }
 
         /// <inheritdoc cref="IUtf8SpanFormattable.TryFormat" />
-        public bool TryFormat(Span<byte> utf8Destination, out int bytesWritten, [StringSyntax(StringSyntaxAttribute.NumericFormat)] ReadOnlySpan<char> format = default(System.ReadOnlySpan<char>), IFormatProvider? provider = null)
+        public bool TryFormat(Span<byte> utf8Destination, out int bytesWritten, [StringSyntax(StringSyntaxAttribute.NumericFormat)] ReadOnlySpan<char> format = default, IFormatProvider? provider = null)
         {
             return Number.TryFormatFloat(this, format, NumberFormatInfo.GetInstance(provider), utf8Destination, out bytesWritten);
         }
@@ -553,13 +534,13 @@ namespace System.Numerics
             bool sign = TInteger.IsNegative(value);
             TInteger abs = TInteger.IsNegative(value) ? -value : value;
 
-            int scale = sizeof(TInteger) * 8 - abs.GetShortestBitLength();
+            int scale = int.CreateTruncating(TInteger.LeadingZeroCount(abs));
             TInteger alignedValue = abs << scale;
             TInteger significandBits = RoundMidpointToEven(alignedValue, sizeof(TInteger) * 8 - SignificandLength);
 
             // Leverage FPU to calculate the value significandBits * 2^(size-SignificandLength-scale), for proper handling of 0 and carrying
             // Use int->float conversion which usually has better FPU support
-            float significand = (float)ToUnsignedMagnitude(significandBits);
+            float significand = (float)int.CreateTruncating(significandBits);
             // Craft the value 2^(size-SignificandLength-scale)
             float scaleFactor = float.CreateSingle(sign, (byte)(sizeof(TInteger) * 8 - SignificandLength - scale + float.ExponentBias), 0);
             float roundedValue = significand * scaleFactor;
@@ -618,13 +599,13 @@ namespace System.Numerics
         private static unsafe BFloat16 RoundFromUnsigned<TInteger>(TInteger value)
             where TInteger : unmanaged, IBinaryInteger<TInteger>, IUnsignedNumber<TInteger>
         {
-            int scale = sizeof(TInteger) * 8 - value.GetShortestBitLength();
+            int scale = int.CreateTruncating(TInteger.LeadingZeroCount(value));
             TInteger alignedValue = value << scale;
             TInteger significandBits = RoundMidpointToEven(alignedValue, sizeof(TInteger) * 8 - SignificandLength);
 
             // Leverage FPU to calculate the value significandBits * 2^(size-SignificandLength-scale), for proper handling of 0 and carrying
             // Use int->float conversion which usually has better FPU support
-            float significand = (float)ToUnsignedMagnitude(significandBits);
+            float significand = (float)int.CreateTruncating(significandBits);
             // Craft the value 2^(size-SignificandLength-scale)
             float scaleFactor = float.CreateSingle(false, (byte)(sizeof(TInteger) * 8 - SignificandLength - scale + float.ExponentBias), 0);
             float roundedValue = significand * scaleFactor;
@@ -634,46 +615,34 @@ namespace System.Numerics
             return new BFloat16((ushort)(roundedValueBits >> 16));
         }
 
-        private static unsafe ulong ToUnsignedMagnitude<TInteger>(TInteger value)
-            where TInteger : unmanaged, IBinaryInteger<TInteger>
-        {
-            Span<byte> bytes = stackalloc byte[sizeof(TInteger)];
-            if (!value.TryWriteLittleEndian(bytes, out var bytesWritten))
-            {
-                return 0;
-            }
-
-            ulong magnitude = 0;
-            for (var index = bytesWritten - 1; index >= 0; index--)
-            {
-                magnitude = (magnitude << 8) | bytes[index];
-            }
-            return magnitude;
-        }
-
         /// <summary>Explicitly converts a <see cref="ushort" /> value to its nearest representable <see cref="BFloat16"/> value.</summary>
         /// <param name="value">The value to convert.</param>
         /// <returns><paramref name="value" /> converted to its nearest representable <see cref="BFloat16"/> value.</returns>
+        [CLSCompliant(false)]
         public static explicit operator BFloat16(ushort value) => (BFloat16)(float)value;
 
         /// <summary>Explicitly converts a <see cref="uint" /> value to its nearest representable <see cref="BFloat16"/> value.</summary>
         /// <param name="value">The value to convert.</param>
         /// <returns><paramref name="value" /> converted to its nearest representable <see cref="BFloat16"/> value.</returns>
+        [CLSCompliant(false)]
         public static explicit operator BFloat16(uint value) => RoundFromUnsigned(value);
 
         /// <summary>Explicitly converts a <see cref="ulong" /> value to its nearest representable <see cref="BFloat16"/> value.</summary>
         /// <param name="value">The value to convert.</param>
         /// <returns><paramref name="value" /> converted to its nearest representable <see cref="BFloat16"/> value.</returns>
+        [CLSCompliant(false)]
         public static explicit operator BFloat16(ulong value) => RoundFromUnsigned(value);
 
         /// <summary>Explicitly converts a <see cref="nuint" /> value to its nearest representable <see cref="BFloat16"/> value.</summary>
         /// <param name="value">The value to convert.</param>
         /// <returns><paramref name="value" /> converted to its nearest representable <see cref="BFloat16"/> value.</returns>
+        [CLSCompliant(false)]
         public static explicit operator BFloat16(nuint value) => RoundFromUnsigned(value);
 
         /// <summary>Explicitly converts a <see cref="UInt128" /> value to its nearest representable <see cref="BFloat16"/> value.</summary>
         /// <param name="value">The value to convert.</param>
         /// <returns><paramref name="value" /> converted to its nearest representable <see cref="BFloat16"/> value.</returns>
+        [CLSCompliant(false)]
         public static explicit operator BFloat16(UInt128 value) => RoundFromUnsigned(value);
 
         //
@@ -765,67 +734,79 @@ namespace System.Numerics
         /// <summary>Explicitly converts a <see cref="BFloat16" /> value to its nearest representable <see cref="sbyte" /> value.</summary>
         /// <param name="value">The value to convert.</param>
         /// <returns><paramref name="value" /> converted to its nearest representable <see cref="sbyte" /> value.</returns>
+        [CLSCompliant(false)]
         public static explicit operator sbyte(BFloat16 value) => (sbyte)(float)value;
 
         /// <summary>Explicitly converts a <see cref="BFloat16" /> value to its nearest representable <see cref="sbyte" /> value, throwing an overflow exception for any values that fall outside the representable range.</summary>
         /// <param name="value">The value to convert.</param>
         /// <returns><paramref name="value" /> converted to its nearest representable <see cref="sbyte" /> value.</returns>
         /// <exception cref="OverflowException"><paramref name="value" /> is not representable by <see cref="sbyte" />.</exception>
+        [CLSCompliant(false)]
         public static explicit operator checked sbyte(BFloat16 value) => checked((sbyte)(float)value);
 
         /// <summary>Explicitly converts a <see cref="BFloat16" /> value to its nearest representable <see cref="ushort" /> value.</summary>
         /// <param name="value">The value to convert.</param>
         /// <returns><paramref name="value" /> converted to its nearest representable <see cref="ushort" /> value.</returns>
+        [CLSCompliant(false)]
         public static explicit operator ushort(BFloat16 value) => (ushort)(float)value;
 
         /// <summary>Explicitly converts a <see cref="BFloat16" /> value to its nearest representable <see cref="ushort" /> value, throwing an overflow exception for any values that fall outside the representable range.</summary>
         /// <param name="value">The value to convert.</param>
         /// <returns><paramref name="value" /> converted to its nearest representable <see cref="ushort" /> value.</returns>
         /// <exception cref="OverflowException"><paramref name="value" /> is not representable by <see cref="ushort" />.</exception>
+        [CLSCompliant(false)]
         public static explicit operator checked ushort(BFloat16 value) => checked((ushort)(float)value);
 
         /// <summary>Explicitly converts a <see cref="BFloat16" /> value to its nearest representable <see cref="uint" /> value.</summary>
         /// <param name="value">The value to convert.</param>
         /// <returns><paramref name="value" /> converted to its nearest representable <see cref="uint" /> value.</returns>
+        [CLSCompliant(false)]
         public static explicit operator uint(BFloat16 value) => (uint)(float)value;
 
         /// <summary>Explicitly converts a <see cref="BFloat16" /> value to its nearest representable <see cref="uint" /> value, throwing an overflow exception for any values that fall outside the representable range.</summary>
         /// <param name="value">The value to convert.</param>
         /// <returns><paramref name="value" /> converted to its nearest representable <see cref="uint" /> value.</returns>
         /// <exception cref="OverflowException"><paramref name="value" /> is not representable by <see cref="uint" />.</exception>
+        [CLSCompliant(false)]
         public static explicit operator checked uint(BFloat16 value) => checked((uint)(float)value);
 
         /// <summary>Explicitly converts a <see cref="BFloat16" /> value to its nearest representable <see cref="ulong" /> value.</summary>
         /// <param name="value">The value to convert.</param>
         /// <returns><paramref name="value" /> converted to its nearest representable <see cref="ulong" /> value.</returns>
+        [CLSCompliant(false)]
         public static explicit operator ulong(BFloat16 value) => (ulong)(float)value;
 
         /// <summary>Explicitly converts a <see cref="BFloat16" /> value to its nearest representable <see cref="ulong" /> value, throwing an overflow exception for any values that fall outside the representable range.</summary>
         /// <param name="value">The value to convert.</param>
         /// <returns><paramref name="value" /> converted to its nearest representable <see cref="ulong" /> value.</returns>
         /// <exception cref="OverflowException"><paramref name="value" /> is not representable by <see cref="ulong" />.</exception>
+        [CLSCompliant(false)]
         public static explicit operator checked ulong(BFloat16 value) => checked((ulong)(float)value);
 
         /// <summary>Explicitly converts a <see cref="BFloat16" /> value to its nearest representable <see cref="UInt128"/>.</summary>
         /// <param name="value">The value to convert.</param>
         /// <returns><paramref name="value" /> converted to a 128-bit unsigned integer.</returns>
+        [CLSCompliant(false)]
         public static explicit operator UInt128(BFloat16 value) => (UInt128)(double)(value);
 
         /// <summary>Explicitly converts a <see cref="BFloat16" /> value to its nearest representable <see cref="UInt128"/>, throwing an overflow exception for any values that fall outside the representable range.</summary>
         /// <param name="value">The value to convert.</param>
         /// <returns><paramref name="value" /> converted to a 128-bit unsigned integer.</returns>
         /// <exception cref="OverflowException"><paramref name="value" /> is not representable by <see cref="UInt128" />.</exception>
+        [CLSCompliant(false)]
         public static explicit operator checked UInt128(BFloat16 value) => checked((UInt128)(double)(value));
 
         /// <summary>Explicitly converts a <see cref="BFloat16" /> value to its nearest representable <see cref="UIntPtr" /> value.</summary>
         /// <param name="value">The value to convert.</param>
         /// <returns><paramref name="value" /> converted to its nearest representable <see cref="UIntPtr" /> value.</returns>
+        [CLSCompliant(false)]
         public static explicit operator nuint(BFloat16 value) => (nuint)(float)value;
 
         /// <summary>Explicitly converts a <see cref="BFloat16" /> value to its nearest representable <see cref="UIntPtr" /> value, throwing an overflow exception for any values that fall outside the representable range.</summary>
         /// <param name="value">The value to convert.</param>
         /// <returns><paramref name="value" /> converted to its nearest representable <see cref="UIntPtr" /> value.</returns>
         /// <exception cref="OverflowException"><paramref name="value" /> is not representable by <see cref="UIntPtr" />.</exception>
+        [CLSCompliant(false)]
         public static explicit operator checked nuint(BFloat16 value) => checked((nuint)(float)value);
 
         /// <summary>Explicitly converts a <see cref="BFloat16" /> value to its nearest representable <see cref="Half" /> value.</summary>
@@ -845,6 +826,7 @@ namespace System.Numerics
         /// <summary>Implicitly converts a <see cref="sbyte" /> value to its nearest representable <see cref="BFloat16" /> value.</summary>
         /// <param name="value">The value to convert.</param>
         /// <returns><paramref name="value" /> converted to its nearest representable <see cref="BFloat16" /> value.</returns>
+        [CLSCompliant(false)]
         public static implicit operator BFloat16(sbyte value) => (BFloat16)(float)value;
 
         //
@@ -1094,20 +1076,20 @@ namespace System.Numerics
         //
 
         /// <inheritdoc cref="IFloatingPointConstants{TSelf}.E" />
-        public static BFloat16 E { get => new BFloat16(EBits); }
+        public static BFloat16 E => new BFloat16(EBits);
 
         /// <inheritdoc cref="IFloatingPointConstants{TSelf}.Pi" />
-        public static BFloat16 Pi { get => new BFloat16(PiBits); }
+        public static BFloat16 Pi => new BFloat16(PiBits);
 
         /// <inheritdoc cref="IFloatingPointConstants{TSelf}.Tau" />
-        public static BFloat16 Tau { get => new BFloat16(TauBits); }
+        public static BFloat16 Tau => new BFloat16(TauBits);
 
         //
         // IFloatingPointIeee754
         //
 
         /// <inheritdoc cref="IFloatingPointIeee754{TSelf}.NegativeZero" />
-        public static BFloat16 NegativeZero { get => new BFloat16(NegativeZeroBits); }
+        public static BFloat16 NegativeZero => new BFloat16(NegativeZeroBits);
 
         /// <inheritdoc cref="IFloatingPointIeee754{TSelf}.Atan2(TSelf, TSelf)" />
         public static BFloat16 Atan2(BFloat16 y, BFloat16 x) => (BFloat16)float.Atan2((float)y, (float)x);
@@ -1298,7 +1280,7 @@ namespace System.Numerics
         //
 
         /// <inheritdoc cref="IMultiplicativeIdentity{TSelf, TResult}.MultiplicativeIdentity" />
-        public static BFloat16 MultiplicativeIdentity { get => new BFloat16(PositiveOneBits); }
+        public static BFloat16 MultiplicativeIdentity => new BFloat16(PositiveOneBits);
 
         //
         // IMultiplyOperators
@@ -1402,13 +1384,13 @@ namespace System.Numerics
         //
 
         /// <inheritdoc cref="INumberBase{TSelf}.One" />
-        public static BFloat16 One { get => new BFloat16(PositiveOneBits); }
+        public static BFloat16 One => new BFloat16(PositiveOneBits);
 
         /// <inheritdoc cref="INumberBase{TSelf}.Radix" />
         static int INumberBase<BFloat16>.Radix => 2;
 
         /// <inheritdoc cref="INumberBase{TSelf}.Zero" />
-        public static BFloat16 Zero { get => new BFloat16(PositiveZeroBits); }
+        public static BFloat16 Zero => new BFloat16(PositiveZeroBits);
 
         /// <inheritdoc cref="INumberBase{TSelf}.Abs(TSelf)" />
         public static BFloat16 Abs(BFloat16 value) => new BFloat16((ushort)(value._value & ~SignMask));
@@ -2015,7 +1997,7 @@ namespace System.Numerics
         //
 
         /// <inheritdoc cref="ISignedNumber{TSelf}.NegativeOne" />
-        public static BFloat16 NegativeOne { get => new BFloat16(NegativeOneBits); }
+        public static BFloat16 NegativeOne => new BFloat16(NegativeOneBits);
 
         //
         // ISpanParsable
@@ -2125,7 +2107,7 @@ namespace System.Numerics
         //
 
         /// <inheritdoc cref="INumberBase{TSelf}.Parse(ReadOnlySpan{byte}, NumberStyles, IFormatProvider?)" />
-        public static BFloat16 Parse(ReadOnlySpan<byte> utf8Text, System.Globalization.NumberStyles style = System.Globalization.NumberStyles.AllowDecimalPoint | System.Globalization.NumberStyles.AllowExponent | System.Globalization.NumberStyles.AllowLeadingSign | System.Globalization.NumberStyles.AllowLeadingWhite | System.Globalization.NumberStyles.AllowThousands | System.Globalization.NumberStyles.AllowTrailingWhite, IFormatProvider? provider = null)
+        public static BFloat16 Parse(ReadOnlySpan<byte> utf8Text, NumberStyles style = DefaultParseStyle, IFormatProvider? provider = null)
         {
             NumberFormatInfo.ValidateParseStyleFloatingPoint(style);
             return Number.ParseFloat<byte, BFloat16>(utf8Text, style, NumberFormatInfo.GetInstance(provider));

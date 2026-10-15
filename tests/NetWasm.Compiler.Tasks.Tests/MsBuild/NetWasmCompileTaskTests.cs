@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using Microsoft.Build.Framework;
 using Microsoft.Build.Utilities;
 using NetWasm.Compiler.ComponentModel;
+using NetWasm.Compiler.ComponentModel.Optimization;
 using NetWasm.Compiler.Core;
 using NetWasm.Compiler.Tasks.Artifacts;
 using NetWasm.Compiler.Tasks.Compilation;
@@ -54,6 +55,14 @@ public sealed class NetWasmCompileTaskTests
         task.WitWorld = "netwasm:platform@1.0.0/platform";
         task.EmitStackTrace = true;
         task.StructuredDiagnostics = true;
+        task.ManagedLoopInvariantFieldHoisting = "Disabled";
+        task.ManagedStaticDataViewElimination = "Enabled";
+        task.ManagedBranchPrefixDuplication = "Disabled";
+        task.ManagedScalarCallPreservation = "Enabled";
+        task.ManagedArrayBoundsCheckElimination = "Disabled";
+        task.ManagedLoopUnrolling = "Enabled";
+        task.ManagedConstantArgumentPropagation = "Enabled";
+        task.ManagedStaticArrayPopulationElimination = "Disabled";
         task.StackTraceSymbolsPath = "application.stacktrace.json";
         task.PathMap = "/source=/mapped";
 
@@ -82,6 +91,22 @@ public sealed class NetWasmCompileTaskTests
         Assert.True(request.EmitStackTrace);
         Assert.True(request.StructuredDiagnostics);
         Assert.Equal(task.PathMap, request.PathMap);
+        Assert.Equal(
+            ManagedLoopInvariantFieldHoisting.Disabled,
+            request.OptimizationOverrides!.LoopInvariantFieldHoisting);
+        Assert.Equal(
+            ManagedStaticDataViewElimination.Enabled,
+            request.OptimizationOverrides.StaticDataViewElimination);
+        Assert.Equal(
+            ManagedBranchPrefixDuplication.Disabled,
+            request.OptimizationOverrides.BranchPrefixDuplication);
+        Assert.Equal(
+            ManagedScalarCallPreservation.Enabled,
+            request.OptimizationOverrides.ScalarCallPreservation);
+        Assert.Equal(ManagedArrayBoundsCheckElimination.Disabled, request.OptimizationOverrides.ArrayBoundsCheckElimination);
+        Assert.Equal(ManagedLoopUnrolling.Enabled, request.OptimizationOverrides.LoopUnrolling);
+        Assert.Equal(ManagedConstantArgumentPropagation.Enabled, request.OptimizationOverrides.ConstantArgumentPropagation);
+        Assert.Equal(ManagedStaticArrayPopulationElimination.Disabled, request.OptimizationOverrides.StaticArrayPopulationElimination);
         Assert.Equal(
             [
                 "NetWasm Compiler version unknown",
@@ -267,17 +292,26 @@ public sealed class NetWasmCompileTaskTests
         var messages = new RecordingBuildMessageWriter();
 
         Assert.Throws<ArgumentNullException>(() =>
-            new NetWasmCompileTask(null!, artifacts, requests, builders, writers, messages));
+            new NetWasmCompileTask(null!, artifacts, requests, builders, writers, messages,
+                new ManagedCompilerOptimizationOverridesParser()));
         Assert.Throws<ArgumentNullException>(() =>
-            new NetWasmCompileTask(compilers, null!, requests, builders, writers, messages));
+            new NetWasmCompileTask(compilers, null!, requests, builders, writers, messages,
+                new ManagedCompilerOptimizationOverridesParser()));
         Assert.Throws<ArgumentNullException>(() =>
-            new NetWasmCompileTask(compilers, artifacts, null!, builders, writers, messages));
+            new NetWasmCompileTask(compilers, artifacts, null!, builders, writers, messages,
+                new ManagedCompilerOptimizationOverridesParser()));
         Assert.Throws<ArgumentNullException>(() =>
-            new NetWasmCompileTask(compilers, artifacts, requests, null!, writers, messages));
+            new NetWasmCompileTask(compilers, artifacts, requests, null!, writers, messages,
+                new ManagedCompilerOptimizationOverridesParser()));
         Assert.Throws<ArgumentNullException>(() =>
-            new NetWasmCompileTask(compilers, artifacts, requests, builders, null!, messages));
+            new NetWasmCompileTask(compilers, artifacts, requests, builders, null!, messages,
+                new ManagedCompilerOptimizationOverridesParser()));
         Assert.Throws<ArgumentNullException>(() =>
-            new NetWasmCompileTask(compilers, artifacts, requests, builders, writers, null!));
+            new NetWasmCompileTask(compilers, artifacts, requests, builders, writers, null!,
+                new ManagedCompilerOptimizationOverridesParser()));
+        Assert.Throws<ArgumentNullException>(() =>
+            new NetWasmCompileTask(compilers, artifacts, requests, builders, writers, messages,
+                null!));
         Assert.Throws<ArgumentNullException>(() =>
             CompilerTaskComposition.CreateManagedModuleCompilationSessionFactory(null!));
     }
@@ -294,7 +328,8 @@ public sealed class NetWasmCompileTaskTests
             manifestRequests ?? new RecordingManifestRequestBuilder(),
             manifestBuilder ?? CompilerTaskComposition.CreateArtifactManifestBuilder(),
             manifestWriter ?? CompilerTaskComposition.CreateArtifactManifestWriter(),
-            messages ?? new RecordingBuildMessageWriter())
+            messages ?? new RecordingBuildMessageWriter(),
+            new ManagedCompilerOptimizationOverridesParser())
         {
             WasmToolsNodePath = "node",
             WasmToolsCommandPath = "run-wasm-tools.mjs",

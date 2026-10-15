@@ -4,6 +4,7 @@ using System.Collections.Immutable;
 using System.Linq;
 using NetWasm.Compiler.Core;
 using NetWasm.Compiler.Core.Types;
+using NetWasm.Compiler.ComponentModel.Optimization;
 using NetWasm.Compiler.GarbageCollection;
 using NetWasm.Compiler.Interop;
 using NetWasm.Compiler.Metadata;
@@ -11,6 +12,9 @@ using NetWasm.Compiler.Metadata;
 using NetWasm.Compiler.Analysis.ManagedCallSites;
 using NetWasm.Compiler.Analysis.Delegates;
 using NetWasm.Compiler.Analysis.Attributes;
+using NetWasm.Compiler.Analysis.Constants;
+using NetWasm.Compiler.Analysis.StaticArrays;
+using NetWasm.Compiler.ControlFlow;
 
 namespace NetWasm.Compiler.Analysis;
 
@@ -18,6 +22,7 @@ internal sealed class WholeProgramAnalyzerFactory(
     ICalledMethodResolverFactory calledMethods,
     ITypeOperandResolverFactory typeOperands,
     IMethodSpecializerFactory specializers,
+    IManagedMethodOptimizerFactory optimizers,
     IAttributeQueryMethodSpecializerFactory attributeQueries,
     IDispatchTargetResolverFactory dispatchTargets,
     ITypeRelationshipClassifierFactory typeRelationships,
@@ -30,6 +35,7 @@ internal sealed class WholeProgramAnalyzerFactory(
     IReachableProgramBuilderFactory programBuilders,
     IReachabilityLedgerFactory ledgers,
     IAllocationCapabilityAnalyzerFactory allocationCapabilities,
+    IManagedByRefEffectAnalyzerFactory byRefEffects,
     IBaseTypeResolverFactory baseTypeResolvers,
     IDelegateMethodClassifierFactory delegateMethodClassifiers,
     IDispatchSiteKeyBuilder dispatchSiteKeys,
@@ -38,7 +44,8 @@ internal sealed class WholeProgramAnalyzerFactory(
     INullableTypeResolver nullableTypes,
     IReachableMethodBatchObserver reachableMethodBatchObserver,
     IReachabilityClosureObserver reachabilityClosureObserver,
-    ITypeClassifierFactory typeClassifiers) : IWholeProgramAnalyzerFactory
+    ITypeClassifierFactory typeClassifiers,
+    IControlFlowGraphBuilderFactory graphBuilders) : IWholeProgramAnalyzerFactory
 {
     public IWholeProgramAnalyzer Create(
         MetadataCompilationSnapshot metadata,
@@ -55,7 +62,8 @@ internal sealed class WholeProgramAnalyzerFactory(
         IMethodImplementationResolver methodImplementations,
         ISymbolFormatter symbols,
         Func<MethodDefinitionModel, JavaScriptAsyncMethodBinding?> javaScriptAsyncBindings,
-        IRuntimeIntrinsicRegistry intrinsics)
+        IRuntimeIntrinsicRegistry intrinsics,
+        WasmOptimizationSettings optimizationSettings)
     {
         ArgumentNullException.ThrowIfNull(metadata);
         ArgumentNullException.ThrowIfNull(typeRepository);
@@ -72,6 +80,12 @@ internal sealed class WholeProgramAnalyzerFactory(
         ArgumentNullException.ThrowIfNull(symbols);
         ArgumentNullException.ThrowIfNull(javaScriptAsyncBindings);
         ArgumentNullException.ThrowIfNull(intrinsics);
+        ArgumentNullException.ThrowIfNull(optimizationSettings);
+        if (optimizationSettings.ConstantArgumentPropagation is not (ConstantArgumentPropagationPolicy.Disabled or
+            ConstantArgumentPropagationPolicy.Conservative) ||
+            optimizationSettings.StaticArrayPopulationElimination is not (StaticArrayPopulationEliminationPolicy.Disabled or
+            StaticArrayPopulationEliminationPolicy.Conservative))
+            throw new ArgumentOutOfRangeException(nameof(optimizationSettings));
         var baseTypes = baseTypeResolvers.Create(
             typeFinder,
             typeIdentities,
@@ -102,10 +116,22 @@ internal sealed class WholeProgramAnalyzerFactory(
             fieldRepository,
             typeFinder,
             calls,
-            methodImplementations);
+            methodImplementations,
+            relationships,
+            methodBodies,
+            optimizationSettings,
+            intrinsics);
         specializer = attributeQueries.Create(specializer, metadata, typeRepository, fieldRepository,
             methodRepository, typeFinder, typeDefinitions, typeIdentities, methodInstances,
             relationships, baseTypes, calls, types, symbols);
+        var optimizer = optimizers.Create(
+            methodBodies,
+            typeRepository,
+            fieldRepository,
+            methodRepository,
+            specializer,
+            calls,
+            optimizationSettings);
         var concurrency = SelectConcurrency(
             OperatingSystem.IsBrowser(), Environment.ProcessorCount);
         var methodAnalyzerWorkers =
@@ -119,6 +145,7 @@ internal sealed class WholeProgramAnalyzerFactory(
             fieldRepository,
             methodRepository,
             specializer,
+            optimizer,
             exceptionDiscoveries.Create(methodRepository, symbols, intrinsics),
             instructionAnalyzer));
         }
@@ -141,7 +168,9 @@ internal sealed class WholeProgramAnalyzerFactory(
                 typeRepository,
                 fieldRepository,
                 methodRepository,
+                intrinsics,
                 typeClassifiers.Create(metadata)),
+            byRefEffects.Create(methodRepository, intrinsics),
             delegateBindingPlanners.Create(relationships));
         var closure = new ReachabilityClosureBuilder(
             typeRepository,
@@ -201,8 +230,33 @@ internal sealed class WholeProgramAnalyzerFactory(
                 typeDefinitions,
                 methodRepository,
                 baseTypes),
-            nullableTypes);
-        return new WholeProgramAnalyzer(closure);
+            nullableTypes,
+            new MethodInitializationTriggerClassifier(typeRepository));
+        var reducers = ImmutableArray.CreateBuilder<IReachableProgramReducer>();
+        if (optimizationSettings.ConstantArgumentPropagation == ConstantArgumentPropagationPolicy.Conservative)
+        {
+            reducers.Add(new ConstantArgumentProgramReducer(
+                new CallArgumentConstantCollector(calls),
+                new MethodSpecializer(
+                [
+                    new ConstantCallRewriter(graphBuilders.Create(), calls,
+                        new ConstantCallEvaluator(methodBodies, calls, typeDefinitions, methodRepository, intrinsics)),
+                    new ConstantBranchRewriter(graphBuilders.Create()),
+                    new UnreachableInstructionRewriter(graphBuilders.Create()),
+                ])));
+        }
+        if (optimizationSettings.StaticArrayPopulationElimination == StaticArrayPopulationEliminationPolicy.Conservative)
+        {
+            reducers.Add(new StaticArrayPopulationReducer(
+                    new StaticFieldObservationCollector(),
+                    new StaticArrayPopulationPlanner(fieldRepository, calls, types,
+                        new ValueConstructorPurityClassifier(methodBodies, fieldRepository, typeDefinitions, methodRepository, intrinsics),
+                        new ClosedTypeIdentityComparer(typeDefinitions), typeDefinitions)));
+        }
+        return new WholeProgramAnalyzer(reducers.Count == 0
+            ? closure
+            : new ReducingReachabilityClosureBuilder(closure,
+                new ReachableProgramReductionChain(reducers.ToImmutable())));
     }
 
     internal static AnalysisConcurrency SelectConcurrency(

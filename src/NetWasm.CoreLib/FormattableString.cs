@@ -26,7 +26,7 @@ namespace System
             {
                 throw new ArgumentNullException(nameof(formattable));
             }
-            return formattable.ToString(null);
+            return formattable.ToString(Globalization.CultureInfo.InvariantCulture);
         }
 
         public static string CurrentCulture(FormattableString formattable)
@@ -35,9 +35,10 @@ namespace System
             {
                 throw new ArgumentNullException(nameof(formattable));
             }
-            return formattable.ToString(null);
+            return formattable.ToString(Globalization.CultureInfo.CurrentCulture);
         }
 
-        public override string ToString() => ToString(null);
+        public override string ToString() =>
+            ToString(Globalization.CultureInfo.CurrentCulture);
     }
 }

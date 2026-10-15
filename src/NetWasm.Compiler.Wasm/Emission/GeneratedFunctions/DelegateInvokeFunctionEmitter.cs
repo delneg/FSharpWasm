@@ -3,16 +3,18 @@ using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Linq;
 using NetWasm.Compiler.Core;
+using NetWasm.Compiler.Core.Types;
 using NetWasm.Compiler.Core.IntermediateRepresentation.Delegates;
 using NetWasm.Compiler.Wasm.Encoding;
 using NetWasm.Compiler.Wasm.Emission;
+using NetWasm.Compiler.Wasm.Emission.Instructions;
 using NetWasm.Compiler.Wasm.Emission.Planning;
 
 namespace NetWasm.Compiler.Wasm.Emission.GeneratedFunctions;
 
 internal sealed record DelegateInvokeTarget(
-    FunctionIndexMap FunctionIndices,
-    ImmutableArray<ManagedDelegateBinding> Bindings);
+    ImmutableArray<ManagedDelegateBinding> Bindings,
+    ModuleDataPlan ModuleData);
 
 internal sealed class DelegateInvokeFunctionEmitter(
     ITargetLayout layouts,
@@ -23,7 +25,9 @@ internal sealed class DelegateInvokeFunctionEmitter(
     IExceptionPayloadBlockEmitter exceptionPayloadBlocks,
     IManagedMethodFunctionTypeResolver functionTypes,
     IDelegateInvocationTargetSelector targets,
-    IGeneratedFunctionWriterFactory writers) : IDelegateInvokeFunctionEmitter
+    IGeneratedFunctionWriterFactory writers,
+    IStaticInitializationEmitter initialization,
+    IMethodInitializationTriggerClassifier initializationTriggers) : IDelegateInvokeFunctionEmitter
 {
     public byte[] Emit(
         MethodInstanceModel invoke,
@@ -35,6 +39,10 @@ internal sealed class DelegateInvokeFunctionEmitter(
         var resultLocal = parameterCount;
         var rootFrameLocal = resultLocal + 1;
         var exceptionLocal = rootFrameLocal + 1;
+        var invocationListLocal = exceptionLocal + 1;
+        var invocationCountLocal = invocationListLocal + 1;
+        var invocationIndexLocal = invocationCountLocal + 1;
+        var currentDelegateLocal = invocationIndexLocal + 1;
         var returnsValue = invoke.Signature.ReturnSignatureType.StackKind ==
             CliValueKind.ValueType;
         var receiverParameter = returnsValue ? 1 : 0;
@@ -63,7 +71,15 @@ internal sealed class DelegateInvokeFunctionEmitter(
             : CliValueKind.I4;
         WasmLocalDeclarationWriter.Write(
             output.Bytes,
-            [resultType, CliValueKind.ManagedAddress, CliValueKind.ManagedReference],
+            [
+                resultType,
+                CliValueKind.ManagedAddress,
+                CliValueKind.ManagedReference,
+                CliValueKind.ManagedReference,
+                CliValueKind.I4,
+                CliValueKind.I4,
+                CliValueKind.ManagedReference,
+            ],
             layouts.Target);
         WriteI32Constant(code, rootSources.Count);
         WriteCall(code, runtimeImports.Resolve(RuntimeImportSymbol.RootFrameEnter));
@@ -98,6 +114,10 @@ internal sealed class DelegateInvokeFunctionEmitter(
             receiverParameter,
             resultLocal,
             returnsValue,
+            invocationListLocal,
+            invocationCountLocal,
+            invocationIndexLocal,
+            currentDelegateLocal,
             targetProgram,
             functionIndices);
         code.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
@@ -128,60 +148,113 @@ internal sealed class DelegateInvokeFunctionEmitter(
         int receiverParameter,
         int resultLocal,
         bool returnsValue,
+        int invocationListLocal,
+        int invocationCountLocal,
+        int invocationIndexLocal,
+        int currentDelegateLocal,
         DelegateInvokeTarget targetProgram,
         IFunctionIndexResolver functionIndices)
     {
-        var helperIndex = targetProgram.FunctionIndices.GetDelegateInvokeHelper(
-            invoke.DeclaringType.CanonicalName).Value;
         WriteLocalGet(code, receiverParameter);
-        EmitReferenceLoad(code, objects.DelegateLeftOffset);
+        EmitReferenceLoad(code, objects.DelegateInvocationListOffset);
+        code.Write(WasmInstruction.WithOperand(
+            WasmOpcodes.LocalTee,
+            WasmInstructionOperand.Unsigned((uint)invocationListLocal)));
         EmitReferenceEqualZero(code);
-        code.Write(WasmInstruction.NoOperand(WasmOpcodes.I32EqualZero));
         code.Write(WasmInstruction.WithOperand(
             WasmOpcodes.If,
             WasmInstructionOperand.BlockType(WasmOpcodes.EmptyBlockType)));
-        EmitDelegateHelperCall(
-            code,
-            invoke,
-            receiverParameter,
-            objects.DelegateLeftOffset,
-            helperIndex,
-            returnsValue);
-        if (!returnsValue && invoke.Signature.ReturnType != CliValueKind.Void)
-        {
-            code.Write(WasmInstruction.NoOperand(WasmOpcodes.Drop));
-        }
-        EmitDelegateHelperCall(
-            code,
-            invoke,
-            receiverParameter,
-            objects.DelegateRightOffset,
-            helperIndex,
-            returnsValue);
-        if (!returnsValue && invoke.Signature.ReturnType != CliValueKind.Void)
-        {
-            WriteLocalSet(code, resultLocal);
-        }
+        WriteI32Constant(code, 1);
+        WriteLocalSet(code, invocationCountLocal);
         code.Write(WasmInstruction.NoOperand(WasmOpcodes.Else));
+        WriteLocalGet(code, receiverParameter);
+        WriteLoad(code, WasmOpcodes.I32Load, 2, objects.DelegateInvocationCountOffset);
+        WriteLocalSet(code, invocationCountLocal);
+        code.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
 
+        WriteI32Constant(code, 0);
+        WriteLocalSet(code, invocationIndexLocal);
+        code.Write(WasmInstruction.WithOperand(
+            WasmOpcodes.Block,
+            WasmInstructionOperand.BlockType(WasmOpcodes.EmptyBlockType)));
+        code.Write(WasmInstruction.WithOperand(
+            WasmOpcodes.Loop,
+            WasmInstructionOperand.BlockType(WasmOpcodes.EmptyBlockType)));
+        WriteLocalGet(code, invocationIndexLocal);
+        WriteLocalGet(code, invocationCountLocal);
+        code.Write(WasmInstruction.NoOperand(WasmOpcodes.I32GreaterThanOrEqualUnsigned));
+        code.Write(WasmInstruction.WithOperand(
+            WasmOpcodes.BranchIf,
+            WasmInstructionOperand.Unsigned(1)));
+
+        WriteLocalGet(code, invocationListLocal);
+        EmitReferenceEqualZero(code);
+        code.Write(WasmInstruction.WithOperand(
+            WasmOpcodes.If,
+            WasmInstructionOperand.BlockType(WasmOpcodes.EmptyBlockType)));
+        WriteLocalGet(code, receiverParameter);
+        WriteLocalSet(code, currentDelegateLocal);
+        code.Write(WasmInstruction.NoOperand(WasmOpcodes.Else));
+        ManagedMemoryEmitter.EmitArrayElementAddress(
+            code,
+            layouts.Target,
+            invocationListLocal,
+            invocationIndexLocal,
+            layouts.Target.ObjectReferenceSize);
+        EmitReferenceLoad(code, 0);
+        WriteLocalSet(code, currentDelegateLocal);
+        code.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
+
+        EmitLeafInvoke(
+            code,
+            invoke,
+            currentDelegateLocal,
+            resultLocal,
+            returnsValue,
+            targetProgram,
+            functionIndices);
+        WriteLocalGet(code, invocationIndexLocal);
+        WriteI32Constant(code, 1);
+        code.Write(WasmInstruction.NoOperand(WasmOpcodes.I32Add));
+        WriteLocalSet(code, invocationIndexLocal);
+        WriteBranch(code, 0);
+        code.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
+        code.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
+    }
+
+    private void EmitLeafInvoke(
+        IWasmInstructionWriter code,
+        MethodInstanceModel invoke,
+        int delegateLocal,
+        int resultLocal,
+        bool returnsValue,
+        DelegateInvokeTarget targetProgram,
+        IFunctionIndexResolver functionIndices)
+    {
         var compatible = targets.Select(invoke, targetProgram.Bindings);
         foreach (var binding in compatible)
         {
             var target = binding.Target;
-            WriteLocalGet(code, receiverParameter);
+            WriteLocalGet(code, delegateLocal);
             WriteLoad(code, WasmOpcodes.I32Load, 2, objects.DelegateMethodIdOffset);
             WriteI32Constant(code, functionIndices.Resolve(target));
             code.Write(WasmInstruction.NoOperand(WasmOpcodes.I32Equal));
             code.Write(WasmInstruction.WithOperand(
                 WasmOpcodes.If,
                 WasmInstructionOperand.BlockType(WasmOpcodes.EmptyBlockType)));
+            if (initializationTriggers.Classify(target.Definition))
+            {
+                initialization.Emit(new(target.Definition.DeclaringType,
+                    target.DeclaringType, targetProgram.ModuleData, IsMethodInvocation: true),
+                    code, functionIndices);
+            }
             if (returnsValue)
             {
                 WriteLocalGet(code, 0);
             }
             if (!target.Definition.IsStatic)
             {
-                WriteLocalGet(code, receiverParameter);
+                WriteLocalGet(code, delegateLocal);
                 EmitReferenceLoad(code, objects.DelegateTargetOffset);
                 if (target.DeclaringType.IsValueType)
                 {
@@ -191,7 +264,7 @@ internal sealed class DelegateInvokeFunctionEmitter(
                     EmitAddressAdd(code);
                 }
             }
-            var firstArgument = receiverParameter + 1;
+            var firstArgument = returnsValue ? 2 : 1;
             for (var index = 0; index < invoke.Signature.ParameterTypes.Length; index++)
             {
                 WriteLocalGet(code, firstArgument + index);
@@ -208,29 +281,6 @@ internal sealed class DelegateInvokeFunctionEmitter(
         {
             code.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
         }
-        code.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
-    }
-
-    private void EmitDelegateHelperCall(
-        IWasmInstructionWriter code,
-        MethodInstanceModel invoke,
-        int receiverParameter,
-        int childOffset,
-        int helperIndex,
-        bool returnsValue)
-    {
-        if (returnsValue)
-        {
-            WriteLocalGet(code, 0);
-        }
-        WriteLocalGet(code, receiverParameter);
-        EmitReferenceLoad(code, childOffset);
-        var firstArgument = receiverParameter + 1;
-        for (var index = 0; index < invoke.Signature.ParameterTypes.Length; index++)
-        {
-            WriteLocalGet(code, firstArgument + index);
-        }
-        WriteCall(code, helperIndex);
     }
 
     private void EmitAddressConstant(IWasmInstructionWriter code, int value)

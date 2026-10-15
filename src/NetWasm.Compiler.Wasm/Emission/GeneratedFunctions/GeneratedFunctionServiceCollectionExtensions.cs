@@ -14,18 +14,10 @@ internal static class GeneratedFunctionServiceCollectionExtensions
         services.AddSingleton<IStaticInitializerFunctionAppender, StaticInitializerFunctionAppender>();
         services.AddSingleton<IGeneratedFunctionWriterFactory,
             GeneratedFunctionWriterFactory>();
+        services.AddSingleton<IManagedThrowFunctionAppender,
+            ManagedThrowFunctionAppender>();
         services.AddSingleton<IReferenceComparisonEmitter,
             ReferenceComparisonEmitter>();
-        services.AddSingleton<IDelegateLeafEqualityEmitter,
-            DelegateLeafEqualityEmitter>();
-        services.AddSingleton<IDelegateCountFunctionEmitter,
-            DelegateCountFunctionEmitter>();
-        services.AddSingleton<IDelegateLeafFunctionEmitter,
-            DelegateLeafFunctionEmitter>();
-        services.AddSingleton<IDelegateEqualityFunctionEmitter,
-            DelegateEqualityFunctionEmitter>();
-        services.AddSingleton<IDelegateRemoveFunctionEmitter,
-            DelegateRemoveFunctionEmitter>();
         services.AddSingleton<IDelegateInvokeFunctionEmitter,
             DelegateInvokeFunctionEmitter>();
         services.AddSingleton<IDelegateInvocationTargetSelector,

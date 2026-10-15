@@ -2,6 +2,7 @@ using NetWasm.Compiler.Core;
 using NetWasm.Compiler.Wasm.Emission;
 using NetWasm.Compiler.Wasm.Emission.Instructions;
 using NetWasm.Compiler.Wasm.Emission.Instructions.NativeIntegers;
+using NetWasm.Compiler.Wasm.Encoding;
 
 namespace NetWasm.Compiler.Wasm.Tests;
 
@@ -103,20 +104,34 @@ public sealed class NumericConversionInstructionEmitterTests
     }
 
     [Theory]
-    [InlineData(CilOperation.ConvertInt32, CliValueKind.F4)]
-    [InlineData(CilOperation.ConvertInt32, CliValueKind.F8)]
-    [InlineData(CilOperation.ConvertInt64, CliValueKind.F4)]
-    [InlineData(CilOperation.ConvertInt64, CliValueKind.F8)]
+    [InlineData(CilOperation.ConvertInt32, CliValueKind.F4, CliValueKind.I4, WasmOpcodes.I32TruncateSaturateF32Signed)]
+    [InlineData(CilOperation.ConvertInt32, CliValueKind.F8, CliValueKind.I4, WasmOpcodes.I32TruncateSaturateF64Signed)]
+    [InlineData(CilOperation.ConvertInt32Unsigned, CliValueKind.F4, CliValueKind.I4, WasmOpcodes.I32TruncateSaturateF32Unsigned)]
+    [InlineData(CilOperation.ConvertInt32Unsigned, CliValueKind.F8, CliValueKind.I4, WasmOpcodes.I32TruncateSaturateF64Unsigned)]
+    [InlineData(CilOperation.ConvertInt64, CliValueKind.F4, CliValueKind.I8, WasmOpcodes.I64TruncateSaturateF32Signed)]
+    [InlineData(CilOperation.ConvertInt64, CliValueKind.F8, CliValueKind.I8, WasmOpcodes.I64TruncateSaturateF64Signed)]
+    [InlineData(CilOperation.ConvertInt64Unsigned, CliValueKind.F4, CliValueKind.I8, WasmOpcodes.I64TruncateSaturateF32Unsigned)]
+    [InlineData(CilOperation.ConvertInt64Unsigned, CliValueKind.F8, CliValueKind.I8, WasmOpcodes.I64TruncateSaturateF64Unsigned)]
     public void UncheckedFloatingToIntegerUsesNonTrappingSaturatingConversion(
         CilOperation operation,
-        CliValueKind source)
+        CliValueKind source,
+        CliValueKind destination,
+        uint expectedSubopcode)
     {
-        var layouts = new RecordingLayoutProvider();
-        var request = CreateRequest(operation, new CilOperand.None(), source);
+        foreach (var target in new[] { WasmTarget.Wasm32, WasmTarget.Wasm64 })
+        {
+            var layouts = new RecordingLayoutProvider(WasmTargetLayout.For(target));
+            var request = CreateRequest(operation, new CilOperand.None(), source);
+            var command = CreateEmitter(layouts).Commands.Single(candidate => candidate.Operation == operation);
+            var writer = new RecordingInstructionWriter();
 
-        CreateEmitter(layouts).Emit(request);
+            ((IInstructionCommand)command).Emit(request, writer, CreateFunctionIndexResolver());
 
-        Assert.Contains(WasmOpcodes.Prefixed, GetCodeBytes(request));
+            Assert.Equal([destination], request.Stack);
+            Assert.Equal([WasmOpcodes.LocalGet, WasmOpcodes.Prefixed, WasmOpcodes.LocalSet],
+                writer.ToInstructions().Select(instruction => instruction.Opcode));
+            Assert.Equal(WasmInstructionOperand.Prefixed(expectedSubopcode), writer.ToInstructions()[1].Operand);
+        }
     }
 
     [Fact]

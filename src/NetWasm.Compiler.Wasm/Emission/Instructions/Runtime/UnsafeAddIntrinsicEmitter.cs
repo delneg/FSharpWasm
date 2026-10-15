@@ -18,11 +18,16 @@ internal sealed class UnsafeAddIntrinsicEmitter(
         var elementSize = type.IsValueType
             ? values.GetValueLayout(type).Size
             : layouts.Target.GetStorageSize(type);
-        code.Write(WasmInstruction.WithOperand(WasmOpcodes.LocalGet, WasmInstructionOperand.Unsigned((uint)(request.Local(0, CliValueKind.ManagedAddress)))));
-        code.Write(WasmInstruction.WithOperand(WasmOpcodes.LocalGet, WasmInstructionOperand.Unsigned((uint)(request.Local(1, CliValueKind.I4)))));
+        var addressKind = request.Method.Signature.ParameterTypes[0];
+        var offsetKind = request.Method.Signature.ParameterTypes[1];
+        code.Write(WasmInstruction.WithOperand(WasmOpcodes.LocalGet, WasmInstructionOperand.Unsigned((uint)(request.Local(0, addressKind)))));
+        code.Write(WasmInstruction.WithOperand(WasmOpcodes.LocalGet, WasmInstructionOperand.Unsigned((uint)(request.Local(1, offsetKind)))));
         if (layouts.Target.UsesMemory64)
         {
-            code.Write(WasmInstruction.NoOperand(WasmOpcodes.I64ExtendI32Signed));
+            if (offsetKind == CliValueKind.I4)
+            {
+                code.Write(WasmInstruction.NoOperand(WasmOpcodes.I64ExtendI32Signed));
+            }
             code.Write(WasmInstruction.WithOperand(WasmOpcodes.I64Constant, WasmInstructionOperand.Signed64(elementSize)));
             code.Write(WasmInstruction.NoOperand(WasmOpcodes.I64Multiply));
             code.Write(WasmInstruction.NoOperand(WasmOpcodes.I64Add));
@@ -33,6 +38,6 @@ internal sealed class UnsafeAddIntrinsicEmitter(
             code.Write(WasmInstruction.NoOperand(WasmOpcodes.I32Multiply));
             code.Write(WasmInstruction.NoOperand(WasmOpcodes.I32Add));
         }
-        code.Write(WasmInstruction.WithOperand(WasmOpcodes.LocalSet, WasmInstructionOperand.Unsigned((uint)(request.Local(0, CliValueKind.ManagedAddress)))));
+        code.Write(WasmInstruction.WithOperand(WasmOpcodes.LocalSet, WasmInstructionOperand.Unsigned((uint)(request.Local(0, request.Method.Signature.ReturnType)))));
     }
 }

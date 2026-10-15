@@ -98,6 +98,11 @@ internal sealed class ImplicitExceptionDiscovery(
                     ManagedExceptionKind.IndexOutOfRange,
                     "System.IndexOutOfRangeException"));
                 break;
+            case CilOperation.LoadStaticDataElement:
+                requirements.Add(new(
+                    ManagedExceptionKind.IndexOutOfRange,
+                    "System.IndexOutOfRangeException"));
+                break;
             case CilOperation.StoreArrayElementReference:
             case CilOperation.StoreArrayElement:
             case CilOperation.StoreRectangularArrayElement:
@@ -139,11 +144,6 @@ internal sealed class ImplicitExceptionDiscovery(
             case CilOperation.CastClass:
             case CilOperation.CallIndirect:
                 requirements.Add(new(ManagedExceptionKind.InvalidCast, "System.InvalidCastException"));
-                break;
-            case CilOperation.DelegateCombine:
-            case CilOperation.DelegateRemove:
-                requirements.Add(new(ManagedExceptionKind.OutOfMemory, "System.OutOfMemoryException"));
-                requirements.Add(new(ManagedExceptionKind.Argument, "System.ArgumentException"));
                 break;
             case CilOperation.MaterializeType:
                 requirements.Add(new(ManagedExceptionKind.OutOfMemory, "System.OutOfMemoryException"));

@@ -9,16 +9,137 @@ const module = await WebAssembly.compile(fs.readFileSync(modulePath));
 assert.equal(WebAssembly.Module.imports(module).some(entry =>
   entry.module === 'wasi_snapshot_preview1' || entry.module === 'wasi_unstable'), false);
 
-for (const kind of ['root', 'value', 'stack-trace', 'value-content']) {
+for (const kind of ['root', 'value', 'stack-trace', 'root-content', 'value-content',
+  'allocation-test-hooks', 'boxed-runtime']) {
   let api;
   const instance = await WebAssembly.instantiate(module,
     createRuntimeContractImports(target, () => api.memory));
   api = instance.exports;
-  api.initialize(address(65536), 1, 1);
+  api.initialize(address(65536),
+    kind === 'boxed-runtime' ? 3 : kind === 'allocation-test-hooks' ? 2 : 1,
+    1);
   const before = BigInt(api.gc_get_metric(0));
-  if (kind === 'value-content') {
+  if (kind === 'boxed-runtime') {
+    const referenceSize = target === 'wasm64' ? 8 : 4;
+    const payloadOffset = referenceSize;
+    const objectSize = referenceSize * 2;
+    const objectBitmap = 1024;
+    const valueBitmap = 1040;
+    const view = new DataView(api.memory.buffer);
+    if (target === 'wasm64') {
+      view.setBigUint64(objectBitmap, 2n, true);
+      view.setBigUint64(valueBitmap, 1n, true);
+    } else {
+      view.setUint32(objectBitmap, 2, true);
+      view.setUint32(valueBitmap, 1, true);
+    }
+    api.register_type(1, 0, address(objectSize), address(objectBitmap), 2,
+      address(0), 0, 0, 0);
+    api.register_value_type(1, address(referenceSize), address(payloadOffset),
+      address(valueBitmap), 1);
+    api.register_type(2, 0, address(referenceSize), address(0), 1,
+      address(0), 0, 0, 0);
+
+    const child = api.allocate(address(referenceSize), 2);
+    const source = api.allocate(address(objectSize), 1);
+    const writeReference = (location, value) => target === 'wasm64'
+      ? view.setBigUint64(Number(location), BigInt(value), true)
+      : view.setUint32(Number(location), Number(value), true);
+    const readReference = location => target === 'wasm64'
+      ? view.getBigUint64(Number(location), true)
+      : BigInt(view.getUint32(Number(location), true));
+    writeReference(BigInt(source) + BigInt(payloadOffset), child);
+
+    const root = api.root_frame_enter(1);
+    writeReference(root, source);
+    api.test_collect_before_allocation(1);
+    const clone = api.boxed_value_clone(source);
+    api.test_collect_before_allocation(0);
+    api.root_frame_leave(root);
+    assert.ok(BigInt(api.gc_get_metric(0)) > before,
+      'Box cloning must preserve its rooted source across a forced collection');
+
+    assert.notEqual(BigInt(clone), 0n);
+    assert.notEqual(BigInt(clone), BigInt(source));
+    assert.equal(readReference(BigInt(clone) + BigInt(payloadOffset)), BigInt(child));
+    assert.equal(api.runtime_helpers_equals(source, clone), 1);
+    assert.equal(api.runtime_helpers_equals(source, source), 1);
+    assert.equal(api.runtime_helpers_equals(address(0), source), 0);
+    assert.equal(api.runtime_helpers_equals(source, address(0)), 0);
+    writeReference(BigInt(clone) + BigInt(payloadOffset), address(0));
+    assert.equal(api.runtime_helpers_equals(source, clone), 0);
+
+    const firstReference = api.allocate(address(referenceSize), 2);
+    const secondReference = api.allocate(address(referenceSize), 2);
+    assert.equal(api.runtime_helpers_equals(firstReference, firstReference), 1);
+    assert.equal(api.runtime_helpers_equals(firstReference, secondReference), 0);
+
+    api.test_fail_next_allocation();
+    assert.equal(BigInt(api.boxed_value_clone(source)), 0n);
+    assert.notEqual(BigInt(api.boxed_value_clone(source)), 0n);
+  } else if (kind === 'allocation-test-hooks') {
+    api.register_type(1, 0, address(8), address(0), 0, address(0), 0, 0, 0);
+    api.test_track_allocations(1);
+    assert.notEqual(BigInt(api.allocate(address(8), 1)), 0n);
+    assert.equal(api.test_allocation_count(), 1);
+    assert.equal(api.test_tracked_allocation_count(), 1);
+    assert.equal(api.test_marked_count(), 1);
+
+    api.test_track_allocations(0);
+    const collectionsBeforeAllocation = api.test_collection_count();
+    api.test_collect_before_allocation(1);
+    assert.notEqual(BigInt(api.allocate(address(8), 1)), 0n);
+    api.test_collect_before_allocation(0);
+    assert.equal(api.test_collection_count(), collectionsBeforeAllocation + 1);
+
+    api.test_fail_next_allocation();
+    assert.equal(BigInt(api.allocate(address(8), 1)), 0n);
+    assert.notEqual(BigInt(api.allocate(address(8), 1)), 0n);
+    assert.equal(api.test_allocation_count(), 3);
+  } else if (kind === 'root-content') {
+    const slotCounts = [0, 1, 2, 3, 7, 8, 31, 32, 257, 1024, 1025];
+    const invalidFrame = api.root_frame_enter(0);
+    assert.notEqual(BigInt(invalidFrame), 0n);
+    assert.throws(() => api.root_frame_leave(address(Number(invalidFrame) + 1)),
+      WebAssembly.RuntimeError,
+      'Leaving a non-current root frame address must trap');
+    api.root_frame_leave(invalidFrame);
+    for (let iteration = 0; iteration < 8; iteration++) {
+      const frames = [];
+      for (const slotCount of slotCounts) {
+        const frame = api.root_frame_enter(slotCount);
+        assert.notEqual(BigInt(frame), 0n);
+        const slots = target === 'wasm64'
+          ? new BigUint64Array(api.memory.buffer, Number(frame), slotCount)
+          : new Uint32Array(api.memory.buffer, Number(frame), slotCount);
+        const fill = BigInt(16 + iteration + slotCount);
+        slots.fill(target === 'wasm64' ? fill : Number(fill));
+        frames.push({ frame, slotCount, fill });
+        assert.equal(api.test_shadow_depth(),
+          frames.reduce((depth, active) => depth + active.slotCount, 0),
+          'Diagnostic root depth must equal the aggregate active slot count');
+        for (const active of frames) {
+          const activeSlots = target === 'wasm64'
+            ? new BigUint64Array(api.memory.buffer, Number(active.frame), active.slotCount)
+            : new Uint32Array(api.memory.buffer, Number(active.frame), active.slotCount);
+          assert.ok(activeSlots.every(value => BigInt(value) === active.fill),
+            'Allocating another root frame must preserve existing frame contents');
+        }
+      }
+      while (frames.length !== 0) api.root_frame_leave(frames.pop().frame);
+      assert.equal(api.test_shadow_depth(), 0,
+        'Leaving every root frame must restore an empty diagnostic depth');
+    }
+  } else if (kind === 'value-content') {
     const sizes = [0, 1, 2, 3, 7, 8, 15, 16, 17, 31, 32, 33,
-      63, 64, 65, 127, 128, 129, 255, 256, 257];
+      63, 64, 65, 127, 128, 129, 255, 256, 257,
+      2047, 2048, 4095, 4096, 4097];
+    const invalidFrame = api.value_frame_enter(address(0));
+    assert.notEqual(BigInt(invalidFrame), 0n);
+    assert.throws(() => api.value_frame_leave(address(Number(invalidFrame) + 1)),
+      WebAssembly.RuntimeError,
+      'Leaving a non-active value frame address must trap');
+    api.value_frame_leave(invalidFrame);
     for (let iteration = 0; iteration < 8; iteration++) {
       const frames = [];
       for (const size of sizes) {
@@ -31,6 +152,16 @@ for (const kind of ['root', 'value', 'stack-trace', 'value-content']) {
           const bytes = new Uint8Array(api.memory.buffer, Number(active.frame), active.size);
           assert.ok(bytes.every(value => value === active.fill),
             'Allocating another value frame must preserve existing frame contents');
+        }
+      }
+      if ((iteration & 1) !== 0) {
+        const targetIndex = Math.floor(frames.length / 2);
+        api.value_frame_leave(frames[targetIndex].frame);
+        frames.splice(targetIndex);
+        for (const active of frames) {
+          const bytes = new Uint8Array(api.memory.buffer, Number(active.frame), active.size);
+          assert.ok(bytes.every(value => value === active.fill),
+            'Bulk unwinding nested value frames must preserve caller storage');
         }
       }
       while (frames.length !== 0) {
@@ -55,10 +186,13 @@ for (const kind of ['root', 'value', 'stack-trace', 'value-content']) {
     }
     while (frames.length !== 0) api[`${kind}_frame_leave`](frames.pop());
   }
-  assert.equal(BigInt(api.gc_get_metric(0)), before,
-    'Metadata allocation must not introduce an unpublished managed collection point');
+  const beforeFinalCollection = BigInt(api.gc_get_metric(0));
+  if (kind !== 'allocation-test-hooks' && kind !== 'boxed-runtime') {
+    assert.equal(beforeFinalCollection, before,
+      'Metadata allocation must not introduce an unpublished managed collection point');
+  }
   api.collect();
-  assert.ok(BigInt(api.gc_get_metric(0)) > before,
+  assert.ok(BigInt(api.gc_get_metric(0)) > beforeFinalCollection,
     'Metadata allocation must restore the original collection state');
 }
-console.log(JSON.stringify({ target, passed: 4, failed: 0 }));
+console.log(JSON.stringify({ target, passed: 7, failed: 0 }));

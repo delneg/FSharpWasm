@@ -86,6 +86,7 @@ internal static class InstructionFamilyCatalogFactory
                     CilOperation.LocalAllocate,
                     CilOperation.CopyBlock,
                     CilOperation.InitializeBlock,
+                    CilOperation.CreateReadOnlySpanFromRva,
                     CilOperation.Unaligned,
                 ]),
             new(
@@ -95,6 +96,7 @@ internal static class InstructionFamilyCatalogFactory
                     CilOperation.LoadFieldAddress,
                     CilOperation.StoreField,
                     CilOperation.LoadStaticField,
+                    CilOperation.LoadStaticDataElement,
                     CilOperation.LoadStaticFieldAddress,
                     CilOperation.StoreStaticField,
                     CilOperation.NewArray,
@@ -138,14 +140,6 @@ internal static class InstructionFamilyCatalogFactory
                     CilOperation.CallVirtual,
                     CilOperation.CallIndirect,
                     CilOperation.Constrained,
-                ]),
-            new(
-                InstructionFamily.Delegates,
-                [
-                    CilOperation.DelegateCombine,
-                    CilOperation.DelegateRemove,
-                    CilOperation.DelegateEqual,
-                    CilOperation.DelegateNotEqual,
                 ]),
             new(
                 InstructionFamily.StructuredControlFlow,

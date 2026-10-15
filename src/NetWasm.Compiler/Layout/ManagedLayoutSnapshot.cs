@@ -50,8 +50,8 @@ public sealed class ManagedLayoutSnapshot :
     public int ArrayElementTypeIdOffset => ArrayDataPointerOffset + Target.AddressSize;
     public int DelegateTargetOffset => TypeLayouts.DelegateTargetOffset;
     public int DelegateMethodIdOffset => TypeLayouts.DelegateMethodIdOffset;
-    public int DelegateLeftOffset => TypeLayouts.DelegateLeftOffset;
-    public int DelegateRightOffset => TypeLayouts.DelegateRightOffset;
+    public int DelegateInvocationListOffset => TypeLayouts.DelegateInvocationListOffset;
+    public int DelegateInvocationCountOffset => TypeLayouts.DelegateInvocationCountOffset;
     public ImmutableArray<DataSegment> DataSegments => StaticData.Segments;
     public ImmutableArray<TypeDescriptorLayout> TypeDescriptors =>
         StaticData.TypeDescriptors;

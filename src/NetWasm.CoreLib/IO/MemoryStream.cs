@@ -462,11 +462,31 @@ namespace System.IO
         {
             var count = _length - _origin;
             if (count == 0)
-                return Array.Empty<byte>();
+                return [];
 
-            var copy = new byte[count];
+            var copy = GC.AllocateUninitializedArray<byte>(count);
             new ReadOnlySpan<byte>(_buffer, _origin, count).CopyTo(copy);
             return copy;
+        }
+
+        internal byte[] InternalGetBuffer() => _buffer;
+
+        internal int InternalGetPosition() => _position;
+
+        internal ReadOnlySpan<byte> InternalReadSpan(int count)
+        {
+            EnsureNotClosed();
+            var originalPosition = _position;
+            var newPosition = originalPosition + count;
+            if ((uint)newPosition > (uint)_length)
+            {
+                _position = _length;
+                throw new EndOfStreamException();
+            }
+
+            var result = new ReadOnlySpan<byte>(_buffer, originalPosition, count);
+            _position = newPosition;
+            return result;
         }
 
         public override void Write(byte[] buffer, int offset, int count)

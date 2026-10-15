@@ -20,8 +20,11 @@ internal static class RuntimeIntrinsicServiceCollectionExtensions
         services.AddSingleton<ArrayCopyIntrinsicEmitter>();
         services.AddSingleton<ArrayClearIntrinsicEmitter>();
         services.AddSingleton<ArrayCloneIntrinsicEmitter>();
+        services.AddSingleton<ArrayCloneRangeIntrinsicEmitter>();
         services.AddSingleton<StringCharacterAtIntrinsicEmitter>();
         services.AddSingleton<StringSetCharacterUncheckedIntrinsicEmitter>();
+        services.AddSingleton<StringGetRawDataReferenceIntrinsicEmitter>();
+        services.AddSingleton<StringEqualsOrdinalIntrinsicEmitter>();
         services.AddSingleton<JSObjectDisposeIntrinsicEmitter>();
         services.AddSingleton<JSSubscriptionDisposeIntrinsicEmitter>();
         services.AddSingleton<GcCollectIntrinsicEmitter>();
@@ -32,6 +35,8 @@ internal static class RuntimeIntrinsicServiceCollectionExtensions
         services.AddSingleton<EphemeronHandleCreateIntrinsicEmitter>();
         services.AddSingleton<EphemeronHandleGetKeyIntrinsicEmitter>();
         services.AddSingleton<EphemeronHandleGetValueIntrinsicEmitter>();
+        services.AddSingleton<EphemeronHandleSetTargetToNullIntrinsicEmitter>();
+        services.AddSingleton<EphemeronHandleSetValueIntrinsicEmitter>();
         services.AddSingleton<EphemeronHandleReleaseIntrinsicEmitter>();
         services.AddSingleton<GcHandleCreateIntrinsicEmitter>();
         services.AddSingleton<GcHandleGetIntrinsicEmitter>();
@@ -42,6 +47,10 @@ internal static class RuntimeIntrinsicServiceCollectionExtensions
         services.AddSingleton<GcMetricIsSupportedIntrinsicEmitter>();
         services.AddSingleton<GcWaitForPendingFinalizersIntrinsicEmitter>();
         services.AddSingleton<ObjectIdentityHashIntrinsicEmitter>();
+        services.AddSingleton<BoxedValueCloneIntrinsicEmitter>();
+        services.AddSingleton<DelegateCloneIntrinsicEmitter>();
+        services.AddSingleton<RuntimeHelpersEqualsIntrinsicEmitter>();
+        services.AddSingleton<RandomSeedIntrinsicEmitter>();
         services.AddSingleton<IValueTypeEqualityFieldPlanner,
             ValueTypeEqualityFieldPlanner>();
         services.AddSingleton<IValueTypeEqualsEmitter, ValueTypeEqualsEmitter>();
@@ -81,6 +90,9 @@ internal static class RuntimeIntrinsicServiceCollectionExtensions
         services.AddSingleton<NativeMemoryAlignedAllocIntrinsicEmitter>();
         services.AddSingleton<NativeMemoryAlignedReallocIntrinsicEmitter>();
         services.AddSingleton<NativeMemoryAlignedFreeIntrinsicEmitter>();
+        services.AddSingleton<NativeMemoryClearIntrinsicEmitter>();
+        services.AddSingleton<NativeMemoryCopyIntrinsicEmitter>();
+        services.AddSingleton<NativeMemoryFillIntrinsicEmitter>();
         services.AddSingleton<SingleToInt32BitsIntrinsicEmitter>();
         services.AddSingleton<Int32BitsToSingleIntrinsicEmitter>();
         services.AddSingleton<DoubleToInt64BitsIntrinsicEmitter>();
@@ -91,6 +103,9 @@ internal static class RuntimeIntrinsicServiceCollectionExtensions
         services.AddSingleton<FloatingTruncateIntrinsicEmitter>();
         services.AddSingleton<FloatingRoundIntrinsicEmitter>();
         services.AddSingleton<FloatingSquareRootIntrinsicEmitter>();
+        services.AddSingleton<FloatingCopySignIntrinsicEmitter>();
+        services.AddSingleton<IntegerBitOperationIntrinsicEmitter>();
+        services.AddSingleton<IntegerDivRemIntrinsicEmitter>();
         services.AddSingleton<ObjectArrayDelegateAdapterIntrinsicEmitter>();
         services.AddSingleton<MemberExecutionIntrinsicEmitter>();
         services.AddSingleton<DelegateDynamicInvokeIntrinsicEmitter>();
@@ -149,10 +164,16 @@ internal static class RuntimeIntrinsicServiceCollectionExtensions
             services, RuntimeIntrinsic.ArrayClear);
         AddRegistration<ArrayCloneIntrinsicEmitter>(
             services, RuntimeIntrinsic.ArrayClone);
+        AddRegistration<ArrayCloneRangeIntrinsicEmitter>(
+            services, RuntimeIntrinsic.ArrayCloneRange);
         AddRegistration<StringCharacterAtIntrinsicEmitter>(
             services, RuntimeIntrinsic.StringCharacterAt);
         AddRegistration<StringSetCharacterUncheckedIntrinsicEmitter>(
             services, RuntimeIntrinsic.StringSetCharacterUnchecked);
+        AddRegistration<StringGetRawDataReferenceIntrinsicEmitter>(
+            services, RuntimeIntrinsic.StringGetRawDataReference);
+        AddRegistration<StringEqualsOrdinalIntrinsicEmitter>(
+            services, RuntimeIntrinsic.StringEqualsOrdinal);
         AddRegistration<JSObjectDisposeIntrinsicEmitter>(
             services, RuntimeIntrinsic.JSObjectDispose);
         AddRegistration<JSSubscriptionDisposeIntrinsicEmitter>(
@@ -171,6 +192,12 @@ internal static class RuntimeIntrinsicServiceCollectionExtensions
         AddRegistration<EphemeronHandleGetValueIntrinsicEmitter>(
             services,
             RuntimeIntrinsic.EphemeronHandleGetValue);
+        AddRegistration<EphemeronHandleSetTargetToNullIntrinsicEmitter>(
+            services,
+            RuntimeIntrinsic.EphemeronHandleSetTargetToNull);
+        AddRegistration<EphemeronHandleSetValueIntrinsicEmitter>(
+            services,
+            RuntimeIntrinsic.EphemeronHandleSetValue);
         AddRegistration<EphemeronHandleReleaseIntrinsicEmitter>(
             services,
             RuntimeIntrinsic.EphemeronHandleRelease);
@@ -187,6 +214,13 @@ internal static class RuntimeIntrinsicServiceCollectionExtensions
             services,
             RuntimeIntrinsic.GcWaitForPendingFinalizers);
         AddRegistration<ObjectIdentityHashIntrinsicEmitter>(services, RuntimeIntrinsic.ObjectIdentityHash);
+        AddRegistration<BoxedValueCloneIntrinsicEmitter>(
+            services, RuntimeIntrinsic.BoxedValueClone);
+        AddRegistration<DelegateCloneIntrinsicEmitter>(
+            services, RuntimeIntrinsic.DelegateClone);
+        AddRegistration<RuntimeHelpersEqualsIntrinsicEmitter>(
+            services, RuntimeIntrinsic.RuntimeHelpersEquals);
+        AddRegistration<RandomSeedIntrinsicEmitter>(services, RuntimeIntrinsic.RandomSeed);
         AddRegistration<ValueTypeEqualsIntrinsicEmitter>(
             services,
             RuntimeIntrinsic.ValueTypeEquals);
@@ -250,6 +284,12 @@ internal static class RuntimeIntrinsicServiceCollectionExtensions
             services, RuntimeIntrinsic.NativeMemoryAlignedRealloc);
         AddRegistration<NativeMemoryAlignedFreeIntrinsicEmitter>(
             services, RuntimeIntrinsic.NativeMemoryAlignedFree);
+        AddRegistration<NativeMemoryClearIntrinsicEmitter>(
+            services, RuntimeIntrinsic.NativeMemoryClear);
+        AddRegistration<NativeMemoryCopyIntrinsicEmitter>(
+            services, RuntimeIntrinsic.NativeMemoryCopy);
+        AddRegistration<NativeMemoryFillIntrinsicEmitter>(
+            services, RuntimeIntrinsic.NativeMemoryFill);
         AddRegistration<SingleToInt32BitsIntrinsicEmitter>(
             services, RuntimeIntrinsic.SingleToInt32Bits);
         AddRegistration<Int32BitsToSingleIntrinsicEmitter>(
@@ -270,6 +310,22 @@ internal static class RuntimeIntrinsicServiceCollectionExtensions
             services, RuntimeIntrinsic.FloatingRound);
         AddRegistration<FloatingSquareRootIntrinsicEmitter>(
             services, RuntimeIntrinsic.FloatingSquareRoot);
+        AddRegistration<FloatingCopySignIntrinsicEmitter>(
+            services, RuntimeIntrinsic.FloatingCopySign);
+        AddRegistration<IntegerBitOperationIntrinsicEmitter>(
+            services, RuntimeIntrinsic.IntegerLeadingZeroCount);
+        AddRegistration<IntegerBitOperationIntrinsicEmitter>(
+            services, RuntimeIntrinsic.IntegerLog2);
+        AddRegistration<IntegerBitOperationIntrinsicEmitter>(
+            services, RuntimeIntrinsic.IntegerPopulationCount);
+        AddRegistration<IntegerBitOperationIntrinsicEmitter>(
+            services, RuntimeIntrinsic.IntegerTrailingZeroCount);
+        AddRegistration<IntegerBitOperationIntrinsicEmitter>(
+            services, RuntimeIntrinsic.IntegerRotateLeft);
+        AddRegistration<IntegerBitOperationIntrinsicEmitter>(
+            services, RuntimeIntrinsic.IntegerRotateRight);
+        AddRegistration<IntegerDivRemIntrinsicEmitter>(
+            services, RuntimeIntrinsic.IntegerDivRem);
         AddRegistration<ObjectArrayDelegateAdapterIntrinsicEmitter>(
             services, RuntimeIntrinsic.ObjectArrayDelegateAdapterCreate);
         AddRegistration<MemberExecutionIntrinsicEmitter>(

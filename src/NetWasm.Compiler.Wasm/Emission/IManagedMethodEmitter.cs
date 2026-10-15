@@ -7,6 +7,8 @@ using NetWasm.Compiler.Wasm.Encoding;
 using NetWasm.Compiler.Wasm.Emission.Planning;
 
 using NetWasm.Compiler.Core.IntermediateRepresentation.Identity;
+using NetWasm.Compiler.Wasm.Emission.AddressTakenValues;
+using NetWasm.Compiler.Wasm.Emission.Values;
 
 namespace NetWasm.Compiler.Wasm.Emission;
 
@@ -22,5 +24,13 @@ internal interface IManagedMethodEmitter
         RuntimeImportSelection runtimeImportSelection,
         Action<IWasmInstructionWriter, StructuredMethod, MethodEmissionContext> emitBody,
         NativeImportPlan? nativeImports = null,
-        MemberExecutionPlan? memberExecution = null);
+        MemberExecutionPlan? memberExecution = null,
+        ManagedByRefMethodEffects? byRefEffects = null,
+        AddressTakenScalarPromotionPlan? addressTakenScalarPromotions = null,
+        AddressTakenAggregatePromotionPlan? addressTakenAggregatePromotions = null,
+        ManagedByRefAggregatePromotionPlan? managedByRefAggregatePromotions = null,
+        ManagedAggregateSsaPlan? managedAggregateValues = null,
+        bool enableBranchValueFramePlacement = false,
+        bool enableArrayMetadataCaching = false,
+        bool enableScalarCallPreservation = false);
 }

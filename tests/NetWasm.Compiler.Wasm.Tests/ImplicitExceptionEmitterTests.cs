@@ -3,6 +3,7 @@ using NetWasm.Compiler.ControlFlow.Structured;
 using NetWasm.Compiler.Core;
 using NetWasm.Compiler.Wasm.Encoding;
 using NetWasm.Compiler.Wasm.Emission;
+using NetWasm.Compiler.Wasm.Emission.Planning;
 
 namespace NetWasm.Compiler.Wasm.Tests;
 
@@ -10,6 +11,72 @@ using static NetWasm.Compiler.Wasm.Tests.EmitterTestSupport;
 
 public sealed class ImplicitExceptionEmitterTests
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void SharedThrowEmitsReferenceCallAndUnreachable(bool memory64)
+    {
+        var layouts = new RecordingLayoutProvider(
+            memory64 ? WasmTargetLayout.Wasm64 : WasmTargetLayout.Wasm32);
+        var writer = new RecordingInstructionWriter();
+        IImplicitExceptionEmitter emitter = new ImplicitExceptionEmitter(
+            layouts,
+            layouts,
+            7);
+
+        emitter.Emit(
+            writer,
+            ManagedExceptionKind.NullReference,
+            OptionalFunctionIndex.At(27));
+
+        var instructions = writer.ToInstructions();
+        Assert.Equal(3, instructions.Length);
+        Assert.Equal(
+            memory64 ? WasmOpcodes.I64Constant : WasmOpcodes.I32Constant,
+            instructions[0].Opcode);
+        Assert.Equal(300L, memory64
+            ? instructions[0].Operand.Signed64Value
+            : instructions[0].Operand.SignedValue);
+        Assert.Equal(WasmOpcodes.Call, instructions[1].Opcode);
+        Assert.Equal(27u, instructions[1].Operand.UnsignedValue);
+        Assert.Equal(WasmOpcodes.Unreachable, instructions[2].Opcode);
+        Assert.Equal(WasmInstructionOperandShape.None, instructions[2].OperandShape);
+    }
+
+    [Fact]
+    public void SharedThrowRejectsMissingInputsBeforeEmission()
+    {
+        var layouts = new RecordingLayoutProvider();
+        var writer = new RecordingInstructionWriter();
+        IImplicitExceptionEmitter emitter = new ImplicitExceptionEmitter(
+            layouts,
+            layouts,
+            7);
+
+        Assert.Throws<ArgumentNullException>(() => emitter.Emit(
+            null!,
+            ManagedExceptionKind.NullReference,
+            OptionalFunctionIndex.At(27)));
+        Assert.Throws<InvalidOperationException>(() => emitter.Emit(
+            writer,
+            ManagedExceptionKind.NullReference,
+            OptionalFunctionIndex.Missing));
+        Assert.Empty(writer.ToInstructions());
+    }
+
+    [Fact]
+    public void InlineOnlyStrategyRejectsSharedThrowInsteadOfSilentlyInlining()
+    {
+        IImplicitExceptionEmitter emitter = new InlineOnlyExceptionEmitter();
+
+        var exception = Assert.Throws<NotSupportedException>(() => emitter.Emit(
+            new RecordingInstructionWriter(),
+            ManagedExceptionKind.NullReference,
+            OptionalFunctionIndex.At(27)));
+
+        Assert.Contains("shared throw function", exception.Message);
+    }
+
     [Fact]
     public void ExceptionPayloadBlockUsesManagedReferenceWidth()
     {
@@ -30,6 +97,15 @@ public sealed class ImplicitExceptionEmitterTests
         Assert.Equal(
             [WasmOpcodes.Block, (byte)WasmValueType.I64],
             new WasmBinarySnapshotReader(wasm64Buffer).Read());
+    }
+
+    private sealed class InlineOnlyExceptionEmitter : IImplicitExceptionEmitter
+    {
+        public void Emit(
+            IWasmInstructionWriter code,
+            ManagedExceptionKind kind)
+        {
+        }
     }
 
     [Fact]

@@ -14,6 +14,12 @@ internal sealed class ArrayCloneIntrinsicEmitter(
                 0,
                 CliValueKind.ManagedReference))));
         code.Write(WasmInstruction.WithOperand(
+            WasmOpcodes.I32Constant,
+            WasmInstructionOperand.Signed(0)));
+        code.Write(WasmInstruction.WithOperand(
+            WasmOpcodes.I32Constant,
+            WasmInstructionOperand.Signed(-1)));
+        code.Write(WasmInstruction.WithOperand(
             WasmOpcodes.Call,
             WasmInstructionOperand.Unsigned((uint)runtimeImports.Resolve(
                 RuntimeImportSymbol.ArrayClone))));

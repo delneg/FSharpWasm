@@ -56,6 +56,16 @@ public sealed class ArrayNonGenericCompilationTests
                 if (((int[])numbers)[1] != 1 || ((int[])numbers)[2] != 0 ||
                     ((int[])numbers)[3] != 0) return 2;
 
+                var first = numbers.GetEnumerator();
+                if (!first.MoveNext() || (int)first.Current != 1) return 9;
+                var clone = (global::System.Collections.IEnumerator)
+                    ((global::System.ICloneable)first).Clone();
+                if (!first.MoveNext() || (int)first.Current != 1 ||
+                    !clone.MoveNext() || (int)clone.Current != 1)
+                {
+                    return 10;
+                }
+
                 Array source = new Pair[]
                 {
                     new() { Payload = new Payload(7), Number = 11 },

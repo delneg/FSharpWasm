@@ -9,6 +9,131 @@ using static NetWasm.Compiler.ControlFlow.Tests.ControlFlowTestSupport;
 
 public sealed class TypedStackValidatorTests
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void SeedsOnlyReachableExceptionEntries(bool enter)
+    {
+        var body = Body(CliValueKind.Void, 1, [],
+            enter ? I(0, CilOperation.Nop) : I(0, CilOperation.Branch, new CilOperand.BranchTarget(8)),
+            I(1, CilOperation.Nop),
+            I(2, CilOperation.Leave, new CilOperand.BranchTarget(8)),
+            I(3, CilOperation.Pop),
+            I(4, CilOperation.LoadInt32, new CilOperand.ConstantI4(1)),
+            I(5, CilOperation.EndFilter),
+            I(6, CilOperation.Pop),
+            I(7, CilOperation.Leave, new CilOperand.BranchTarget(8)),
+            I(8, CilOperation.Return)) with
+        {
+            ExceptionRegions = [new(CilExceptionRegionKind.Filter, 1, 2, 6, 2, null, 3)],
+        };
+        var original = CreateGraphBuilder().Build(body);
+        var graph = new ControlFlowGraph(body, original.Blocks, original.Successors,
+            original.Predecessors, original.ExceptionalSuccessors, original.ExceptionalPredecessors,
+            enter ? original.ReachableBlocks : [original.Entry.Index, original.GetBlockAtOffset(8).Index]);
+
+        var validated = CreateValidator(new FakeProgram()).Validate(graph);
+
+        Assert.Equal(enter, validated.InstructionEntryStacks.ContainsKey(3));
+        Assert.Equal(enter, validated.InstructionEntryStacks.ContainsKey(6));
+        Assert.Same(graph, validated.Graph);
+        if (enter)
+        {
+            Assert.Equal(CliValueKind.ManagedReference, Assert.Single(validated.InstructionEntryStacks[3]));
+            Assert.Equal(CliValueKind.ManagedReference, Assert.Single(validated.InstructionEntryStacks[6]));
+        }
+        else
+        {
+            Assert.Equal(2, validated.InstructionEntryStacks.Count);
+            Assert.Empty(validated.InstructionEntryStacks[0]);
+            Assert.Empty(validated.InstructionEntryStacks[8]);
+        }
+    }
+
+    [Fact]
+    public void StaticDataElementConsumesInt32AndProducesItsScalarType()
+    {
+        var assembly = new AssemblyIdentity("fixture");
+        var element = CliTypeIdentity.Primitive("u4", CliValueKind.I4);
+        var span = CliTypeIdentity.GenericInstantiation(
+            CliTypeIdentity.Named(
+                assembly,
+                "System",
+                "ReadOnlySpan`1",
+                isValueType: true),
+            [element]);
+        var dataType = CliTypeIdentity.Named(
+            assembly,
+            "",
+            "__StaticArrayInitTypeSize4",
+            isValueType: true);
+        var field = new FieldDefinitionModel(
+            new(assembly, 1),
+            new(assembly, 2),
+            "Data",
+            dataType,
+            true)
+        {
+            InitialData = [1, 0, 0, 0],
+        };
+        var operand = new CilOperand.ReadOnlySpanData(
+            new(field, CliTypeIdentity.Named(
+                assembly,
+                "Fixture",
+                "Owner",
+                isValueType: false), dataType),
+            span,
+            element,
+            1);
+        var body = Body(
+            CliValueKind.I4,
+            1,
+            [],
+            I(0, CilOperation.LoadArgument, new CilOperand.Index(0)),
+            I(1, CilOperation.LoadStaticDataElement, operand),
+            I(2, CilOperation.Return));
+
+        var validated = Validate(body);
+
+        Assert.Equal(CliValueKind.I4, Assert.Single(
+            validated.InstructionEntryStacks[1]));
+        Assert.Equal(CliValueKind.I4, Assert.Single(
+            validated.InstructionEntryStacks[2]));
+        AssertDiagnostic(() => Validate(body with
+        {
+            Instructions = body.Instructions.SetItem(
+                1,
+                I(1, CilOperation.LoadStaticDataElement)),
+        }), "static data element metadata is missing");
+        AssertDiagnostic(() => Validate(body with
+        {
+            Instructions =
+            [
+                I(0, CilOperation.LoadNull),
+                I(1, CilOperation.LoadStaticDataElement, operand),
+                I(2, CilOperation.Return),
+            ],
+        }), "expected I4");
+
+        var spanBody = Body(
+            CliValueKind.ValueType,
+            1,
+            [],
+            I(0, CilOperation.CreateReadOnlySpanFromRva, operand),
+            I(1, CilOperation.Return));
+        var spanValidated = Validate(spanBody);
+
+        Assert.Empty(spanValidated.InstructionEntryStacks[0]);
+        Assert.Equal(CliValueKind.ValueType, Assert.Single(
+            spanValidated.InstructionEntryStacks[1]));
+        AssertDiagnostic(() => Validate(spanBody with
+        {
+            Instructions = spanBody.Instructions.SetItem(
+                0,
+                I(0, CilOperation.CreateReadOnlySpanFromRva)),
+        }), "RVA span creation metadata is missing");
+    }
+
     [Fact]
     public void TypeFactsConsumesSemanticTypeIdAndProducesNativeAddress()
     {
@@ -270,6 +395,72 @@ public sealed class TypedStackValidatorTests
                 I(1, CilOperation.LoadArgument, new CilOperand.Index(0)),
                 I(2, CilOperation.Return))),
             "readonly. must immediately precede an array element address load");
+    }
+
+    [Theory]
+    [InlineData(1, CliValueKind.I4)]
+    [InlineData(2, CliValueKind.I4)]
+    [InlineData(1, CliValueKind.ManagedReference)]
+    [InlineData(2, CliValueKind.ManagedReference)]
+    [InlineData(1, CliValueKind.ValueType)]
+    [InlineData(2, CliValueKind.ValueType)]
+    public void ValidatorAcceptsReadonlyRuntimeArrayAddressBeforeLowering(int rank, CliValueKind elementKind)
+    {
+        var element = elementKind == CliValueKind.ValueType
+            ? CliTypeIdentity.Named(Assembly, "Test", "Payload", isValueType: true)
+            : CliTypeIdentity.FromStackKind(elementKind);
+        var array = CliTypeIdentity.Array(element, rank);
+        var signature = new MethodSignatureModel(CliTypeIdentity.ManagedByReference(element),
+            [.. Enumerable.Repeat(CliTypeIdentity.FromStackKind(CliValueKind.I4), rank)]);
+        var definition = new MethodDefinitionModel(InstanceCallKey, TypeKey, "Address", false, signature, 0);
+        var target = new MethodInstanceModel(definition, array, [], signature);
+        var instructions = new List<CilInstruction> { I(0, CilOperation.LoadNull) };
+        for (var dimension = 0; dimension < rank; dimension++)
+            instructions.Add(I(instructions.Count, CilOperation.LoadInt32, new CilOperand.ConstantI4(0)));
+        instructions.Add(I(instructions.Count, CilOperation.Readonly));
+        var callOffset = instructions.Count;
+        instructions.Add(I(callOffset, CilOperation.Call, new CilOperand.MethodInstance(target)));
+        instructions.Add(I(instructions.Count, CilOperation.Return));
+        var body = Body(CliValueKind.ManagedAddress, rank + 1, [], [.. instructions]);
+
+        var validated = Validate(body);
+
+        Assert.Same(body, validated.Graph.MethodBody);
+        Assert.Equal(rank + 1, validated.InstructionEntryStacks[callOffset].Length);
+        Assert.Equal(CliValueKind.ManagedReference, validated.InstructionEntryStacks[callOffset][0]);
+        Assert.All(validated.InstructionEntryStacks[callOffset].Skip(1), kind => Assert.Equal(CliValueKind.I4, kind));
+        Assert.Equal(CliValueKind.ManagedAddress, Assert.Single(validated.InstructionEntryStacks[callOffset + 1]));
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(2)]
+    [InlineData(3)]
+    public void ValidatorRejectsReadonlyCallsWithoutRuntimeArrayAddressIdentity(int shape)
+    {
+        var element = CliTypeIdentity.FromStackKind(CliValueKind.I4);
+        var declaringType = shape == 1
+            ? CliTypeIdentity.Named(Assembly, "Test", "Ordinary", isValueType: false)
+            : CliTypeIdentity.Array(element, 1);
+        var signature = new MethodSignatureModel(CliTypeIdentity.ManagedByReference(element), [element]);
+        var definition = new MethodDefinitionModel(InstanceCallKey, TypeKey,
+            shape == 2 ? "Get" : "Address", shape == 3, signature, 0);
+        var operand = shape == 0
+            ? (CilOperand)new CilOperand.Entity(InstanceCallKey)
+            : new CilOperand.MethodInstance(new(definition, declaringType, [], signature));
+        var body = Body(CliValueKind.ManagedAddress, 2, [],
+            I(0, CilOperation.LoadNull),
+            I(1, CilOperation.LoadInt32, new CilOperand.ConstantI4(0)),
+            I(2, CilOperation.Readonly),
+            I(3, CilOperation.Call, operand),
+            I(4, CilOperation.Return));
+
+        var error = Assert.Throws<CompilerException>(() => Validate(body));
+
+        Assert.Equal(DiagnosticCode.InvalidCil, error.Diagnostic.Code);
+        Assert.Equal(2, error.Diagnostic.IlOffset);
+        Assert.Contains("readonly.", error.Message, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -1542,22 +1733,6 @@ public sealed class TypedStackValidatorTests
             I(29, CilOperation.LoadInt32, new CilOperand.ConstantI4(0)),
             I(30, CilOperation.LoadArrayElement, new CilOperand.TypeIdentity(i4)),
             I(31, CilOperation.Pop),
-            I(32, CilOperation.LoadNull),
-            I(33, CilOperation.LoadNull),
-            I(34, CilOperation.DelegateCombine),
-            I(35, CilOperation.Pop),
-            I(36, CilOperation.LoadNull),
-            I(37, CilOperation.LoadNull),
-            I(38, CilOperation.DelegateRemove),
-            I(39, CilOperation.Pop),
-            I(40, CilOperation.LoadNull),
-            I(41, CilOperation.LoadNull),
-            I(42, CilOperation.DelegateEqual),
-            I(43, CilOperation.Pop),
-            I(44, CilOperation.LoadNull),
-            I(45, CilOperation.LoadNull),
-            I(46, CilOperation.DelegateNotEqual),
-            I(47, CilOperation.Pop),
             I(48, CilOperation.LoadStaticFieldAddress,
                 new CilOperand.Entity(StaticFieldKey)),
             I(49, CilOperation.LoadInt32, new CilOperand.ConstantI4(1)),

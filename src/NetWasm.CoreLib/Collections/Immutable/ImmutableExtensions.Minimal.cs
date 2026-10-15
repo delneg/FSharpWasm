@@ -14,6 +14,43 @@ namespace System.Collections.Immutable
 {
     internal static partial class ImmutableExtensions
     {
+        internal static bool IsValueType<T>()
+        {
+            return typeof(T).IsValueType;
+        }
+
+        internal static IReadOnlyList<T> AsReadOnlyList<T>(this IEnumerable<T> sequence)
+        {
+            Requires.NotNull(sequence, nameof(sequence));
+
+            if (sequence is IReadOnlyList<T> orderedCollection)
+            {
+                return orderedCollection;
+            }
+
+            if (sequence is IList<T> listOfT)
+            {
+                return new ListOfTWrapper<T>(listOfT);
+            }
+
+            return new FallbackWrapper<T>(sequence);
+        }
+
+        internal static DisposableEnumeratorAdapter<T, TEnumerator> GetEnumerableDisposable<T, TEnumerator>(this IEnumerable<T> enumerable)
+            where TEnumerator : struct, IStrongEnumerator<T>, IEnumerator<T>
+        {
+            Requires.NotNull(enumerable, nameof(enumerable));
+
+            if (enumerable is IStrongEnumerable<T, TEnumerator> strongEnumerable)
+            {
+                return new DisposableEnumeratorAdapter<T, TEnumerator>(strongEnumerable.GetEnumerator());
+            }
+            else
+            {
+                return new DisposableEnumeratorAdapter<T, TEnumerator>(enumerable.GetEnumerator());
+            }
+        }
+
         internal static bool TryGetCount<T>(this IEnumerable<T> sequence, out int count)
         {
             return TryGetCount<T>((IEnumerable)sequence, out count);
@@ -102,20 +139,113 @@ namespace System.Collections.Immutable
                 return ImmutableArray<T>.Empty.array!;
             }
 
-            var array = new T[count];
+            T[] array = new T[count];
             if (!sequence.TryCopyTo(array, 0))
             {
-                var index = 0;
-                foreach (var item in sequence)
+                int i = 0;
+                foreach (T item in sequence)
                 {
-                    Requires.Argument(index < count);
-                    array[index++] = item;
+                    Requires.Argument(i < count);
+                    array[i++] = item;
                 }
 
-                Requires.Argument(index == count);
+                Requires.Argument(i == count);
             }
 
             return array;
+        }
+
+        /// <summary>
+        /// Clears the specified stack. For empty stacks, this avoids the call to
+        /// <see cref="Stack{T}.Clear"/>.
+        /// </summary>
+        internal static void ClearFastWhenEmpty<T>(this Stack<T> stack)
+        {
+            if (stack.Count > 0)
+            {
+                stack.Clear();
+            }
+        }
+
+        private sealed class ListOfTWrapper<T> : IReadOnlyList<T>
+        {
+            private readonly IList<T> _collection;
+
+            internal ListOfTWrapper(IList<T> collection)
+            {
+                Requires.NotNull(collection, nameof(collection));
+                _collection = collection;
+            }
+
+            public int Count
+            {
+                get { return _collection.Count; }
+            }
+
+            public T this[int index]
+            {
+                get { return _collection[index]; }
+            }
+
+            public IEnumerator<T> GetEnumerator()
+            {
+                return _collection.GetEnumerator();
+            }
+
+            IEnumerator IEnumerable.GetEnumerator()
+            {
+                return this.GetEnumerator();
+            }
+        }
+
+        private sealed class FallbackWrapper<T> : IReadOnlyList<T>
+        {
+            private readonly IEnumerable<T> _sequence;
+            private IList<T>? _collection;
+
+            internal FallbackWrapper(IEnumerable<T> sequence)
+            {
+                Requires.NotNull(sequence, nameof(sequence));
+                _sequence = sequence;
+            }
+
+            public int Count
+            {
+                get
+                {
+                    if (_collection == null)
+                    {
+                        if (_sequence.TryGetCount(out int count))
+                        {
+                            return count;
+                        }
+
+                        _collection = new List<T>(_sequence);
+                    }
+
+                    return _collection.Count;
+                }
+            }
+
+            public T this[int index]
+            {
+                get
+                {
+                    _collection ??= new List<T>(_sequence);
+
+                    return _collection[index];
+                }
+            }
+
+            public IEnumerator<T> GetEnumerator()
+            {
+                return _sequence.GetEnumerator();
+            }
+
+            IEnumerator IEnumerable.GetEnumerator()
+            {
+                return this.GetEnumerator();
+            }
         }
     }
 }

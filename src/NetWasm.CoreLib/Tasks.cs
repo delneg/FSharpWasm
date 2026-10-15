@@ -56,6 +56,36 @@ namespace System.Runtime.CompilerServices
         void SetStateMachine(IAsyncStateMachine stateMachine);
     }
 
+    internal static class AsyncMethodBuilderCore
+    {
+        internal static void Start<TStateMachine>(ref TStateMachine stateMachine)
+            where TStateMachine : IAsyncStateMachine
+        {
+            var previousExecutionContext =
+                Threading.ExecutionContext.CaptureForRestore(
+                    out var previousFlowControlToken);
+            var previousSynchronizationContext =
+                Threading.SynchronizationContext.Current;
+            try
+            {
+                stateMachine.MoveNext();
+            }
+            finally
+            {
+                if (!ReferenceEquals(
+                    previousSynchronizationContext,
+                    Threading.SynchronizationContext.Current))
+                {
+                    Threading.SynchronizationContext.SetSynchronizationContext(
+                        previousSynchronizationContext);
+                }
+                Threading.ExecutionContext.Restore(
+                    previousExecutionContext,
+                    previousFlowControlToken);
+            }
+        }
+    }
+
     internal sealed class AsyncStateMachineContinuation
     {
         private readonly IAsyncStateMachine _stateMachine;
@@ -82,6 +112,114 @@ namespace System.Runtime.CompilerServices
         }
     }
 
+    internal sealed class AsyncStateMachineTask<TStateMachine> :
+        Threading.Tasks.Task
+        where TStateMachine : IAsyncStateMachine
+    {
+        private readonly Action _moveNextAction;
+        private Threading.ExecutionContext? _executionContext;
+        private TStateMachine _stateMachine = default!;
+
+        internal AsyncStateMachineTask()
+        {
+            _moveNextAction = MoveNext;
+        }
+
+        internal Action MoveNextAction => _moveNextAction;
+
+        internal void Initialize(ref TStateMachine stateMachine)
+        {
+            _stateMachine = stateMachine;
+            UpdateExecutionContext();
+        }
+
+        internal void UpdateExecutionContext() =>
+            _executionContext = Threading.ExecutionContext.Capture();
+
+        private void MoveNext()
+        {
+            var executionContext = _executionContext;
+            try
+            {
+                if (executionContext is null)
+                {
+                    _stateMachine.MoveNext();
+                }
+                else
+                {
+                    Threading.ExecutionContext.Run(
+                        executionContext,
+                        static state =>
+                            ((AsyncStateMachineTask<TStateMachine>)state!)
+                                ._stateMachine.MoveNext(),
+                        this);
+                }
+            }
+            finally
+            {
+                if (IsCompleted)
+                {
+                    _stateMachine = default!;
+                    _executionContext = null;
+                }
+            }
+        }
+    }
+
+    internal sealed class AsyncStateMachineTask<TResult, TStateMachine> :
+        Threading.Tasks.Task<TResult>
+        where TStateMachine : IAsyncStateMachine
+    {
+        private readonly Action _moveNextAction;
+        private Threading.ExecutionContext? _executionContext;
+        private TStateMachine _stateMachine = default!;
+
+        internal AsyncStateMachineTask()
+        {
+            _moveNextAction = MoveNext;
+        }
+
+        internal Action MoveNextAction => _moveNextAction;
+
+        internal void Initialize(ref TStateMachine stateMachine)
+        {
+            _stateMachine = stateMachine;
+            UpdateExecutionContext();
+        }
+
+        internal void UpdateExecutionContext() =>
+            _executionContext = Threading.ExecutionContext.Capture();
+
+        private void MoveNext()
+        {
+            var executionContext = _executionContext;
+            try
+            {
+                if (executionContext is null)
+                {
+                    _stateMachine.MoveNext();
+                }
+                else
+                {
+                    Threading.ExecutionContext.Run(
+                        executionContext,
+                        static state =>
+                            ((AsyncStateMachineTask<TResult, TStateMachine>)state!)
+                                ._stateMachine.MoveNext(),
+                        this);
+                }
+            }
+            finally
+            {
+                if (IsCompleted)
+                {
+                    _stateMachine = default!;
+                    _executionContext = null;
+                }
+            }
+        }
+    }
+
     [AttributeUsage(AttributeTargets.Method)]
     public sealed class AsyncStateMachineAttribute : StateMachineAttribute
     {
@@ -93,35 +231,43 @@ namespace System.Runtime.CompilerServices
 
     public struct AsyncTaskMethodBuilder
     {
-        private Threading.Tasks.Task _task;
+        private Threading.Tasks.Task? _task;
 
-        public static AsyncTaskMethodBuilder Create()
-        {
-            var builder = new AsyncTaskMethodBuilder();
-            builder._task = new Threading.Tasks.Task();
-            return builder;
-        }
+        public static AsyncTaskMethodBuilder Create() => default;
 
-        public Threading.Tasks.Task Task => _task;
+        public Threading.Tasks.Task Task => EnsureTask();
 
         public void Start<TStateMachine>(ref TStateMachine stateMachine)
-            where TStateMachine : IAsyncStateMachine => stateMachine.MoveNext();
+            where TStateMachine : IAsyncStateMachine =>
+            AsyncMethodBuilderCore.Start(ref stateMachine);
 
         public void SetStateMachine(IAsyncStateMachine stateMachine)
         {
+            ArgumentNullException.ThrowIfNull(stateMachine);
         }
 
-        public void SetResult() => _task.SetResult();
+        public void SetResult()
+        {
+            if (_task is null)
+            {
+                _task = Threading.Tasks.Task.CompletedTask;
+                return;
+            }
+
+            _task.SetResult();
+        }
 
         public void SetException(Exception exception)
         {
+            ArgumentNullException.ThrowIfNull(exception);
+            var task = EnsureTask();
             if (exception is OperationCanceledException)
             {
-                _task.SetCanceled(exception);
+                task.SetCanceled(exception);
             }
             else
             {
-                _task.SetException(exception);
+                task.SetException(exception);
             }
         }
 
@@ -131,8 +277,7 @@ namespace System.Runtime.CompilerServices
             where TAwaiter : INotifyCompletion
             where TStateMachine : IAsyncStateMachine
         {
-            var continuation = new AsyncStateMachineContinuation(stateMachine);
-            awaiter.OnCompleted(continuation.MoveNext);
+            awaiter.OnCompleted(GetCompletionAction(ref stateMachine));
         }
 
         public void AwaitUnsafeOnCompleted<TAwaiter, TStateMachine>(
@@ -141,8 +286,31 @@ namespace System.Runtime.CompilerServices
             where TAwaiter : ICriticalNotifyCompletion
             where TStateMachine : IAsyncStateMachine
         {
-            var continuation = new AsyncStateMachineContinuation(stateMachine);
-            awaiter.UnsafeOnCompleted(continuation.MoveNext);
+            awaiter.UnsafeOnCompleted(GetCompletionAction(ref stateMachine));
+        }
+
+        private Threading.Tasks.Task EnsureTask() =>
+            _task ??= new Threading.Tasks.Task();
+
+        private Action GetCompletionAction<TStateMachine>(
+            ref TStateMachine stateMachine)
+            where TStateMachine : IAsyncStateMachine
+        {
+            if (_task is AsyncStateMachineTask<TStateMachine> existing)
+            {
+                existing.UpdateExecutionContext();
+                return existing.MoveNextAction;
+            }
+
+            if (_task is null)
+            {
+                var created = new AsyncStateMachineTask<TStateMachine>();
+                _task = created;
+                created.Initialize(ref stateMachine);
+                return created.MoveNextAction;
+            }
+
+            return new AsyncStateMachineContinuation(stateMachine).MoveNext;
         }
     }
 
@@ -161,7 +329,8 @@ namespace System.Runtime.CompilerServices
         }
 
         public void Start<TStateMachine>(ref TStateMachine stateMachine)
-            where TStateMachine : IAsyncStateMachine => stateMachine.MoveNext();
+            where TStateMachine : IAsyncStateMachine =>
+            AsyncMethodBuilderCore.Start(ref stateMachine);
 
         public void SetStateMachine(IAsyncStateMachine stateMachine)
         {
@@ -219,35 +388,43 @@ namespace System.Runtime.CompilerServices
 
     public struct AsyncTaskMethodBuilder<T>
     {
-        private Threading.Tasks.Task<T> _task;
+        private Threading.Tasks.Task<T>? _task;
 
-        public static AsyncTaskMethodBuilder<T> Create()
-        {
-            var builder = new AsyncTaskMethodBuilder<T>();
-            builder._task = new Threading.Tasks.Task<T>();
-            return builder;
-        }
+        public static AsyncTaskMethodBuilder<T> Create() => default;
 
-        public Threading.Tasks.Task<T> Task => _task;
+        public Threading.Tasks.Task<T> Task => EnsureTask();
 
         public void Start<TStateMachine>(ref TStateMachine stateMachine)
-            where TStateMachine : IAsyncStateMachine => stateMachine.MoveNext();
+            where TStateMachine : IAsyncStateMachine =>
+            AsyncMethodBuilderCore.Start(ref stateMachine);
 
         public void SetStateMachine(IAsyncStateMachine stateMachine)
         {
+            ArgumentNullException.ThrowIfNull(stateMachine);
         }
 
-        public void SetResult(T result) => _task.SetResult(result);
+        public void SetResult(T result)
+        {
+            if (_task is null)
+            {
+                _task = Threading.Tasks.Task.FromResult(result);
+                return;
+            }
+
+            _task.SetResult(result);
+        }
 
         public void SetException(Exception exception)
         {
+            ArgumentNullException.ThrowIfNull(exception);
+            var task = EnsureTask();
             if (exception is OperationCanceledException)
             {
-                _task.SetCanceled(exception);
+                task.SetCanceled(exception);
             }
             else
             {
-                _task.SetException(exception);
+                task.SetException(exception);
             }
         }
 
@@ -257,8 +434,7 @@ namespace System.Runtime.CompilerServices
             where TAwaiter : INotifyCompletion
             where TStateMachine : IAsyncStateMachine
         {
-            var continuation = new AsyncStateMachineContinuation(stateMachine);
-            awaiter.OnCompleted(continuation.MoveNext);
+            awaiter.OnCompleted(GetCompletionAction(ref stateMachine));
         }
 
         public void AwaitUnsafeOnCompleted<TAwaiter, TStateMachine>(
@@ -267,8 +443,31 @@ namespace System.Runtime.CompilerServices
             where TAwaiter : ICriticalNotifyCompletion
             where TStateMachine : IAsyncStateMachine
         {
-            var continuation = new AsyncStateMachineContinuation(stateMachine);
-            awaiter.UnsafeOnCompleted(continuation.MoveNext);
+            awaiter.UnsafeOnCompleted(GetCompletionAction(ref stateMachine));
+        }
+
+        private Threading.Tasks.Task<T> EnsureTask() =>
+            _task ??= new Threading.Tasks.Task<T>();
+
+        private Action GetCompletionAction<TStateMachine>(
+            ref TStateMachine stateMachine)
+            where TStateMachine : IAsyncStateMachine
+        {
+            if (_task is AsyncStateMachineTask<T, TStateMachine> existing)
+            {
+                existing.UpdateExecutionContext();
+                return existing.MoveNextAction;
+            }
+
+            if (_task is null)
+            {
+                var created = new AsyncStateMachineTask<T, TStateMachine>();
+                _task = created;
+                created.Initialize(ref stateMachine);
+                return created.MoveNextAction;
+            }
+
+            return new AsyncStateMachineContinuation(stateMachine).MoveNext;
         }
     }
 
@@ -284,7 +483,8 @@ namespace System.Runtime.CompilerServices
             : new(_task);
 
         public void Start<TStateMachine>(ref TStateMachine stateMachine)
-            where TStateMachine : IAsyncStateMachine => stateMachine.MoveNext();
+            where TStateMachine : IAsyncStateMachine =>
+            AsyncMethodBuilderCore.Start(ref stateMachine);
 
         public void SetStateMachine(IAsyncStateMachine stateMachine)
         {
@@ -362,7 +562,8 @@ namespace System.Runtime.CompilerServices
             : new(_task);
 
         public void Start<TStateMachine>(ref TStateMachine stateMachine)
-            where TStateMachine : IAsyncStateMachine => stateMachine.MoveNext();
+            where TStateMachine : IAsyncStateMachine =>
+            AsyncMethodBuilderCore.Start(ref stateMachine);
 
         public void SetStateMachine(IAsyncStateMachine stateMachine)
         {
@@ -486,7 +687,8 @@ namespace System.Runtime.CompilerServices
         public static AsyncIteratorMethodBuilder Create() => new();
 
         public void MoveNext<TStateMachine>(ref TStateMachine stateMachine)
-            where TStateMachine : IAsyncStateMachine => stateMachine.MoveNext();
+            where TStateMachine : IAsyncStateMachine =>
+            AsyncMethodBuilderCore.Start(ref stateMachine);
 
         public void AwaitOnCompleted<TAwaiter, TStateMachine>(
             ref TAwaiter awaiter,
@@ -784,6 +986,43 @@ namespace System.Threading.Tasks
         ExecuteSynchronously = 524_288,
     }
 
+    internal static class TaskCache
+    {
+        internal const int InclusiveInt32Min = -1;
+        internal const int ExclusiveInt32Max = 9;
+
+        internal static Task<TResult> CreateCacheableTask<TResult>(TResult result)
+        {
+            var task = new Task<TResult>();
+            task.SetResult(result);
+            return task;
+        }
+
+        internal static class Boolean
+        {
+            internal static readonly Task<bool> TrueTask = CreateCacheableTask(true);
+            internal static readonly Task<bool> FalseTask = CreateCacheableTask(false);
+        }
+
+        internal static class Int32
+        {
+            internal static readonly Task<int>[] Tasks = CreateTasks();
+
+            private static Task<int>[] CreateTasks()
+            {
+                var tasks = new Task<int>[
+                    ExclusiveInt32Max - InclusiveInt32Min];
+                for (var index = 0; index < tasks.Length; index++)
+                {
+                    tasks[index] = CreateCacheableTask(
+                        index + InclusiveInt32Min);
+                }
+
+                return tasks;
+            }
+        }
+    }
+
     public partial class Task : IAsyncResult, IDisposable
     {
         private static int s_nextId;
@@ -816,6 +1055,23 @@ namespace System.Threading.Tasks
 
         internal Task(object? state, TaskCreationOptions creationOptions)
         {
+            const TaskCreationOptions validOptions =
+                TaskCreationOptions.PreferFairness |
+                TaskCreationOptions.LongRunning |
+                TaskCreationOptions.AttachedToParent |
+                TaskCreationOptions.DenyChildAttach |
+                TaskCreationOptions.HideScheduler |
+                TaskCreationOptions.RunContinuationsAsynchronously;
+            if ((creationOptions & ~validOptions) != 0)
+            {
+                throw new ArgumentOutOfRangeException(nameof(creationOptions));
+            }
+            if ((creationOptions & TaskCreationOptions.AttachedToParent) != 0)
+            {
+                throw new PlatformNotSupportedException(
+                    "Attached child tasks are not supported.");
+            }
+
             _id = ++s_nextId;
             _asyncState = state;
             _creationOptions = creationOptions;
@@ -895,7 +1151,7 @@ namespace System.Threading.Tasks
             }
             else if (cancellationToken.CanBeCanceled)
             {
-                _cancellationRegistration = cancellationToken.Register(
+                _cancellationRegistration = cancellationToken.UnsafeRegister(
                     static state => ((Task)state!).CancelFromToken(),
                     this);
             }
@@ -925,9 +1181,9 @@ namespace System.Threading.Tasks
                 : null;
         internal TaskScheduler? ExecutingTaskScheduler => _scheduler;
         internal bool HasEnteredExecution => _enteredExecution;
-        public AggregateException? Exception => _exception == null
-            ? null
-            : ObserveException(_exception, _exceptionIsAggregateContainer);
+        public AggregateException? Exception => IsFaulted && _exception is not null
+            ? ObserveException(_exception, _exceptionIsAggregateContainer)
+            : null;
         public bool CompletedSynchronously => false;
         internal Threading.CancellationToken CancellationToken => _cancellationToken;
         internal bool ExceptionIsAggregateContainer => _exceptionIsAggregateContainer;
@@ -995,15 +1251,17 @@ namespace System.Threading.Tasks
             }
             var scheduled = default(IPlatformSchedule?);
             var registration = default(Threading.CancellationTokenRegistration);
-            registration = cancellationToken.Register(() =>
+            registration = cancellationToken.UnsafeRegister(_ =>
             {
                 scheduled?.Dispose();
                 scheduled = null;
-                task.TrySetCanceled(new TaskCanceledException(
-                    message: null,
-                    innerException: null,
-                    cancellationToken));
-            });
+                task.TrySetCanceled(
+                    new TaskCanceledException(
+                        message: null,
+                        innerException: null,
+                        cancellationToken),
+                    forceAsyncContinuations: true);
+            }, null);
             if (!task.IsCompleted && millisecondsDelay >= 0)
             {
                 scheduled = PlatformServices.Scheduler.Schedule(
@@ -1053,28 +1311,33 @@ namespace System.Threading.Tasks
 
             Threading.ITimer? timer = null;
             var registration = default(Threading.CancellationTokenRegistration);
-            registration = cancellationToken.Register(() =>
+            registration = cancellationToken.UnsafeRegister(_ =>
             {
                 timer?.Dispose();
                 timer = null;
-                task.TrySetCanceled(new TaskCanceledException(
-                    message: null,
-                    innerException: null,
-                    cancellationToken));
-            });
+                task.TrySetCanceled(
+                    new TaskCanceledException(
+                        message: null,
+                        innerException: null,
+                        cancellationToken),
+                    forceAsyncContinuations: true);
+            }, null);
             if (milliseconds >= 0 && !task.IsCompleted)
             {
-                timer = timeProvider.CreateTimer(
-                    _ =>
-                    {
-                        timer?.Dispose();
-                        timer = null;
-                        registration.Dispose();
-                        task.TrySetResult();
-                    },
-                    null,
-                    TimeSpan.FromMilliseconds(milliseconds),
-                    TimeSpan.FromMilliseconds(-1));
+                using (Threading.ExecutionContext.SuppressFlow())
+                {
+                    timer = timeProvider.CreateTimer(
+                        _ =>
+                        {
+                            timer?.Dispose();
+                            timer = null;
+                            registration.Dispose();
+                            task.TrySetResult();
+                        },
+                        null,
+                        TimeSpan.FromMilliseconds(milliseconds),
+                        Timeout.InfiniteTimeSpan);
+                }
             }
             return task;
         }
@@ -1114,9 +1377,61 @@ namespace System.Threading.Tasks
 
         public static Task<TResult> FromResult<TResult>(TResult result)
         {
-            var task = new Task<TResult>();
-            task.SetResult(result);
-            return task;
+            if (result is null)
+            {
+                return TaskResultCache<TResult>.DefaultTask;
+            }
+
+            if (typeof(TResult) == typeof(bool))
+            {
+                var value = Unsafe.As<TResult, bool>(ref result);
+                var task = value
+                    ? TaskCache.Boolean.TrueTask
+                    : TaskCache.Boolean.FalseTask;
+                return Unsafe.As<Task<bool>, Task<TResult>>(ref task);
+            }
+
+            if (typeof(TResult) == typeof(int))
+            {
+                var value = Unsafe.As<TResult, int>(ref result);
+                if ((uint)(value - TaskCache.InclusiveInt32Min) <
+                    TaskCache.ExclusiveInt32Max - TaskCache.InclusiveInt32Min)
+                {
+                    var task = TaskCache.Int32.Tasks[
+                        value - TaskCache.InclusiveInt32Min];
+                    return Unsafe.As<Task<int>, Task<TResult>>(ref task);
+                }
+            }
+            else if (!RuntimeHelpers.IsReferenceOrContainsReferences<TResult>() &&
+                IsDefaultResult(result))
+            {
+                return TaskResultCache<TResult>.DefaultTask;
+            }
+
+            return TaskCache.CreateCacheableTask(result);
+        }
+
+        private static bool IsDefaultResult<TResult>(TResult result)
+        {
+            ref var data = ref Unsafe.As<TResult, byte>(ref result);
+            return Unsafe.SizeOf<TResult>() switch
+            {
+                1 => data == 0,
+                2 => Unsafe.ReadUnaligned<ushort>(ref data) == 0,
+                4 => Unsafe.ReadUnaligned<uint>(ref data) == 0,
+                8 => Unsafe.ReadUnaligned<ulong>(ref data) == 0,
+                16 => Unsafe.ReadUnaligned<ulong>(ref data) == 0 &&
+                    Unsafe.ReadUnaligned<ulong>(ref Unsafe.AddByteOffset(
+                        ref data,
+                        8)) == 0,
+                _ => false,
+            };
+        }
+
+        private static class TaskResultCache<TResult>
+        {
+            internal static readonly Task<TResult> DefaultTask =
+                TaskCache.CreateCacheableTask(default(TResult)!);
         }
 
         public static Task<TResult> FromException<TResult>(Exception exception)
@@ -1167,6 +1482,17 @@ namespace System.Threading.Tasks
             if (tasks.Length == 0)
             {
                 return CompletedTask;
+            }
+            for (var index = 0; index < tasks.Length; index++)
+            {
+                if (tasks[index] is null)
+                {
+                    throw new ArgumentException(nameof(tasks));
+                }
+            }
+            if (tasks.Length == 1)
+            {
+                return tasks[0];
             }
             var completion = new TaskCompletionSource();
             var remaining = tasks.Length;
@@ -1219,10 +1545,6 @@ namespace System.Threading.Tasks
             }
             foreach (var task in tasks)
             {
-                if (task is null)
-                {
-                    throw new ArgumentException(nameof(tasks));
-                }
                 task.RegisterContinuation(
                     () => Observe(task),
                     continueOnCapturedContext: false,
@@ -1252,6 +1574,13 @@ namespace System.Threading.Tasks
             if (tasks.Length == 0)
             {
                 return FromResult(new TResult[0]);
+            }
+            for (var index = 0; index < tasks.Length; index++)
+            {
+                if (tasks[index] is null)
+                {
+                    throw new ArgumentException(nameof(tasks));
+                }
             }
             var completion = new TaskCompletionSource<TResult[]>();
             var results = new TResult[tasks.Length];
@@ -1309,7 +1638,7 @@ namespace System.Threading.Tasks
             }
             for (var index = 0; index < tasks.Length; index++)
             {
-                var task = tasks[index] ?? throw new ArgumentException(nameof(tasks));
+                var task = tasks[index];
                 var capturedIndex = index;
                 task.RegisterContinuation(
                     () => Observe(task, capturedIndex),
@@ -1338,28 +1667,7 @@ namespace System.Threading.Tasks
             WhenAny(new[] { task1, task2 });
 
         public static Task<Task> WhenAny(params Task[] tasks)
-        {
-            ArgumentNullException.ThrowIfNull(tasks);
-            if (tasks.Length == 0)
-            {
-                throw new ArgumentException(nameof(tasks));
-            }
-            var completion = new TaskCompletionSource<Task>();
-            foreach (var task in tasks)
-            {
-                if (task is null)
-                {
-                    throw new ArgumentException(nameof(tasks));
-                }
-                task.RegisterContinuation(
-                    () => completion.TrySetResult(task),
-                    continueOnCapturedContext: false,
-                    flowExecutionContext: false,
-                    runAsynchronously: false,
-                    runInlineIfCompleted: true);
-            }
-            return completion.Task;
-        }
+            => WhenAnyCore(tasks);
 
         public static Task<Task> WhenAny(params ReadOnlySpan<Task> tasks)
         {
@@ -1378,28 +1686,7 @@ namespace System.Threading.Tasks
             WhenAny(new[] { task1, task2 });
 
         public static Task<Task<TResult>> WhenAny<TResult>(params Task<TResult>[] tasks)
-        {
-            ArgumentNullException.ThrowIfNull(tasks);
-            if (tasks.Length == 0)
-            {
-                throw new ArgumentException(nameof(tasks));
-            }
-            var completion = new TaskCompletionSource<Task<TResult>>();
-            foreach (var task in tasks)
-            {
-                if (task is null)
-                {
-                    throw new ArgumentException(nameof(tasks));
-                }
-                task.RegisterContinuation(
-                    () => completion.TrySetResult(task),
-                    continueOnCapturedContext: false,
-                    flowExecutionContext: false,
-                    runAsynchronously: false,
-                    runInlineIfCompleted: true);
-            }
-            return completion.Task;
-        }
+            => WhenAnyCore(tasks);
 
         public static Task<Task<TResult>> WhenAny<TResult>(params ReadOnlySpan<Task<TResult>> tasks)
         {
@@ -1409,6 +1696,74 @@ namespace System.Threading.Tasks
                 materialized[index] = tasks[index];
             }
             return WhenAny(materialized);
+        }
+
+        private static Task<TTask> WhenAnyCore<TTask>(TTask[] tasks)
+            where TTask : Task
+        {
+            ArgumentNullException.ThrowIfNull(tasks);
+            if (tasks.Length == 0)
+            {
+                throw new ArgumentException(nameof(tasks));
+            }
+
+            var snapshot = new TTask[tasks.Length];
+            for (var index = 0; index < tasks.Length; index++)
+            {
+                snapshot[index] = tasks[index] ??
+                    throw new ArgumentException(nameof(tasks));
+            }
+
+            var completion = new TaskCompletionSource<TTask>();
+            new WhenAnyContinuation<TTask>(snapshot, completion).Register();
+            return completion.Task;
+        }
+
+        private sealed class WhenAnyContinuation<TTask> : TaskContinuation
+            where TTask : Task
+        {
+            private TTask[]? _tasks;
+            private TaskCompletionSource<TTask>? _completion;
+
+            internal WhenAnyContinuation(
+                TTask[] tasks,
+                TaskCompletionSource<TTask> completion)
+            {
+                _tasks = tasks;
+                _completion = completion;
+            }
+
+            internal void Register()
+            {
+                var tasks = _tasks!;
+                for (var index = 0;
+                    index < tasks.Length && _completion is not null;
+                    index++)
+                {
+                    tasks[index].RegisterContinuation(
+                        this,
+                        runInlineIfCompleted: true);
+                }
+            }
+
+            internal override void Run(Task antecedent, bool allowInline)
+            {
+                var completion = _completion;
+                if (completion is null)
+                {
+                    return;
+                }
+
+                var tasks = _tasks!;
+                _completion = null;
+                _tasks = null;
+                foreach (var task in tasks)
+                {
+                    task.RemoveContinuation(this);
+                }
+
+                completion.TrySetResult((TTask)antecedent);
+            }
         }
 
         public Task WaitAsync(Threading.CancellationToken cancellationToken)
@@ -1438,7 +1793,7 @@ namespace System.Threading.Tasks
                 }
                 else if (IsCanceled)
                 {
-                    completion.TrySetCanceled();
+                    completion.TrySetCanceled(CancellationToken);
                 }
                 else
                 {
@@ -1448,7 +1803,7 @@ namespace System.Threading.Tasks
             }
             if (cancellationToken.CanBeCanceled)
             {
-                registration = cancellationToken.Register(
+                registration = cancellationToken.UnsafeRegister(
                     static state =>
                     {
                         var cancellation =
@@ -1528,21 +1883,26 @@ namespace System.Threading.Tasks
             }
             if (cancellationToken.CanBeCanceled)
             {
-                registration = cancellationToken.Register(Cancel);
+                registration = cancellationToken.UnsafeRegister(
+                    _ => Cancel(),
+                    null);
             }
             OnCompleted(CompleteFromSource, continueOnCapturedContext: false);
             if (milliseconds >= 0 && !completion.Task.IsCompleted)
             {
-                timer = timeProvider.CreateTimer(
-                    _ =>
-                    {
-                        timer = null;
-                        registration.Dispose();
-                        completion.TrySetException(new TimeoutException());
-                    },
-                    null,
-                    TimeSpan.FromMilliseconds(milliseconds),
-                    TimeSpan.FromMilliseconds(-1));
+                using (Threading.ExecutionContext.SuppressFlow())
+                {
+                    timer = timeProvider.CreateTimer(
+                        _ =>
+                        {
+                            timer = null;
+                            registration.Dispose();
+                            completion.TrySetException(new TimeoutException());
+                        },
+                        null,
+                        TimeSpan.FromMilliseconds(milliseconds),
+                        Timeout.InfiniteTimeSpan);
+                }
             }
             return completion.Task;
         }
@@ -1583,7 +1943,7 @@ namespace System.Threading.Tasks
                 }
                 else if (IsCanceled)
                 {
-                    completion.TrySetCanceled();
+                    completion.TrySetCanceled(CancellationToken);
                 }
                 else
                 {
@@ -1598,7 +1958,9 @@ namespace System.Threading.Tasks
             }
             if (cancellationToken.CanBeCanceled)
             {
-                registration = cancellationToken.Register(Cancel);
+                registration = cancellationToken.UnsafeRegister(
+                    _ => Cancel(),
+                    null);
             }
             OnCompleted(CompleteFromSource, continueOnCapturedContext: false);
             if (milliseconds >= 0 && !completion.Task.IsCompleted)
@@ -1704,6 +2066,22 @@ namespace System.Threading.Tasks
 
             registration.Run(this, runInlineIfCompleted);
         }
+
+        private void RegisterContinuation(
+            TaskContinuation continuation,
+            bool runInlineIfCompleted)
+        {
+            if (_status == 0)
+            {
+                (_continuations ??= new List<TaskContinuation>()).Add(continuation);
+                return;
+            }
+
+            continuation.Run(this, runInlineIfCompleted);
+        }
+
+        private void RemoveContinuation(TaskContinuation continuation) =>
+            _continuations?.Remove(continuation);
 
         private static ContinuationRegistration CreateContinuationRegistration(
             Action continuation,
@@ -1827,7 +2205,15 @@ namespace System.Threading.Tasks
             }
             catch (OperationCanceledException exception)
             {
-                TrySetCanceled(exception);
+                if (_cancellationToken.IsCancellationRequested &&
+                    exception.CancellationToken == _cancellationToken)
+                {
+                    TrySetCanceled(exception);
+                }
+                else
+                {
+                    TrySetException(exception);
+                }
             }
             catch (Exception exception)
             {
@@ -1896,7 +2282,9 @@ namespace System.Threading.Tasks
         internal void SetException(Exception exception) =>
             EnsureCompletion(TrySetException(exception));
 
-        internal bool TrySetCanceled(Exception exception)
+        internal bool TrySetCanceled(
+            Exception exception,
+            bool forceAsyncContinuations = false)
         {
             if (exception == null)
             {
@@ -1915,7 +2303,7 @@ namespace System.Threading.Tasks
             _cancellationRegistration.Dispose();
             _cancellationRegistration = default;
             ClearExecutionReferences();
-            DispatchContinuation();
+            DispatchContinuation(forceAsyncContinuations);
             return true;
         }
 
@@ -1958,7 +2346,7 @@ namespace System.Threading.Tasks
                 : new AggregateException(exception);
         }
 
-        private void DispatchContinuation()
+        private void DispatchContinuation(bool forceAsynchronous = false)
         {
             var continuations = _continuations;
             _continuations = null;
@@ -1967,7 +2355,7 @@ namespace System.Threading.Tasks
                 return;
             }
 
-            var forceAsynchronous =
+            forceAsynchronous |=
                 (_creationOptions & TaskCreationOptions.RunContinuationsAsynchronously) != 0;
             foreach (var continuation in continuations)
             {
@@ -2266,11 +2654,7 @@ namespace System.Threading.Tasks
         public T Result => GetResult();
 
         public static Task<T> FromResult(T result)
-        {
-            var task = new Task<T>();
-            task.SetResult(result);
-            return task;
-        }
+            => Task.FromResult(result);
 
         public static new Task<T> FromException(Exception exception)
         {
@@ -2352,7 +2736,15 @@ namespace System.Threading.Tasks
             }
             catch (OperationCanceledException exception)
             {
-                TrySetCanceled(exception);
+                if (CancellationToken.IsCancellationRequested &&
+                    exception.CancellationToken == CancellationToken)
+                {
+                    TrySetCanceled(exception);
+                }
+                else
+                {
+                    TrySetException(exception);
+                }
             }
             catch (Exception exception)
             {
@@ -2405,7 +2797,7 @@ namespace System.Threading.Tasks
                 }
                 else if (IsCanceled)
                 {
-                    completion.TrySetCanceled();
+                    completion.TrySetCanceled(CancellationToken);
                 }
                 else
                 {
@@ -2415,7 +2807,7 @@ namespace System.Threading.Tasks
             }
             if (cancellationToken.CanBeCanceled)
             {
-                registration = cancellationToken.Register(
+                registration = cancellationToken.UnsafeRegister(
                     static state =>
                     {
                         var cancellation =
@@ -2495,21 +2887,26 @@ namespace System.Threading.Tasks
             }
             if (cancellationToken.CanBeCanceled)
             {
-                registration = cancellationToken.Register(Cancel);
+                registration = cancellationToken.UnsafeRegister(
+                    _ => Cancel(),
+                    null);
             }
             OnCompleted(CompleteFromSource, continueOnCapturedContext: false);
             if (milliseconds >= 0 && !completion.Task.IsCompleted)
             {
-                timer = timeProvider.CreateTimer(
-                    _ =>
-                    {
-                        timer = null;
-                        registration.Dispose();
-                        completion.TrySetException(new TimeoutException());
-                    },
-                    null,
-                    TimeSpan.FromMilliseconds(milliseconds),
-                    TimeSpan.FromMilliseconds(-1));
+                using (Threading.ExecutionContext.SuppressFlow())
+                {
+                    timer = timeProvider.CreateTimer(
+                        _ =>
+                        {
+                            timer = null;
+                            registration.Dispose();
+                            completion.TrySetException(new TimeoutException());
+                        },
+                        null,
+                        TimeSpan.FromMilliseconds(milliseconds),
+                        Timeout.InfiniteTimeSpan);
+                }
             }
             return completion.Task;
         }
@@ -2550,7 +2947,7 @@ namespace System.Threading.Tasks
                 }
                 else if (IsCanceled)
                 {
-                    completion.TrySetCanceled();
+                    completion.TrySetCanceled(CancellationToken);
                 }
                 else
                 {
@@ -2565,7 +2962,9 @@ namespace System.Threading.Tasks
             }
             if (cancellationToken.CanBeCanceled)
             {
-                registration = cancellationToken.Register(Cancel);
+                registration = cancellationToken.UnsafeRegister(
+                    _ => Cancel(),
+                    null);
             }
             OnCompleted(CompleteFromSource, continueOnCapturedContext: false);
             if (milliseconds >= 0 && !completion.Task.IsCompleted)
@@ -3102,7 +3501,7 @@ namespace System.Threading.Tasks
         public bool TrySetException(Exception exception) => _task.TrySetException(exception);
         public bool TrySetException(IEnumerable<Exception> exceptions) =>
             _task.TrySetException(
-                new AggregateException(exceptions),
+                TaskCompletionSourceExceptionValidation.CreateAggregate(exceptions),
                 aggregateContainer: true);
         public bool TrySetCanceled() => _task.TrySetCanceled(new TaskCanceledException());
         public bool TrySetCanceled(Threading.CancellationToken cancellationToken) =>
@@ -3113,12 +3512,11 @@ namespace System.Threading.Tasks
         public bool TrySetFromTask(Task task)
         {
             ArgumentNullException.ThrowIfNull(task);
-            if (task.IsCompleted)
+            if (!task.IsCompleted)
             {
-                return CompleteFromTask(task);
+                throw new ArgumentException(nameof(task));
             }
-            task.OnCompleted(() => CompleteFromTask(task), continueOnCapturedContext: false);
-            return true;
+            return CompleteFromTask(task);
         }
         internal bool TrySetCanceled(Exception exception) => _task.TrySetCanceled(exception);
         internal bool TrySetException(Exception exception, bool aggregateContainer) =>
@@ -3136,7 +3534,7 @@ namespace System.Threading.Tasks
                     task.ExceptionIsAggregateContainer);
             }
             return task.IsCanceled
-                ? TrySetCanceled()
+                ? TrySetCanceled(task.CancellationToken)
                 : TrySetResult();
         }
 
@@ -3206,7 +3604,7 @@ namespace System.Threading.Tasks
         public bool TrySetException(Exception exception) => _task.TrySetException(exception);
         public bool TrySetException(IEnumerable<Exception> exceptions) =>
             _task.TrySetException(
-                new AggregateException(exceptions),
+                TaskCompletionSourceExceptionValidation.CreateAggregate(exceptions),
                 aggregateContainer: true);
         public bool TrySetCanceled() => _task.TrySetCanceled(new TaskCanceledException());
         public bool TrySetCanceled(Threading.CancellationToken cancellationToken) =>
@@ -3217,12 +3615,11 @@ namespace System.Threading.Tasks
         public bool TrySetFromTask(Task<T> task)
         {
             ArgumentNullException.ThrowIfNull(task);
-            if (task.IsCompleted)
+            if (!task.IsCompleted)
             {
-                return CompleteFromTask(task);
+                throw new ArgumentException(nameof(task));
             }
-            task.OnCompleted(() => CompleteFromTask(task), continueOnCapturedContext: false);
-            return true;
+            return CompleteFromTask(task);
         }
         internal bool TrySetCanceled(Exception exception) => _task.TrySetCanceled(exception);
         internal bool TrySetException(Exception exception, bool aggregateContainer) =>
@@ -3240,7 +3637,7 @@ namespace System.Threading.Tasks
                     task.ExceptionIsAggregateContainer);
             }
             return task.IsCanceled
-                ? TrySetCanceled()
+                ? TrySetCanceled(task.CancellationToken)
                 : TrySetResult(task._result);
         }
 
@@ -3259,6 +3656,29 @@ namespace System.Threading.Tasks
             {
                 throw new InvalidOperationException();
             }
+        }
+    }
+
+    internal static class TaskCompletionSourceExceptionValidation
+    {
+        internal static AggregateException CreateAggregate(
+            IEnumerable<Exception> exceptions)
+        {
+            ArgumentNullException.ThrowIfNull(exceptions);
+            var defensiveCopy = new List<Exception>();
+            foreach (var exception in exceptions)
+            {
+                if (exception is null)
+                {
+                    throw new ArgumentException(nameof(exceptions));
+                }
+                defensiveCopy.Add(exception);
+            }
+            if (defensiveCopy.Count == 0)
+            {
+                throw new ArgumentException(nameof(exceptions));
+            }
+            return new AggregateException(defensiveCopy);
         }
     }
 }

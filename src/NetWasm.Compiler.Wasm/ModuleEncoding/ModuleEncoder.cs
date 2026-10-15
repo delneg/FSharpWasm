@@ -17,6 +17,7 @@ public sealed class ModuleEncoder : IModuleEncoder
     private readonly ISignedLeb12864Encoder _signed64;
     private readonly IUtf8StringEncoder _utf8;
     private readonly IWasmSectionWriter _sections;
+    private readonly IFunctionInlineAnnotationWriter _inlineAnnotations;
     private readonly Func<WasmBinaryBuffer, IWasmBinaryWriter> _writerFactory;
     private readonly Func<WasmBinaryBuffer, IWasmBinarySnapshotReader>
         _snapshotReaderFactory;
@@ -32,7 +33,8 @@ public sealed class ModuleEncoder : IModuleEncoder
         IWasmSectionWriter sections,
         Func<WasmBinaryBuffer, IWasmBinaryWriter> writerFactory,
         Func<WasmBinaryBuffer, IWasmBinarySnapshotReader> snapshotReaderFactory,
-        Func<IWasmBinaryWriter, IWasmInstructionWriter> instructionWriterFactory)
+        Func<IWasmBinaryWriter, IWasmInstructionWriter> instructionWriterFactory,
+        IFunctionInlineAnnotationWriter inlineAnnotations)
     {
         ArgumentNullException.ThrowIfNull(unsignedEncoder);
         ArgumentNullException.ThrowIfNull(unsigned64Encoder);
@@ -43,6 +45,7 @@ public sealed class ModuleEncoder : IModuleEncoder
         ArgumentNullException.ThrowIfNull(writerFactory);
         ArgumentNullException.ThrowIfNull(snapshotReaderFactory);
         ArgumentNullException.ThrowIfNull(instructionWriterFactory);
+        ArgumentNullException.ThrowIfNull(inlineAnnotations);
         _unsigned = unsignedEncoder;
         _unsigned64 = unsigned64Encoder;
         _signed = signedEncoder;
@@ -52,6 +55,7 @@ public sealed class ModuleEncoder : IModuleEncoder
         _writerFactory = writerFactory;
         _snapshotReaderFactory = snapshotReaderFactory;
         _instructionWriterFactory = instructionWriterFactory;
+        _inlineAnnotations = inlineAnnotations;
     }
 
     public byte[] Encode(WasmModuleBuildRequest request)
@@ -118,6 +122,7 @@ public sealed class ModuleEncoder : IModuleEncoder
         {
             WriteNameSection(module, request.FunctionImports, request.Functions);
         }
+        _inlineAnnotations.Write(module, request.Functions, request.FunctionImports.Count);
         return _snapshotReaderFactory(moduleBuffer).Read();
     }
 

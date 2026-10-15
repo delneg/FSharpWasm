@@ -23,7 +23,7 @@ internal sealed class ControlFlowPostDominatorFinder(IControlFlowPostDominanceAn
         var stopKey = stop ?? -1;
         if (!byStop.TryGetValue(stopKey, out var result))
         {
-            result = _postDominance.Analyze(state.Graph, stop, allowed);
+            result = _postDominance.Analyze(state.ContinuationGraph, stop, allowed);
             byStop.Add(stopKey, result);
         }
         return result;

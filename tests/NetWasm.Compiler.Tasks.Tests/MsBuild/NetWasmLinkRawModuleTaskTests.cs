@@ -1,3 +1,4 @@
+using NetWasm.Compiler.ComponentModel.Optimization;
 using Microsoft.Build.Framework;
 using NetWasm.Compiler.ComponentModel;
 using NetWasm.Compiler.ComponentModel.Node;
@@ -10,6 +11,33 @@ namespace NetWasm.Compiler.Tasks.Tests.MsBuild;
 
 public sealed class NetWasmLinkRawModuleTaskTests
 {
+    [Theory]
+    [InlineData("Auto", ManagedInliningHints.Auto)]
+    [InlineData("IgnoreAggressive", ManagedInliningHints.IgnoreAggressive)]
+    [InlineData("Preserve", ManagedInliningHints.Preserve)]
+    public void PassesHintOverrideToNormalLinkSession(string value, ManagedInliningHints expected)
+    {
+        var sessions = new RecordingSessionFactory();
+        var task = CreateTask(sessions);
+        task.ManagedInliningHints = value;
+        Assert.True(task.Execute());
+        Assert.Equal(expected, sessions.Session.Request!.OptimizationOverrides?.ManagedInliningHints ?? ManagedInliningHints.Auto);
+    }
+
+    [Fact]
+    public void InvalidHintsFailBeforeCreatingSession()
+    {
+        var sessions = new RecordingSessionFactory();
+        var build = new RecordingBuildEngine();
+        var task = CreateTask(sessions);
+        task.ManagedInliningHints = "invalid";
+        task.BuildEngine = build;
+        Assert.False(task.Execute());
+        Assert.Null(sessions.WasmToolsCommand);
+        Assert.Empty(task.Modules);
+        Assert.Single(build.Errors);
+    }
+
     [Theory]
     [InlineData("wasm32", "wasm32")]
     [InlineData("wasm64", "wasm64")]
@@ -142,9 +170,10 @@ public sealed class NetWasmLinkRawModuleTaskTests
     public void ConstructorRejectsMissingCapabilityAndComposesDefaults()
     {
         Assert.Throws<ArgumentNullException>(() =>
-            new NetWasmLinkRawModuleTask(null!, new ExportReader()));
-        Assert.Throws<ArgumentNullException>(() => new NetWasmLinkRawModuleTask(new RecordingSessionFactory(), null!));
+            new NetWasmLinkRawModuleTask(null!, new ExportReader(), new ManagedInliningHintsParser()));
+        Assert.Throws<ArgumentNullException>(() => new NetWasmLinkRawModuleTask(new RecordingSessionFactory(), null!, new ManagedInliningHintsParser()));
         Assert.NotNull(new NetWasmLinkRawModuleTask());
+        Assert.Throws<ArgumentNullException>(() => new NetWasmLinkRawModuleTask(new RecordingSessionFactory(), new ExportReader(), null!));
     }
 
     [Fact]
@@ -160,7 +189,7 @@ public sealed class NetWasmLinkRawModuleTaskTests
     }
 
     private static NetWasmLinkRawModuleTask CreateTask(
-        IRawModuleLinkSessionFactory sessions) => new(sessions, new ExportReader())
+        IRawModuleLinkSessionFactory sessions) => new(sessions, new ExportReader(), new ManagedInliningHintsParser())
         {
             CoreModulePath = "app.core.wasm",
             RuntimeModulePath = "runtime.wasm",

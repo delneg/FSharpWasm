@@ -92,7 +92,7 @@ namespace System.Collections.Generic
             }
 
             int count;
-            T[] elements = SortedCollectionHelpers.ToArray(collection, out count);
+            T[] elements = EnumerableHelpers.ToArray(collection, out count);
             if (count > 0)
             {
                 // If `comparer` is null, sets it to Comparer<T>.Default. We checked for this condition in the IComparer<T> constructor.
@@ -1112,7 +1112,7 @@ namespace System.Collections.Generic
             else
             {
                 int length;
-                T[] elements = SortedCollectionHelpers.ToArray(other, out length);
+                T[] elements = EnumerableHelpers.ToArray(other, out length);
                 Array.Sort(elements, 0, length, Comparer);
                 SymmetricExceptWithSameComparer(elements, length);
             }
@@ -1370,12 +1370,12 @@ namespace System.Collections.Generic
             }
 
             int originalLastIndex = Count;
-            int intArrayLength = SortedSetBitHelper.ToIntArrayLength(originalLastIndex);
+            int intArrayLength = BitHelper.ToIntArrayLength(originalLastIndex);
 
             Span<int> span = stackalloc int[StackAllocThreshold];
-            SortedSetBitHelper bitHelper = (uint)intArrayLength <= StackAllocThreshold ?
-                new SortedSetBitHelper(span.Slice(0, intArrayLength), clear: true) :
-                new SortedSetBitHelper(new int[intArrayLength], clear: false);
+            BitHelper bitHelper = (uint)intArrayLength <= StackAllocThreshold ?
+                new BitHelper(span.Slice(0, intArrayLength), clear: true) :
+                new BitHelper(new int[intArrayLength], clear: false);
 
             // count of items in other not found in this
             int UnfoundCount = 0;
@@ -1931,88 +1931,4 @@ namespace System.Collections.Generic
         #endregion
     }
 
-    // Keep these small infrastructure pieces local to the sorted-collection port. The
-    // upstream versions live in shared Common sources that are not part of this CoreLib.
-    internal static class SortedCollectionHelpers
-    {
-        internal static T[] ToArray<T>(IEnumerable<T> source, out int count)
-        {
-            ArgumentNullException.ThrowIfNull(source);
-            if (source is ICollection<T> collection)
-            {
-                count = collection.Count;
-                var result = new T[count];
-                collection.CopyTo(result, 0);
-                return result;
-            }
-
-            var list = new List<T>();
-            foreach (var item in source)
-            {
-                list.Add(item);
-            }
-            count = list.Count;
-            return list.ToArray();
-        }
-
-        internal static IEnumerator<T> GetEmptyEnumerator<T>() =>
-            ((IEnumerable<T>)Array.Empty<T>()).GetEnumerator();
-    }
-
-    internal ref struct SortedSetBitHelper
-    {
-        private const int IntSize = sizeof(int) * 8;
-        private readonly Span<int> _span;
-
-        internal SortedSetBitHelper(Span<int> span, bool clear)
-        {
-            if (clear)
-            {
-                span.Clear();
-            }
-            _span = span;
-        }
-
-        internal void MarkBit(int bitPosition)
-        {
-            var bitArrayIndex = (uint)bitPosition / IntSize;
-            if (bitArrayIndex < (uint)_span.Length)
-            {
-                _span[(int)bitArrayIndex] |= 1 << (int)((uint)bitPosition % IntSize);
-            }
-        }
-
-        internal bool IsMarked(int bitPosition)
-        {
-            var bitArrayIndex = (uint)bitPosition / IntSize;
-            return bitArrayIndex < (uint)_span.Length &&
-                (_span[(int)bitArrayIndex] & (1 << (int)((uint)bitPosition % IntSize))) != 0;
-        }
-
-        internal static int ToIntArrayLength(int bitCount) =>
-            bitCount > 0 ? ((bitCount - 1) / IntSize + 1) : 0;
-    }
-
-    internal static class SR
-    {
-        internal const string Arg_ArrayPlusOffTooSmall = "Destination array is not long enough to copy all the items in the collection. Check array index and length.";
-        internal const string Arg_KeyNotFoundWithKey = "The given key '{0}' was not present in the dictionary.";
-        internal const string Arg_NonZeroLowerBound = "The lower bound of target array must be zero.";
-        internal const string Arg_RankMultiDimNotSupported = "Only single dimensional arrays are supported for the requested action.";
-        internal const string Arg_WrongType = "The value \"{0}\" is not of type \"{1}\" and cannot be used in this generic collection.";
-        internal const string Argument_AddingDuplicate = "An item with the same key has already been added.";
-        internal const string Argument_IncompatibleArrayType = "Target array type is not compatible with the type of items in the collection.";
-        internal const string InvalidOperation_EnumFailedVersion = "Collection was modified; enumeration operation may not execute.";
-        internal const string InvalidOperation_EnumOpCantHappen = "Enumeration has either not started or has already finished.";
-        internal const string NotSupported_KeyCollectionSet = "Mutating a key collection derived from a dictionary is not allowed.";
-        internal const string NotSupported_ValueCollectionSet = "Mutating a value collection derived from a dictionary is not allowed.";
-        internal const string SortedSet_LowerValueGreaterThanUpperValue = "Must be less than or equal to upperValue.";
-
-        internal static string Format(string format, object? arg) =>
-            format.Replace("{0}", arg?.ToString() ?? string.Empty);
-
-        internal static string Format(string format, object? first, object? second) =>
-            format.Replace("{0}", first?.ToString() ?? string.Empty)
-                .Replace("{1}", second?.ToString() ?? string.Empty);
-    }
 }

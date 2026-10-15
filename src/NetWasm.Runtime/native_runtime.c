@@ -9,6 +9,7 @@
 #include "runtime_system_initializer.h"
 #include "object_data_address_resolver.h"
 #include "unmanaged_allocator.h"
+#include "wasi_random_import.h"
 #include "collector/weak_handle_table.h"
 #include "collector/strong_handle_table.h"
 #include "collector/gc_handle_table.h"
@@ -23,7 +24,25 @@
 #include "collector/collector_roots.h"
 #include "collector/collector_weak_reference.h"
 
+#ifdef NETWASM_RUNTIME_PACK
+#define NETWASM_EXPORT(name)
+#define NETWASM_TEST_EXPORT(name)
+#else
+#define NETWASM_EXPORT(name) __attribute__((export_name(name)))
+#define NETWASM_TEST_EXPORT(name) __attribute__((export_name(name)))
+#endif
+#if defined(NETWASM_RUNTIME_PACK) || defined(NETWASM_NO_FINALIZATION)
+#define NETWASM_FINALIZATION_EXPORT(name)
+#else
+#define NETWASM_FINALIZATION_EXPORT(name) __attribute__((export_name(name)))
+#endif
+
 typedef uint32_t u32;
+
+NETWASM_EXPORT("random_seed") uint64_t random_seed(void)
+{
+    return runtime_get_random_u64();
+}
 
 _Static_assert(sizeof(netwasm_id_t) == sizeof(u32),
                "NetWasm semantic identifiers must remain i32");
@@ -77,18 +96,31 @@ typedef struct {
 _Static_assert(sizeof(ExceptionClause) == 12,
                "Exception-clause metadata must remain three u32 fields");
 
-typedef struct RootFrame {
-    struct RootFrame *previous;
-    u32 slot_count;
-    netwasm_reference_t slots[];
-} RootFrame;
+typedef struct FrameArenaChunk {
+    struct FrameArenaChunk *next;
+    /* Root frames are LIFO; ownership changes only when crossing chunks. */
+    struct FrameArenaChunk *previous;
+    uintptr_t saved_cursor;
+    size_t capacity;
+    unsigned char bytes[];
+} FrameArenaChunk;
+
+typedef struct {
+    FrameArenaChunk *current;
+    uintptr_t cursor, limit, begin;
+} FrameArena;
+
+static inline __attribute__((always_inline)) unsigned char *frame_arena_bytes(
+    FrameArenaChunk *chunk);
 
 typedef struct ValueFrame {
     struct ValueFrame *previous;
-    u32 byte_count;
+    FrameArenaChunk *chunk;
     _Alignas(16) unsigned char bytes[];
 } ValueFrame;
 
+_Static_assert(sizeof(ValueFrame) % 16u == 0,
+               "Value-frame headers must preserve arena alignment");
 
 typedef struct {
     void *allocation;
@@ -102,10 +134,9 @@ static u32 type_capacity;
 static netwasm_address_t *static_roots;
 static u32 static_root_capacity;
 static u32 static_root_count;
-static RootFrame *shadow_frame;
-static u32 shadow_top;
+static FrameArena root_frame_arena;
 static ValueFrame *value_frame;
-static u32 value_frame_top;
+static FrameArena value_frame_arena;
 static StackTraceFrame *stack_trace_frames;
 static u32 stack_trace_frame_capacity;
 static u32 stack_trace_frame_top;
@@ -118,6 +149,7 @@ static ExceptionFrame *exception_frames;
 static u32 exception_frame_capacity;
 static u32 exception_frame_top;
 static u32 filter_search_floor;
+#ifndef NETWASM_RUNTIME_PACK
 static uintptr_t *tracked_allocations;
 static u32 tracked_capacity;
 static u32 tracked_count;
@@ -128,6 +160,7 @@ static u32 track_allocations;
 static u32 fail_next_allocation;
 static u32 component_active_allocation_count;
 static u32 fail_next_component_allocation;
+#endif
 static netwasm_reference_t dispatch_root;
 static uintptr_t allocation_root;
 
@@ -146,6 +179,7 @@ static uintptr_t finalizer_root;
 static u32 finalizer_count;
 static u32 escaped_finalizer_status;
 static u32 draining_finalizers;
+static int finalization_initialized;
 
 __attribute__((import_module("netwasm.application.v1"),
                import_name("netwasm.finalize")))
@@ -277,7 +311,7 @@ static void write_diagnostic_newline(void)
 #include "command_diagnostics.h"
 #endif
 
-__attribute__((export_name("report_unobserved_task_exception")))
+NETWASM_EXPORT("report_unobserved_task_exception")
 void report_unobserved_task_exception(
     netwasm_reference_t exception_type,
     netwasm_reference_t exception_message,
@@ -355,7 +389,7 @@ static int grow_stack_trace_frames(void)
     return 1;
 }
 
-__attribute__((export_name("stack_trace_frame_enter")))
+NETWASM_EXPORT("stack_trace_frame_enter")
 void stack_trace_frame_enter(u32 method_id)
 {
     if (method_id == 0 ||
@@ -367,7 +401,7 @@ void stack_trace_frame_enter(u32 method_id)
         (StackTraceFrame){ method_id, method_id };
 }
 
-__attribute__((export_name("stack_trace_frame_location")))
+NETWASM_EXPORT("stack_trace_frame_location")
 void stack_trace_frame_location(u32 method_id, u32 symbol_id)
 {
     if (method_id == 0 || symbol_id == 0 || stack_trace_frame_top == 0 ||
@@ -377,7 +411,7 @@ void stack_trace_frame_location(u32 method_id, u32 symbol_id)
     stack_trace_frames[stack_trace_frame_top - 1].symbol_id = symbol_id;
 }
 
-__attribute__((export_name("stack_trace_frame_leave")))
+NETWASM_EXPORT("stack_trace_frame_leave")
 void stack_trace_frame_leave(u32 method_id)
 {
     if (method_id == 0 || stack_trace_frame_top == 0 ||
@@ -416,7 +450,7 @@ static int grow_stack_trace_symbols(u32 method_id)
     return 1;
 }
 
-__attribute__((export_name("stack_trace_initialize")))
+NETWASM_EXPORT("stack_trace_initialize")
 void stack_trace_initialize(u32 exception_field_offset, u32 string_type_id)
 {
     if (exception_field_offset == 0 || string_type_id == 0) {
@@ -432,7 +466,7 @@ void stack_trace_initialize(u32 exception_field_offset, u32 string_type_id)
     stack_trace_initialized = 1;
 }
 
-__attribute__((export_name("stack_trace_register_symbol")))
+NETWASM_EXPORT("stack_trace_register_symbol")
 void stack_trace_register_symbol(
     u32 method_id,
     netwasm_address_t characters,
@@ -567,29 +601,33 @@ static void capture_stack_trace_if_missing(netwasm_reference_t exception)
 static void collect_internal(void)
 {
     collector_collect();
+#ifndef NETWASM_RUNTIME_PACK
     collection_count++;
+#endif
 }
 
-__attribute__((export_name("collect")))
+NETWASM_EXPORT("collect")
 void collect(void)
 {
     collect_internal();
 }
 
-static void collect_for_allocation_test(void)
+static inline __attribute__((always_inline))
+void collect_for_allocation_test(void)
 {
+#ifndef NETWASM_RUNTIME_PACK
     if (collect_before_allocation) {
         collect_internal();
     }
+#endif
 }
 
-static void track(void *allocation)
+#ifndef NETWASM_RUNTIME_PACK
+static __attribute__((noinline, cold))
+void track_enabled(void *allocation)
 {
     uintptr_t address = (uintptr_t)allocation;
     uintptr_t saved_root;
-    if (!track_allocations) {
-        return;
-    }
     for (u32 index = 0; index < tracked_count; index++) {
         if (tracked_allocations[index] == address) {
             return;
@@ -641,9 +679,23 @@ static void track(void *allocation)
     tracked_count++;
 }
 
+static inline __attribute__((always_inline))
+void track(void *allocation)
+{
+    if (track_allocations) {
+        track_enabled(allocation);
+    }
+}
+#else
+static inline __attribute__((always_inline))
+void track(void *allocation)
+{
+    (void)allocation;
+}
+#endif
+
 static void enumerate_managed_roots(void)
 {
-    RootFrame *frame;
     collector_trace_root_range(&dispatch_root, &dispatch_root + 1);
     collector_trace_root_range(&allocation_root, &allocation_root + 1);
 #ifndef NETWASM_NO_FINALIZATION
@@ -654,12 +706,14 @@ static void enumerate_managed_roots(void)
             (netwasm_reference_t *)(uintptr_t)static_roots[index];
         collector_trace_root_range(slot, slot + 1);
     }
-    for (frame = shadow_frame; frame != NULL; frame = frame->previous) {
-        collector_trace_root_range(frame->slots, frame->slots + frame->slot_count);
+    uintptr_t end = root_frame_arena.cursor;
+    for (FrameArenaChunk *chunk = root_frame_arena.current; chunk != NULL; chunk = chunk->previous) {
+        collector_trace_root_range(frame_arena_bytes(chunk), (void *)end);
+        if (chunk->previous != NULL) end = chunk->previous->saved_cursor;
     }
 }
 
-__attribute__((export_name("initialize")))
+NETWASM_EXPORT("initialize")
 void initialize(
     netwasm_address_t static_data_end,
     u32 required_type_capacity,
@@ -720,11 +774,23 @@ void initialize(
         collector_mark_descriptor_word(reference_bitmap, 0);
         reference_word_descriptor = collector_create_descriptor(reference_bitmap, 1);
     }
+    initialized = 1;
+}
+
+NETWASM_FINALIZATION_EXPORT("initialize_finalization")
+void initialize_finalization(void)
+{
 #ifndef NETWASM_NO_FINALIZATION
+    if (!initialized) {
+        __builtin_trap();
+    }
+    if (finalization_initialized) {
+        return;
+    }
     collector_enable_on_demand_finalization();
     collector_enable_java_finalization_order();
+    finalization_initialized = 1;
 #endif
-    initialized = 1;
 }
 
 static u32 is_type_assignable(u32 actual_type_id, u32 target_type_id)
@@ -755,7 +821,7 @@ static u32 is_type_assignable(u32 actual_type_id, u32 target_type_id)
     return 0;
 }
 
-__attribute__((export_name("is_assignable")))
+NETWASM_EXPORT("is_assignable")
 u32 is_assignable(netwasm_reference_t object, u32 target_type_id)
 {
     return object == 0
@@ -763,7 +829,7 @@ u32 is_assignable(netwasm_reference_t object, u32 target_type_id)
         : is_type_assignable(*(u32 *)(uintptr_t)object, target_type_id);
 }
 
-__attribute__((export_name("exception_frame_enter")))
+NETWASM_EXPORT("exception_frame_enter")
 u32 exception_frame_enter(netwasm_address_t metadata_address, u32 clause_count)
 {
     ExceptionFrame *frame;
@@ -781,7 +847,7 @@ u32 exception_frame_enter(netwasm_address_t metadata_address, u32 clause_count)
     return exception_frame_top;
 }
 
-__attribute__((export_name("exception_frame_set_environment")))
+NETWASM_EXPORT("exception_frame_set_environment")
 void exception_frame_set_environment(u32 token, netwasm_address_t environment)
 {
     if (token == 0 || token > exception_frame_top ||
@@ -791,7 +857,7 @@ void exception_frame_set_environment(u32 token, netwasm_address_t environment)
     exception_frames[token - 1].environment = environment;
 }
 
-__attribute__((export_name("exception_frame_leave")))
+NETWASM_EXPORT("exception_frame_leave")
 void exception_frame_leave(u32 token)
 {
     ExceptionFrame *frame;
@@ -805,7 +871,7 @@ void exception_frame_leave(u32 token)
     frame->has_filters = 0;
 }
 
-__attribute__((export_name("exception_frame_target_clause")))
+NETWASM_EXPORT("exception_frame_target_clause")
 u32 exception_frame_target_clause(u32 token)
 {
     if (token == 0 || token != exception_frame_top + 1) {
@@ -861,33 +927,33 @@ static void dispatch_exception(netwasm_reference_t exception)
     }
 }
 
-__attribute__((export_name("begin_throw")))
+NETWASM_EXPORT("begin_throw")
 void begin_throw(netwasm_reference_t exception)
 {
     capture_stack_trace(exception);
     dispatch_exception(exception);
 }
 
-__attribute__((export_name("begin_rethrow")))
+NETWASM_EXPORT("begin_rethrow")
 void begin_rethrow(netwasm_reference_t exception)
 {
     capture_stack_trace_if_missing(exception);
     dispatch_exception(exception);
 }
 
-__attribute__((export_name("end_catch")))
+NETWASM_EXPORT("end_catch")
 void end_catch(void)
 {
     dispatch_root = 0;
 }
 
-__attribute__((export_name("exception_get_active")))
+NETWASM_EXPORT("exception_get_active")
 netwasm_reference_t exception_get_active(void)
 {
     return dispatch_root;
 }
 
-__attribute__((export_name("exception_get_active_type_id")))
+NETWASM_EXPORT("exception_get_active_type_id")
 u32 exception_get_active_type_id(void)
 {
     if (dispatch_root == 0) {
@@ -896,7 +962,7 @@ u32 exception_get_active_type_id(void)
     return *(const u32 *)(uintptr_t)dispatch_root;
 }
 
-__attribute__((export_name("exception_clear_active")))
+NETWASM_EXPORT("exception_clear_active")
 void exception_clear_active(void)
 {
     end_catch();
@@ -905,7 +971,7 @@ void exception_clear_active(void)
 #endif
 }
 
-__attribute__((export_name("finalizer_safepoint")))
+NETWASM_FINALIZATION_EXPORT("finalizer_safepoint")
 netwasm_reference_t finalizer_safepoint(void)
 {
 #ifndef NETWASM_NO_FINALIZATION
@@ -924,7 +990,7 @@ netwasm_reference_t finalizer_safepoint(void)
 #endif
 }
 
-__attribute__((export_name("register_type")))
+NETWASM_EXPORT("register_type")
 void register_type(
     u32 type_id,
     u32 base_type_id,
@@ -958,7 +1024,7 @@ void register_type(
     entry->registered = 1;
 }
 
-__attribute__((export_name("register_value_type")))
+NETWASM_EXPORT("register_value_type")
 void register_value_type(
     u32 type_id,
     netwasm_address_t size,
@@ -993,7 +1059,7 @@ void register_value_type(
     entry->value_registered = 1;
 }
 
-__attribute__((export_name("register_static_root")))
+NETWASM_EXPORT("register_static_root")
 void register_static_root(netwasm_address_t address)
 {
     for (u32 index = 0; index < static_root_count; index++) {
@@ -1009,63 +1075,162 @@ void register_static_root(netwasm_address_t address)
 
 static NetWasmStrongHandleTable strong_handle_table;
 
-__attribute__((export_name("handle_new"))) u32 handle_new(netwasm_reference_t target)
+enum { FRAME_ARENA_MINIMUM_CHUNK_SIZE = 4096 };
+enum { ROOT_ARENA_INITIAL_CAPACITY = 128 * 1024 };
+
+
+static FrameArenaChunk *frame_arena_create_chunk(size_t required_capacity)
+{
+    size_t capacity = required_capacity > FRAME_ARENA_MINIMUM_CHUNK_SIZE
+        ? required_capacity
+        : FRAME_ARENA_MINIMUM_CHUNK_SIZE;
+    if (capacity > SIZE_MAX - sizeof(FrameArenaChunk) - 15u) {
+        return NULL;
+    }
+    FrameArenaChunk *chunk = collector_allocate_metadata(
+        sizeof(FrameArenaChunk) + 15u + capacity);
+    if (chunk == NULL) {
+        return NULL;
+    }
+    chunk->next = NULL;
+    chunk->previous = NULL;
+    chunk->saved_cursor = 0;
+    chunk->capacity = capacity;
+    return chunk;
+}
+
+static inline __attribute__((always_inline)) unsigned char *frame_arena_bytes(
+    FrameArenaChunk *chunk)
+{
+    /* Metadata allocation need only satisfy the platform's natural alignment,
+       which is eight bytes in Wasm. Value-frame storage requires sixteen. */
+    return (unsigned char *)(((uintptr_t)chunk->bytes + 15u) & ~(uintptr_t)15u);
+}
+
+static void *frame_arena_allocate_slow(
+    FrameArena *arena,
+    size_t size)
+{
+    FrameArenaChunk *chunk = arena->current;
+    if (chunk == NULL) {
+        chunk = frame_arena_create_chunk(size);
+        if (chunk == NULL) {
+            return NULL;
+        }
+    } else {
+        FrameArenaChunk *next = chunk->next;
+        if (next == NULL || next->capacity < size) {
+            next = frame_arena_create_chunk(size);
+            if (next == NULL) {
+                return NULL;
+            }
+            next->next = chunk->next;
+            chunk->next = next;
+        }
+        /* Do not publish a transition until allocation has succeeded. Cached
+           successors can be reparented after insertion of a larger chunk. */
+        chunk->saved_cursor = arena->cursor;
+        next->previous = chunk;
+        chunk = next;
+    }
+
+    uintptr_t start = (uintptr_t)frame_arena_bytes(chunk);
+    arena->current = chunk;
+    arena->begin = start;
+    arena->cursor = start + size;
+    arena->limit = start + chunk->capacity;
+    return (void *)start;
+}
+
+static inline __attribute__((always_inline)) void *frame_arena_allocate(
+    FrameArena *arena,
+    size_t size)
+{
+    uintptr_t cursor = arena->cursor;
+    if (size <= arena->limit - cursor) {
+        arena->cursor = cursor + size;
+        return (void *)cursor;
+    }
+    return frame_arena_allocate_slow(arena, size);
+}
+
+static inline __attribute__((always_inline)) void frame_arena_rewind(
+    FrameArena *arena,
+    FrameArenaChunk *chunk,
+    void *allocation)
+{
+    /* The leave operation has already proved this is an active frame. */
+    if (arena->current != chunk) {
+        arena->current = chunk;
+        arena->begin = (uintptr_t)frame_arena_bytes(chunk);
+        arena->limit = arena->begin + chunk->capacity;
+    }
+    arena->cursor = (uintptr_t)allocation;
+}
+
+NETWASM_EXPORT("handle_new") u32 handle_new(netwasm_reference_t target)
 {
     return strong_handle_table_create(&strong_handle_table, target);
 }
 
-__attribute__((export_name("handle_get"))) netwasm_reference_t handle_get(u32 handle)
+NETWASM_EXPORT("handle_get") netwasm_reference_t handle_get(u32 handle)
 {
     return strong_handle_table_get(&strong_handle_table, handle);
 }
 
-__attribute__((export_name("handle_release"))) void handle_release(u32 handle)
+NETWASM_EXPORT("handle_release") void handle_release(u32 handle)
 {
     strong_handle_table_release(&strong_handle_table, handle);
 }
 
 
-__attribute__((export_name("root_frame_enter")))
+NETWASM_EXPORT("root_frame_enter")
 netwasm_address_t root_frame_enter(u32 slot_count)
 {
-    size_t slot_bytes;
-    RootFrame *frame;
-    if ((size_t)slot_count >
-        (SIZE_MAX - sizeof(RootFrame)) / sizeof(netwasm_reference_t)) {
+    if ((size_t)slot_count > SIZE_MAX / sizeof(netwasm_reference_t)) {
         return 0;
     }
-    slot_bytes = (size_t)slot_count * sizeof(netwasm_reference_t);
-    frame = (RootFrame *)collector_allocate_metadata(
-        sizeof(RootFrame) + slot_bytes);
-    if (frame == NULL) {
-        return 0;
+    size_t slot_bytes = (size_t)slot_count * sizeof(netwasm_reference_t);
+    /* Every managed root slot is published before a collecting safepoint. */
+    if (root_frame_arena.current == NULL) {
+        size_t capacity = slot_bytes > ROOT_ARENA_INITIAL_CAPACITY
+            ? slot_bytes : ROOT_ARENA_INITIAL_CAPACITY;
+        void *initial = frame_arena_allocate_slow(&root_frame_arena, capacity);
+        if (initial == NULL) return 0;
+        root_frame_arena.cursor = (uintptr_t)initial + slot_bytes;
+        return (netwasm_address_t)(uintptr_t)initial;
     }
-    frame->previous = shadow_frame;
-    frame->slot_count = slot_count;
-    memset(frame->slots, 0, slot_bytes);
-    shadow_frame = frame;
-    shadow_top += slot_count;
-    return (netwasm_address_t)(uintptr_t)frame->slots;
+    void *slots = frame_arena_allocate(&root_frame_arena, slot_bytes);
+    return (netwasm_address_t)(uintptr_t)slots;
 }
 
-__attribute__((export_name("root_frame_leave")))
+NETWASM_EXPORT("root_frame_leave")
 void root_frame_leave(netwasm_address_t frame)
 {
-    RootFrame *current = shadow_frame;
     netwasm_reference_t *slots = (netwasm_reference_t *)(uintptr_t)frame;
-    if (current == NULL || slots != current->slots) {
+    uintptr_t address = (uintptr_t)slots;
+    if (root_frame_arena.current == NULL || address < root_frame_arena.begin ||
+        address > root_frame_arena.cursor || address % sizeof(netwasm_reference_t) != 0) {
         __builtin_trap();
     }
-    shadow_top -= current->slot_count;
-    shadow_frame = current->previous;
-    collector_release_metadata(current);
+    if (address == root_frame_arena.begin &&
+        root_frame_arena.current->previous != NULL) {
+        FrameArenaChunk *previous = root_frame_arena.current->previous;
+        root_frame_arena.current = previous;
+        root_frame_arena.begin = (uintptr_t)frame_arena_bytes(previous);
+        root_frame_arena.limit = root_frame_arena.begin + previous->capacity;
+        root_frame_arena.cursor = previous->saved_cursor;
+    } else {
+        root_frame_arena.cursor = address;
+    }
 }
 
-__attribute__((export_name("value_frame_enter")))
+NETWASM_EXPORT("value_frame_enter")
 netwasm_address_t value_frame_enter(netwasm_address_t byte_count)
 {
     const netwasm_address_t alignment = 16u;
     netwasm_address_t aligned_count;
+    size_t frame_size;
     ValueFrame *frame;
     if (byte_count > UINT32_MAX - (alignment - 1u) ||
         byte_count > SIZE_MAX - (alignment - 1u)) {
@@ -1075,20 +1240,20 @@ netwasm_address_t value_frame_enter(netwasm_address_t byte_count)
     if ((size_t)aligned_count > SIZE_MAX - sizeof(ValueFrame)) {
         return 0;
     }
-    frame = (ValueFrame *)collector_allocate_metadata(
-        sizeof(ValueFrame) + (size_t)aligned_count);
+    frame_size = sizeof(ValueFrame) + (size_t)aligned_count;
+    frame = (ValueFrame *)frame_arena_allocate(
+        &value_frame_arena,
+        frame_size);
     if (frame == NULL) {
         return 0;
     }
     frame->previous = value_frame;
-    frame->byte_count = (u32)aligned_count;
-    memset(frame->bytes, 0, (size_t)aligned_count);
+    frame->chunk = value_frame_arena.current;
     value_frame = frame;
-    value_frame_top += (u32)aligned_count;
     return (netwasm_address_t)(uintptr_t)frame->bytes;
 }
 
-__attribute__((export_name("value_frame_leave")))
+NETWASM_EXPORT("value_frame_leave")
 void value_frame_leave(netwasm_address_t frame)
 {
     ValueFrame *target = value_frame;
@@ -1099,24 +1264,22 @@ void value_frame_leave(netwasm_address_t frame)
     if (target == NULL) {
         __builtin_trap();
     }
-    ValueFrame *previous = target->previous;
-    do {
-        ValueFrame *current = value_frame;
-        value_frame_top -= current->byte_count;
-        value_frame = current->previous;
-        collector_release_metadata(current);
-    } while (value_frame != previous);
+    value_frame = target->previous;
+    frame_arena_rewind(&value_frame_arena, target->chunk, target);
 }
 
-__attribute__((export_name("allocate")))
-netwasm_reference_t allocate(netwasm_address_t size, u32 type_id)
+static netwasm_reference_t allocate_registered(
+    netwasm_address_t size,
+    u32 type_id)
 {
     void *allocation;
     collect_for_allocation_test();
+#ifndef NETWASM_RUNTIME_PACK
     if (fail_next_allocation) {
         fail_next_allocation = 0;
         return 0;
     }
+#endif
     if (type_id >= type_capacity || !type_descriptors[type_id].registered ||
         size != type_descriptors[type_id].size) {
         __builtin_trap();
@@ -1129,21 +1292,131 @@ netwasm_reference_t allocate(netwasm_address_t size, u32 type_id)
     }
     ((u32 *)allocation)[0] = type_id;
     allocation_root = (uintptr_t)allocation;
-#ifndef NETWASM_NO_FINALIZATION
-    if (type_descriptors[type_id].has_finalizer) {
-        collector_register_finalizer(
-            allocation,
-            managed_finalizer,
-            (void *)(uintptr_t)type_id,
-            NULL,
-            NULL);
-    }
-#endif
+#ifndef NETWASM_RUNTIME_PACK
     allocation_count++;
+#endif
     track(allocation);
     allocation_root = 0;
 type_data_kinds[type_id] = NETWASM_OBJECT_DATA_FIELDS;
     return (netwasm_reference_t)(uintptr_t)allocation;
+}
+
+NETWASM_EXPORT("allocate")
+netwasm_reference_t allocate(netwasm_address_t size, u32 type_id)
+{
+    if (type_id >= type_capacity || type_descriptors[type_id].has_finalizer) {
+        __builtin_trap();
+    }
+    return allocate_registered(size, type_id);
+}
+
+NETWASM_EXPORT("boxed_value_clone")
+netwasm_reference_t boxed_value_clone(netwasm_reference_t source)
+{
+    u32 type_id;
+    TypeDescriptor *entry;
+    netwasm_reference_t clone;
+    if (source == 0) {
+        __builtin_trap();
+    }
+    type_id = *(const u32 *)(uintptr_t)source;
+    if (type_id >= type_capacity) {
+        __builtin_trap();
+    }
+    entry = &type_descriptors[type_id];
+    if (!entry->registered || !entry->value_registered ||
+        entry->boxed_payload_offset > entry->size ||
+        entry->value_size > entry->size - entry->boxed_payload_offset) {
+        __builtin_trap();
+    }
+    clone = allocate_registered(entry->size, type_id);
+    if (clone == 0) {
+        return 0;
+    }
+    collector_move_value_range(
+        clone,
+        (void *)(uintptr_t)(clone + entry->boxed_payload_offset),
+        (const void *)(uintptr_t)(source + entry->boxed_payload_offset),
+        1,
+        entry->value_size,
+        entry->value_descriptor);
+    return clone;
+}
+
+NETWASM_EXPORT("runtime_helpers_equals")
+u32 runtime_helpers_equals(
+    netwasm_reference_t left,
+    netwasm_reference_t right)
+{
+    u32 left_type_id;
+    u32 right_type_id;
+    netwasm_address_t index;
+    TypeDescriptor *entry;
+    const unsigned char *left_bytes;
+    const unsigned char *right_bytes;
+    if (left == right) {
+        return 1;
+    }
+    if (left == 0 || right == 0) {
+        return 0;
+    }
+    left_type_id = *(const u32 *)(uintptr_t)left;
+    right_type_id = *(const u32 *)(uintptr_t)right;
+    if (left_type_id >= type_capacity || right_type_id >= type_capacity) {
+        __builtin_trap();
+    }
+    if (left_type_id != right_type_id) {
+        return 0;
+    }
+    entry = &type_descriptors[left_type_id];
+    if (!entry->registered || !entry->value_registered) {
+        return 0;
+    }
+    if (entry->boxed_payload_offset > entry->size ||
+        entry->value_size > entry->size - entry->boxed_payload_offset) {
+        __builtin_trap();
+    }
+    left_bytes = (const unsigned char *)(uintptr_t)(
+        left + entry->boxed_payload_offset);
+    right_bytes = (const unsigned char *)(uintptr_t)(
+        right + entry->boxed_payload_offset);
+    for (index = 0; index < entry->value_size; index++) {
+        if (left_bytes[index] != right_bytes[index]) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+NETWASM_FINALIZATION_EXPORT("allocate_finalizable")
+netwasm_reference_t allocate_finalizable(netwasm_address_t size, u32 type_id)
+{
+    netwasm_reference_t object;
+#ifndef NETWASM_NO_FINALIZATION
+    void *allocation;
+    if (type_id >= type_capacity || !type_descriptors[type_id].registered ||
+        size != type_descriptors[type_id].size ||
+        !type_descriptors[type_id].has_finalizer) {
+        __builtin_trap();
+    }
+    object = allocate_registered(size, type_id);
+    allocation = (void *)(uintptr_t)object;
+    if (allocation == NULL) {
+        return 0;
+    }
+    allocation_root = (uintptr_t)allocation;
+    collector_register_finalizer(
+        allocation,
+        managed_finalizer,
+        (void *)(uintptr_t)type_id,
+        NULL,
+        NULL);
+    allocation_root = 0;
+    return object;
+#else
+    object = allocate_registered(size, type_id);
+    return object;
+#endif
 }
 
 static int is_power_of_two(netwasm_address_t value)
@@ -1151,22 +1424,26 @@ static int is_power_of_two(netwasm_address_t value)
     return value != 0 && (value & (value - 1)) == 0;
 }
 
-__attribute__((export_name("component_free")))
+NETWASM_EXPORT("component_free")
 void component_free(netwasm_address_t address)
 {
     ComponentAllocationHeader *header;
     if (address == 0) {
         return;
     }
+#ifndef NETWASM_RUNTIME_PACK
     if (component_active_allocation_count == 0) {
         __builtin_trap();
     }
+#endif
     header = (ComponentAllocationHeader *)(uintptr_t)address - 1;
+#ifndef NETWASM_RUNTIME_PACK
     component_active_allocation_count--;
+#endif
         netwasm_unmanaged_free(header->allocation);
 }
 
-__attribute__((export_name("component_realloc")))
+NETWASM_EXPORT("component_realloc")
 netwasm_address_t component_realloc(
     netwasm_address_t old_address,
     netwasm_address_t old_size,
@@ -1189,10 +1466,12 @@ netwasm_address_t component_realloc(
     if (!is_power_of_two(alignment)) {
         __builtin_trap();
     }
+#ifndef NETWASM_RUNTIME_PACK
     if (fail_next_component_allocation) {
         fail_next_component_allocation = 0;
         return 0;
     }
+#endif
     if (alignment < sizeof(void *)) {
         alignment = sizeof(void *);
     }
@@ -1218,7 +1497,9 @@ netwasm_address_t component_realloc(
     header->allocation = allocation;
     header->size = new_size;
     header->alignment = alignment;
+#ifndef NETWASM_RUNTIME_PACK
     component_active_allocation_count++;
+#endif
     if (old_size != 0) {
         copy_size = old_size < new_size ? (size_t)old_size : (size_t)new_size;
         memcpy((void *)(uintptr_t)aligned_address,
@@ -1229,13 +1510,13 @@ netwasm_address_t component_realloc(
     return aligned_address;
 }
 
-__attribute__((export_name("native_alloc")))
+NETWASM_EXPORT("native_alloc")
 netwasm_address_t native_alloc(netwasm_address_t size)
 {
     return component_realloc(0, 0, sizeof(void *), size == 0 ? 1 : size);
 }
 
-__attribute__((export_name("native_realloc")))
+NETWASM_EXPORT("native_realloc")
 netwasm_address_t native_realloc(
     netwasm_address_t address,
     netwasm_address_t size)
@@ -1253,13 +1534,13 @@ netwasm_address_t native_realloc(
         size == 0 ? 1 : size);
 }
 
-__attribute__((export_name("native_free")))
+NETWASM_EXPORT("native_free")
 void native_free(netwasm_address_t address)
 {
     component_free(address);
 }
 
-__attribute__((export_name("native_aligned_alloc")))
+NETWASM_EXPORT("native_aligned_alloc")
 netwasm_address_t native_aligned_alloc(
     netwasm_address_t size,
     netwasm_address_t alignment)
@@ -1267,7 +1548,7 @@ netwasm_address_t native_aligned_alloc(
     return component_realloc(0, 0, alignment, size == 0 ? 1 : size);
 }
 
-__attribute__((export_name("native_aligned_realloc")))
+NETWASM_EXPORT("native_aligned_realloc")
 netwasm_address_t native_aligned_realloc(
     netwasm_address_t address,
     netwasm_address_t size,
@@ -1282,25 +1563,27 @@ netwasm_address_t native_aligned_realloc(
     return component_realloc(address, old_size, alignment, size == 0 ? 1 : size);
 }
 
-__attribute__((export_name("native_aligned_free")))
+NETWASM_EXPORT("native_aligned_free")
 void native_aligned_free(netwasm_address_t address)
 {
     component_free(address);
 }
 
-__attribute__((export_name("test_component_active_allocation_count")))
+#ifndef NETWASM_RUNTIME_PACK
+NETWASM_TEST_EXPORT("test_component_active_allocation_count")
 u32 test_component_active_allocation_count(void)
 {
     return component_active_allocation_count;
 }
 
-__attribute__((export_name("test_fail_next_component_allocation")))
+NETWASM_TEST_EXPORT("test_fail_next_component_allocation")
 void test_fail_next_component_allocation(void)
 {
     fail_next_component_allocation = 1;
 }
+#endif
 
-__attribute__((export_name("get_type_object")))
+NETWASM_EXPORT("get_type_object")
 netwasm_reference_t get_type_object(u32 semantic_type_id, u32 facade_type_id)
 {
     netwasm_reference_t object;
@@ -1339,13 +1622,14 @@ netwasm_reference_t get_type_object(u32 semantic_type_id, u32 facade_type_id)
     return object;
 }
 
-__attribute__((export_name("allocate_reference_array")))
+NETWASM_EXPORT("allocate_reference_array")
 netwasm_reference_t allocate_reference_array(
     u32 length,
     u32 type_id,
     u32 element_type_id)
 {
     netwasm_reference_t array;
+    size_t array_allocation_size = NETWASM_ARRAY_OBJECT_SIZE;
     void *elements = NULL;
     if (type_id >= type_capacity || !type_descriptors[type_id].registered ||
         type_descriptors[type_id].size != NETWASM_ARRAY_OBJECT_SIZE ||
@@ -1365,9 +1649,11 @@ netwasm_reference_t allocate_reference_array(
             return 0;
         }
         allocation_root = (uintptr_t)elements;
+    } else {
+        array_allocation_size += NETWASM_OBJECT_REFERENCE_SIZE;
     }
     array = (netwasm_reference_t)(uintptr_t)collector_allocate_exact(
-        NETWASM_ARRAY_OBJECT_SIZE,
+        array_allocation_size,
         type_descriptors[type_id].descriptor);
     if (array == 0) {
         allocation_root = 0;
@@ -1377,11 +1663,15 @@ netwasm_reference_t allocate_reference_array(
     *(u32 *)(uintptr_t)(array + NETWASM_ARRAY_LENGTH_OFFSET) = length;
     *(netwasm_reference_t *)(uintptr_t)(
         array + NETWASM_ARRAY_DATA_POINTER_OFFSET) =
-        (netwasm_reference_t)(uintptr_t)elements;
+        length == 0
+            ? array + NETWASM_ARRAY_OBJECT_SIZE
+            : (netwasm_reference_t)(uintptr_t)elements;
     *(u32 *)(uintptr_t)(array + NETWASM_ARRAY_ELEMENT_TYPE_ID_OFFSET) =
         element_type_id;
     allocation_root = array;
+#ifndef NETWASM_RUNTIME_PACK
     allocation_count += length == 0 ? 1 : 2;
+#endif
     track((void *)(uintptr_t)array);
     if (elements != NULL) {
         track(elements);
@@ -1391,7 +1681,7 @@ type_data_kinds[type_id] = NETWASM_OBJECT_DATA_ARRAY;
     return array;
 }
 
-__attribute__((export_name("allocate_value_array")))
+NETWASM_EXPORT("allocate_value_array")
 netwasm_reference_t allocate_value_array(
     u32 length,
     u32 type_id,
@@ -1400,6 +1690,7 @@ netwasm_reference_t allocate_value_array(
 {
     TypeDescriptor *element;
     netwasm_reference_t array;
+    size_t array_allocation_size = NETWASM_ARRAY_OBJECT_SIZE;
     void *elements = NULL;
     if (type_id >= type_capacity || !type_descriptors[type_id].registered ||
         type_descriptors[type_id].size != NETWASM_ARRAY_OBJECT_SIZE ||
@@ -1422,7 +1713,7 @@ netwasm_reference_t allocate_value_array(
                 element->value_descriptor);
         } else {
             elements = collector_allocate_atomic(size);
-            if (elements != NULL) {
+            if (elements != NULL && !collector_atomic_allocation_is_zeroed()) {
                 memset(elements, 0, size);
             }
         }
@@ -1430,9 +1721,11 @@ netwasm_reference_t allocate_value_array(
             return 0;
         }
         allocation_root = (uintptr_t)elements;
+    } else {
+        array_allocation_size += NETWASM_OBJECT_REFERENCE_SIZE;
     }
     array = (netwasm_reference_t)(uintptr_t)collector_allocate_exact(
-        NETWASM_ARRAY_OBJECT_SIZE,
+        array_allocation_size,
         type_descriptors[type_id].descriptor);
     if (array == 0) {
         allocation_root = 0;
@@ -1442,11 +1735,15 @@ netwasm_reference_t allocate_value_array(
     *(u32 *)(uintptr_t)(array + NETWASM_ARRAY_LENGTH_OFFSET) = length;
     *(netwasm_reference_t *)(uintptr_t)(
         array + NETWASM_ARRAY_DATA_POINTER_OFFSET) =
-        (netwasm_reference_t)(uintptr_t)elements;
+        length == 0
+            ? array + NETWASM_ARRAY_OBJECT_SIZE
+            : (netwasm_reference_t)(uintptr_t)elements;
     *(u32 *)(uintptr_t)(array + NETWASM_ARRAY_ELEMENT_TYPE_ID_OFFSET) =
         element_type_id;
     allocation_root = array;
+#ifndef NETWASM_RUNTIME_PACK
     allocation_count += length == 0 ? 1 : 2;
+#endif
     track((void *)(uintptr_t)array);
     if (elements != NULL) {
         track(elements);
@@ -1456,7 +1753,7 @@ type_data_kinds[type_id] = NETWASM_OBJECT_DATA_ARRAY;
     return array;
 }
 
-__attribute__((export_name("allocate_rectangular_array")))
+NETWASM_EXPORT("allocate_rectangular_array")
 netwasm_reference_t allocate_rectangular_array(
     u32 rank,
     netwasm_address_t dimensions_address,
@@ -1561,7 +1858,9 @@ netwasm_reference_t allocate_rectangular_array(
     *(u32 *)(uintptr_t)(array + NETWASM_ARRAY_ELEMENT_TYPE_ID_OFFSET) =
         element_type_id;
     *(u32 *)(uintptr_t)(array + NETWASM_RECTANGULAR_ARRAY_RANK_OFFSET) = rank;
+#ifndef NETWASM_RUNTIME_PACK
     allocation_count += total == 0 ? 2 : 3;
+#endif
     track((void *)(uintptr_t)array);
     track(shape);
     if (elements != NULL) {
@@ -1572,7 +1871,7 @@ type_data_kinds[type_id] = NETWASM_OBJECT_DATA_ARRAY;
     return array;
 }
 
-__attribute__((export_name("array_rank")))
+NETWASM_EXPORT("array_rank")
 u32 array_rank(netwasm_reference_t array)
 {
     u32 type_id;
@@ -1588,7 +1887,7 @@ u32 array_rank(netwasm_reference_t array)
         : 1;
 }
 
-__attribute__((export_name("array_get_length")))
+NETWASM_EXPORT("array_get_length")
 int32_t array_get_length(netwasm_reference_t array, int32_t dimension)
 {
     u32 type_id;
@@ -1617,7 +1916,7 @@ int32_t array_get_length(netwasm_reference_t array, int32_t dimension)
 
 /* Bounds extend only the shape owned by an explicitly bounded ARRAY. The
    existing vector/object headers and zero-bound shape records are unchanged. */
-__attribute__((export_name("allocate_bounded_rectangular_array")))
+NETWASM_EXPORT("allocate_bounded_rectangular_array")
 netwasm_reference_t allocate_bounded_rectangular_array(
     u32 rank,
     netwasm_address_t dimensions_address,
@@ -1648,13 +1947,15 @@ netwasm_reference_t allocate_bounded_rectangular_array(
         (netwasm_reference_t)(uintptr_t)shape;
     *(u32 *)(uintptr_t)(array + NETWASM_RECTANGULAR_ARRAY_RANK_OFFSET) =
         rank | 0x80000000u;
+#ifndef NETWASM_RUNTIME_PACK
     allocation_count++;
+#endif
     track(shape);
     allocation_root = 0;
     return array;
 }
 
-__attribute__((export_name("array_get_lower_bound")))
+NETWASM_EXPORT("array_get_lower_bound")
 int32_t array_get_lower_bound(netwasm_reference_t array, u32 dimension)
 {
     u32 rank = array_rank(array);
@@ -1675,7 +1976,7 @@ int32_t array_get_lower_bound(netwasm_reference_t array, u32 dimension)
 /* Returns address 1 when boxing cannot allocate. Zero remains a valid null
    reference array element, so the managed emitter translates only the
    reserved sentinel into OutOfMemoryException. */
-__attribute__((export_name("array_get_value")))
+NETWASM_EXPORT("array_get_value")
 netwasm_reference_t array_get_value(netwasm_reference_t array, u32 index)
 {
     u32 array_type_id;
@@ -1727,14 +2028,16 @@ netwasm_reference_t array_get_value(netwasm_reference_t array, u32 index)
         1,
         element->value_size,
         element->value_descriptor);
+#ifndef NETWASM_RUNTIME_PACK
     allocation_count++;
+#endif
     track((void *)(uintptr_t)boxed);
     type_data_kinds[element_type_id] = NETWASM_OBJECT_DATA_FIELDS;
     allocation_root = 0;
     return boxed;
 }
 
-__attribute__((export_name("array_copy")))
+NETWASM_EXPORT("array_copy")
 u32 array_copy(
     netwasm_reference_t source,
     u32 source_index,
@@ -1754,7 +2057,8 @@ u32 array_copy(
     enum {
         ARRAY_COPY_SUCCESS = 0,
         ARRAY_COPY_TYPE_MISMATCH = 1,
-        ARRAY_COPY_ELEMENT_CAST_FAILURE = 2
+        ARRAY_COPY_ELEMENT_CAST_FAILURE = 2,
+        ARRAY_COPY_OUT_OF_MEMORY = 3
     };
 
     if (source == 0 || destination == 0) {
@@ -1780,15 +2084,23 @@ u32 array_copy(
     if (!source_element->registered || !destination_element->registered) {
         return ARRAY_COPY_TYPE_MISMATCH;
     }
-    if (!is_type_assignable(source_type_id, destination_type_id) &&
-        !is_type_assignable(destination_type_id, source_type_id) &&
-        !source_element->is_interface && !destination_element->is_interface) {
-        return ARRAY_COPY_TYPE_MISMATCH;
-    }
-    if (source_element->value_registered != destination_element->value_registered) {
+    if (source_element->value_registered == destination_element->value_registered) {
+        if (!is_type_assignable(source_type_id, destination_type_id) &&
+            !is_type_assignable(destination_type_id, source_type_id) &&
+            !source_element->is_interface && !destination_element->is_interface) {
+            return ARRAY_COPY_TYPE_MISMATCH;
+        }
+    } else if (source_element->value_registered) {
+        if (!is_type_assignable(source_element_type_id, destination_element_type_id)) {
+            return ARRAY_COPY_TYPE_MISMATCH;
+        }
+    } else if (!is_type_assignable(
+            destination_element_type_id,
+            source_element_type_id)) {
         return ARRAY_COPY_TYPE_MISMATCH;
     }
     if (source_element->value_registered &&
+        destination_element->value_registered &&
         source_element->value_size != destination_element->value_size) {
         return ARRAY_COPY_TYPE_MISMATCH;
     }
@@ -1799,6 +2111,72 @@ u32 array_copy(
         source + NETWASM_ARRAY_DATA_POINTER_OFFSET);
     destination_data = *(netwasm_reference_t *)(uintptr_t)(
         destination + NETWASM_ARRAY_DATA_POINTER_OFFSET);
+
+    if (source_element->value_registered &&
+        !destination_element->value_registered) {
+        netwasm_reference_t *destination_values =
+            (netwasm_reference_t *)(uintptr_t)destination_data + destination_index;
+        for (u32 offset = 0; offset < length; offset++) {
+            netwasm_reference_t boxed;
+            collect_for_allocation_test();
+            boxed = (netwasm_reference_t)(uintptr_t)collector_allocate_exact(
+                source_element->size,
+                source_element->descriptor);
+            if (boxed == 0) {
+                return ARRAY_COPY_OUT_OF_MEMORY;
+            }
+            *(u32 *)(uintptr_t)boxed = source_element_type_id;
+            allocation_root = boxed;
+            collector_move_value_range(
+                boxed,
+                (void *)(uintptr_t)(boxed + source_element->boxed_payload_offset),
+                (const void *)(uintptr_t)(source_data +
+                    (netwasm_address_t)(source_index + offset) *
+                        source_element->value_size),
+                1,
+                source_element->value_size,
+                source_element->value_descriptor);
+#ifndef NETWASM_RUNTIME_PACK
+            allocation_count++;
+#endif
+            track((void *)(uintptr_t)boxed);
+            type_data_kinds[source_element_type_id] = NETWASM_OBJECT_DATA_FIELDS;
+            collector_store_reference(
+                destination,
+                &destination_values[offset],
+                boxed);
+            allocation_root = 0;
+        }
+        return ARRAY_COPY_SUCCESS;
+    }
+
+    if (!source_element->value_registered &&
+        destination_element->value_registered) {
+        netwasm_reference_t *source_values =
+            (netwasm_reference_t *)(uintptr_t)source_data + source_index;
+        for (u32 offset = 0; offset < length; offset++) {
+            netwasm_reference_t boxed = source_values[offset];
+            u32 boxed_type_id;
+            if (boxed == 0) {
+                return ARRAY_COPY_ELEMENT_CAST_FAILURE;
+            }
+            boxed_type_id = *(u32 *)(uintptr_t)boxed;
+            if (boxed_type_id != destination_element_type_id) {
+                return ARRAY_COPY_ELEMENT_CAST_FAILURE;
+            }
+            collector_move_value_range(
+                destination,
+                (void *)(uintptr_t)(destination_data +
+                    (netwasm_address_t)(destination_index + offset) *
+                        destination_element->value_size),
+                (const void *)(uintptr_t)(boxed +
+                    destination_element->boxed_payload_offset),
+                1,
+                destination_element->value_size,
+                destination_element->value_descriptor);
+        }
+        return ARRAY_COPY_SUCCESS;
+    }
 
     if (!source_element->value_registered && !destination_element->value_registered) {
         netwasm_reference_t *source_values =
@@ -1846,11 +2224,15 @@ u32 array_copy(
     return ARRAY_COPY_SUCCESS;
 }
 
-__attribute__((export_name("array_clone")))
-netwasm_reference_t array_clone(netwasm_reference_t source)
+NETWASM_EXPORT("array_clone")
+netwasm_reference_t array_clone(
+    netwasm_reference_t source,
+    u32 source_index,
+    u32 requested_length)
 {
     u32 type_id;
     u32 element_type_id;
+    u32 source_length;
     u32 length;
     TypeDescriptor *element;
     netwasm_reference_t clone;
@@ -1872,9 +2254,21 @@ netwasm_reference_t array_clone(netwasm_reference_t source)
         __builtin_trap();
     }
     element = &type_descriptors[element_type_id];
-    length = *(u32 *)(uintptr_t)(source + NETWASM_ARRAY_LENGTH_OFFSET);
+    source_length = *(u32 *)(uintptr_t)(source + NETWASM_ARRAY_LENGTH_OFFSET);
+    if (requested_length == UINT32_MAX) {
+        source_index = 0;
+        length = source_length;
+    } else {
+        length = requested_length;
+        if (source_index > source_length || length > source_length - source_index) {
+            __builtin_trap();
+        }
+    }
 
     if (type_descriptors[type_id].size == NETWASM_RECTANGULAR_ARRAY_OBJECT_SIZE) {
+        if (requested_length != UINT32_MAX) {
+            __builtin_trap();
+        }
         u32 rank_flags = *(u32 *)(uintptr_t)(
             source + NETWASM_RECTANGULAR_ARRAY_RANK_OFFSET);
         u32 rank = rank_flags & 0x7fffffffu;
@@ -1926,13 +2320,17 @@ netwasm_reference_t array_clone(netwasm_reference_t source)
         netwasm_reference_t *clone_values =
             (netwasm_reference_t *)(uintptr_t)clone_data;
         for (u32 index = 0; index < length; index++) {
-            collector_store_reference(clone, &clone_values[index], source_values[index]);
+            collector_store_reference(
+                clone,
+                &clone_values[index],
+                source_values[source_index + index]);
         }
     } else {
         collector_move_value_range(
             clone,
             (void *)(uintptr_t)clone_data,
-            (const void *)(uintptr_t)source_data,
+            (const void *)(uintptr_t)(source_data +
+                (netwasm_address_t)source_index * element->value_size),
             length,
             element->value_size,
             element->value_descriptor);
@@ -1940,7 +2338,7 @@ netwasm_reference_t array_clone(netwasm_reference_t source)
     return clone;
 }
 
-__attribute__((export_name("array_clear")))
+NETWASM_EXPORT("array_clear")
 void array_clear(netwasm_reference_t array, u32 index, u32 length)
 {
     u32 type_id;
@@ -1985,7 +2383,7 @@ void array_clear(netwasm_reference_t array, u32 index, u32 length)
         element->value_descriptor);
 }
 
-__attribute__((export_name("allocate_string")))
+NETWASM_EXPORT("allocate_string")
 netwasm_reference_t allocate_string(u32 value, u32 length, u32 type_id)
 {
     netwasm_address_t byte_count;
@@ -2002,10 +2400,12 @@ netwasm_reference_t allocate_string(u32 value, u32 length, u32 type_id)
         return 0;
     }
     collect_for_allocation_test();
+#ifndef NETWASM_RUNTIME_PACK
     if (fail_next_allocation) {
         fail_next_allocation = 0;
         return 0;
     }
+#endif
     byte_count = NETWASM_STRING_DATA_OFFSET + length * sizeof(uint16_t);
     string = (netwasm_reference_t)(uintptr_t)collector_allocate_atomic(byte_count);
     if (string == 0) {
@@ -2014,18 +2414,22 @@ netwasm_reference_t allocate_string(u32 value, u32 length, u32 type_id)
     *(u32 *)(uintptr_t)string = type_id;
     *(u32 *)(uintptr_t)(string + NETWASM_STRING_LENGTH_OFFSET) = length;
     characters = (uint16_t *)(uintptr_t)(string + NETWASM_STRING_DATA_OFFSET);
-    for (u32 index = 0; index < length; index++) {
-        characters[index] = (uint16_t)value;
+    if (value != 0 || !collector_atomic_allocation_is_zeroed()) {
+        for (u32 index = 0; index < length; index++) {
+            characters[index] = (uint16_t)value;
+        }
     }
     allocation_root = string;
+#ifndef NETWASM_RUNTIME_PACK
     allocation_count++;
+#endif
     track((void *)(uintptr_t)string);
     allocation_root = 0;
 type_data_kinds[type_id] = NETWASM_OBJECT_DATA_STRING;
     return string;
 }
 
-__attribute__((export_name("suppress_finalize")))
+NETWASM_FINALIZATION_EXPORT("suppress_finalize")
 void suppress_finalize(netwasm_reference_t object)
 {
     if (object == 0) {
@@ -2043,7 +2447,7 @@ void suppress_finalize(netwasm_reference_t object)
 #endif
 }
 
-__attribute__((export_name("reregister_for_finalize")))
+NETWASM_FINALIZATION_EXPORT("reregister_for_finalize")
 void reregister_for_finalize(netwasm_reference_t object)
 {
     u32 type_id;
@@ -2069,26 +2473,27 @@ void reregister_for_finalize(netwasm_reference_t object)
 #endif
 }
 
-__attribute__((export_name("test_collect")))
+#ifndef NETWASM_RUNTIME_PACK
+NETWASM_TEST_EXPORT("test_collect")
 u32 test_collect(void)
 {
     collect_internal();
     return collection_count;
 }
 
-__attribute__((export_name("test_collect_before_allocation")))
+NETWASM_TEST_EXPORT("test_collect_before_allocation")
 void test_collect_before_allocation(u32 enabled)
 {
     collect_before_allocation = enabled != 0;
 }
 
-__attribute__((export_name("test_track_allocations")))
+NETWASM_TEST_EXPORT("test_track_allocations")
 void test_track_allocations(u32 enabled)
 {
     track_allocations = enabled != 0;
 }
 
-__attribute__((export_name("test_marked_count")))
+NETWASM_TEST_EXPORT("test_marked_count")
 u32 test_marked_count(void)
 {
     u32 result = 0;
@@ -2098,7 +2503,7 @@ u32 test_marked_count(void)
     return result;
 }
 
-__attribute__((export_name("test_clear_static_roots")))
+NETWASM_TEST_EXPORT("test_clear_static_roots")
 void test_clear_static_roots(void)
 {
     for (u32 index = 0; index < static_root_count; index++) {
@@ -2111,37 +2516,37 @@ void test_clear_static_roots(void)
     static_root_count = 0;
 }
 
-__attribute__((export_name("test_allocation_count")))
+NETWASM_TEST_EXPORT("test_allocation_count")
 u32 test_allocation_count(void)
 {
     return allocation_count;
 }
 
-__attribute__((export_name("test_tracked_allocation_count")))
+NETWASM_TEST_EXPORT("test_tracked_allocation_count")
 u32 test_tracked_allocation_count(void)
 {
     return tracked_count;
 }
 
-__attribute__((export_name("test_collection_count")))
+NETWASM_TEST_EXPORT("test_collection_count")
 u32 test_collection_count(void)
 {
     return collection_count;
 }
 
-__attribute__((export_name("test_handle_count")))
+NETWASM_TEST_EXPORT("test_handle_count")
 u32 test_handle_count(void)
 {
     return strong_handle_table_count(&strong_handle_table);
 }
 
-__attribute__((export_name("test_fail_next_allocation")))
+NETWASM_TEST_EXPORT("test_fail_next_allocation")
 void test_fail_next_allocation(void)
 {
     fail_next_allocation = 1;
 }
 
-__attribute__((export_name("test_registered_type_count")))
+NETWASM_TEST_EXPORT("test_registered_type_count")
 u32 test_registered_type_count(void)
 {
     u32 result = 0;
@@ -2151,32 +2556,38 @@ u32 test_registered_type_count(void)
     return result;
 }
 
-__attribute__((export_name("test_type_capacity")))
+NETWASM_TEST_EXPORT("test_type_capacity")
 u32 test_type_capacity(void)
 {
     return type_capacity;
 }
 
-__attribute__((export_name("test_static_root_count")))
+NETWASM_TEST_EXPORT("test_static_root_count")
 u32 test_static_root_count(void)
 {
     return static_root_count;
 }
 
-__attribute__((export_name("test_shadow_depth")))
+NETWASM_TEST_EXPORT("test_shadow_depth")
 u32 test_shadow_depth(void)
 {
-    return shadow_top;
+    u32 depth = 0;
+    uintptr_t end = root_frame_arena.cursor;
+    for (FrameArenaChunk *chunk = root_frame_arena.current; chunk != NULL; chunk = chunk->previous) {
+        depth += (end - (uintptr_t)frame_arena_bytes(chunk)) / sizeof(netwasm_reference_t);
+        if (chunk->previous != NULL) end = chunk->previous->saved_cursor;
+    }
+    return depth;
 }
 
-__attribute__((export_name("test_exception_frame_depth")))
+NETWASM_TEST_EXPORT("test_exception_frame_depth")
 u32 test_exception_frame_depth(void)
 {
     return exception_frame_top;
 }
 
 #ifndef NETWASM_NO_FINALIZATION
-__attribute__((export_name("test_make_finalizers_pending")))
+NETWASM_TEST_EXPORT("test_make_finalizers_pending")
 u32 test_make_finalizers_pending(void)
 {
     for (u32 attempt = 0; attempt < 8; attempt++) {
@@ -2188,7 +2599,7 @@ u32 test_make_finalizers_pending(void)
     return 0;
 }
 
-__attribute__((export_name("test_drain_finalizers")))
+NETWASM_TEST_EXPORT("test_drain_finalizers")
 u32 test_drain_finalizers(void)
 {
     escaped_finalizer_status = 0;
@@ -2196,64 +2607,65 @@ u32 test_drain_finalizers(void)
     return escaped_finalizer_status;
 }
 
-__attribute__((export_name("test_finalizer_count")))
+NETWASM_TEST_EXPORT("test_finalizer_count")
 u32 test_finalizer_count(void)
 {
     return finalizer_count;
 }
 #endif
+#endif
 static NetWasmWeakHandleTable weak_handle_table;
 
-__attribute__((export_name("weak_handle_new"))) u32 weak_handle_new(
+NETWASM_EXPORT("weak_handle_new") u32 weak_handle_new(
     netwasm_reference_t target,
     u32 track_resurrection)
 {
     return weak_handle_table_create(&weak_handle_table, target, track_resurrection != 0);
 }
 
-__attribute__((export_name("weak_handle_get"))) netwasm_reference_t weak_handle_get(u32 handle)
+NETWASM_EXPORT("weak_handle_get") netwasm_reference_t weak_handle_get(u32 handle)
 {
     return weak_handle_table_get(&weak_handle_table, handle);
 }
 
-__attribute__((export_name("weak_handle_set"))) void weak_handle_set(
+NETWASM_EXPORT("weak_handle_set") void weak_handle_set(
     u32 handle,
     netwasm_reference_t target)
 {
     weak_handle_table_set(&weak_handle_table, handle, target);
 }
 
-__attribute__((export_name("weak_handle_release"))) void weak_handle_release(u32 handle)
+NETWASM_EXPORT("weak_handle_release") void weak_handle_release(u32 handle)
 {
     weak_handle_table_release(&weak_handle_table, handle);
 }
 
 static NetWasmGcHandleTable gc_handle_table;
 
-__attribute__((export_name("gc_handle_new"))) u32 gc_handle_new(
+NETWASM_EXPORT("gc_handle_new") u32 gc_handle_new(
     netwasm_reference_t target,
     u32 kind)
 {
     return gc_handle_table_create(&gc_handle_table, target, kind);
 }
 
-__attribute__((export_name("gc_handle_get"))) netwasm_reference_t gc_handle_get(u32 handle)
+NETWASM_EXPORT("gc_handle_get") netwasm_reference_t gc_handle_get(u32 handle)
 {
     return gc_handle_table_get(&gc_handle_table, handle);
 }
 
-__attribute__((export_name("gc_handle_set"))) void gc_handle_set(
+NETWASM_EXPORT("gc_handle_set") void gc_handle_set(
     u32 handle,
     netwasm_reference_t target)
 {
     gc_handle_table_set(&gc_handle_table, handle, target);
 }
 
-__attribute__((export_name("gc_handle_release"))) void gc_handle_release(u32 handle)
+NETWASM_EXPORT("gc_handle_release") void gc_handle_release(u32 handle)
 {
     gc_handle_table_release(&gc_handle_table, handle);
 }
-__attribute__((export_name("gc_handle_address"))) netwasm_address_t gc_handle_address(u32 handle)
+NETWASM_EXPORT("gc_handle_address") netwasm_address_t gc_handle_address(u32 handle)
 {
     netwasm_reference_t target = gc_handle_table_get(&gc_handle_table, handle);
     return object_data_address_resolve(
@@ -2265,22 +2677,23 @@ __attribute__((export_name("gc_handle_address"))) netwasm_address_t gc_handle_ad
         NETWASM_ARRAY_DATA_POINTER_OFFSET);
 }
 
-__attribute__((export_name("gc_get_metric"))) uint64_t gc_get_metric(u32 metric)
+NETWASM_EXPORT("gc_get_metric") uint64_t gc_get_metric(u32 metric)
 {
     return gc_metric_read(metric);
 }
 
-__attribute__((export_name("gc_metric_is_supported"))) u32 gc_metric_is_supported(u32 metric)
+NETWASM_EXPORT("gc_metric_is_supported") u32 gc_metric_is_supported(u32 metric)
 {
     return gc_metric_supports(metric) ? 1 : 0;
 }
 
-__attribute__((export_name("object_identity_hash"))) u32 object_identity_hash(netwasm_reference_t object)
+NETWASM_EXPORT("object_identity_hash") u32 object_identity_hash(netwasm_reference_t object)
 {
     return collector_identity_hash(object);
 }
 
-__attribute__((export_name("gc_wait_for_pending_finalizers"))) void gc_wait_for_pending_finalizers(void)
+NETWASM_FINALIZATION_EXPORT("gc_wait_for_pending_finalizers")
+void gc_wait_for_pending_finalizers(void)
 {
     while (collector_has_pending_finalizers()) {
         collector_invoke_finalizers();

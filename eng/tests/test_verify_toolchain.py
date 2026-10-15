@@ -71,7 +71,7 @@ class VerifyToolchainTests(unittest.TestCase):
         self._write_node("26.7.0")
         self._write_executable(self.bin / "wasm-validate", "printf '1.0.41\\n'")
         self._write_executable(self.bin / "wasm-tools", "printf 'wasm-tools 1.256.0\\n'")
-        self._write_executable(self.bin / "wasmtime", "printf 'wasmtime 47.0.3 (test)\\n'")
+        self._write_executable(self.bin / "wasmtime", "printf 'wasmtime 49.0.3 (test)\\n'")
 
         result = self._run("--qualification")
 

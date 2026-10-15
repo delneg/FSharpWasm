@@ -22,5 +22,6 @@ public enum WasmInstructionOperandShape
     TryTableCatch = 13,
     PrefixedUnsignedLeb128Triple = 14,
     BlockType = 15,
+    BranchTable = 16,
 }
 #pragma warning restore CA1720

@@ -18,6 +18,7 @@ namespace System
             private readonly TransitionTime _daylightTransitionStart;
             private readonly TransitionTime _daylightTransitionEnd;
             private readonly TimeSpan _baseUtcOffsetDelta;   // delta from the default Utc offset (utcOffset = defaultUtcOffset + _baseUtcOffsetDelta)
+            private readonly bool _noDaylightTransitions;
 
             public DateTime DateStart => _dateStart;
 
@@ -33,6 +34,15 @@ namespace System
             /// Gets the time difference with the base UTC offset for the time zone during the adjustment-rule period.
             /// </summary>
             public TimeSpan BaseUtcOffsetDelta => _baseUtcOffsetDelta;
+
+            internal bool NoDaylightTransitions => _noDaylightTransitions;
+
+            internal bool HasDaylightSaving =>
+                DaylightDelta != TimeSpan.Zero ||
+                (DaylightTransitionStart != default &&
+                    DaylightTransitionStart.TimeOfDay != DateTime.MinValue) ||
+                (DaylightTransitionEnd != default &&
+                    DaylightTransitionEnd.TimeOfDay != DateTime.MinValue.AddMilliseconds(1));
 
             public bool Equals([NotNullWhen(true)] AdjustmentRule? other) =>
                 other != null &&
@@ -69,6 +79,7 @@ namespace System
                 _daylightTransitionStart = daylightTransitionStart;
                 _daylightTransitionEnd = daylightTransitionEnd;
                 _baseUtcOffsetDelta = baseUtcOffsetDelta;
+                _noDaylightTransitions = noDaylightTransitions;
             }
 
             /// <summary>

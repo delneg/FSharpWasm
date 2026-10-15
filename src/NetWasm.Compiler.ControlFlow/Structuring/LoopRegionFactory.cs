@@ -13,7 +13,8 @@ internal sealed class LoopRegionFactory(
     IReachableBlockFinder reachableBlocks,
     IIrreducibleControlFlowExceptionFactory errors,
     ILoopExitPartitioner exitPartitions,
-    ILoopContinueTargetFinder continueTargets) : ILoopRegionFactory
+    ILoopContinueTargetFinder continueTargets,
+    ILoopRegionEligibilityClassifier eligibility) : ILoopRegionFactory
 {
     private readonly IReachableSetOverlapClassifier _reachableSetOverlaps = reachableSetOverlaps ?? throw new ArgumentNullException(nameof(reachableSetOverlaps));
     private readonly ILoopConditionChooser _loopConditions = loopConditions ?? throw new ArgumentNullException(nameof(loopConditions));
@@ -22,6 +23,8 @@ internal sealed class LoopRegionFactory(
     private readonly IIrreducibleControlFlowExceptionFactory _errors = errors ?? throw new ArgumentNullException(nameof(errors));
     private readonly ILoopExitPartitioner _exitPartitions = exitPartitions ?? throw new ArgumentNullException(nameof(exitPartitions));
     private readonly ILoopContinueTargetFinder _continueTargets = continueTargets ?? throw new ArgumentNullException(nameof(continueTargets));
+    private readonly ILoopRegionEligibilityClassifier _eligibility = eligibility ??
+        throw new ArgumentNullException(nameof(eligibility));
 
     public LoopRegionCreation Create(ControlFlowStructuringState state,
         ControlFlowGraph graph,
@@ -31,6 +34,7 @@ internal sealed class LoopRegionFactory(
     {
         var entryTargets = component
             .Where(node => graph.Predecessors[node].Any(predecessor =>
+                graph.ReachableBlocks.Contains(predecessor) &&
                 !component.Contains(predecessor) &&
                 !IsExceptionDomainPredecessor(predecessor)))
             .ToImmutableHashSet();
@@ -79,7 +83,7 @@ internal sealed class LoopRegionFactory(
         var conditionExit = graph.Successors[conditionIndex]
             .Single(successor => !component.Contains(successor));
         var exits = component
-            .SelectMany(node => graph.Successors[node])
+            .SelectMany(node => state.ContinuationGraph.Successors[node])
             .Where(successor => !component.Contains(successor))
             .ToImmutableHashSet();
         var additionalExits = exits.Remove(conditionExit);
@@ -88,7 +92,10 @@ internal sealed class LoopRegionFactory(
             stop: null,
             domain.Blocks) ?? conditionExit;
         var exitPartition = _exitPartitions.Partition(
-            graph,
+            // Catch continuations contribute real exit paths even when no
+            // ordinary successor reaches them. Discovery, joins and extension
+            // planning must use the same summary graph; emission still uses CIL.
+            state.ContinuationGraph,
             component,
             exit,
             conditionExit,
@@ -103,17 +110,23 @@ internal sealed class LoopRegionFactory(
         var continueTarget = conditionIndex == header
             ? _continueTargets.Find(state, graph, component, header)
             : header;
-        return new LoopRegionCreation(
-            new LoopRegion(
-                header,
-                conditionIndex,
-                continueTarget,
-                conditionExit,
-                exit,
+        var region = new LoopRegion(
+            header,
+            conditionIndex,
+            continueTarget,
+            conditionExit,
+            exit,
+            component,
+            exitPartition.BodyComponent,
+            exitPartition.ConditionExitExtension);
+        return _eligibility.Classify(new(
+                graph,
                 component,
-                exitPartition.BodyComponent,
-                exitPartition.ConditionExitExtension),
-            ImmutableHashSet<int>.Empty);
+                region,
+                domain,
+                domains))
+            ? new LoopRegionCreation(region, ImmutableHashSet<int>.Empty)
+            : new LoopRegionCreation(null, component);
 
         bool IsExceptionDomainPredecessor(int predecessor) =>
             domain.Entry == graph.Entry.Index &&

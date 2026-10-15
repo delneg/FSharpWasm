@@ -2,6 +2,8 @@ using System.Collections.Immutable;
 using System.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
 using NetWasm.Compiler.Analysis;
+using NetWasm.Compiler.ComponentModel;
+using NetWasm.Compiler.ComponentModel.Optimization;
 using NetWasm.Compiler.Core;
 using NetWasm.Compiler.Metadata;
 using NetWasm.TestInfrastructure;
@@ -71,7 +73,9 @@ internal static class CompilerTestSupport
             methodImplementations,
             symbols,
             _ => null,
-            intrinsics);
+            intrinsics,
+            new WasmOptimizationSettingsResolver().Resolve(
+                FinalWasmOptimization.Oz));
     }
 
     internal static ManagedLayoutSnapshot CreateLayouts(
@@ -177,7 +181,7 @@ internal static class CompilerTestSupport
             "let terminalExceptionType=0;let terminalExceptionMessage=null;" +
             "let departedExceptionFrame=null;" +
             "let filterSearchFloor=0;let application=null;" +
-            "let nextPollable=1;const watchedTokens=[];const weakHandles=[0];const gcHandles=[null];const canceledTokens=new Set();" +
+            "let nextPollable=1,collectionCount=0,runtimeRandomState=0n;const watchedTokens=[];const weakHandles=[0];const gcHandles=[null];const canceledTokens=new Set();" +
             "const typeBases=new Map(),typeSizes=new Map(),typeAssignable=new Map(),typeInterfaces=new Set(),valueTypeSizes=new Map(),valueTypePayloadOffsets=new Map();const typeObjects=new Map();const exceptionFrames=[];" +
             "const z=()=>0;" +
             "const raw=size=>{const p=heap;heap=(heap+size+3)&~3;" +
@@ -226,6 +230,24 @@ internal static class CompilerTestSupport
             "return typeObjects.get(semantic);const p=allocate(8,type);" +
             "new DataView(memory.buffer).setInt32(p+4,semantic,true);" +
             "typeObjects.set(semantic,p);return p;};" +
+            "const boxedValueClone=source=>{const address=Number(source),v=new DataView(memory.buffer);" +
+            "const type=v.getInt32(address,true),objectSize=typeSizes.get(type)," +
+            "valueSize=valueTypeSizes.get(type),payloadOffset=valueTypePayloadOffsets.get(type);" +
+            "if(objectSize===undefined||valueSize===undefined||payloadOffset===undefined)" +
+            "throw Error('boxed value layout is missing');const clone=allocate(objectSize,type);" +
+            "new Uint8Array(memory.buffer,clone+payloadOffset,valueSize).set(" +
+            "new Uint8Array(memory.buffer,address+payloadOffset,valueSize));" +
+            "return typeof source==='bigint'?BigInt(clone):clone;};" +
+            "const runtimeHelpersEquals=(left,right)=>{if(left===right)return 1;" +
+            "if(left===0||left===0n||right===0||right===0n)return 0;" +
+            "const leftAddress=Number(left),rightAddress=Number(right),v=new DataView(memory.buffer);" +
+            "const leftType=v.getInt32(leftAddress,true),rightType=v.getInt32(rightAddress,true);" +
+            "if(leftType!==rightType)return 0;const valueSize=valueTypeSizes.get(leftType)," +
+            "payloadOffset=valueTypePayloadOffsets.get(leftType);" +
+            "if(valueSize===undefined||payloadOffset===undefined)return 0;" +
+            "const leftBytes=new Uint8Array(memory.buffer,leftAddress+payloadOffset,valueSize)," +
+            "rightBytes=new Uint8Array(memory.buffer,rightAddress+payloadOffset,valueSize);" +
+            "return leftBytes.every((value,index)=>value===rightBytes[index])?1:0;};" +
             "const array=(length,type,elementType,size=4)=>{const data=raw(Math.max(4,length*size));" +
             "const p=allocate(16,type);const v=new DataView(memory.buffer);" +
             "v.setInt32(p+4,length,true);v.setInt32(p+8,data,true);" +
@@ -265,16 +287,18 @@ internal static class CompilerTestSupport
             "const arrayClear=(array,index,length)=>{const v=new DataView(memory.buffer)," +
             "element=v.getInt32(array+12,true),size=valueTypeSizes.get(element)||4,data=v.getInt32(array+8,true);" +
             "new Uint8Array(memory.buffer,data+index*size,length*size).fill(0);};" +
-            "const arrayClone=source=>{const v=new DataView(memory.buffer),type=v.getInt32(source,true)," +
-            "length=v.getInt32(source+4,true),element=v.getInt32(source+12,true)," +
-            "size=valueTypeSizes.get(element);let clone;if(typeSizes.get(type)===24){" +
+            "const arrayClone=(source,sourceIndex,requestedLength)=>{const v=new DataView(memory.buffer),type=v.getInt32(source,true)," +
+            "sourceLength=v.getInt32(source+4,true),full=requestedLength<0,length=full?sourceLength:requestedLength," +
+            "element=v.getInt32(source+12,true);if(sourceIndex<0||length<0||sourceIndex>sourceLength||length>sourceLength-sourceIndex)throw Error('array clone range');" +
+            "const size=valueTypeSizes.get(element);let clone;if(typeSizes.get(type)===24){" +
+            "if(!full)throw Error('rectangular array range clone');" +
             "const flags=v.getInt32(source+16,true),rank=flags&0x7fffffff,bounded=flags<0," +
             "shape=v.getInt32(source+20,true),dims=raw(rank*(bounded?8:4));" +
             "for(let d=0;d<rank;d++){v.setInt32(dims+d*4,v.getInt32(shape+d*8,true),true);" +
             "if(bounded)v.setInt32(dims+(rank+d)*4,v.getInt32(shape+rank*8+d*4,true),true);}" +
             "clone=rectangularArray(rank,dims,type,element,size||0,size===undefined?1:0,bounded);}" +
             "else clone=array(length,type,element,size||4);" +
-            "return arrayCopy(source,0,clone,0,length)===0?clone:0;};" +
+            "return arrayCopy(source,sourceIndex,clone,0,length)===0?clone:0;};" +
             "const arrayGetValue=(array,index)=>{const v=new DataView(memory.buffer)," +
             "length=v.getInt32(array+4,true);if(index<0||index>=length)throw Error('array index out of range');" +
             "const data=v.getInt32(array+8,true),element=v.getInt32(array+12,true),size=valueTypeSizes.get(element);" +
@@ -298,6 +322,8 @@ internal static class CompilerTestSupport
             "if(accepted){f.targetClause=clause+1;return;}}}};" +
             "const runtime={memory,initialize:staticEnd=>{" +
             "if(!initialized){heap=(Number(staticEnd)+3)&~3;initialized=true;}},allocate," +
+            "allocate_finalizable:allocate," +
+            "initialize_finalization:z," +
             "component_realloc:componentReallocate,component_free:z," +
             "native_alloc:nativeAlloc,native_realloc:nativeRealloc,native_free:p=>nativeSizes.delete(p)," +
             "native_aligned_alloc:nativeAlignedAlloc,native_aligned_realloc:nativeAlignedRealloc," +
@@ -327,10 +353,13 @@ internal static class CompilerTestSupport
             "array_copy:arrayCopy,array_clear:arrayClear,array_clone:arrayClone," +
             "allocate_string:allocateString,get_type_object:getTypeObject," +
             "suppress_finalize:z,weak_handle_new:(target,trackResurrection)=>{weakHandles.push(target);return weakHandles.length-1;},weak_handle_get:handle=>weakHandles[handle]??0,weak_handle_set:(handle,target)=>{weakHandles[handle]=target;},weak_handle_release:handle=>{weakHandles[handle]=0;},gc_handle_new:(target,kind)=>{gcHandles.push({target,kind});return((gcHandles.length-1)<<2)|kind;},gc_handle_get:handle=>gcHandles[handle>>2]?.target??0,gc_handle_set:(handle,target)=>{const entry=gcHandles[handle>>2];if(entry)entry.target=target;},gc_handle_release:handle=>{gcHandles[handle>>2]=null;},gc_handle_address:handle=>gcHandles[handle>>2]?.target??0,reregister_for_finalize:z," +
-            "gc_get_metric:metric=>0n," +
+            "gc_get_metric:metric=>metric===0?BigInt(collectionCount):metric===3?1n:0n," +
             "gc_metric_is_supported:metric=>metric!==4," +
             "gc_wait_for_pending_finalizers:()=>{}," +
             "object_identity_hash:value=>value|0," +
+            "boxed_value_clone:boxedValueClone," +
+            "runtime_helpers_equals:runtimeHelpersEquals," +
+            "random_seed:()=>runtimeRandomState=BigInt.asUintN(64,runtimeRandomState+0x9e3779b97f4a7c15n)," +
             "report_unobserved_task_exception:z," +
             "is_assignable:isAssignable,end_catch:()=>{lastException=0;}," +
             "exception_frame_enter:(metadata,count)=>{" +
@@ -340,7 +369,7 @@ internal static class CompilerTestSupport
             "exception_frame_leave:token=>{if(token!==exceptionFrames.length)throw Error('EH frame');" +
             "departedExceptionFrame=exceptionFrames.pop();}," +
             "exception_frame_target_clause:token=>{if(token!==exceptionFrames.length+1)throw Error('EH query');return departedExceptionFrame.targetClause;}," +
-            "finalizer_safepoint:z,collect:z};" +
+            "finalizer_safepoint:z,collect:()=>{collectionCount++;}};" +
             "const wasiWallClock={now:result=>{const view=new DataView(memory.buffer);" +
             "view.setBigUint64(result,0n,true);view.setUint32(result+8,123000000,true);}," +
             "resolution:result=>{const view=new DataView(memory.buffer);" +

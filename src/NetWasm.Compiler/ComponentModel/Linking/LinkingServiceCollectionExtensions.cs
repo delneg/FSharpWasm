@@ -1,5 +1,7 @@
 using System;
 using Microsoft.Extensions.DependencyInjection;
+using NetWasm.Compiler.ComponentModel.Inlining;
+using NetWasm.Compiler.ComponentModel.Optimization;
 using NetWasm.Compiler.ComponentModel.ManagedExecutables;
 using NetWasm.Compiler.Core.ManagedExecutables;
 
@@ -11,6 +13,12 @@ internal static class LinkingServiceCollectionExtensions
         this IServiceCollection services)
     {
         ArgumentNullException.ThrowIfNull(services);
+        services.AddSingleton<IWasmOptimizationSettingsResolver, WasmOptimizationSettingsResolver>();
+        services.AddSingleton<IManagedInliningHintsParser, ManagedInliningHintsParser>();
+        services.AddSingleton<IManagedCompilerOptimizationOverridesParser,
+            ManagedCompilerOptimizationOverridesParser>();
+        services.AddSingleton<IWasmInlineAnnotationFilter, WasmInlineAnnotationFilter>();
+        services.AddSingleton<IWasmCoreModuleInlineAnnotationEditor, WasmCoreModuleInlineAnnotationEditor>();
         services.AddSingleton<IComponentCoreModuleMergeRunner,
             ComponentCoreModuleMergeRunner>();
         services.AddSingleton<IWasmCoreModuleExportEditor,

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using NetWasm.Compiler.Core;
+using NetWasm.Compiler.Core.Types;
 
 namespace NetWasm.Compiler.GarbageCollection;
 
@@ -23,5 +24,6 @@ public sealed class RootDecisionClassifierFactory(
             methods,
             dispatchCallSites,
             _runtimeSafepoints,
-            typeClassifier);
+            typeClassifier,
+            new MethodInitializationTriggerClassifier(types));
 }

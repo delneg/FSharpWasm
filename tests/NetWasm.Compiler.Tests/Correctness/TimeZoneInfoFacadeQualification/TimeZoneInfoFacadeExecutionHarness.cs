@@ -118,7 +118,8 @@ internal sealed class TimeZoneInfoFacadeExecutionHarness(
         if (!process.Succeeded)
         {
             throw new InvalidOperationException(
-                "timezone facade compiler host failed");
+                "timezone facade compiler host failed: " +
+                process.StandardOutput + process.StandardError);
         }
     }
 

@@ -11,8 +11,9 @@ internal interface IInstructionDispatcherFactory
 
 internal sealed class InstructionDispatcherFactory(
     IEnumerable<IInstructionCommandProvider> providers,
-    IRootPublicationEmitter roots) : IInstructionDispatcherFactory
+    IRootPublicationEmitter roots,
+    IStackStorageAnchorEmitter anchors) : IInstructionDispatcherFactory
 {
     public ICilInstructionDispatcher Create() => new CilInstructionDispatcher(new InstructionCommandRegistry(
-        providers.SelectMany(provider => provider.Commands)), roots);
+        providers.SelectMany(provider => provider.Commands)), roots, anchors);
 }

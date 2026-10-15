@@ -74,26 +74,32 @@ public abstract class Decoder
         if (charCount < 0 || charCount > chars.Length - charIndex) throw new ArgumentOutOfRangeException(nameof(charCount));
 
         var incoming = new ReadOnlySpan<byte>(bytes, byteIndex, byteCount).ToArray();
-        var combined = _pendingBytes is null ? incoming : Combine(_pendingBytes, incoming);
-        var prefixLength = _pendingBytes?.Length ?? 0;
+        var pending = _pendingBytes;
+        var combined = pending is null ? incoming : Combine(pending, incoming);
+        var prefixLength = pending?.Length ?? 0;
         _pendingBytes = null;
         var held = !flush ? GetIncompleteTail(combined) : 0;
         var decodableLength = combined.Length - held;
-        var take = decodableLength;
-        while (take > 0 && GetEffectiveEncoding().GetCharCount(new ReadOnlySpan<byte>(combined, 0, take)) > charCount) take--;
-        if (take == 0 && decodableLength != 0 && GetEffectiveEncoding().GetCharCount(ReadOnlySpan<byte>.Empty) > charCount) throw new ArgumentException("The destination buffer is too small.");
+        var encoding = GetEffectiveEncoding();
+        var take = FindDecodablePrefix(encoding, combined, decodableLength, charCount);
+        if (take == 0 && decodableLength != 0) throw new ArgumentException("The destination buffer is too small.", nameof(chars));
 
-        charsUsed = take > prefixLength ? take - prefixLength : 0;
         var output = new Span<char>(chars, charIndex, charCount);
-        charsUsed = GetEffectiveEncoding().GetChars(new ReadOnlySpan<byte>(combined, 0, take), output);
-        bytesUsed = take > prefixLength ? take - prefixLength : 0;
+        charsUsed = take == 0 ? 0 : encoding.GetChars(new ReadOnlySpan<byte>(combined, 0, take), output);
+        var consumed = take;
         if (held != 0 && take == decodableLength)
         {
             _pendingBytes = new byte[held];
             for (var index = 0; index < held; index++) _pendingBytes[index] = combined[decodableLength + index];
-            bytesUsed += held;
+            consumed += held;
         }
-        completed = bytesUsed == byteCount && _pendingBytes is null && (_fallbackBuffer is null || _fallbackBuffer.Remaining == 0);
+        else if (take == 0)
+        {
+            _pendingBytes = pending;
+        }
+        bytesUsed = consumed > prefixLength ? consumed - prefixLength : 0;
+        if (bytesUsed > byteCount) bytesUsed = byteCount;
+        completed = bytesUsed == byteCount && (!flush || _pendingBytes is null) && (_fallbackBuffer is null || _fallbackBuffer.Remaining == 0);
     }
 
     public virtual void Convert(ReadOnlySpan<byte> bytes, Span<char> chars, bool flush, out int bytesUsed, out int charsUsed, out bool completed)
@@ -150,10 +156,58 @@ public abstract class Decoder
                 if (status == System.Buffers.OperationStatus.NeedMoreData) return bytes.Length - start;
             }
         }
-        else if (_encoding is UnicodeEncoding && (bytes.Length & 1) != 0) return 1;
+        else if (_encoding is UnicodeEncoding)
+        {
+            var oddTail = bytes.Length & 1;
+            var completeLength = bytes.Length - oddTail;
+            if (completeLength >= 2 && IsHighSurrogate(ReadUtf16Unit(bytes, completeLength - 2, _encoding.CodePage == 1201))) return 2 + oddTail;
+            if (oddTail != 0) return 1;
+        }
         else if (_encoding is UTF32Encoding && (bytes.Length & 3) != 0) return bytes.Length & 3;
         return 0;
     }
+
+    private static int FindDecodablePrefix(Encoding encoding, byte[] bytes, int length, int charCapacity)
+    {
+        var accepted = 0;
+        for (var index = 0; index < length;)
+        {
+            var next = NextBoundary(encoding, bytes, index, length);
+            if (encoding.GetCharCount(new ReadOnlySpan<byte>(bytes, 0, next)) > charCapacity) break;
+            accepted = next;
+            index = next;
+        }
+        return accepted;
+    }
+
+    private static int NextBoundary(Encoding encoding, byte[] bytes, int index, int length)
+    {
+        if (encoding is UTF8Encoding)
+        {
+            var status = Rune.DecodeFromUtf8(new ReadOnlySpan<byte>(bytes, index, length - index), out _, out var consumed);
+            return status == System.Buffers.OperationStatus.Done
+                ? index + consumed
+                : index + (consumed == 0 ? 1 : consumed);
+        }
+        if (encoding is UnicodeEncoding)
+        {
+            if (length - index < 2) return length;
+            var next = index + 2;
+            var value = ReadUtf16Unit(bytes, index, encoding.CodePage == 1201);
+            if (IsHighSurrogate(value) && length - next >= 2 && IsLowSurrogate(ReadUtf16Unit(bytes, next, encoding.CodePage == 1201))) next += 2;
+            return next;
+        }
+        if (encoding is UTF32Encoding) return Math.Min(index + 4, length);
+        return index + 1;
+    }
+
+    private static char ReadUtf16Unit(byte[] bytes, int index, bool bigEndian) =>
+        bigEndian
+            ? (char)(bytes[index] << 8 | bytes[index + 1])
+            : (char)(bytes[index] | bytes[index + 1] << 8);
+
+    private static bool IsHighSurrogate(char value) => value >= 0xD800 && value <= 0xDBFF;
+    private static bool IsLowSurrogate(char value) => value >= 0xDC00 && value <= 0xDFFF;
 
     private Encoding GetEffectiveEncoding()
     {

@@ -31,7 +31,11 @@ internal sealed class ConstructedMethodFunctionAppender(
 
         var emission = bodies.Emit(method.Definition, callerIdentity, structured, rootMap, target,
             functionIndices, method);
-        functions.Add(new(method.CanonicalName, functionTypes.Resolve(method), emission.Body));
+        functions.Add(new(method.CanonicalName, functionTypes.Resolve(method), emission.Body)
+        {
+            IsAggressiveInlining = method.Definition.IsAggressiveInlining,
+            IsNoInlining = method.Definition.IsNoInlining,
+        });
         filterEnvironments[emission.MethodKey] = emission.FilterEnvironment;
         emissions.Add(new(method.CanonicalName, emission.MethodKey, emission));
     }

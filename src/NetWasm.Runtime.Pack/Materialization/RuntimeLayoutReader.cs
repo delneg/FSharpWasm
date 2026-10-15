@@ -116,8 +116,10 @@ internal sealed class RuntimeLayoutReader : IRuntimeLayoutReader
         string[] known =
         [
             "ephemeron-handles",
+            "finalization",
             "local-time",
             "structured-command-diagnostics",
+            "weak-handles",
         ];
         return features.SequenceEqual(
             features.Order(StringComparer.Ordinal),

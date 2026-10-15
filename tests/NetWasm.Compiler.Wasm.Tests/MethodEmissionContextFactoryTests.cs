@@ -4,6 +4,7 @@ using NetWasm.Compiler.ControlFlow.Structured;
 using NetWasm.Compiler.Core;
 using NetWasm.Compiler.Wasm.Emission;
 using NetWasm.Compiler.Wasm.Emission.Methods;
+using NetWasm.Compiler.Wasm.Emission.AddressTakenValues;
 
 namespace NetWasm.Compiler.Wasm.Tests;
 
@@ -76,6 +77,239 @@ public sealed class MethodEmissionContextFactoryTests
         Assert.Equal(2, context.ExceptionRootSlots[second]);
         Assert.Equal(3, context.RootSlotCount);
         Assert.Null(context.ActiveCatchRootSlot);
+    }
+
+    [Fact]
+    public void AllocatesLocalsOnlyForAnchorsNotSharedThroughTheFilterEnvironment()
+    {
+        var backingType = CliTypeIdentity.Named(
+            Assembly,
+            "Tests",
+            "Backing",
+            isValueType: true);
+        var roots = new MethodRootMap(EntryKey, [], [])
+        {
+            AnchorPlan = new(
+            [
+                new(new(StackStorageLocationKind.EvaluationStack, 0), backingType),
+                new(new(StackStorageLocationKind.Local, 0), backingType),
+            ],
+            []),
+        };
+        var filters = FilterEnvironmentLayout.Empty with
+        {
+            AnchorOffsets = ImmutableDictionary<int, int>.Empty.Add(1, 8),
+        };
+
+        var result = MethodEmissionContextFactory.Create(
+            Header(CreateBody()),
+            roots,
+            2,
+            1,
+            [],
+            new(0, [], [], [], []),
+            filters,
+            new ManagedMethodIdentity("Tests.Caller"));
+
+        var anchor = Assert.Single(result.Context.AnchorLocals);
+        Assert.Equal(0, anchor.Key);
+        Assert.Equal(2 + result.LocalTypes.Length - 1, anchor.Value);
+        Assert.Equal(CliValueKind.ManagedAddress, result.LocalTypes[^1]);
+    }
+
+    [Fact]
+    public void AllocatesTwoScalarLocalsForEachPromotedAggregateProducer()
+    {
+        var element = CliTypeIdentity.Primitive("u8", CliValueKind.I8);
+        var plan = new TransientAggregatePromotionPlan(
+            ImmutableDictionary<int, CliTypeIdentity>.Empty
+                .Add(11, element)
+                .Add(29, element),
+            [],
+            [],
+            []);
+        var values = new ValueFrameLayout(0, [], [], [], [])
+        {
+            TransientAggregatePromotions = plan,
+        };
+
+        var result = MethodEmissionContextFactory.Create(
+            Header(CreateBody()),
+            new MethodRootMap(EntryKey, [], []),
+            0,
+            0,
+            [],
+            values,
+            FilterEnvironmentLayout.Empty,
+            new ManagedMethodIdentity("Tests.Caller"));
+
+        var first = result.Context.TransientAggregatePromotions.ProducerLocals[11];
+        var second = result.Context.TransientAggregatePromotions.ProducerLocals[29];
+        Assert.Equal(first.First + 1, first.Second);
+        Assert.Equal(first.Second + 1, second.First);
+        Assert.Equal(second.First + 1, second.Second);
+        Assert.All(
+            result.LocalTypes[^4..],
+            type => Assert.Equal(CliValueKind.I8, type));
+    }
+
+    [Fact]
+    public void AllocatesOneAddressShadowLocalForEachPromotedScalar()
+    {
+        var type = CliTypeIdentity.FromStackKind(CliValueKind.I4);
+        var plan = new AddressTakenScalarPromotionPlan(
+            ImmutableDictionary<int, CliTypeIdentity>.Empty
+                .Add(0, type)
+                .Add(1, type),
+            []);
+        var values = new ValueFrameLayout(8, [], [], [], [])
+        {
+            AddressTakenScalarPromotions = plan,
+        };
+
+        var result = MethodEmissionContextFactory.Create(
+            Header(CreateBody()),
+            new MethodRootMap(EntryKey, [], []),
+            0,
+            0,
+            [],
+            values,
+            FilterEnvironmentLayout.Empty,
+            new ManagedMethodIdentity("Tests.Caller"));
+
+        var shadows = result.Context.AddressTakenScalarPromotions.ShadowLocals;
+        Assert.Equal(shadows[0] + 1, shadows[1]);
+        Assert.All(
+            result.LocalTypes[^2..],
+            local => Assert.Equal(CliValueKind.ManagedAddress, local));
+        Assert.Same(plan, result.Context.AddressTakenScalarPromotions.Plan);
+    }
+
+    [Fact]
+    public void AllocatesDeterministicI4LanesForAddressTakenAggregates()
+    {
+        var type = CliTypeIdentity.Named(
+            Assembly,
+            "Tests",
+            "Buffer",
+            isValueType: true);
+        var plan = new AddressTakenAggregatePromotionPlan(
+            ImmutableDictionary<int, AddressTakenAggregateLocalPlan>.Empty
+                .Add(9, AddressTakenAggregateLocalPlan.CreateI4Storage(type, 12))
+                .Add(3, AddressTakenAggregateLocalPlan.CreateI4Storage(type, 8)),
+            [],
+            []);
+        var values = new ValueFrameLayout(20, [], [], [], [])
+        {
+            AddressTakenAggregatePromotions = plan,
+        };
+
+        var result = MethodEmissionContextFactory.Create(
+            Header(CreateBody()),
+            new MethodRootMap(EntryKey, [], []),
+            0,
+            0,
+            [],
+            values,
+            FilterEnvironmentLayout.Empty,
+            new ManagedMethodIdentity("Tests.Caller"));
+
+        var storage = result.Context.AddressTakenAggregatePromotions.StorageLocals;
+        Assert.Equal(storage[3][^1] + 1, storage[9][0]);
+        Assert.Equal(
+            [storage[3][0], storage[3][0] + 1],
+            storage[3].ToArray());
+        Assert.Equal(
+            [storage[9][0], storage[9][0] + 1, storage[9][0] + 2],
+            storage[9].ToArray());
+        Assert.All(
+            result.LocalTypes[^5..],
+            local => Assert.Equal(CliValueKind.I4, local));
+        Assert.Same(plan, result.Context.AddressTakenAggregatePromotions.Plan);
+    }
+
+    [Fact]
+    public void AllocatesAggregateStorageWithEachPlannedStackKind()
+    {
+        var type = CliTypeIdentity.Named(
+            Assembly,
+            "Tests",
+            "Buffer",
+            isValueType: true);
+        var plan = new AddressTakenAggregatePromotionPlan(
+            ImmutableDictionary<int, AddressTakenAggregateLocalPlan>.Empty.Add(
+                3,
+                new(
+                    type,
+                    12,
+                    [
+                        new(0, 4, CliValueKind.I4),
+                        new(4, 8, CliValueKind.I8),
+                    ])),
+            [],
+            []);
+        var values = new ValueFrameLayout(20, [], [], [], [])
+        {
+            AddressTakenAggregatePromotions = plan,
+        };
+
+        var result = MethodEmissionContextFactory.Create(
+            Header(CreateBody()),
+            new MethodRootMap(EntryKey, [], []),
+            0,
+            0,
+            [],
+            values,
+            FilterEnvironmentLayout.Empty,
+            new ManagedMethodIdentity("Tests.Caller"));
+
+        var storage = result.Context.AddressTakenAggregatePromotions.StorageLocals[3];
+        Assert.Equal(storage[0] + 1, storage[1]);
+        Assert.Equal(
+            [CliValueKind.I4, CliValueKind.I8],
+            result.LocalTypes[^2..].ToArray());
+    }
+
+    [Fact]
+    public void AllocatesManagedByRefAggregateStorageWithEachPlannedStackKind()
+    {
+        var type = CliTypeIdentity.Named(
+            Assembly,
+            "Tests",
+            "Buffer",
+            isValueType: true);
+        var plan = new ManagedByRefAggregatePromotionPlan(
+            ImmutableDictionary<int, ManagedByRefAggregateParameterPlan>.Empty.Add(
+                0,
+                new(
+                    type,
+                    12,
+                    [
+                        new(0, 4, CliValueKind.I4),
+                        new(4, 8, CliValueKind.I8),
+                    ])),
+            []);
+        var values = new ValueFrameLayout(0, [], [], [], [])
+        {
+            ManagedByRefAggregatePromotions = plan,
+        };
+
+        var result = MethodEmissionContextFactory.Create(
+            Header(CreateBody()),
+            new MethodRootMap(EntryKey, [], []),
+            1,
+            0,
+            [],
+            values,
+            FilterEnvironmentLayout.Empty,
+            new ManagedMethodIdentity("Tests.Caller"));
+
+        var storage = result.Context.ManagedByRefAggregatePromotions.StorageLocals[0];
+        Assert.Equal(storage[0] + 1, storage[1]);
+        Assert.Equal(
+            [CliValueKind.I4, CliValueKind.I8],
+            result.LocalTypes[^2..].ToArray());
+        Assert.Same(plan, result.Context.ManagedByRefAggregatePromotions.Plan);
     }
 
     private static CilMethodBody CreateBody()

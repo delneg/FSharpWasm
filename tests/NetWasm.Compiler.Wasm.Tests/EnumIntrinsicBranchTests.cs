@@ -1157,7 +1157,7 @@ public sealed class EnumIntrinsicBranchTests
     }
 
     [Fact]
-    public void ConvertDecimalWritesTheValueLayout()
+    public void ConvertSignedDecimalWritesTheUpstreamWordOffsets()
     {
         var underlying = CliTypeIdentity.Primitive("i4", CliValueKind.I4);
         var metadata = new EnumMetadataFixture(underlying);
@@ -1177,7 +1177,22 @@ public sealed class EnumIntrinsicBranchTests
                 metadata)
             .EmitConvert(request, code);
 
-        Assert.Contains(WasmOpcodes.I32Store, code.ToArray());
+        var instructions = code.ToInstructions();
+        var signMask = instructions.IndexOf(instructions.Single(
+            instruction => instruction.Opcode == WasmOpcodes.I32And));
+        var magnitude = instructions.IndexOf(instructions.Single(
+            instruction => instruction.Opcode == WasmOpcodes.I32Subtract));
+
+        Assert.Equal(WasmOpcodes.I32Store, instructions[signMask + 1].Opcode);
+        Assert.Equal(0U, instructions[signMask + 1].Operand.Offset);
+        Assert.Equal(WasmOpcodes.I32Store, instructions[magnitude + 1].Opcode);
+        Assert.Equal(8U, instructions[magnitude + 1].Operand.Offset);
+        Assert.Contains(instructions.Skip(magnitude + 2), instruction =>
+            instruction.Opcode == WasmOpcodes.I32Store &&
+            instruction.Operand.Offset == 4U);
+        Assert.Contains(instructions.Skip(magnitude + 2), instruction =>
+            instruction.Opcode == WasmOpcodes.I32Store &&
+            instruction.Operand.Offset == 12U);
     }
 
     [Fact]
@@ -1903,8 +1918,8 @@ public sealed class EnumIntrinsicBranchTests
         public int ArrayElementTypeIdOffset => Layouts.ArrayElementTypeIdOffset;
         public int DelegateTargetOffset => Layouts.DelegateTargetOffset;
         public int DelegateMethodIdOffset => Layouts.DelegateMethodIdOffset;
-        public int DelegateLeftOffset => Layouts.DelegateLeftOffset;
-        public int DelegateRightOffset => Layouts.DelegateRightOffset;
+        public int DelegateInvocationListOffset => Layouts.DelegateInvocationListOffset;
+        public int DelegateInvocationCountOffset => Layouts.DelegateInvocationCountOffset;
         public int GetExceptionObject(ManagedExceptionKind kind) => 300 + (int)kind * 4;
     }
 
@@ -1941,8 +1956,8 @@ public sealed class EnumIntrinsicBranchTests
         public int ArrayElementTypeIdOffset => 12;
         public int DelegateTargetOffset => 4;
         public int DelegateMethodIdOffset => 8;
-        public int DelegateLeftOffset => 12;
-        public int DelegateRightOffset => 16;
+        public int DelegateInvocationListOffset => 12;
+        public int DelegateInvocationCountOffset => 16;
         public int StaticDataEnd => 1024;
 
         public ValueLayout GetValueLayout(CliTypeIdentity type)

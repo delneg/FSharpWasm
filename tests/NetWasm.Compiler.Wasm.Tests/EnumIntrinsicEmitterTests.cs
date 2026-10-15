@@ -541,8 +541,8 @@ public sealed class EnumIntrinsicEmitterTests
         public int StaticDataEnd => 0;
         public int DelegateTargetOffset => 0;
         public int DelegateMethodIdOffset => 0;
-        public int DelegateLeftOffset => 0;
-        public int DelegateRightOffset => 0;
+        public int DelegateInvocationListOffset => 0;
+        public int DelegateInvocationCountOffset => 0;
         public ImmutableArray<TypeDescriptorLayout> TypeDescriptors =>
             [new(EnumProgram.TypeKey, 7, 0, 16, 0, 0, null)];
         public ImmutableArray<ConstructedTypeDescriptorLayout> ConstructedTypeDescriptors => [];

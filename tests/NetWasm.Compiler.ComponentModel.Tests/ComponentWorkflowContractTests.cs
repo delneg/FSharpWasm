@@ -1,4 +1,6 @@
 using NetWasm.Compiler.Core;
+using NetWasm.Compiler.ComponentModel.Inlining;
+using NetWasm.Compiler.ComponentModel.Optimization;
 using NetWasm.Compiler.Core.ManagedExecutables;
 using NetWasm.Compiler.ComponentModel.ManagedExecutables;
 
@@ -27,14 +29,14 @@ public sealed class ComponentWorkflowContractTests
                     new RecordingHostShim(),
                     new RecordingManagedExecutableAdapter(),
                     exports,
-                    optimizer))),
+                    optimizer, new WasmOptimizationSettingsResolver(), new RecordingInlineAnnotations()))),
             application,
             runtime,
             output,
             ComponentTarget.Wasm32Wasi02);
 
-        Assert.Equal(application, merge.Request!.ApplicationModulePath);
-        Assert.Equal(runtime, merge.Request.RuntimeModulePath);
+        Assert.Equal(output + ".sanitized.wasm", merge.Request!.ApplicationModulePath);
+        Assert.Equal(output + ".runtime-sanitized.wasm", merge.Request.RuntimeModulePath);
         Assert.Equal(output + ".sanitized.wasm", optimizer.InputPath);
         Assert.Equal(output, optimizer.OutputPath);
         Assert.Equal("cm32p2", exports.Prefix);
@@ -63,7 +65,7 @@ public sealed class ComponentWorkflowContractTests
                     new RecordingHostShim(),
                     new RecordingManagedExecutableAdapter(),
                     exports,
-                    optimizer))),
+                    optimizer, new WasmOptimizationSettingsResolver(), new RecordingInlineAnnotations()))),
             application,
             runtime,
             files.PathFor("component-core.wasm"),
@@ -97,7 +99,7 @@ public sealed class ComponentWorkflowContractTests
                 host,
                 adapter,
                 new RecordingExports(),
-                new RecordingOptimizer())));
+                new RecordingOptimizer(), new WasmOptimizationSettingsResolver(), new RecordingInlineAnnotations())));
 
         linker.Link(new(
             application,
@@ -177,10 +179,12 @@ public sealed class ComponentWorkflowContractTests
                 null,
                 output,
                 ComponentTarget.Wasm32Wasi02,
-                runtime));
+                runtime)
+            { OptimizationOverrides = new(ManagedInliningHints.Preserve) });
 
         Assert.True(File.Exists(output));
         Assert.Equal(1, linker.Calls);
+        Assert.Equal(ManagedInliningHints.Preserve, linker.Request!.OptimizationOverrides!.ManagedInliningHints);
     }
 
     private static void InvokeLink(
@@ -267,6 +271,14 @@ public sealed class ComponentWorkflowContractTests
         }
     }
 
+    private sealed class RecordingInlineAnnotations : IWasmCoreModuleInlineAnnotationEditor
+    {
+        public void Rewrite(string inputPath, string outputPath, WasmInlineAnnotationSelection selection)
+        {
+            Assert.Equal(WasmInlineAnnotationSelection.SizeAware, selection);
+        }
+    }
+
     private sealed class RecordingOptimizer : IComponentCoreModuleOptimizer
     {
         public int Calls { get; private set; }
@@ -295,8 +307,13 @@ public sealed class ComponentWorkflowContractTests
     private sealed class RecordingCoreModuleLinker : IComponentCoreModuleLinker
     {
         public int Calls { get; private set; }
+        public ComponentCoreModuleLinkRequest? Request { get; private set; }
 
-        public void Link(ComponentCoreModuleLinkRequest request) => Calls++;
+        public void Link(ComponentCoreModuleLinkRequest request)
+        {
+            Calls++;
+            Request = request;
+        }
     }
 
     private sealed class RecordingHostShim : INetWasmHostComponentShimWriter

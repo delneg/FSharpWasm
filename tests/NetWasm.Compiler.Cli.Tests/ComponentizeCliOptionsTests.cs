@@ -7,6 +7,14 @@ namespace NetWasm.Compiler.Cli.Tests;
 public sealed class ComponentizeCliOptionsTests
 {
     [Fact]
+    public void RejectsDuplicateHintOptions()
+    {
+        Assert.Throws<CompilerException>(() => ComponentizeCliOptions.Parse([
+            "--managed-inlining-hints", "Preserve", "--managed-inlining-hints", "Auto",
+        ]));
+    }
+
+    [Fact]
     public void DefaultsToWasm32AndRetainsAdapterProvenance()
     {
         var options = ComponentizeCliOptions.Parse([

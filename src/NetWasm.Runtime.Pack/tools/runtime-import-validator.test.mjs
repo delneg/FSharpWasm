@@ -15,6 +15,7 @@ function importsFor(target) {
     [`${prefix}|wasi:io/streams@0.2`, 'output-stream_drop'],
     [`${prefix}|wasi:io/error@0.2`, 'error_drop'],
     [`${prefix}|wasi:cli/exit@0.2`, 'exit'],
+    [`${prefix}|wasi:random/random@0.2`, 'get-random-u64'],
   ].map(([module, name]) => ({ module, name, kind: 'function' }));
 }
 
@@ -22,9 +23,19 @@ for (const target of ['wasm32', 'wasm64']) {
   const allowed = importsFor(target);
   test(`${target}: accepts the supported Preview 2 runtime interfaces`, () => {
     assert.doesNotThrow(() => validateRuntimeImports(allowed, target));
+    for (const collector of ['boehm', 'tcms', 'netwasm', 'bump']) {
+      assert.doesNotThrow(() => validateRuntimeImports(allowed, target, collector));
+    }
   });
   test(`${target}: accepts required imports without optional output or termination`, () => {
     assert.doesNotThrow(() => validateRuntimeImports(allowed.slice(0, 4), target));
+  });
+  test(`${target}: Bump does not require the unsupported finalizer callback`, () => {
+    assert.doesNotThrow(() => validateRuntimeImports(
+      allowed.filter(entry => entry.name !== 'netwasm.finalize'), target, 'bump'));
+    assert.throws(() => validateRuntimeImports(
+      allowed.filter(entry => entry.name !== 'netwasm.filter'), target, 'bump'),
+    { message: 'Missing runtime import: netwasm.application.v1.netwasm.filter' });
   });
   for (const module of ['unsupported', 'wasi_snapshot_preview1', 'wasi_unstable']) {
     test(`${target}: rejects forbidden host module ${module}`, () => {
@@ -61,6 +72,11 @@ for (const target of ['wasm32', 'wasm64']) {
     });
   }
 }
+
+test('rejects an unsupported runtime collector', () => {
+  assert.throws(() => validateRuntimeImports([], 'wasm32', 'other'),
+    /Unsupported runtime collector/);
+});
 
 for (const target of [undefined, null, '', 'wasm16']) {
   test(`rejects an unspecified or unsupported target: ${target}`, () => {

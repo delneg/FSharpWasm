@@ -16,7 +16,7 @@ namespace NetWasm.Compiler.Caching.Frontend;
 internal sealed class FrontendArtifactEncoder : IFrontendArtifactEncoder
 {
     private const uint Magic = 0x3146434E;
-    private const ushort SchemaVersion = 16;
+    private const ushort SchemaVersion = 18;
 
     public ImmutableArray<byte> Encode(FrontendArtifactSnapshot snapshot)
     {
@@ -120,6 +120,8 @@ internal sealed class FrontendArtifactEncoder : IFrontendArtifactEncoder
                 writer.Write(value.IsNewSlot);
                 writer.Write(value.IsFinal);
                 writer.Write(value.IsAbstract);
+                writer.Write(value.IsAggressiveInlining);
+                writer.Write(value.IsNoInlining);
                 WriteNullable(writer, value.JSImport, item =>
                 {
                     writer.Write(String(item.FunctionName));
@@ -282,6 +284,13 @@ internal sealed class FrontendArtifactEncoder : IFrontendArtifactEncoder
                 case CilOperand.ByteData operand:
                     writer.Write((byte)15);
                     WriteBytes(writer, operand.Value);
+                    break;
+                case CilOperand.ReadOnlySpanData operand:
+                    writer.Write((byte)16);
+                    writer.Write(FieldInstance(operand.Field));
+                    writer.Write(Type(operand.SpanType));
+                    writer.Write(Type(operand.ElementType));
+                    writer.Write(operand.ElementCount);
                     break;
                 default:
                     throw new InvalidDataException(

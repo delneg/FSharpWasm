@@ -12,7 +12,9 @@ namespace System.Runtime.InteropServices.TimeZones
             {
                 throw new ArgumentNullException();
             }
-            _zones = new Dictionary<string, TimeZoneDefinition>(asset.Zones.Length);
+            _zones = new Dictionary<string, TimeZoneDefinition>(
+                asset.Zones.Length,
+                StringComparer.Ordinal);
             foreach (var zone in asset.Zones)
             {
                 _zones.Add(zone.Name, zone);

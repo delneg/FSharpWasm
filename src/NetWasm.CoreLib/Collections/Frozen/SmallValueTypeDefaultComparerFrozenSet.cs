@@ -17,6 +17,7 @@ namespace System.Collections.Frozen
         internal SmallValueTypeDefaultComparerFrozenSet(HashSet<T> source) : base(EqualityComparer<T>.Default)
         {
             Debug.Assert(default(T) is not null);
+            Debug.Assert(typeof(T).IsValueType);
 
             Debug.Assert(source.Count != 0);
             Debug.Assert(ReferenceEquals(source.Comparer, EqualityComparer<T>.Default));

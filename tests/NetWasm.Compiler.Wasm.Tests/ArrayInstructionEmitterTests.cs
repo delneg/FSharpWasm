@@ -8,6 +8,8 @@ using NetWasm.Compiler.Wasm.Emission.Instructions.Objects;
 using NetWasm.Compiler.Wasm.Emission.Instructions.Runtime;
 using NetWasm.Compiler.Wasm.Emission.Methods;
 using NetWasm.Compiler.Wasm.Emission.Support;
+using NetWasm.Compiler.Wasm.Encoding;
+using NetWasm.Compiler.Wasm.Emission.Arrays;
 
 namespace NetWasm.Compiler.Wasm.Tests;
 
@@ -204,6 +206,51 @@ public sealed class ArrayInstructionEmitterTests
         Assert.Contains(WasmOpcodes.Prefixed, GetCodeBytes(request));
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ImmediateValueTransferKeepsValidationWithoutSnapshot(bool memory64)
+    {
+        var layouts = new RecordingLayoutProvider(
+            memory64 ? WasmTargetLayout.Wasm64 : WasmTargetLayout.Wasm32);
+        var exceptions = new RecordingArrayExceptions();
+        var emitter = CreateEmitter(layouts, out _, exceptions);
+        var value = CliTypeIdentity.Named(Assembly, "Test", "Value", true);
+        var context = CreateMethodEmissionContext() with
+        {
+            ValueLayout = new ValueFrameLayout(0, [], [], [], [])
+            {
+                DirectValueLoadOffsets = [0],
+            },
+        };
+        var request = CreateRequest(
+            CilOperation.LoadArrayElement,
+            [CliValueKind.ManagedReference, CliValueKind.I4],
+            new CilOperand.TypeIdentity(value),
+            context);
+        var copied = CreateRequest(
+            CilOperation.LoadArrayElement,
+            [CliValueKind.ManagedReference, CliValueKind.I4],
+            new CilOperand.TypeIdentity(value),
+            context with
+            {
+                ValueLayout = new ValueFrameLayout(8, [], [],
+                    ImmutableDictionary<int, int>.Empty.Add(0, 8), []),
+            });
+
+        Emit((IInstructionCommandProvider)emitter, request);
+        var directExceptions = exceptions.Kinds.ToArray();
+        exceptions.Kinds.Clear();
+        Emit((IInstructionCommandProvider)emitter, copied);
+
+        Assert.Equal([CliValueKind.ValueType], request.Stack);
+        var code = GetCodeBytes(request);
+        Assert.DoesNotContain(WasmOpcodes.Prefixed, code);
+        Assert.Contains(ManagedExceptionKind.NullReference, directExceptions);
+        Assert.Contains(ManagedExceptionKind.IndexOutOfRange, directExceptions);
+        Assert.Equal(exceptions.Kinds, directExceptions);
+    }
+
     [Fact]
     public void ElementAddressLoadReplacesArrayAndIndexWithAddress()
     {
@@ -374,20 +421,37 @@ public sealed class ArrayInstructionEmitterTests
 
     private static ArrayInstructionEmitter CreateEmitter(
         RecordingLayoutProvider layouts,
-        out List<int> safepoints)
+        out List<int> safepoints,
+        IImplicitExceptionEmitter? exceptionEmitter = null)
     {
         safepoints = [];
         var observedSafepoints = safepoints;
-        IImplicitExceptionEmitter exceptions = new ImplicitExceptionEmitter(layouts, layouts, 7);
+        IImplicitExceptionEmitter exceptions = exceptionEmitter ??
+            new ImplicitExceptionEmitter(layouts, layouts, 7);
         IAddressInstructionEmitter addresses = new AddressInstructionEmitter(layouts);
         IRootPublicationEmitter roots = new RecordingRootPublicationEmitter(
             request => observedSafepoints.Add(request.Instruction.Offset));
         IArrayLengthAdapter lengths = new ArrayLengthAdapter(layouts, exceptions);
+        IArrayIndexAdapter indexes = new ArrayIndexAdapter(
+            layouts,
+            addresses,
+            layouts,
+            exceptions);
         return new ArrayInstructionEmitter(layouts, addresses, layouts, layouts, layouts, CreateTypeOperands(new FakeProgram()),
             WasmRuntimeImports.CreateCatalog(),
             exceptions,
             roots,
-            lengths);
+            lengths,
+            indexes,
+            new ArrayElementAddressEmitter(layouts, addresses));
+    }
+
+    private sealed class RecordingArrayExceptions : IImplicitExceptionEmitter
+    {
+        public List<ManagedExceptionKind> Kinds { get; } = [];
+
+        public void Emit(IWasmInstructionWriter code, ManagedExceptionKind kind) =>
+            Kinds.Add(kind);
     }
 
     private static InstructionEmissionRequest CreateRequest(

@@ -1,14 +1,17 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using System.Buffers;
+using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
+using System.Text;
+
 namespace System
 {
-    // URI builder state is pure managed data. Materializing Uri never opens
-    // or resolves the endpoint represented by the components.
     public class UriBuilder
     {
-        private string _scheme = Uri.UriSchemeHttp;
-        private string _userName = string.Empty;
+        private string _scheme = "http";
+        private string _username = string.Empty;
         private string _password = string.Empty;
         private string _host = "localhost";
         private int _port = -1;
@@ -16,110 +19,184 @@ namespace System
         private string _query = string.Empty;
         private string _fragment = string.Empty;
 
+        private bool _changed = true;
+        private Uri? _uri;
+
         public UriBuilder()
         {
         }
 
-        public UriBuilder(string uri) : this(new Uri(uri, UriKind.Absolute))
+        public UriBuilder([StringSyntax(StringSyntaxAttribute.Uri)] string uri)
         {
+            // setting allowRelative=true for a string like www.acme.org
+            _uri = new Uri(uri, UriKind.RelativeOrAbsolute);
+
+            if (!_uri.IsAbsoluteUri)
+            {
+                _uri = new Uri(Uri.UriSchemeHttp + Uri.SchemeDelimiter + uri);
+            }
+
+            SetFieldsFromUri();
         }
 
         public UriBuilder(Uri uri)
         {
-            if (uri is null)
-            {
-                throw new ArgumentNullException(nameof(uri));
-            }
-            if (!uri.IsAbsoluteUri)
-            {
-                throw new ArgumentException(nameof(uri));
-            }
+            ArgumentNullException.ThrowIfNull(uri);
 
-            _scheme = uri.Scheme;
-            _host = uri.Host;
-            _port = uri.Port;
-            _path = uri.AbsolutePath.Length == 0 ? "/" : uri.AbsolutePath;
-            _query = RemovePrefix(uri.Query, '?');
-            _fragment = RemovePrefix(uri.Fragment, '#');
-
-            var userInfo = uri.UserInfo;
-            if (userInfo.Length != 0)
-            {
-                var separator = userInfo.IndexOf(':');
-                if (separator < 0)
-                {
-                    _userName = userInfo;
-                }
-                else
-                {
-                    _userName = userInfo.Substring(0, separator);
-                    _password = userInfo.Substring(separator + 1);
-                }
-            }
+            _uri = uri;
+            SetFieldsFromUri();
         }
 
-        public UriBuilder(string schemeName, string hostName)
-            : this(schemeName, hostName, -1, "/", string.Empty)
-        {
-        }
-
-        public UriBuilder(string schemeName, string hostName, int portNumber)
-            : this(schemeName, hostName, portNumber, "/", string.Empty)
-        {
-        }
-
-        public UriBuilder(string schemeName, string hostName, int portNumber, string pathValue)
-            : this(schemeName, hostName, portNumber, pathValue, string.Empty)
-        {
-        }
-
-        public UriBuilder(
-            string schemeName,
-            string hostName,
-            int portNumber,
-            string pathValue,
-            string extraValue)
+        public UriBuilder(string? schemeName, string? hostName)
         {
             Scheme = schemeName;
             Host = hostName;
-            Port = portNumber;
-            Path = pathValue;
-            ApplyExtra(extraValue);
         }
 
+        public UriBuilder(string? scheme, string? host, int portNumber)
+            : this(scheme, host)
+        {
+            Port = portNumber;
+        }
+
+        public UriBuilder(string? scheme, string? host, int port, string? pathValue)
+            : this(scheme, host, port)
+        {
+            Path = pathValue;
+        }
+
+        public UriBuilder(string? scheme, string? host, int port, string? path, string? extraValue)
+            : this(scheme, host, port, path)
+        {
+            if (!string.IsNullOrEmpty(extraValue))
+            {
+                if (extraValue[0] == '#')
+                {
+                    _fragment = extraValue;
+                }
+                else if (extraValue[0] == '?')
+                {
+                    int fragmentIndex = extraValue.IndexOf('#');
+                    if (fragmentIndex == -1)
+                    {
+                        _query = extraValue;
+                    }
+                    else
+                    {
+                        _query = extraValue.Substring(0, fragmentIndex);
+                        _fragment = extraValue.Substring(fragmentIndex);
+                    }
+                }
+                else
+                {
+                    throw new ArgumentException(SR.Argument_ExtraNotValid, nameof(extraValue));
+                }
+
+                if (_query.Length == 1)
+                {
+                    _query = string.Empty;
+                }
+
+                if (_fragment.Length == 1)
+                {
+                    _fragment = string.Empty;
+                }
+            }
+        }
+
+        [AllowNull]
         public string Scheme
         {
             get => _scheme;
             set
             {
-                if (value is null)
+                value ??= string.Empty;
+
+                if (value.Length != 0)
                 {
-                    throw new ArgumentNullException(nameof(value));
+                    if (!Uri.CheckSchemeName(value))
+                    {
+                        int index = value.IndexOf(':');
+                        if (index != -1)
+                        {
+                            value = value.Substring(0, index);
+                        }
+
+                        if (!Uri.CheckSchemeName(value))
+                        {
+                            throw new ArgumentException(SR.net_uri_BadScheme, nameof(value));
+                        }
+                    }
+
+                    value = value.ToLowerInvariant();
                 }
-                if (!Uri.CheckSchemeName(value))
-                {
-                    throw new ArgumentException(nameof(value));
-                }
-                _scheme = value.ToLowerInvariant();
+
+                _scheme = value;
+                _changed = true;
             }
         }
 
+        [AllowNull]
         public string UserName
         {
-            get => _userName;
-            set => _userName = value ?? string.Empty;
+            get => _username;
+            set
+            {
+                _username = value ?? string.Empty;
+                _changed = true;
+            }
         }
 
+        [AllowNull]
         public string Password
         {
             get => _password;
-            set => _password = value ?? string.Empty;
+            set
+            {
+                _password = value ?? string.Empty;
+                _changed = true;
+            }
         }
 
+        /// <summary>
+        /// Problematic characters that could result in the Host component escaping into other components like the Path.
+        /// </summary>
+        private static readonly SearchValues<char> s_hostReservedChars = SearchValues.Create(@":/\?#@[]");
+        private static readonly SearchValues<char> s_hostReservedCharsExceptColon = SearchValues.Create(@"/\?#@[]");
+
+        [AllowNull]
         public string Host
         {
             get => _host;
-            set => _host = value ?? throw new ArgumentNullException(nameof(value));
+            set
+            {
+                if (!string.IsNullOrEmpty(value) && value.AsSpan().ContainsAny(s_hostReservedChars))
+                {
+                    if (value.Contains(':'))
+                    {
+                        if (!value.StartsWith('[') || !value.EndsWith(']'))
+                        {
+                            // probable ipv6 address - Note: this is only supported for cases where the authority is inet-based.
+                            value = $"[{value}]";
+                        }
+
+                        if (value.AsSpan(1, value.Length - 2).ContainsAny(s_hostReservedCharsExceptColon))
+                        {
+                            // Reject inputs like "[::]/path" or "::]/path".
+                            throw new ArgumentException(SR.net_uri_BadHostName, nameof(value));
+                        }
+                    }
+                    else
+                    {
+                        // Reject inputs like "contoso.com/path" or "user@contoso.com".
+                        // Nonsensical inputs will only be allowed by a custom parser with GenericUriParserOptions.GenericAuthority set.
+                        throw new ArgumentException(SR.net_uri_BadHostName, nameof(value));
+                    }
+                }
+
+                _host = value ?? string.Empty;
+                _changed = true;
+            }
         }
 
         public int Port
@@ -127,129 +204,207 @@ namespace System
             get => _port;
             set
             {
-                if (value < -1 || value > 65535)
-                {
-                    throw new ArgumentOutOfRangeException(nameof(value));
-                }
+                ArgumentOutOfRangeException.ThrowIfLessThan(value, -1);
+                ArgumentOutOfRangeException.ThrowIfGreaterThan(value, 0xFFFF);
                 _port = value;
+                _changed = true;
             }
         }
 
+        [AllowNull]
         public string Path
         {
-            get => EscapePath(_path);
-            set => _path = string.IsNullOrEmpty(value) ? "/" : value;
+            get => _path;
+            set
+            {
+                _path = string.IsNullOrEmpty(value)
+                    ? "/"
+                    : Uri.InternalEscapeString(value.Replace('\\', '/'));
+                _changed = true;
+            }
         }
 
+        [AllowNull]
         public string Query
         {
-            get => _query.Length == 0 ? string.Empty : "?" + _query;
-            set => _query = RemovePrefix(value ?? string.Empty, '?');
+            get => _query;
+            set
+            {
+                if (!string.IsNullOrEmpty(value) && value[0] != '?')
+                {
+                    value = '?' + value;
+                }
+
+                _query = value ?? string.Empty;
+                _changed = true;
+            }
         }
 
+        [AllowNull]
         public string Fragment
         {
-            get => _fragment.Length == 0 ? string.Empty : "#" + _fragment;
-            set => _fragment = RemovePrefix(value ?? string.Empty, '#');
+            get => _fragment;
+            set
+            {
+                if (!string.IsNullOrEmpty(value) && value[0] != '#')
+                {
+                    value = '#' + value;
+                }
+
+                _fragment = value ?? string.Empty;
+                _changed = true;
+            }
         }
 
-        public Uri Uri => new Uri(BuildRawUri(), UriKind.Absolute);
+        public Uri Uri
+        {
+            get
+            {
+                if (_changed)
+                {
+                    _uri = new Uri(ToString());
+                    SetFieldsFromUri();
+                    _changed = false;
+                }
+                else
+                {
+                    Debug.Assert(_uri is not null);
+                }
+                return _uri;
+            }
+        }
+
+        public override bool Equals([NotNullWhen(true)] object? rparam) => rparam is not null && Uri.Equals(rparam.ToString());
+
+        public override int GetHashCode() => Uri.GetHashCode();
+
+        // The following characters ("/" / "\" / "?" / "#" / "@") are from the gen-delims group.
+        // We have to escape them to avoid corrupting the rest of the Uri string.
+        // Other characters like spaces or non-ASCII will be escaped by Uri, we can ignore them here.
+        private static readonly SearchValues<char> s_userInfoReservedChars =
+            SearchValues.Create(@"/\?#@");
+
+        private static string EncodeUserInfo(string input)
+        {
+            if (!input.AsSpan().ContainsAny(s_userInfoReservedChars))
+            {
+                return input;
+            }
+
+            return input
+                .Replace("/", "%2F", StringComparison.Ordinal)
+                .Replace(@"\", "%5C", StringComparison.Ordinal)
+                .Replace("?", "%3F", StringComparison.Ordinal)
+                .Replace("#", "%23", StringComparison.Ordinal)
+                .Replace("@", "%40", StringComparison.Ordinal);
+        }
+
+        private void SetFieldsFromUri()
+        {
+            Debug.Assert(_uri is not null);
+            _scheme = _uri.Scheme;
+            _host = _uri.Host;
+            _port = _uri.Port;
+            _path = _uri.AbsolutePath;
+            _query = _uri.Query;
+            _fragment = _uri.Fragment;
+
+            string userInfo = _uri.UserInfo;
+
+            if (userInfo.Length > 0)
+            {
+                int index = userInfo.IndexOf(':');
+
+                if (index != -1)
+                {
+                    _password = userInfo.Substring(index + 1);
+                    _username = userInfo.Substring(0, index);
+                }
+                else
+                {
+                    _username = userInfo;
+                }
+            }
+        }
 
         public override string ToString()
         {
-            var result = Uri.AbsoluteUri;
-            if (_port >= 0)
+            if (UserName.Length == 0 && Password.Length != 0)
             {
-                result = AddExplicitPort(result, _port);
+                throw new UriFormatException(SR.net_uri_BadUserPassword);
             }
-            return result;
-        }
 
-        public override bool Equals(object? obj) =>
-            obj is UriBuilder other && string.Equals(ToString(), other.ToString(), StringComparison.Ordinal);
+            var vsb = new ValueStringBuilder(stackalloc char[Uri.StackallocThreshold]);
 
-        public override int GetHashCode() => ToString().GetHashCode();
+            string scheme = Scheme;
+            string host = Host;
 
-        private string BuildRawUri()
-        {
-            var result = _scheme + "://";
-            if (_userName.Length != 0 || _password.Length != 0)
+            if (scheme.Length != 0)
             {
-                result += _userName;
-                if (_password.Length != 0)
+                UriParser? syntax = UriParser.GetSyntax(scheme);
+                string schemeDelimiter;
+                if (syntax is null)
                 {
-                    result += ":" + _password;
+                    schemeDelimiter = host.Length == 0 ? ":" : Uri.SchemeDelimiter;
                 }
-                result += "@";
-            }
-            result += _host;
-            if (_port >= 0)
-            {
-                result += ":" + _port;
-            }
-            result += _path.Length == 0 ? "/" : _path;
-            if (_query.Length != 0)
-            {
-                result += "?" + _query;
-            }
-            if (_fragment.Length != 0)
-            {
-                result += "#" + _fragment;
-            }
-            return result;
-        }
-
-        private void ApplyExtra(string extraValue)
-        {
-            var extra = extraValue ?? string.Empty;
-            var fragment = extra.IndexOf('#');
-            if (fragment >= 0)
-            {
-                Fragment = extra.Substring(fragment + 1);
-                extra = extra.Substring(0, fragment);
-            }
-            Query = extra;
-        }
-
-        private static string RemovePrefix(string value, char prefix) =>
-            value.Length > 0 && value[0] == prefix ? value.Substring(1) : value;
-
-        private static string EscapePath(string value)
-        {
-            var result = string.Empty;
-            for (var index = 0; index < value.Length; index++)
-            {
-                result += value[index] == ' ' ? "%20" : value[index].ToString();
-            }
-            return result;
-        }
-
-        private static string AddExplicitPort(string value, int port)
-        {
-            var authorityStart = value.IndexOf("://", StringComparison.Ordinal);
-            if (authorityStart < 0)
-            {
-                return value;
-            }
-            authorityStart += 3;
-            var authorityEnd = value.Length;
-            for (var index = authorityStart; index < value.Length; index++)
-            {
-                if (value[index] is '/' or '?' or '#')
+                else
                 {
-                    authorityEnd = index;
-                    break;
+                    schemeDelimiter = syntax.InFact(UriSyntaxFlags.MustHaveAuthority)
+                        || (host.Length != 0 && syntax.NotAny(UriSyntaxFlags.MailToLikeUri) && syntax.InFact(UriSyntaxFlags.OptionalAuthority))
+                            ? Uri.SchemeDelimiter
+                            : ":";
+                }
+
+                vsb.Append(scheme);
+                vsb.Append(schemeDelimiter);
+            }
+
+            string username = EncodeUserInfo(UserName);
+            if (username.Length != 0)
+            {
+                vsb.Append(username);
+
+                string password = EncodeUserInfo(Password);
+                if (password.Length != 0)
+                {
+                    vsb.Append(':');
+                    vsb.Append(password);
+                }
+
+                vsb.Append('@');
+            }
+
+            if (host.Length != 0)
+            {
+                vsb.Append(host);
+
+                if (_port != -1)
+                {
+                    vsb.Append(':');
+
+                    const int MaxUshortLength = 5;
+                    bool success = _port.TryFormat(vsb.AppendSpan(MaxUshortLength), out int charsWritten);
+                    Debug.Assert(success);
+                    vsb.Length -= MaxUshortLength - charsWritten;
                 }
             }
-            var authority = value.Substring(authorityStart, authorityEnd - authorityStart);
-            var hostStart = authority.LastIndexOf('@') + 1;
-            var host = authority.Substring(hostStart);
-            if (host.EndsWith(":" + port, StringComparison.Ordinal))
+
+            string path = Path;
+            if (path.Length != 0)
             {
-                return value;
+                if (!path.StartsWith('/') && host.Length != 0)
+                {
+                    vsb.Append('/');
+                }
+
+                vsb.Append(path);
             }
-            var insert = authorityStart + hostStart + host.Length;
-            return value.Substring(0, insert) + ":" + port + value.Substring(insert);
+
+            vsb.Append(Query);
+
+            vsb.Append(Fragment);
+
+            return vsb.ToString();
         }
     }
 }

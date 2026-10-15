@@ -3,45 +3,115 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using System.Collections.Generic;
+
 namespace System.Collections.ObjectModel
 {
-    public class Collection<T> : Collections.Generic.ICollection<T>,
-        Collections.Generic.IEnumerable<T>, Collections.Generic.IList<T>,
-        Collections.Generic.IReadOnlyCollection<T>, Collections.Generic.IReadOnlyList<T>,
-        Collections.ICollection, Collections.IEnumerable, Collections.IList
+    public class Collection<T> : IList<T>, IList, IReadOnlyList<T>
     {
-        private readonly Collections.Generic.IList<T> _items;
+        private readonly IList<T> items;
 
         public Collection()
         {
-            _items = new Collections.Generic.List<T>();
+            items = new List<T>();
         }
 
-        public Collection(Collections.Generic.IList<T> list)
+        public Collection(IList<T> list)
         {
-            _items = list ?? throw new ArgumentNullException();
+            if (list == null)
+            {
+                ThrowHelper.ThrowArgumentNullException(ExceptionArgument.list);
+            }
+            items = list;
         }
 
-        public int Count { get => _items.Count; }
-        protected Collections.Generic.IList<T> Items => _items;
-        bool Collections.Generic.ICollection<T>.IsReadOnly => _items.IsReadOnly;
+        public int Count => items.Count;
+
+        protected IList<T> Items => items;
 
         public T this[int index]
         {
-            get => _items[index];
-            set => SetItem(index, value);
+            get => items[index];
+            set
+            {
+                if (items.IsReadOnly)
+                {
+                    ThrowHelper.ThrowNotSupportedException(ExceptionResource.NotSupported_ReadOnlyCollection);
+                }
+
+                if ((uint)index >= (uint)items.Count)
+                {
+                    ThrowHelper.ThrowArgumentOutOfRange_IndexMustBeLessException();
+                }
+
+                SetItem(index, value);
+            }
         }
 
-        public void Add(T item) => InsertItem(Count, item);
-        public void Clear() => ClearItems();
-        public bool Contains(T item) => _items.Contains(item);
-        public void CopyTo(T[] array, int index) => _items.CopyTo(array, index);
-        public int IndexOf(T item) => _items.IndexOf(item);
-        public void Insert(int index, T item) => InsertItem(index, item);
+        public void Add(T item)
+        {
+            if (items.IsReadOnly)
+            {
+                ThrowHelper.ThrowNotSupportedException(ExceptionResource.NotSupported_ReadOnlyCollection);
+            }
+
+            int index = items.Count;
+            InsertItem(index, item);
+        }
+
+        public void Clear()
+        {
+            if (items.IsReadOnly)
+            {
+                ThrowHelper.ThrowNotSupportedException(ExceptionResource.NotSupported_ReadOnlyCollection);
+            }
+
+            ClearItems();
+        }
+
+        public void CopyTo(T[] array, int index)
+        {
+            items.CopyTo(array, index);
+        }
+
+        public bool Contains(T item)
+        {
+            return items.Contains(item);
+        }
+
+        public IEnumerator<T> GetEnumerator()
+        {
+            return items.GetEnumerator();
+        }
+
+        public int IndexOf(T item)
+        {
+            return items.IndexOf(item);
+        }
+
+        public void Insert(int index, T item)
+        {
+            if (items.IsReadOnly)
+            {
+                ThrowHelper.ThrowNotSupportedException(ExceptionResource.NotSupported_ReadOnlyCollection);
+            }
+
+            if ((uint)index > (uint)items.Count)
+            {
+                ThrowHelper.ThrowArgumentOutOfRange_IndexMustBeLessOrEqualException();
+            }
+
+            InsertItem(index, item);
+        }
 
         public bool Remove(T item)
         {
-            var index = _items.IndexOf(item);
+            if (items.IsReadOnly)
+            {
+                ThrowHelper.ThrowNotSupportedException(ExceptionResource.NotSupported_ReadOnlyCollection);
+            }
+
+            int index = items.IndexOf(item);
             if (index < 0)
             {
                 return false;
@@ -50,73 +120,222 @@ namespace System.Collections.ObjectModel
             return true;
         }
 
-        public void RemoveAt(int index) => RemoveItem(index);
-
-        protected virtual void ClearItems() => _items.Clear();
-        protected virtual void InsertItem(int index, T item) => _items.Insert(index, item);
-        protected virtual void RemoveItem(int index) => _items.RemoveAt(index);
-        protected virtual void SetItem(int index, T item) => _items[index] = item;
-
-        public Collections.Generic.IEnumerator<T> GetEnumerator() => _items.GetEnumerator();
-        Collections.IEnumerator Collections.IEnumerable.GetEnumerator() => GetEnumerator();
-
-        bool Collections.IList.IsReadOnly => _items.IsReadOnly;
-        bool Collections.IList.IsFixedSize => _items.IsReadOnly;
-        object? Collections.IList.this[int index]
+        public void RemoveAt(int index)
         {
-            get => this[index];
-            set => this[index] = ConvertObject(value);
+            if (items.IsReadOnly)
+            {
+                ThrowHelper.ThrowNotSupportedException(ExceptionResource.NotSupported_ReadOnlyCollection);
+            }
+
+            if ((uint)index >= (uint)items.Count)
+            {
+                ThrowHelper.ThrowArgumentOutOfRange_IndexMustBeLessException();
+            }
+
+            RemoveItem(index);
         }
 
-        int Collections.IList.Add(object? value)
+        protected virtual void ClearItems()
         {
-            Add(ConvertObject(value));
+            items.Clear();
+        }
+
+        protected virtual void InsertItem(int index, T item)
+        {
+            items.Insert(index, item);
+        }
+
+        protected virtual void RemoveItem(int index)
+        {
+            items.RemoveAt(index);
+        }
+
+        protected virtual void SetItem(int index, T item)
+        {
+            items[index] = item;
+        }
+
+        bool ICollection<T>.IsReadOnly => items.IsReadOnly;
+
+        IEnumerator IEnumerable.GetEnumerator()
+        {
+            return ((IEnumerable)items).GetEnumerator();
+        }
+
+        bool ICollection.IsSynchronized => false;
+
+        object ICollection.SyncRoot => items is ICollection coll ? coll.SyncRoot : this;
+
+        void ICollection.CopyTo(Array array, int index)
+        {
+            if (array == null)
+            {
+                ThrowHelper.ThrowArgumentNullException(ExceptionArgument.array);
+            }
+
+            if (array.Rank != 1)
+            {
+                ThrowHelper.ThrowArgumentException(ExceptionResource.Arg_RankMultiDimNotSupported);
+            }
+
+            if (array.GetLowerBound(0) != 0)
+            {
+                ThrowHelper.ThrowArgumentException(ExceptionResource.Arg_NonZeroLowerBound);
+            }
+
+            if (index < 0)
+            {
+                ThrowHelper.ThrowIndexArgumentOutOfRange_NeedNonNegNumException();
+            }
+
+            if (array.Length - index < Count)
+            {
+                ThrowHelper.ThrowArgumentException(ExceptionResource.Arg_ArrayPlusOffTooSmall);
+            }
+
+            if (array is T[] tArray)
+            {
+                items.CopyTo(tArray, index);
+            }
+            else
+            {
+                object?[]? objects = array as object[];
+                if (objects == null)
+                {
+                    ThrowHelper.ThrowArgumentException_Argument_IncompatibleArrayType();
+                }
+
+                int count = items.Count;
+                try
+                {
+                    for (int i = 0; i < count; i++)
+                    {
+                        objects[index++] = items[i];
+                    }
+                }
+                catch (ArrayTypeMismatchException)
+                {
+                    ThrowHelper.ThrowArgumentException_Argument_IncompatibleArrayType();
+                }
+            }
+        }
+
+        object? IList.this[int index]
+        {
+            get => items[index];
+            set
+            {
+                ThrowHelper.IfNullAndNullsAreIllegalThenThrow<T>(value, ExceptionArgument.value);
+
+                T? item = default;
+
+                try
+                {
+                    item = (T)value!;
+                }
+                catch (InvalidCastException)
+                {
+                    ThrowHelper.ThrowWrongValueTypeArgumentException(value, typeof(T));
+                }
+
+                this[index] = item;
+            }
+        }
+
+        bool IList.IsReadOnly => items.IsReadOnly;
+
+        bool IList.IsFixedSize
+        {
+            get
+            {
+                if (items is IList list)
+                {
+                    return list.IsFixedSize;
+                }
+                return items.IsReadOnly;
+            }
+        }
+
+        int IList.Add(object? value)
+        {
+            if (items.IsReadOnly)
+            {
+                ThrowHelper.ThrowNotSupportedException(ExceptionResource.NotSupported_ReadOnlyCollection);
+            }
+            ThrowHelper.IfNullAndNullsAreIllegalThenThrow<T>(value, ExceptionArgument.value);
+
+            T? item = default;
+
+            try
+            {
+                item = (T)value!;
+            }
+            catch (InvalidCastException)
+            {
+                ThrowHelper.ThrowWrongValueTypeArgumentException(value, typeof(T));
+            }
+
+            Add(item);
+
             return Count - 1;
         }
 
-        bool Collections.IList.Contains(object? value) =>
-            IsCompatibleObject(value) && Contains(ConvertObject(value));
-
-        int Collections.IList.IndexOf(object? value) =>
-            IsCompatibleObject(value) ? IndexOf(ConvertObject(value)) : -1;
-
-        void Collections.IList.Insert(int index, object? value) =>
-            Insert(index, ConvertObject(value));
-
-        void Collections.IList.Remove(object? value)
+        bool IList.Contains(object? value)
         {
             if (IsCompatibleObject(value))
             {
-                Remove(ConvertObject(value));
+                return Contains((T)value!);
+            }
+            return false;
+        }
+
+        int IList.IndexOf(object? value)
+        {
+            if (IsCompatibleObject(value))
+            {
+                return IndexOf((T)value!);
+            }
+            return -1;
+        }
+
+        void IList.Insert(int index, object? value)
+        {
+            if (items.IsReadOnly)
+            {
+                ThrowHelper.ThrowNotSupportedException(ExceptionResource.NotSupported_ReadOnlyCollection);
+            }
+            ThrowHelper.IfNullAndNullsAreIllegalThenThrow<T>(value, ExceptionArgument.value);
+
+            T? item = default;
+
+            try
+            {
+                item = (T)value!;
+            }
+            catch (InvalidCastException)
+            {
+                ThrowHelper.ThrowWrongValueTypeArgumentException(value, typeof(T));
+            }
+
+            Insert(index, item);
+        }
+
+        void IList.Remove(object? value)
+        {
+            if (items.IsReadOnly)
+            {
+                ThrowHelper.ThrowNotSupportedException(ExceptionResource.NotSupported_ReadOnlyCollection);
+            }
+
+            if (IsCompatibleObject(value))
+            {
+                Remove((T)value!);
             }
         }
 
-        bool Collections.ICollection.IsSynchronized => false;
-        object Collections.ICollection.SyncRoot => this;
-        void Collections.ICollection.CopyTo(Array array, int index)
+        private static bool IsCompatibleObject(object? value)
         {
-            if (array is T[] typed)
-            {
-                CopyTo(typed, index);
-                return;
-            }
-            throw new ArgumentException();
-        }
-
-        private static bool IsCompatibleObject(object? value) =>
-            value is T || (value is null && default(T) is null);
-
-        private static T ConvertObject(object? value)
-        {
-            if (value is T item)
-            {
-                return item;
-            }
-            if (value is null && default(T) is null)
-            {
-                return default!;
-            }
-            throw new ArgumentException();
+            return (value is T) || (value == null && default(T) == null);
         }
     }
 }

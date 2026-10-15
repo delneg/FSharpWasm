@@ -2,4 +2,7 @@ using NetWasm.Compiler.Core;
 
 namespace NetWasm.Compiler.Analysis;
 
-internal sealed record ReachableMethodRequest(MethodInstanceModel Method);
+internal sealed record ReachableMethodRequest(MethodInstanceModel Method)
+{
+    public CilMethodBody? RewrittenBody { get; init; }
+}

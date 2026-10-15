@@ -24,7 +24,11 @@ public sealed record WasmFunctionImport(
 public sealed record WasmFunctionDefinition(
     string Name,
     WasmFunctionType Type,
-    byte[] Body);
+    byte[] Body)
+{
+    public bool IsAggressiveInlining { get; init; }
+    public bool IsNoInlining { get; init; }
+}
 
 public enum WasmExportKind : byte
 {

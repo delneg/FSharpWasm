@@ -33,9 +33,12 @@ internal sealed class RuntimeIntrinsicTypeRootPlanner(
             demand.Intrinsic == RuntimeIntrinsic.NullableGetUnderlyingType);
         var enumNames = demands.Any(demand => demand.Intrinsic == RuntimeIntrinsic.EnumGetNames);
         var boxEnums = demands.Any(demand => demand.Intrinsic == RuntimeIntrinsic.EnumToObject);
+        var boxArrayElements = demands.Any(demand =>
+            demand.Intrinsic == RuntimeIntrinsic.ArrayGetValue);
         var enumValues = demands.Where(demand => demand.Intrinsic == RuntimeIntrinsic.EnumGetValues)
             .Select(demand => demand.Method).ToArray();
-        if (!inspectNullable && !enumNames && !boxEnums && enumValues.Length == 0)
+        if (!inspectNullable && !enumNames && !boxEnums && !boxArrayElements &&
+            enumValues.Length == 0)
         {
             return RuntimeIntrinsicTypeRootPlan.Empty;
         }
@@ -43,7 +46,19 @@ internal sealed class RuntimeIntrinsicTypeRootPlanner(
         var runtimeTypes = new HashSet<CliTypeIdentity>();
         var allocatedTypes = new HashSet<CliTypeIdentity>();
         var types = reachableTypes.Distinct().ToArray();
-        var boxArrayElements = demands.Any(demand => demand.Intrinsic == RuntimeIntrinsic.ArrayGetValue);
+        if (boxArrayElements)
+        {
+            foreach (var array in types.Where(type => type.Shape == CliTypeShape.SzArray))
+            {
+                var element = array.ElementType!;
+                if (!element.IsValueType)
+                {
+                    continue;
+                }
+                runtimeTypes.Add(element);
+                allocatedTypes.Add(element);
+            }
+        }
         if (inspectNullable)
         {
             runtimeTypes.UnionWith(types.Select(_nullableTypes.Resolve).OfType<CliTypeIdentity>());
@@ -94,7 +109,9 @@ internal sealed class RuntimeIntrinsicTypeRootPlanner(
                 : method.MethodArguments[0]);
         }
 
-        return new(
+        return runtimeTypes.Count == 0 && allocatedTypes.Count == 0
+            ? RuntimeIntrinsicTypeRootPlan.Empty
+            : new(
             [.. runtimeTypes.OrderBy(type => type.CanonicalName, StringComparer.Ordinal)],
             [.. allocatedTypes.OrderBy(type => type.CanonicalName, StringComparer.Ordinal)]);
 

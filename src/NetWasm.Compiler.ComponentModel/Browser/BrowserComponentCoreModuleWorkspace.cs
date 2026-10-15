@@ -6,4 +6,5 @@ public sealed record BrowserComponentCoreModuleWorkspace(
     string HostModulePath,
     string ManagedExecutableAdapterModulePath,
     string MergedModulePath,
-    string SanitizedModulePath);
+    string SanitizedModulePath,
+    string SanitizedRuntimeModulePath);

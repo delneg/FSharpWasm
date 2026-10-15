@@ -27,6 +27,7 @@ namespace System.Collections.Frozen
         internal SmallValueTypeComparableFrozenDictionary(Dictionary<TKey, TValue> source) : base(EqualityComparer<TKey>.Default)
         {
             Debug.Assert(default(TKey) is not null);
+            Debug.Assert(typeof(TKey).IsValueType);
 
             Debug.Assert(source.Count != 0);
             Debug.Assert(ReferenceEquals(source.Comparer, EqualityComparer<TKey>.Default));

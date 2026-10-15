@@ -335,7 +335,7 @@ public sealed class NativeCallEmitterTests
         Assert.Same(method, indices.LastMethod);
         Assert.Equal(method.Definition.DeclaringType, initialization.Request!.TypeDefinition);
         Assert.Equal(method.DeclaringType, initialization.Request.DeclaringType);
-        Assert.True(initialization.Request.IsStaticMethodCall);
+        Assert.True(initialization.Request.IsMethodInvocation);
     }
 
     [Theory]

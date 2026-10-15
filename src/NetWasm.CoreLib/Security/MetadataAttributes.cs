@@ -22,11 +22,15 @@ namespace System.Security
         AllowMultiple = false, Inherited = false)]
     public sealed class SecurityCriticalAttribute : Attribute
     {
+#pragma warning disable 618 // We still use SecurityCriticalScope for v2 compatibility.
         public SecurityCriticalAttribute() { }
         public SecurityCriticalAttribute(SecurityCriticalScope scope) => Scope = scope;
+        [Obsolete("SecurityCriticalScope is only used for .NET 2.0 transparency compatibility.")]
         public SecurityCriticalScope Scope { get; }
+#pragma warning restore 618
     }
 
+    [Obsolete("SecurityCriticalScope is only used for .NET 2.0 transparency compatibility.")]
     public enum SecurityCriticalScope
     {
         Explicit = 0,

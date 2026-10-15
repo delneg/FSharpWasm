@@ -1,7 +1,6 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using System.Buffers;
 using System.Collections.Generic;
 
 namespace System.Diagnostics.Metrics
@@ -37,21 +36,9 @@ namespace System.Diagnostics.Metrics
             }
             else
             {
-                var copiedTags = new List<KeyValuePair<string, object?>>();
-                foreach (KeyValuePair<string, object?> tag in tags)
-                {
-                    copiedTags.Add(tag);
-                }
-
-                if (copiedTags.Count == 0)
-                {
-                    _tags = Instrument.EmptyTags;
-                }
-                else
-                {
-                    _tags = new KeyValuePair<string, object?>[copiedTags.Count];
-                    copiedTags.CopyTo(_tags, 0);
-                }
+                KeyValuePair<string, object?>[] copiedTags = EnumerableHelpers.ToArray(tags, out int length);
+                Array.Resize(ref copiedTags, length);
+                _tags = copiedTags;
             }
 
             Value = value;

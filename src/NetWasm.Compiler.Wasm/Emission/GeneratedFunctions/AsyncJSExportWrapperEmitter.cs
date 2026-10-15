@@ -52,7 +52,7 @@ internal sealed class AsyncJSExportWrapperEmitter(
             code.Instructions.Write(WasmInstruction.WithOperand(
                 WasmOpcodes.Call,
                 WasmInstructionOperand.Unsigned((uint)runtimeImports.Resolve(
-                    RuntimeImportSymbol.ValueFrameEnter))));
+                    RuntimeImportSymbol.ValueFrameEnter, initialization.RuntimeImportSelection))));
             code.Instructions.Write(WasmInstruction.WithOperand(
                 WasmOpcodes.LocalSet,
                 WasmInstructionOperand.Unsigned((uint)valueFrameLocal)));
@@ -84,7 +84,7 @@ internal sealed class AsyncJSExportWrapperEmitter(
             code.Instructions.Write(WasmInstruction.WithOperand(
                 WasmOpcodes.Call,
                 WasmInstructionOperand.Unsigned((uint)runtimeImports.Resolve(
-                    RuntimeImportSymbol.ValueFrameLeave))));
+                    RuntimeImportSymbol.ValueFrameLeave, initialization.RuntimeImportSelection))));
         }
         else
         {
@@ -109,7 +109,7 @@ internal sealed class AsyncJSExportWrapperEmitter(
         code.Instructions.Write(WasmInstruction.WithOperand(
             WasmOpcodes.Call,
             WasmInstructionOperand.Unsigned((uint)runtimeImports.Resolve(
-                RuntimeImportSymbol.RootFrameEnter))));
+                RuntimeImportSymbol.RootFrameEnter, initialization.RuntimeImportSelection))));
         code.Instructions.Write(WasmInstruction.WithOperand(
             WasmOpcodes.LocalSet,
             WasmInstructionOperand.Unsigned((uint)rootFrameLocal)));
@@ -130,7 +130,7 @@ internal sealed class AsyncJSExportWrapperEmitter(
         code.Instructions.Write(WasmInstruction.WithOperand(
             WasmOpcodes.Call,
             WasmInstructionOperand.Unsigned((uint)runtimeImports.Resolve(
-                RuntimeImportSymbol.HandleNew))));
+                RuntimeImportSymbol.HandleNew, initialization.RuntimeImportSelection))));
         code.Instructions.Write(WasmInstruction.WithOperand(
             WasmOpcodes.LocalSet,
             WasmInstructionOperand.Unsigned((uint)handleLocal)));
@@ -140,7 +140,7 @@ internal sealed class AsyncJSExportWrapperEmitter(
         code.Instructions.Write(WasmInstruction.WithOperand(
             WasmOpcodes.Call,
             WasmInstructionOperand.Unsigned((uint)runtimeImports.Resolve(
-                RuntimeImportSymbol.RootFrameLeave))));
+                RuntimeImportSymbol.RootFrameLeave, initialization.RuntimeImportSelection))));
         code.Instructions.Write(WasmInstruction.WithOperand(
             WasmOpcodes.LocalGet,
             WasmInstructionOperand.Unsigned((uint)handleLocal)));
@@ -156,7 +156,7 @@ internal sealed class AsyncJSExportWrapperEmitter(
             code.Instructions.Write(WasmInstruction.WithOperand(
                 WasmOpcodes.Call,
                 WasmInstructionOperand.Unsigned((uint)runtimeImports.Resolve(
-                    RuntimeImportSymbol.FinalizerSafepoint))));
+                    RuntimeImportSymbol.FinalizerSafepoint, initialization.RuntimeImportSelection))));
             code.Instructions.Write(WasmInstruction.WithOperand(
                 WasmOpcodes.LocalTee,
                 WasmInstructionOperand.Unsigned((uint)finalizerExceptionLocal)));

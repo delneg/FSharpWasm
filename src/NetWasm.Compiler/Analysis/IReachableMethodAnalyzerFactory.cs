@@ -12,6 +12,7 @@ internal interface IReachableMethodAnalyzerFactory
         IFieldRepository fields,
         IMethodRepository methods,
         IMethodSpecializer specializer,
+        IManagedMethodOptimizer optimizer,
         IImplicitExceptionDiscovery exceptionDiscovery,
         IReachabilityInstructionAnalyzer instructionAnalyzer);
 }

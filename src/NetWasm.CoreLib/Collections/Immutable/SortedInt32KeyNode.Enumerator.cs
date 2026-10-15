@@ -1,24 +1,19 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// Adapted from dotnet/runtime System.Collections.Immutable at commit
-// 811225a482702af7ecc35d817966bc70b88a3a23.
-//
-// The upstream pooled enumerator is intentionally reduced to a private stack
-// because the NetWasm profile excludes the threading/pooling infrastructure.
 
 using System.Collections.Generic;
+using System.ComponentModel;
 
 namespace System.Collections.Immutable
 {
     internal sealed partial class SortedInt32KeyNode<TValue>
     {
-        /// <summary>
-        /// Enumerates the contents of a binary tree.
-        /// </summary>
-        public struct Enumerator : IEnumerator<KeyValuePair<int, TValue>>, IDisposable
+        [EditorBrowsable(EditorBrowsableState.Advanced)]
+        public struct Enumerator : IEnumerator<KeyValuePair<int, TValue>>, ISecurePooledObjectUser
         {
-            private SortedInt32KeyNode<TValue>? _root;
-            private Stack<SortedInt32KeyNode<TValue>>? _stack;
+            private readonly int _poolUserId;
+            private SortedInt32KeyNode<TValue> _root;
+            private SecurePooledObject<Stack<RefAsValueType<SortedInt32KeyNode<TValue>>>>? _stack;
             private SortedInt32KeyNode<TValue>? _current;
 
             internal Enumerator(SortedInt32KeyNode<TValue> root)
@@ -27,10 +22,16 @@ namespace System.Collections.Immutable
 
                 _root = root;
                 _current = null;
-                _stack = root.IsEmpty ? null : new Stack<SortedInt32KeyNode<TValue>>(root.Height);
-                if (_stack != null)
+                _poolUserId = SecureObjectPool.NewId();
+                _stack = null;
+                if (!_root.IsEmpty)
                 {
-                    this.PushLeft(root);
+                    if (!SecureObjectPool<Stack<RefAsValueType<SortedInt32KeyNode<TValue>>>, Enumerator>.TryTake(this, out _stack))
+                    {
+                        _stack = SecureObjectPool<Stack<RefAsValueType<SortedInt32KeyNode<TValue>>>, Enumerator>.PrepNew(this, new Stack<RefAsValueType<SortedInt32KeyNode<TValue>>>(root.Height));
+                    }
+
+                    this.PushLeft(_root);
                 }
             }
 
@@ -44,16 +45,30 @@ namespace System.Collections.Immutable
                         ThrowHelper.ThrowInvalidOperationException();
                     }
 
-                    return _current!.Value;
+                    return _current.Value;
                 }
             }
 
-            object IEnumerator.Current => this.Current;
+            int ISecurePooledObjectUser.PoolUserId
+            {
+                get { return _poolUserId; }
+            }
+
+            object IEnumerator.Current
+            {
+                get { return this.Current; }
+            }
 
             public void Dispose()
             {
-                _root = null;
+                _root = null!;
                 _current = null;
+                if (_stack != null && _stack.TryUse(ref this, out Stack<RefAsValueType<SortedInt32KeyNode<TValue>>>? stack))
+                {
+                    stack.ClearFastWhenEmpty();
+                    SecureObjectPool<Stack<RefAsValueType<SortedInt32KeyNode<TValue>>>, Enumerator>.TryAdd(this, _stack!);
+                }
+
                 _stack = null;
             }
 
@@ -61,12 +76,16 @@ namespace System.Collections.Immutable
             {
                 this.ThrowIfDisposed();
 
-                if (_stack != null && _stack.Count > 0)
+                if (_stack != null)
                 {
-                    SortedInt32KeyNode<TValue> node = _stack.Pop();
-                    _current = node;
-                    this.PushLeft(node.Right!);
-                    return true;
+                    Stack<RefAsValueType<SortedInt32KeyNode<TValue>>> stack = _stack.Use(ref this);
+                    if (stack.Count > 0)
+                    {
+                        SortedInt32KeyNode<TValue> n = stack.Pop().Value;
+                        _current = n;
+                        this.PushLeft(n.Right!);
+                        return true;
+                    }
                 }
 
                 _current = null;
@@ -80,14 +99,15 @@ namespace System.Collections.Immutable
                 _current = null;
                 if (_stack != null)
                 {
-                    _stack.Clear();
-                    this.PushLeft(_root!);
+                    Stack<RefAsValueType<SortedInt32KeyNode<TValue>>> stack = _stack.Use(ref this);
+                    stack.ClearFastWhenEmpty();
+                    this.PushLeft(_root);
                 }
             }
 
             internal void ThrowIfDisposed()
             {
-                if (_root == null)
+                if (_root == null || (_stack != null && !_stack.IsOwned(ref this)))
                 {
                     Requires.FailObjectDisposed(this);
                 }
@@ -96,10 +116,10 @@ namespace System.Collections.Immutable
             private void PushLeft(SortedInt32KeyNode<TValue> node)
             {
                 Requires.NotNull(node, nameof(node));
-                Stack<SortedInt32KeyNode<TValue>> stack = _stack!;
+                Stack<RefAsValueType<SortedInt32KeyNode<TValue>>> stack = _stack!.Use(ref this);
                 while (!node.IsEmpty)
                 {
-                    stack.Push(node);
+                    stack.Push(new RefAsValueType<SortedInt32KeyNode<TValue>>(node));
                     node = node.Left!;
                 }
             }

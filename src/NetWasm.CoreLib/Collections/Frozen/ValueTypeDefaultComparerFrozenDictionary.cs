@@ -18,6 +18,7 @@ namespace System.Collections.Frozen
     {
         internal ValueTypeDefaultComparerFrozenDictionary(Dictionary<TKey, TValue> source) : base(source, Constants.KeysAreHashCodes<TKey>())
         {
+            Debug.Assert(typeof(TKey).IsValueType);
             Debug.Assert(ReferenceEquals(source.Comparer, EqualityComparer<TKey>.Default));
         }
 

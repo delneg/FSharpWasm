@@ -26,8 +26,8 @@ public sealed class NativeLinkedMemoryLayoutIntegrationTests
         Directory.CreateDirectory(cell);
         var repository = RepositoryRoot();
         var assetRoot = Path.Combine(repository, "src", "NetWasm.Runtime.Pack", "runtime");
-        var manifest = new RuntimePackManifestReader().Read(Path.Combine(assetRoot, "runtime-pack.json"));
-        var target = new RuntimePackTargetSelector().Select(manifest, targetName,
+        var manifest = new RuntimePackManifestReader(new RuntimePackManifestParser()).Read(Path.Combine(assetRoot, "runtime-pack.json"));
+        var target = new RuntimePackTargetSelector(new RuntimeOptimizationPolicyResolver()).Select(manifest, targetName,
             Environment.GetEnvironmentVariable("NETWASM_NATIVE_INTEROP_GARBAGE_COLLECTOR"));
         var emsdk = Environment.GetEnvironmentVariable("NETWASM_EMSDK_ROOT") ??
             Environment.GetEnvironmentVariable("EMSDK") ?? Environment.GetEnvironmentVariable("EMSDK_ROOT") ??
@@ -95,7 +95,7 @@ public sealed class NativeLinkedMemoryLayoutIntegrationTests
             traceReader.Read(File.ReadAllText(Path.Combine(cell, "final-link.log"))), linkedModule));
         var linkedHash = digest.Calculate(output);
         commands.Invoke(new(optimizer,
-            new RuntimeOptimizationArgumentBuilder().Build(new(target, output, RuntimeWasmOptimization.Oz)),
+            new RuntimeOptimizationArgumentBuilder(new RuntimeOptimizationPolicyResolver()).Build(new(target, output, RuntimeWasmOptimization.Oz)),
             Path.Combine(cell, "optimize.log")));
         var optimizedModule = reader.Read(File.ReadAllBytes(output));
         var optimized = optimizedModule.MemoryLayout;

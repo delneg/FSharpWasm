@@ -30,6 +30,41 @@ public sealed class RuntimeStateInitializerTests
             Calls(wasm32));
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void InitializesFinalizationOnlyWhenSelected(bool includeFinalization)
+    {
+        var imports = WasmRuntimeImports.CreateCatalog();
+        var writer = new EmitterTestSupport.RecordingInstructionWriter();
+        var code = new GeneratedFunctionWriterFactory().Create();
+        var lease = new GeneratedFunctionWriterLease(
+            code.Bytes,
+            code.Snapshots,
+            writer);
+        var selection = new RuntimeImportSelection(
+            WasmModuleProfile.CoreApplication,
+            IncludeTerminalExceptionReporter: true,
+            IncludeFinalization: includeFinalization);
+
+        new RuntimeStateInitializer(
+            new FixedTypeDescriptorSource([], [], []),
+            new FixedStaticDataLayout([]),
+            imports,
+            new RecordingAddressEmitter(),
+            new RecordingRuntimeCoreInitializer()).Initialize(
+                lease,
+                TestRuntimeInitialization.Create(512, selection));
+
+        Assert.Equal(
+            includeFinalization,
+            writer.ToInstructions().Any(instruction =>
+                instruction.Opcode == WasmOpcodes.Call &&
+                instruction.Operand.UnsignedValue == (uint)imports.Resolve(
+                    RuntimeImportSymbol.InitializeFinalization,
+                    selection with { IncludeFinalization = true })));
+    }
+
     [Fact]
     public void InitializesEveryDescriptorFamilyAndStaticRootThroughFocusedActions()
     {

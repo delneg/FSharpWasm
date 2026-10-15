@@ -1,5 +1,6 @@
 using System;
 using NetWasm.Compiler.Core;
+using NetWasm.Compiler.ComponentModel.Optimization;
 using NetWasm.Compiler.Metadata;
 
 namespace NetWasm.Compiler.Analysis;
@@ -21,5 +22,6 @@ public interface IWholeProgramAnalyzerFactory
         IMethodImplementationResolver methodImplementations,
         ISymbolFormatter symbols,
         Func<MethodDefinitionModel, JavaScriptAsyncMethodBinding?> javaScriptAsyncBindings,
-        IRuntimeIntrinsicRegistry intrinsics);
+        IRuntimeIntrinsicRegistry intrinsics,
+        WasmOptimizationSettings optimizationSettings);
 }

@@ -82,6 +82,7 @@ namespace System.Runtime.InteropServices
         /// </para>
         /// </remarks>
         /// <exception cref="NullReferenceException">If the handle is not initialized or already disposed.</exception>
+        [CLSCompliant(false)]
         public readonly unsafe void* GetAddressOfObjectData()
         {
             object? target = Target;

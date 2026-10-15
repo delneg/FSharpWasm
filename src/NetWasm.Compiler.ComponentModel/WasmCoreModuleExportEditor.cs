@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.IO;
-using System.Text;
+using NetWasm.Compiler.ComponentModel.Binary;
 
 namespace NetWasm.Compiler.ComponentModel;
 
@@ -49,7 +49,7 @@ public sealed class WasmCoreModuleExportEditor(
         RequireFile(inputPath);
 
         var module = _reader.Read(inputPath);
-        var reader = new BinaryReader(module);
+        var reader = new WasmBinaryReader(module);
         reader.RequireHeader();
         using var output = new MemoryStream(module.Length);
         output.Write(WasmBinaryFormat.Header);
@@ -69,7 +69,7 @@ public sealed class WasmCoreModuleExportEditor(
 
             var rewritten = RewriteExportSection(section, selection.ComponentPrefix, removed, matched, ref memoryExports);
             output.WriteByte(sectionId);
-            WriteUnsigned(output, (uint)rewritten.Length);
+            WasmUnsignedLeb128.Write(output, (uint)rewritten.Length);
             output.Write(rewritten);
         }
 
@@ -90,7 +90,7 @@ public sealed class WasmCoreModuleExportEditor(
         HashSet<string> matched,
         ref int memoryExports)
     {
-        var reader = new BinaryReader(section);
+        var reader = new WasmBinaryReader(section);
         var count = reader.ReadUnsigned();
         var retained = new List<byte[]>((int)count);
         for (var index = 0u; index < count; index++)
@@ -118,7 +118,7 @@ public sealed class WasmCoreModuleExportEditor(
         reader.RequireEnd("export section");
 
         using var output = new MemoryStream(section.Length);
-        WriteUnsigned(output, (uint)retained.Count);
+        WasmUnsignedLeb128.Write(output, (uint)retained.Count);
         foreach (var entry in retained)
         {
             output.Write(entry);
@@ -138,99 +138,4 @@ public sealed class WasmCoreModuleExportEditor(
         }
     }
 
-    private static void WriteUnsigned(Stream output, uint value)
-    {
-        do
-        {
-            var next = (byte)(value & 0x7f);
-            value >>= 7;
-            if (value != 0)
-            {
-                next |= 0x80;
-            }
-            output.WriteByte(next);
-        }
-        while (value != 0);
-    }
-
-    private ref struct BinaryReader
-    {
-        private readonly ReadOnlySpan<byte> _bytes;
-
-        public BinaryReader(ReadOnlySpan<byte> bytes)
-        {
-            _bytes = bytes;
-        }
-
-        public int Offset { get; private set; }
-        public bool IsAtEnd => Offset == _bytes.Length;
-
-        public void RequireHeader()
-        {
-            var header = ReadBytes((uint)WasmBinaryFormat.Header.Length);
-            if (!header.SequenceEqual(WasmBinaryFormat.Header))
-            {
-                throw Invalid("core module has an invalid WebAssembly header");
-            }
-        }
-
-        public byte ReadByte()
-        {
-            if (Offset >= _bytes.Length)
-            {
-                throw Invalid("core module is truncated");
-            }
-            return _bytes[Offset++];
-        }
-
-        public uint ReadUnsigned()
-        {
-            var value = 0u;
-            for (var shift = 0; shift < 35; shift += 7)
-            {
-                var next = ReadByte();
-                value |= (uint)(next & 0x7f) << shift;
-                if ((next & 0x80) == 0)
-                {
-                    return value;
-                }
-            }
-            throw Invalid("core module contains an invalid unsigned LEB128 value");
-        }
-
-        public ReadOnlySpan<byte> ReadBytes(uint count)
-        {
-            if (count > int.MaxValue || Offset > _bytes.Length - (int)count)
-            {
-                throw Invalid("core module is truncated");
-            }
-            var result = _bytes.Slice(Offset, (int)count);
-            Offset += (int)count;
-            return result;
-        }
-
-        public string ReadString()
-        {
-            var bytes = ReadBytes(ReadUnsigned());
-            try
-            {
-                return new UTF8Encoding(false, true).GetString(bytes);
-            }
-            catch (DecoderFallbackException)
-            {
-                throw Invalid("core module export name is not valid UTF-8");
-            }
-        }
-
-        public void RequireEnd(string description)
-        {
-            if (!IsAtEnd)
-            {
-                throw Invalid($"core module {description} contains trailing data");
-            }
-        }
-
-        private static Compiler.Core.CompilerException Invalid(string message) =>
-            ComponentException.Invalid(message);
-    }
 }

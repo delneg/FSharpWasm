@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using NetWasm.Compiler.ComponentModel.Inlining;
 using NetWasm.Compiler.ComponentModel.Node;
 using NetWasm.Compiler.Core;
 
@@ -16,6 +17,11 @@ public sealed class ComponentCoreModuleOptimizerTests
     [InlineData("wasm32", FinalWasmOptimization.Os, "-Os")]
     [InlineData("wasm32", FinalWasmOptimization.Oz, "-Oz")]
     [InlineData("wasm64", FinalWasmOptimization.Oz, "-Oz")]
+    [InlineData("wasm64", FinalWasmOptimization.O0, "-O0")]
+    [InlineData("wasm64", FinalWasmOptimization.O1, "-O1")]
+    [InlineData("wasm64", FinalWasmOptimization.O2, "-O2")]
+    [InlineData("wasm64", FinalWasmOptimization.O3, "-O3")]
+    [InlineData("wasm64", FinalWasmOptimization.Os, "-Os")]
     public void FinalizesWithSelectedPolicyAndTargetFeatures(
         string width, FinalWasmOptimization optimization, string? flag)
     {
@@ -28,15 +34,15 @@ public sealed class ComponentCoreModuleOptimizerTests
         Assert.Equal("input", stages.InspectedPath);
         if (flag is null)
         {
-            Assert.Equal(["exists", "validate", "copy"], stages.Calls);
+            Assert.Equal(["exists", "validate", "cleanup"], stages.Calls);
             Assert.Equal("input", stages.ValidationPath);
-            Assert.Equal(("input", "output"), stages.Copy);
+            Assert.Equal(("input", "output"), stages.AnnotationCleanup);
             Assert.Empty(stages.Arguments);
             return;
         }
-        Assert.Equal(["exists", "optimize", "validate"], stages.Calls);
+        Assert.Equal(["exists", "optimize", "cleanup", "validate"], stages.Calls);
         Assert.Equal("output", stages.ValidationPath);
-        Assert.Null(stages.Copy);
+        Assert.Equal(("output", "output"), stages.AnnotationCleanup);
         var expected = new List<string>
         {
             "input", flag, "--converge", "--remove-unused-module-elements", "--strip-debug",
@@ -51,7 +57,7 @@ public sealed class ComponentCoreModuleOptimizerTests
     [Theory]
     [InlineData("bad module\n", "bad module")]
     [InlineData("", "unknown error")]
-    public void OptimizerFailureStopsValidationAndCopy(string error, string expected)
+    public void OptimizerFailureStopsValidationAndAnnotationCleanup(string error, string expected)
     {
         var stages = new RecordingStages { Result = new(1, "", error) };
 
@@ -62,13 +68,13 @@ public sealed class ComponentCoreModuleOptimizerTests
         Assert.Contains(expected, exception.Diagnostic.Message, StringComparison.Ordinal);
         Assert.Equal(["exists", "optimize"], stages.Calls);
         Assert.Null(stages.ValidationPath);
-        Assert.Null(stages.Copy);
+        Assert.Null(stages.AnnotationCleanup);
     }
 
     [Theory]
     [InlineData(FinalWasmOptimization.None)]
     [InlineData(FinalWasmOptimization.Oz)]
-    public void ValidationFailureStopsCopyOrReturn(FinalWasmOptimization optimization)
+    public void ValidationFailureStopsAnnotationCleanupOrReturn(FinalWasmOptimization optimization)
     {
         var failure = new CompilerException(new CompilerDiagnostic(DiagnosticCode.ComponentContract, "invalid core"));
         var stages = new RecordingStages { ValidationFailure = failure };
@@ -79,22 +85,36 @@ public sealed class ComponentCoreModuleOptimizerTests
         Assert.Equal(optimization == FinalWasmOptimization.None ? "input" : "output", stages.ValidationPath);
         Assert.Equal(ComponentTarget.Wasm64Wasi02, stages.ValidationTarget);
         var expected = new List<string> { "exists" };
-        if (optimization != FinalWasmOptimization.None) expected.Add("optimize");
+        if (optimization != FinalWasmOptimization.None) expected.AddRange(["optimize", "cleanup"]);
         expected.Add("validate");
         Assert.Equal(expected, stages.Calls);
-        Assert.Null(stages.Copy);
+        if (optimization == FinalWasmOptimization.None) Assert.Null(stages.AnnotationCleanup);
+        else Assert.Equal(("output", "output"), stages.AnnotationCleanup);
     }
 
     [Fact]
-    public void NonePropagatesCopyFailureAfterValidationWithoutOptimization()
+    public void NonePropagatesAnnotationCleanupFailureAfterValidationWithoutOptimization()
     {
-        var failure = new IOException("copy failure");
-        var stages = new RecordingStages { CopyFailure = failure };
+        var failure = new IOException("cleanup failure");
+        var stages = new RecordingStages { AnnotationCleanupFailure = failure };
 
         Assert.Same(failure, Assert.Throws<IOException>(() => Create(stages).Optimize(
             "input", "output", ComponentTarget.Wasm32Wasi02, FinalWasmOptimization.None)));
 
-        Assert.Equal(["exists", "validate", "copy"], stages.Calls);
+        Assert.Equal(["exists", "validate", "cleanup"], stages.Calls);
+    }
+
+    [Theory]
+    [InlineData(FinalWasmOptimization.O3)]
+    [InlineData(FinalWasmOptimization.Oz)]
+    public void OptimizedCleanupFailureStopsValidation(FinalWasmOptimization optimization)
+    {
+        var failure = new IOException("cleanup failure");
+        var stages = new RecordingStages { AnnotationCleanupFailure = failure };
+        Assert.Same(failure, Assert.Throws<IOException>(() => Create(stages).Optimize(
+            "input", "output", ComponentTarget.Wasm32Wasi02, optimization)));
+        Assert.Equal(["exists", "optimize", "cleanup"], stages.Calls);
+        Assert.Null(stages.ValidationPath);
     }
 
     [Fact]
@@ -140,17 +160,17 @@ public sealed class ComponentCoreModuleOptimizerTests
             new ComponentCoreModuleOptimizer(stages, stages, stages, stages));
 
     private sealed class RecordingStages : IBinaryenToolRunner, IFileExistence,
-        IWasmCoreModuleValidator, IFileCopier
+        IWasmCoreModuleValidator, IWasmCoreModuleInlineAnnotationEditor
     {
         public List<string> Calls { get; } = [];
         public bool Exists { get; init; } = true;
         public ToolResult Result { get; init; } = new(0, "", "");
         public Exception? ValidationFailure { get; init; }
-        public Exception? CopyFailure { get; init; }
+        public Exception? AnnotationCleanupFailure { get; init; }
         public string? InspectedPath { get; private set; }
         public string? ValidationPath { get; private set; }
         public ComponentTarget? ValidationTarget { get; private set; }
-        public (string, string)? Copy { get; private set; }
+        public (string, string)? AnnotationCleanup { get; private set; }
         public ImmutableArray<string> Arguments { get; private set; } = [];
 
         bool IFileExistence.Exists(string path)
@@ -176,11 +196,12 @@ public sealed class ComponentCoreModuleOptimizerTests
             if (ValidationFailure is not null) throw ValidationFailure;
         }
 
-        void IFileCopier.Copy(string sourcePath, string destinationPath)
+        void IWasmCoreModuleInlineAnnotationEditor.Rewrite(string inputPath, string outputPath, WasmInlineAnnotationSelection selection)
         {
-            Calls.Add("copy");
-            Copy = (sourcePath, destinationPath);
-            if (CopyFailure is not null) throw CopyFailure;
+            Assert.Equal(WasmInlineAnnotationSelection.Remove, selection);
+            Calls.Add("cleanup");
+            AnnotationCleanup = (inputPath, outputPath);
+            if (AnnotationCleanupFailure is not null) throw AnnotationCleanupFailure;
         }
     }
 }

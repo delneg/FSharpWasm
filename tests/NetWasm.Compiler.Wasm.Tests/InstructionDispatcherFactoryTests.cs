@@ -12,7 +12,8 @@ public sealed class InstructionDispatcherFactoryTests
         var provider = new RecordingProvider();
         var factory = new InstructionDispatcherFactory(
             [provider],
-            new RecordingRootPublicationEmitter(_ => { }));
+            new RecordingRootPublicationEmitter(_ => { }),
+            new RecordingStackStorageAnchorEmitter(_ => { }));
         var dispatcher = factory.Create();
 
         var request = EmitterTestSupport.CreateInstructionRequest(CilOperation.Nop);

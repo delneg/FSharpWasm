@@ -1,9 +1,11 @@
 using Microsoft.Extensions.DependencyInjection;
+using NetWasm.Compiler.Core.Types;
 using NetWasm.Compiler.Wasm.Emission.Instructions;
 using NetWasm.Compiler.Wasm.Emission.Instructions.Interop;
 using NetWasm.Compiler.Wasm.Emission.Instructions.Runtime;
 
 using NetWasm.Compiler.Wasm.Emission.Instructions.Calls.ManagedCallSites;
+using NetWasm.Compiler.Wasm.Emission.AddressTakenValues;
 
 namespace NetWasm.Compiler.Wasm.Emission.Instructions.Calls;
 
@@ -11,9 +13,12 @@ internal static class CallEmissionServiceCollectionExtensions
 {
     public static IServiceCollection AddWasmCallEmission(this IServiceCollection services)
     {
+        services.AddAddressTakenValuePromotion();
         services.AddManagedCallSiteResolution();
         services.AddSingleton<IConstrainedReferenceReceiverEmitter,
             ConstrainedReferenceReceiverEmitter>();
+        services.AddSingleton<IVirtualDispatchEmissionPlanBuilder,
+            VirtualDispatchEmissionPlanBuilder>();
         services.AddSingleton<DelegateInvokeCallEmitter>();
         services.AddSingleton<VirtualDispatchCallEmitter>();
         services.AddSingleton<JSImportCallEmitter>();
@@ -29,13 +34,19 @@ internal static class CallEmissionServiceCollectionExtensions
             provider.GetRequiredService<VirtualDispatchCallEmitter>()));
         services.AddSingleton<CallEmissionRegistration>(provider => new(
             CallEmissionKind.RuntimeIntrinsic,
-            provider.GetRequiredService<RuntimeIntrinsicCallEmitter>()));
+            new InitializingCallEmitter(provider.GetRequiredService<RuntimeIntrinsicCallEmitter>(),
+                provider.GetRequiredService<IMethodInitializationTriggerClassifier>(),
+                provider.GetRequiredService<IStaticInitializationEmitter>())));
         services.AddSingleton<CallEmissionRegistration>(provider => new(
             CallEmissionKind.AsyncJSImport,
-            provider.GetRequiredService<AsyncJSImportCallEmitter>()));
+            new InitializingCallEmitter(provider.GetRequiredService<AsyncJSImportCallEmitter>(),
+                provider.GetRequiredService<IMethodInitializationTriggerClassifier>(),
+                provider.GetRequiredService<IStaticInitializationEmitter>())));
         services.AddSingleton<CallEmissionRegistration>(provider => new(
             CallEmissionKind.JavaScriptImport,
-            provider.GetRequiredService<JSImportCallEmitter>()));
+            new InitializingCallEmitter(provider.GetRequiredService<JSImportCallEmitter>(),
+                provider.GetRequiredService<IMethodInitializationTriggerClassifier>(),
+                provider.GetRequiredService<IStaticInitializationEmitter>())));
         services.AddSingleton<CallEmissionRegistration>(provider => new(
             CallEmissionKind.Direct,
             provider.GetRequiredService<DirectCallEmitter>()));

@@ -3,10 +3,14 @@
 
 namespace System
 {
-    /// <summary>Thrown when a URI cannot be parsed under the requested kind.</summary>
+    /// <summary>
+    /// An exception class used when an invalid Uniform Resource Identifier is detected.
+    /// </summary>
+    [Serializable]
+    [System.Runtime.CompilerServices.TypeForwardedFrom("System, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089")]
     public class UriFormatException : FormatException
     {
-        public UriFormatException()
+        public UriFormatException() : base()
         {
         }
 
@@ -14,7 +18,7 @@ namespace System
         {
         }
 
-        public UriFormatException(string? textString, Exception? innerException) : base(textString, innerException)
+        public UriFormatException(string? textString, Exception? e) : base(textString, e)
         {
         }
     }

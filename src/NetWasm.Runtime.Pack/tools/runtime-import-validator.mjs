@@ -1,8 +1,11 @@
 import runtimePolicy from '../runtime/runtime-policy.json' with { type: 'json' };
 
-export function validateRuntimeImports(imports, target) {
+export function validateRuntimeImports(imports, target, collector) {
   if (target !== 'wasm32' && target !== 'wasm64') {
     throw new Error('Unsupported runtime target');
+  }
+  if (collector !== undefined && !['boehm', 'tcms', 'netwasm', 'bump'].includes(collector)) {
+    throw new Error('Unsupported runtime collector');
   }
   const prefix = target === 'wasm64' ? 'cm64p2' : 'cm32p2';
   const contracts = runtimePolicy.staticNative.imports.map(entry => ({
@@ -14,7 +17,8 @@ export function validateRuntimeImports(imports, target) {
     const names = allowedImports.get(entry.module) ?? new Set();
     names.add(entry.name);
     allowedImports.set(entry.module, names);
-    if (entry.required) {
+    if (entry.required && !(collector === 'bump' &&
+        entry.module === 'netwasm.application.v1' && entry.name === 'netwasm.finalize')) {
       const required = requiredImports.get(entry.module) ?? new Set();
       required.add(entry.name);
       requiredImports.set(entry.module, required);

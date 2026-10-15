@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Immutable;
 using NetWasm.Compiler.ComponentModel;
+using NetWasm.Compiler.ComponentModel.Optimization;
 using NetWasm.Compiler.Core;
 using NetWasm.Compiler.EntryPoints;
 using NetWasm.Compiler.Analysis;
@@ -12,7 +13,8 @@ internal sealed class CompilationPreparation(
     CompilationEntry entry,
     ImmutableArray<ProgramExport> exports,
     ReachabilityRoots reachabilityRoots,
-    EntityKey? entryPointArgumentFactory)
+    EntityKey? entryPointArgumentFactory,
+    WasmOptimizationSettings optimizationSettings)
 {
     public ComponentBoundaryContract ComponentContract { get; } = componentContract ??
         throw new ArgumentNullException(nameof(componentContract));
@@ -26,4 +28,7 @@ internal sealed class CompilationPreparation(
         throw new ArgumentNullException(nameof(reachabilityRoots));
 
     public EntityKey? EntryPointArgumentFactory { get; } = entryPointArgumentFactory;
+
+    public WasmOptimizationSettings OptimizationSettings { get; } =
+        optimizationSettings ?? throw new ArgumentNullException(nameof(optimizationSettings));
 }

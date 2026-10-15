@@ -57,7 +57,7 @@ native_stack_size="$(node -p 'require(process.argv[1]).nativeStackSizeBytes' "$p
 toolchain="$repo_root/eng/toolchain.json"
 emscripten_version="$(node -p 'require(process.argv[1]).emscripten' "$toolchain")"
 gc_version="$(node -p 'require(process.argv[1]).bdwgc.version' "$toolchain")"
-dependency_root="${TMPDIR:-/tmp}/netwasm-dependencies"
+dependency_root="${NETWASM_DEPENDENCY_ROOT:-${TMPDIR:-/tmp}/netwasm-dependencies}"
 gc_source="$dependency_root/bdwgc-v$gc_version"
 
 wasm-tools component embed "$repo_root/src/NetWasm.Runtime/wit" \
@@ -68,10 +68,10 @@ python3 "$repo_root/eng/stage-runtime-pack-license.py" \
   --toolchain "$toolchain" \
   --output "$runtime_root/LICENSE.txt"
 
-grep -hEo 'export_name\("[^"]+"\)' \
+grep -hEo '(export_name|NETWASM_EXPORT|NETWASM_FINALIZATION_EXPORT)\("[^"]+"\)' \
   "$repo_root"/src/NetWasm.Runtime/*.c \
   "$repo_root"/src/NetWasm.Runtime/collector/*.c \
-  | sed 's/.*export_name("//;s/")$//' \
+  | sed -E 's/^(export_name|NETWASM_EXPORT|NETWASM_FINALIZATION_EXPORT)\("//;s/"\)$//' \
   | sort -u > "$runtime_root/runtime-exports.txt"
 
 for target in wasm32 wasm64; do
@@ -155,16 +155,24 @@ NODE
     export_args+=("--export=$export_name")
   done < "$runtime_root/runtime-exports.txt"
 
-  for collector in boehm tcms; do
+  for collector in boehm tcms netwasm bump; do
   collector_directory=boehm
   if [[ "$collector" = tcms ]]; then collector_directory=compact; fi
+  if [[ "$collector" = netwasm ]]; then collector_directory=netwasm; fi
+  if [[ "$collector" = bump ]]; then collector_directory=bump; fi
+  build_collector="$collector"
+  if [[ "$collector" = netwasm ]]; then build_collector=netwasm-next; fi
+  for native_profile in size speed; do
   collector_root="$target_root/$collector_directory"
+  if [[ "$native_profile" = speed ]]; then collector_root="$collector_root/speed"; fi
+  build_root="$dependency_root/build-bdwgc-$gc_version-$emscripten_version-$target-ordinary-$native_profile"
   mkdir -p "$collector_root"
   "$repo_root/eng/build-netwasm-runtime.sh" \
-    --collector "$collector" \
+    --collector "$build_collector" \
     --runtime-layout "$layout" \
     --target "$target" \
     --configuration release \
+    --native-profile "$native_profile" \
     --relocatable \
     --output "$collector_root/libnetwasm-runtime.a" \
     --collector-output "$collector_root/libgc.a"
@@ -182,7 +190,7 @@ NODE
       exit 1
     }
     initial_memory=$(( (base + 262144 + wasm_page_size - 1) / wasm_page_size * wasm_page_size ))
-    proof="$temporary_root/$target-$collector_directory-$base.wasm"
+    proof="$temporary_root/$target-$collector_directory-$native_profile-$base.wasm"
     "$wasm_ld" "$machine" -Bstatic --strip-debug --table-base=1 \
       --whole-archive "$collector_root/libnetwasm-runtime.a" --no-whole-archive \
       "$collector_root/libgc.a" \
@@ -201,7 +209,7 @@ NODE
       -mllvm -enable-emscripten-sjlj -mllvm -disable-lsr \
       "${export_args[@]}" -o "$proof"
     wasm-tools validate "$proof" --features all
-    wat="$temporary_root/$target-$collector_directory-$base.wat"
+    wat="$temporary_root/$target-$collector_directory-$native_profile-$base.wat"
     wasm-tools print "$proof" > "$wat"
     heap_index="$(grep -F '(export "__heap_base"' "$wat" | sed -E 's/.*global ([0-9]+).*/\1/')"
     heap_base="$(grep -E '^  \(global ' "$wat" | sed -n "$((heap_index + 1))p" | sed -E 's/.*const ([0-9]+)\).*/\1/')"
@@ -213,7 +221,8 @@ NODE
       exit 1
     fi
 
-    node "$source_package_root/tools/validate-runtime-imports.mjs" "$proof" "$target"
+    node "$source_package_root/tools/validate-runtime-imports.mjs" \
+      "$proof" "$target" "$collector"
     node "$source_package_root/tools/validate-runtime-component-metadata.mjs" \
       "$proof" "$temporary_root/runtime-component-type.bin"
   done
@@ -227,6 +236,7 @@ fs.writeFileSync(path, `${JSON.stringify({
   runtimeFootprintBytes: Number(footprint),
 }, null, 2)}\n`);
 NODE
+  done
   done
 done
 

@@ -175,6 +175,13 @@ internal sealed class RuntimeMaterializationCacheKeyBuilder :
         {
             Append(hash, $"manifest.exports.{index}", manifest.Exports[index]);
         }
+        Append(hash, "manifest.inlineIntents.count", manifest.InlineIntents.Length);
+        for (var index = 0; index < manifest.InlineIntents.Length; index++)
+        {
+            var intent = manifest.InlineIntents[index];
+            Append(hash, $"manifest.inlineIntents.{index}.export", intent.Export);
+            Append(hash, $"manifest.inlineIntents.{index}.preference", intent.Preference.ToString());
+        }
 
         Append(hash, "manifest.provenance.buildSeam", manifest.Provenance.BuildSeam);
         Append(hash, "manifest.provenance.configuration", manifest.Provenance.Configuration);

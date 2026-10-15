@@ -579,7 +579,7 @@ namespace System.Collections.Immutable
                 var array = new T[this.Count];
                 this.CopyTo(array);
                 Array.Sort(array, comparison);
-                return NodeTreeFromList(array, 0, this.Count);
+                return NodeTreeFromList(array.AsReadOnlyList(), 0, this.Count);
             }
 
             /// <summary>
@@ -618,7 +618,7 @@ namespace System.Collections.Immutable
                 var array = new T[this.Count];
                 this.CopyTo(array);
                 Array.Sort(array, index, count, comparer);
-                return NodeTreeFromList(array, 0, this.Count);
+                return NodeTreeFromList(array.AsReadOnlyList(), 0, this.Count);
             }
 
             /// <summary>
@@ -1569,7 +1569,7 @@ namespace System.Collections.Immutable
                     return other._root;
                 }
 
-                IReadOnlyList<T> list = keys as IReadOnlyList<T> ?? new List<T>(keys);
+                IReadOnlyList<T> list = keys.AsReadOnlyList();
                 return NodeTreeFromList(list, 0, list.Count);
             }
 

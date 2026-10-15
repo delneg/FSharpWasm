@@ -69,7 +69,7 @@ namespace System.Collections.Frozen
         private protected IAlternateEqualityComparer<TAlternateKey, TKey> GetAlternateEqualityComparer<TAlternateKey>() where TAlternateKey : notnull, allows ref struct
         {
             Debug.Assert(Comparer is IAlternateEqualityComparer<TAlternateKey, TKey>, "Must have already been verified");
-            return Unsafe.As<IAlternateEqualityComparer<TAlternateKey, TKey>>(Comparer)!;
+            return Unsafe.As<IAlternateEqualityComparer<TAlternateKey, TKey>>(Comparer);
         }
 
         /// <summary>

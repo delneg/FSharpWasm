@@ -272,57 +272,9 @@ namespace System
             {
                 value = value.Substring(start, end - start);
             }
-            if (value.Length == 0) return false;
-
-            var offset = 0;
-            var negative = value[0] == '-';
-            if (negative && ++offset == value.Length) return false;
-            var firstColon = value.IndexOf(':', offset);
-            if (firstColon < 0) return false;
-            var daySeparator = value.IndexOf('.', offset);
-            var days = 0;
-            var hourOffset = offset;
-            if (daySeparator >= 0 && daySeparator < firstColon)
-            {
-                if (!TryReadVariableDigits(value, offset, daySeparator, out days)) return false;
-                hourOffset = daySeparator + 1;
-            }
-            if (firstColon - hourOffset != 2 ||
-                !InvariantDateTimeText.TryReadDigits(value, hourOffset, 2, out var hours) ||
-                !InvariantDateTimeText.TryReadDigits(value, firstColon + 1, 2, out var minutes) ||
-                !InvariantDateTimeText.HasSeparator(value, firstColon + 3, ':') ||
-                !InvariantDateTimeText.TryReadDigits(value, firstColon + 4, 2, out var seconds) ||
-                hours >= 24 || minutes >= 60 || seconds >= 60)
-            {
-                return false;
-            }
-            var endOfSeconds = firstColon + 6;
-            var fraction = 0L;
-            if (endOfSeconds < value.Length &&
-                (value[endOfSeconds] != '.' ||
-                 !InvariantDateTimeText.TryReadFraction(value, endOfSeconds + 1, value.Length, out fraction)))
-            {
-                return false;
-            }
-            try
-            {
-                var magnitude = checked((ulong)days * (ulong)TicksPerDay
-                    + (ulong)hours * (ulong)TicksPerHour
-                    + (ulong)minutes * (ulong)TicksPerMinute
-                    + (ulong)seconds * (ulong)TicksPerSecond
-                    + (ulong)fraction);
-                var limit = negative ? 0x8000000000000000UL : 0x7fffffffffffffffUL;
-                if (magnitude > limit) return false;
-                var ticks = negative
-                    ? magnitude == 0x8000000000000000UL ? long.MinValue : -(long)magnitude
-                    : (long)magnitude;
-                result = new TimeSpan(ticks);
-                return true;
-            }
-            catch (Exception)
-            {
-                return false;
-            }
+            return TryParseStandard(value, 'c', out result) ||
+                TryParseStandard(value, 'g', out result) ||
+                TryParseStandard(value, 'G', out result);
         }
 
         public static bool TryParse(string? value, IFormatProvider? formatProvider, out TimeSpan result) =>
@@ -341,8 +293,8 @@ namespace System
         {
             ValidateStyles(styles);
             result = default;
-            if (value is null || format is null || !IsStandardFormat(format)) return false;
-            if (!TryParse(value, out result)) return false;
+            if (value is null || format is null || format.Length != 1 ||
+                !TryParseStandard(value, format[0], out result)) return false;
             if ((styles & System.Globalization.TimeSpanStyles.AssumeNegative) != 0 && result._ticks > 0)
             {
                 result = -result;
@@ -468,12 +420,221 @@ namespace System
             var minutes = magnitude / (ulong)TicksPerMinute % 60;
             var seconds = magnitude / (ulong)TicksPerSecond % 60;
             var fraction = (long)(magnitude % (ulong)TicksPerSecond);
+            var specifier = format is null or { Length: 0 } ? 'c' : format[0];
+            var dayText = specifier switch
+            {
+                'c' => days == 0 ? string.Empty : days.ToString() + ".",
+                'g' => days == 0 ? string.Empty : days.ToString() + ":",
+                _ => days.ToString() + ":",
+            };
+            var hourText = specifier == 'g'
+                ? hours.ToString()
+                : InvariantDateTimeText.TwoDigits((int)hours);
+            var fractionText = specifier switch
+            {
+                'g' => InvariantDateTimeText.Fraction(fraction),
+                'G' => "." + fraction.ToString().PadLeft(7, '0'),
+                _ => InvariantDateTimeText.FixedFraction(fraction),
+            };
             return (negative ? "-" : string.Empty)
-                + (days == 0 ? string.Empty : days.ToString() + ".")
-                + InvariantDateTimeText.TwoDigits((int)hours) + ":"
+                + dayText
+                + hourText + ":"
                 + InvariantDateTimeText.TwoDigits((int)minutes) + ":"
                 + InvariantDateTimeText.TwoDigits((int)seconds)
-                + InvariantDateTimeText.FixedFraction(fraction);
+                + fractionText;
+        }
+
+        private static bool TryParseStandard(
+            string value,
+            char format,
+            out TimeSpan result)
+        {
+            result = default;
+            if (value.Length == 0 || format is not ('c' or 'g' or 'G'))
+            {
+                return false;
+            }
+
+            var offset = 0;
+            var negative = value[0] == '-';
+            if (negative && ++offset == value.Length)
+            {
+                return false;
+            }
+
+            return format == 'c'
+                ? TryParseConstant(value, offset, negative, out result)
+                : TryParseGeneral(value, offset, negative, format == 'G', out result);
+        }
+
+        private static bool TryParseConstant(
+            string value,
+            int offset,
+            bool negative,
+            out TimeSpan result)
+        {
+            result = default;
+            var firstColon = value.IndexOf(':', offset);
+            if (firstColon < 0)
+            {
+                return false;
+            }
+
+            var days = 0;
+            var hourOffset = offset;
+            var daySeparator = value.IndexOf('.', offset);
+            if (daySeparator >= 0 && daySeparator < firstColon)
+            {
+                if (!TryReadVariableDigits(value, offset, daySeparator, out days))
+                {
+                    return false;
+                }
+                hourOffset = daySeparator + 1;
+            }
+            return TryParseClockTail(
+                value,
+                hourOffset,
+                firstColon,
+                days,
+                negative,
+                flexibleHour: false,
+                fixedFraction: false,
+                out result);
+        }
+
+        private static bool TryParseGeneral(
+            string value,
+            int offset,
+            bool negative,
+            bool longFormat,
+            out TimeSpan result)
+        {
+            result = default;
+            var firstColon = value.IndexOf(':', offset);
+            if (firstColon < 0)
+            {
+                return false;
+            }
+            var days = 0;
+            var hourOffset = offset;
+            var secondColon = value.IndexOf(':', firstColon + 1);
+            var hasDay = longFormat ||
+                secondColon >= 0 && value.IndexOf(':', secondColon + 1) >= 0;
+            if (hasDay)
+            {
+                if (!TryReadVariableDigits(value, offset, firstColon, out days))
+                {
+                    return false;
+                }
+                hourOffset = firstColon + 1;
+                firstColon = value.IndexOf(':', hourOffset);
+                if (firstColon < 0)
+                {
+                    return false;
+                }
+            }
+            return TryParseClockTail(
+                value,
+                hourOffset,
+                firstColon,
+                days,
+                negative,
+                flexibleHour: !longFormat,
+                fixedFraction: longFormat,
+                out result);
+        }
+
+        private static bool TryParseClockTail(
+            string value,
+            int hourOffset,
+            int firstColon,
+            int days,
+            bool negative,
+            bool flexibleHour,
+            bool fixedFraction,
+            out TimeSpan result)
+        {
+            result = default;
+            var hourWidth = firstColon - hourOffset;
+            if ((flexibleHour ? hourWidth is < 1 or > 2 : hourWidth != 2) ||
+                !TryReadVariableDigits(value, hourOffset, firstColon, out var hours) ||
+                !InvariantDateTimeText.TryReadDigits(value, firstColon + 1, 2, out var minutes) ||
+                !InvariantDateTimeText.HasSeparator(value, firstColon + 3, ':') ||
+                !InvariantDateTimeText.TryReadDigits(value, firstColon + 4, 2, out var seconds) ||
+                hours >= 24 || minutes >= 60 || seconds >= 60)
+            {
+                return false;
+            }
+
+            var endOfSeconds = firstColon + 6;
+            var fraction = 0L;
+            if (fixedFraction)
+            {
+                if (value.Length != endOfSeconds + 8 || value[endOfSeconds] != '.' ||
+                    !InvariantDateTimeText.TryReadFraction(
+                        value,
+                        endOfSeconds + 1,
+                        value.Length,
+                        out fraction))
+                {
+                    return false;
+                }
+            }
+            else if (endOfSeconds < value.Length &&
+                (value[endOfSeconds] != '.' ||
+                 !InvariantDateTimeText.TryReadFraction(
+                     value,
+                     endOfSeconds + 1,
+                     value.Length,
+                     out fraction)))
+            {
+                return false;
+            }
+
+            return TryCreateParsedTimeSpan(
+                days,
+                hours,
+                minutes,
+                seconds,
+                fraction,
+                negative,
+                out result);
+        }
+
+        private static bool TryCreateParsedTimeSpan(
+            int days,
+            int hours,
+            int minutes,
+            int seconds,
+            long fraction,
+            bool negative,
+            out TimeSpan result)
+        {
+            result = default;
+            try
+            {
+                var magnitude = checked((ulong)days * (ulong)TicksPerDay
+                    + (ulong)hours * (ulong)TicksPerHour
+                    + (ulong)minutes * (ulong)TicksPerMinute
+                    + (ulong)seconds * (ulong)TicksPerSecond
+                    + (ulong)fraction);
+                var limit = negative ? 0x8000000000000000UL : 0x7fff_ffff_ffff_ffffUL;
+                if (magnitude > limit)
+                {
+                    return false;
+                }
+                var ticks = negative
+                    ? magnitude == 0x8000000000000000UL
+                        ? long.MinValue
+                        : -(long)magnitude
+                    : (long)magnitude;
+                result = new TimeSpan(ticks);
+                return true;
+            }
+            catch (Exception)
+            {
+                return false;
+            }
         }
 
         private static bool TryCopy(string text, Span<char> destination, out int charsWritten)
@@ -507,7 +668,6 @@ namespace System
 
         private static bool IsWhiteSpace(char value) => value is ' ' or '\t' or '\r' or '\n' or '\f' or '\v';
 
-        private static bool IsStandardFormat(string format) => format is "c" or "g" or "G";
     }
 }
 

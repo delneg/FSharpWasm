@@ -1,9 +1,21 @@
+// Portions derived from dotnet/runtime System.Private.CoreLib.
+// Licensed to the .NET Foundation under one or more agreements.
+// The .NET Foundation licenses this file to you under the MIT license.
+
 namespace System
 {
+    [AttributeUsage(AttributeTargets.All, Inherited = true, AllowMultiple = false)]
     public abstract class Attribute
     {
+        protected Attribute()
+        {
+        }
+
+        // Desktop Attribute equality enumerates instance fields through reflection.
+        // NetWasm deliberately keeps that discovery surface outside its closed-world
+        // profile, so the base implementation retains identity equality instead.
         public override bool Equals(object? value) => ReferenceEquals(this, value);
-        public override int GetHashCode() => 0;
+        public override int GetHashCode() => base.GetHashCode();
         public virtual bool IsDefaultAttribute() => false;
         public virtual bool Match(object? value) => Equals(value);
         public virtual object TypeId
@@ -59,35 +71,52 @@ namespace System
 
     public enum AttributeTargets
     {
-        Assembly = 1,
-        Module = 2,
-        Class = 4,
-        Struct = 8,
-        Enum = 16,
-        Constructor = 32,
-        Method = 64,
-        Property = 128,
-        Field = 256,
-        Event = 512,
-        Interface = 1024,
-        Parameter = 2048,
-        Delegate = 4096,
-        ReturnValue = 8192,
-        GenericParameter = 16384,
-        All = 32767
+        Assembly = 0x0001,
+        Module = 0x0002,
+        Class = 0x0004,
+        Struct = 0x0008,
+        Enum = 0x0010,
+        Constructor = 0x0020,
+        Method = 0x0040,
+        Property = 0x0080,
+        Field = 0x0100,
+        Event = 0x0200,
+        Interface = 0x0400,
+        Parameter = 0x0800,
+        Delegate = 0x1000,
+        ReturnValue = 0x2000,
+        GenericParameter = 0x4000,
+        All = Assembly | Module | Class | Struct | Enum | Constructor |
+            Method | Property | Field | Event | Interface | Parameter |
+            Delegate | ReturnValue | GenericParameter,
     }
 
+    [AttributeUsage(AttributeTargets.Class, Inherited = true)]
     public sealed class AttributeUsageAttribute : Attribute
     {
+        private readonly AttributeTargets _attributeTarget;
+        private bool _allowMultiple;
+        private bool _inherited;
+
         public AttributeUsageAttribute(AttributeTargets validOn)
         {
-            ValidOn = validOn;
-            Inherited = true;
+            _attributeTarget = validOn;
+            _inherited = true;
         }
 
-        public AttributeTargets ValidOn { get; }
-        public bool AllowMultiple { get; set; }
-        public bool Inherited { get; set; }
+        public AttributeTargets ValidOn => _attributeTarget;
+
+        public bool AllowMultiple
+        {
+            get => _allowMultiple;
+            set => _allowMultiple = value;
+        }
+
+        public bool Inherited
+        {
+            get => _inherited;
+            set => _inherited = value;
+        }
     }
 
     [AttributeUsage(AttributeTargets.Parameter)]
@@ -123,9 +152,9 @@ namespace System.Reflection
 namespace System.Runtime.CompilerServices
 {
     [Flags]
-    public enum CompilationRelaxations
+    public enum CompilationRelaxations : int
     {
-        NoStringInterning = 8,
+        NoStringInterning = 0x0008,
     }
 
     public static class ContractHelper
@@ -148,17 +177,17 @@ namespace System.Runtime.CompilerServices
 
     public enum LoadHint
     {
-        Default = 0,
-        Always = 1,
-        Sometimes = 2,
+        Default = 0x0000,
+        Always = 0x0001,
+        Sometimes = 0x0002,
     }
 
     public enum MethodCodeType
     {
-        IL = 0,
-        Native = 1,
-        OPTIL = 2,
-        Runtime = 3,
+        IL = Reflection.MethodImplAttributes.IL,
+        Native = Reflection.MethodImplAttributes.Native,
+        OPTIL = Reflection.MethodImplAttributes.OPTIL,
+        Runtime = Reflection.MethodImplAttributes.Runtime,
     }
 
     // Matches the dotnet/runtime modifier type used in volatile field signatures.
@@ -177,44 +206,39 @@ namespace System.Runtime.CompilerServices
     [AttributeUsage(AttributeTargets.Method | AttributeTargets.Class | AttributeTargets.Assembly)]
     public sealed class ExtensionAttribute : Attribute
     {
-        public ExtensionAttribute()
-        {
-        }
     }
 
     public static class RuntimeFeature
     {
-        public const string ByRefFields = "ByRefFields";
-        public const string ByRefLikeGenerics = "ByRefLikeGenerics";
-        public const string CovariantReturnsOfClasses = "CovariantReturnsOfClasses";
+        public const string ByRefFields = nameof(ByRefFields);
+        public const string ByRefLikeGenerics = nameof(ByRefLikeGenerics);
+        public const string CovariantReturnsOfClasses = nameof(CovariantReturnsOfClasses);
         public const string DefaultImplementationsOfInterfaces =
-            "DefaultImplementationsOfInterfaces";
-        public const string NumericIntPtr = "NumericIntPtr";
-        public const string PortablePdb = "PortablePdb";
+            nameof(DefaultImplementationsOfInterfaces);
+        public const string NumericIntPtr = nameof(NumericIntPtr);
+        public const string PortablePdb = nameof(PortablePdb);
         public const string UnmanagedSignatureCallingConvention =
-            "UnmanagedSignatureCallingConvention";
-        public const string VirtualStaticsInInterfaces = "VirtualStaticsInInterfaces";
+            nameof(UnmanagedSignatureCallingConvention);
+        public const string VirtualStaticsInInterfaces = nameof(VirtualStaticsInInterfaces);
 
-        public static bool IsDynamicCodeCompiled
-        {
-            get => false;
-        }
-        public static bool IsDynamicCodeSupported
-        {
-            get => false;
-        }
-        public static bool IsMultithreadingSupported
-        {
-            get => false;
-        }
+        public static bool IsDynamicCodeCompiled => false;
+        public static bool IsDynamicCodeSupported => false;
+        public static bool IsMultithreadingSupported => false;
 
         public static bool IsSupported(string feature) => feature switch
         {
             ByRefFields or ByRefLikeGenerics or CovariantReturnsOfClasses or
             DefaultImplementationsOfInterfaces or NumericIntPtr or PortablePdb or
             UnmanagedSignatureCallingConvention or VirtualStaticsInInterfaces => true,
+            nameof(IsDynamicCodeSupported) => IsDynamicCodeSupported,
+            nameof(IsDynamicCodeCompiled) => IsDynamicCodeCompiled,
+            nameof(IsMultithreadingSupported) => IsMultithreadingSupported,
             _ => false,
         };
+
+        [Diagnostics.CodeAnalysis.DoesNotReturn]
+        internal static void ThrowIfMultithreadingIsNotSupported() =>
+            throw new PlatformNotSupportedException();
     }
 
     [InlineArray(2)] public struct InlineArray2<T> { private T t; }
@@ -233,27 +257,21 @@ namespace System.Runtime.CompilerServices
     [InlineArray(15)] public struct InlineArray15<T> { private T t; }
     [InlineArray(16)] public struct InlineArray16<T> { private T t; }
 
-    [AttributeUsage(AttributeTargets.Method, Inherited = false)]
+    [AttributeUsage(AttributeTargets.Method, AllowMultiple = false, Inherited = false)]
     public sealed class PreserveBaseOverridesAttribute : Attribute
     {
-        public PreserveBaseOverridesAttribute()
-        {
-        }
     }
 
-    [AttributeUsage(AttributeTargets.Struct)]
+    [AttributeUsage(AttributeTargets.Struct, AllowMultiple = false)]
     public sealed class InlineArrayAttribute : Attribute
     {
         public InlineArrayAttribute(int length) => Length = length;
         public int Length { get; }
     }
 
-    [AttributeUsage(AttributeTargets.Parameter)]
+    [AttributeUsage(AttributeTargets.Parameter, Inherited = true, AllowMultiple = false)]
     public sealed class ParamCollectionAttribute : Attribute
     {
-        public ParamCollectionAttribute()
-        {
-        }
     }
 
     [AttributeUsage(AttributeTargets.Class | AttributeTargets.Struct |
@@ -275,16 +293,8 @@ namespace System.Runtime.CompilerServices
     }
 
     [AttributeUsage(AttributeTargets.Class | AttributeTargets.Struct | AttributeTargets.Field |
-        AttributeTargets.Property)]
+        AttributeTargets.Property, AllowMultiple = false, Inherited = false)]
     public sealed class RequiredMemberAttribute : Attribute
-    {
-        public RequiredMemberAttribute()
-        {
-        }
-    }
-
-    [AttributeUsage(AttributeTargets.Constructor)]
-    public sealed class SetsRequiredMembersAttribute : Attribute
     {
     }
 
@@ -302,11 +312,16 @@ namespace System.Runtime.CompilerServices
         public static int GetHashCode(object? value) => ObjectIdentityRuntime.GetHashCode(value);
 
         public static int OffsetToStringData => IntPtr.Size + sizeof(int);
+
+        [Intrinsic]
+        public static ReadOnlySpan<T> CreateSpan<T>(RuntimeFieldHandle fldHandle) =>
+            throw new PlatformNotSupportedException();
+
         public static void InitializeArray(
             Array array,
-            RuntimeFieldHandle fieldHandle)
-        {
-        }
+            RuntimeFieldHandle fieldHandle) =>
+            throw new PlatformNotSupportedException(
+                "Only compiler-recognized static array initialization is supported.");
 
         [Obsolete("The Constrained Execution Region (CER) feature is not supported.",
             DiagnosticId = "SYSLIB0004",
@@ -331,18 +346,44 @@ namespace System.Runtime.CompilerServices
             }
         }
 
-        public static new bool Equals(object? o1, object? o2) => object.Equals(o1, o2);
+        public static new bool Equals(object? o1, object? o2) =>
+            RuntimeHelpersRuntime.AreEqual(o1, o2);
 
         [return: Diagnostics.CodeAnalysis.NotNullIfNotNull("obj")]
-        public static object? GetObjectValue(object? obj) => obj;
+        public static object? GetObjectValue(object? obj)
+        {
+            if (obj is null)
+            {
+                return null;
+            }
+
+            var type = obj.GetType();
+            if (!type.IsValueType || IsPrimitive(type))
+            {
+                return obj;
+            }
+
+            return RuntimeHelpersRuntime.CloneBoxedValue(obj) ??
+                throw new OutOfMemoryException();
+        }
 
         public static T[] GetSubArray<T>(T[] array, Range range)
         {
             ArgumentNullException.ThrowIfNull(array);
-            var offsets = range.GetOffsetAndLength(array.Length);
-            var result = new T[offsets.Item2];
-            Array.Copy(array, offsets.Item1, result, 0, offsets.Item2);
-            return result;
+            var (offset, length) = range.GetOffsetAndLength(array.Length);
+
+            if (typeof(T[]) != array.GetType())
+            {
+                return (T[])Array.InternalCloneRange(array, offset, length);
+            }
+            if (length == 0)
+            {
+                return [];
+            }
+
+            var destination = new T[length];
+            Array.Copy(array, offset, destination, 0, length);
+            return destination;
         }
 
         [Obsolete("The Constrained Execution Region (CER) feature is not supported.",
@@ -368,7 +409,6 @@ namespace System.Runtime.CompilerServices
 
         public static void PrepareDelegate(Delegate d)
         {
-            ArgumentNullException.ThrowIfNull(d);
         }
 
         public static void EnsureSufficientExecutionStack()
@@ -381,15 +421,55 @@ namespace System.Runtime.CompilerServices
         public static void ProbeForSufficientStack()
         {
         }
+
+        [Intrinsic]
+        internal static bool IsKnownConstant(Type? value) => false;
+
+        [Intrinsic]
+        internal static bool IsKnownConstant(string? value) => false;
+
+        [Intrinsic]
+        internal static bool IsKnownConstant(char value) => false;
+
+        [Intrinsic]
+        internal static bool IsKnownConstant<T>(T value) where T : struct => false;
+
+        [Intrinsic]
+        internal static bool IsRuntimeAsync() => false;
+
+        [Intrinsic]
+        internal static void WriteBarrier(ref object? destination, object? value) =>
+            destination = value;
+
+        private static bool IsPrimitive(Type type) =>
+            type.IsEnum ||
+            Type.GetTypeCode(type) is >= TypeCode.Boolean and <= TypeCode.Double ||
+            type == typeof(nint) ||
+            type == typeof(nuint);
+    }
+
+    internal static class RuntimeHelpersRuntime
+    {
+        [MethodImpl(MethodImplOptions.InternalCall)]
+        internal static extern object? CloneBoxedValue(object value);
+
+        [MethodImpl(MethodImplOptions.InternalCall)]
+        internal static extern bool AreEqual(object? left, object? right);
     }
 
     public class StrongBox<T> : IStrongBox
     {
-        public T Value;
+        [Diagnostics.CodeAnalysis.MaybeNull]
+        public T Value = default!;
 
-        public StrongBox() => Value = default!;
+        public StrongBox()
+        {
+        }
 
-        public StrongBox(T value) => Value = value;
+        public StrongBox(T value)
+        {
+            Value = value;
+        }
 
         object? IStrongBox.Value
         {
@@ -400,25 +480,22 @@ namespace System.Runtime.CompilerServices
 
     public enum UnsafeAccessorKind
     {
-        Constructor = 0,
-        Method = 1,
-        StaticMethod = 2,
-        Field = 3,
-        StaticField = 4,
+        Constructor,
+        Method,
+        StaticMethod,
+        Field,
+        StaticField,
     }
 
-    [AttributeUsage(AttributeTargets.Property)]
+    [AttributeUsage(AttributeTargets.Property, Inherited = true)]
     public sealed class IndexerNameAttribute : Attribute
     {
         public IndexerNameAttribute(string indexerName)
         {
-            Value = indexerName;
         }
-
-        public string Value { get; }
     }
 
-    [AttributeUsage(AttributeTargets.Struct)]
+    [AttributeUsage(AttributeTargets.Struct, AllowMultiple = false)]
     public sealed class IsByRefLikeAttribute : Attribute
     {
         public IsByRefLikeAttribute()
@@ -426,7 +503,7 @@ namespace System.Runtime.CompilerServices
         }
     }
 
-    [AttributeUsage(AttributeTargets.Struct)]
+    [AttributeUsage(AttributeTargets.Struct, AllowMultiple = false)]
     public sealed class IsReadOnlyAttribute : Attribute
     {
         public IsReadOnlyAttribute()
@@ -449,7 +526,7 @@ namespace System.Runtime.CompilerServices
         public bool IsOptional { get; init; }
     }
 
-    [AttributeUsage(AttributeTargets.Module)]
+    [AttributeUsage(AttributeTargets.Module, Inherited = false)]
     public sealed class RefSafetyRulesAttribute : Attribute
     {
         public RefSafetyRulesAttribute(int version)
@@ -463,11 +540,14 @@ namespace System.Runtime.CompilerServices
     [AttributeUsage(AttributeTargets.All)]
     public sealed class TupleElementNamesAttribute : Attribute
     {
+        private readonly string?[] _transformNames;
+
         public TupleElementNamesAttribute(string?[] transformNames)
         {
-            TransformNames = transformNames;
+            ArgumentNullException.ThrowIfNull(transformNames);
+            _transformNames = transformNames;
         }
 
-        public System.Collections.Generic.IList<string?> TransformNames { get; }
+        public System.Collections.Generic.IList<string?> TransformNames => _transformNames;
     }
 }

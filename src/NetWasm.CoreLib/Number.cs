@@ -3,80 +3,15 @@
 // Number.Formatting.cs. The upstream implementation is licensed under MIT.
 // Copyright (c) .NET Foundation and Contributors.
 //
-// NetWasm deliberately removes culture/provider, UTF-8, span, generic-math and
-// runtime-intrinsic branches that are outside its current CoreLib profile.
+// Integer formatting is ported separately in Number.IntegerFormatting.cs.
+// The remaining parsing and floating-point support here uses invariant culture.
+using System.Numerics;
+using System.Text;
+
 namespace System
 {
     internal static partial class Number
     {
-        internal static string FormatUnsigned(ulong value, int bits, string? format)
-        {
-            var symbol = format == null || format.Length == 0 ? 'G' : format[0];
-            var hexadecimal = symbol == 'x' || symbol == 'X';
-            var binary = symbol == 'b' || symbol == 'B';
-            if (!hexadecimal && !binary &&
-                symbol != 'g' && symbol != 'G' &&
-                symbol != 'd' && symbol != 'D')
-            {
-                throw new FormatException();
-            }
-            var precision = ParseFormatPrecision(format);
-            var upper = hexadecimal && symbol == 'X';
-            var radix = hexadecimal ? 16UL : binary ? 2UL : 10UL;
-            var naturalMaximum = hexadecimal ? bits / 4 : binary ? bits : 20;
-            var buffer = new char[Math.Max(naturalMaximum, precision)];
-            var index = buffer.Length;
-            do
-            {
-                var digit = (int)(value % radix);
-                buffer[--index] = digit < 10
-                    ? (char)('0' + digit)
-                    : (char)((upper ? 'A' : 'a') + digit - 10);
-                value /= radix;
-            }
-            while (value != 0);
-            while (buffer.Length - index < precision)
-            {
-                buffer[--index] = '0';
-            }
-            return Slice(buffer, index, buffer.Length - index);
-        }
-
-        internal static string FormatSigned(long value, int bits, string? format)
-        {
-            var hexadecimalOrBinary = format != null && format.Length != 0 &&
-                (format[0] == 'x' || format[0] == 'X' ||
-                 format[0] == 'b' || format[0] == 'B');
-            if (hexadecimalOrBinary)
-            {
-                var masked = bits == 64 ? (ulong)value : (ulong)value & ((1UL << bits) - 1);
-                return FormatUnsigned(masked, bits, format);
-            }
-            var negative = value < 0;
-            var magnitude = negative ? unchecked((ulong)(-(value + 1)) + 1) : (ulong)value;
-            var result = FormatUnsigned(magnitude, bits, format);
-            return negative ? string.Concat("-", result) : result;
-        }
-
-        private static int ParseFormatPrecision(string? format)
-        {
-            if (format == null || format.Length <= 1)
-            {
-                return 0;
-            }
-            var precision = 0;
-            for (var index = 1; index < format.Length; index++)
-            {
-                var character = format[index];
-                if (character < '0' || character > '9' || precision > 99)
-                {
-                    throw new FormatException();
-                }
-                precision = precision * 10 + character - '0';
-            }
-            return precision;
-        }
-
         internal static bool TryParseUnsigned(
             string? text,
             int bits,
@@ -90,34 +25,47 @@ namespace System
             {
                 return false;
             }
-            if (!hexadecimal && text![start] == '+')
+            var source = text!;
+            var negative = false;
+            if (!hexadecimal && (source[start] is '+' or '-'))
             {
+                negative = source[start] == '-';
                 start++;
-            }
-            else if (text![start] == '-')
-            {
-                return false;
             }
             if (start == end)
             {
                 return false;
             }
-            var maximum = bits == 64 ? ulong.MaxValue : (1UL << bits) - 1;
+            var maximum = negative
+                ? 0
+                : bits == 64 ? ulong.MaxValue : (1UL << bits) - 1;
             var radix = hexadecimal ? 16UL : 10UL;
+            var overflowed = false;
             for (var index = start; index < end; index++)
             {
-                var digit = Digit(text[index], hexadecimal);
+                var digit = Digit(source[index], hexadecimal);
                 if (digit < 0)
                 {
+                    value = 0;
                     return false;
                 }
-                if (value > (maximum - (ulong)digit) / radix)
+                if (overflowed)
                 {
-                    value = 0;
-                    overflow = true;
-                    return false;
+                    continue;
+                }
+                if (value > maximum / radix ||
+                    (value == maximum / radix && (ulong)digit > maximum % radix))
+                {
+                    overflowed = true;
+                    continue;
                 }
                 value = value * radix + (ulong)digit;
+            }
+            if (overflowed)
+            {
+                value = 0;
+                overflow = true;
+                return false;
             }
             return true;
         }
@@ -164,19 +112,31 @@ namespace System
             var positiveMaximum = bits == 64 ? (ulong)long.MaxValue : (1UL << (bits - 1)) - 1;
             var maximum = negative ? positiveMaximum + 1 : positiveMaximum;
             var magnitude = 0UL;
+            var overflowed = false;
             for (var index = start; index < end; index++)
             {
                 var digit = Digit(text[index], false);
                 if (digit < 0)
                 {
+                    value = 0;
                     return false;
                 }
-                if (magnitude > (maximum - (ulong)digit) / 10)
+                if (overflowed)
                 {
-                    overflow = true;
-                    return false;
+                    continue;
+                }
+                if (magnitude > maximum / 10 ||
+                    (magnitude == maximum / 10 && (ulong)digit > maximum % 10))
+                {
+                    overflowed = true;
+                    continue;
                 }
                 magnitude = magnitude * 10 + (ulong)digit;
+            }
+            if (overflowed)
+            {
+                overflow = true;
+                return false;
             }
             value = negative
                 ? magnitude == 1UL << (bits - 1) && bits == 64
@@ -187,85 +147,175 @@ namespace System
         }
 
         internal static string FormatSingle(float value, string? format) =>
-            TryParseFixedFormat(format, out var precision)
-                ? FormatFixedFloating(BitConverter.SingleToUInt32Bits(value), true, precision)
-                : FormatFloating(BitConverter.SingleToUInt32Bits(value), true, format);
+            FormatFloating<float>(BitConverter.SingleToUInt32Bits(value), format);
 
         internal static string FormatDouble(double value, string? format) =>
-            TryParseFixedFormat(format, out var precision)
-                ? FormatFixedFloating(BitConverter.DoubleToUInt64Bits(value), false, precision)
-                : FormatFloating(BitConverter.DoubleToUInt64Bits(value), false, format);
+            FormatFloating<double>(BitConverter.DoubleToUInt64Bits(value), format);
 
         internal static bool TryParseSingle(string? text, out float value)
         {
-            var valid = TryParseFloating(text, true, out var bits);
-            value = BitConverter.UInt32BitsToSingle((uint)bits);
-            return valid;
+            if (text == null)
+            {
+                value = default;
+                return false;
+            }
+
+            return TryParseFloat(
+                text.AsSpan(),
+                Globalization.NumberStyles.Float | Globalization.NumberStyles.AllowThousands,
+                Globalization.NumberFormatInfo.InvariantInfo,
+                out value,
+                out _);
         }
 
         internal static bool TryParseDouble(string? text, out double value)
         {
-            var valid = TryParseFloating(text, false, out var bits);
-            value = BitConverter.UInt64BitsToDouble(bits);
-            return valid;
-        }
-
-        private static bool TryParseFixedFormat(string? format, out int precision)
-        {
-            precision = 2;
-            if (format is null || format.Length == 0 ||
-                (format[0] != 'F' && format[0] != 'f'))
+            if (text == null)
             {
+                value = default;
                 return false;
             }
 
-            if (format.Length == 1)
+            return TryParseFloat(
+                text.AsSpan(),
+                Globalization.NumberStyles.Float | Globalization.NumberStyles.AllowThousands,
+                Globalization.NumberFormatInfo.InvariantInfo,
+                out value,
+                out _);
+        }
+
+        internal static TNumber RoundToDecimalDigits<TNumber>(
+            TNumber value,
+            int digits,
+            MidpointRounding mode)
+            where TNumber : unmanaged, IBinaryFloatParseAndFormatInfo<TNumber>
+        {
+            var bits = TNumber.FloatToBits(value);
+            var fractionBits = TNumber.NormalMantissaBits - 1;
+            var exponentMask = (1UL << TNumber.ExponentBits) - 1;
+            var exponent = (int)((bits >> fractionBits) & exponentMask);
+            var fraction = bits & ((1UL << fractionBits) - 1);
+            if (exponent == (int)exponentMask || exponent == 0 && fraction == 0 ||
+                digits > -TNumber.MinDecimalExponent + 2)
             {
-                return true;
+                return value;
             }
 
-            precision = 0;
-            for (var index = 1; index < format.Length; index++)
+            var negative = (bits >> (fractionBits + TNumber.ExponentBits)) != 0;
+            var mantissa = exponent == 0 ? fraction : fraction | 1UL << fractionBits;
+            var binaryPower = exponent == 0
+                ? TNumber.MinBinaryExponent - fractionBits
+                : exponent - TNumber.ExponentBias - fractionBits;
+            var numerator = new BigInteger(mantissa);
+            var denominator = BigInteger.One;
+            if (binaryPower >= 0) numerator <<= binaryPower;
+            else denominator <<= -binaryPower;
+
+            var decimalScale = BigInteger.Pow(new BigInteger(10), digits);
+            numerator *= decimalScale;
+            var quotient = BigInteger.DivRem(numerator, denominator, out var remainder);
+            if (remainder != BigInteger.Zero)
             {
-                var digit = format[index] - '0';
-                if ((uint)digit > 9u || precision > 99)
+                var comparison = (remainder << 1).CompareTo(denominator);
+                var roundUp = mode switch
                 {
-                    throw new FormatException();
-                }
-
-                precision = precision * 10 + digit;
+                    MidpointRounding.ToEven => comparison > 0 || comparison == 0 && !quotient.IsEven,
+                    MidpointRounding.AwayFromZero => comparison >= 0,
+                    MidpointRounding.ToZero => false,
+                    MidpointRounding.ToNegativeInfinity => negative,
+                    MidpointRounding.ToPositiveInfinity => !negative,
+                    _ => false,
+                };
+                if (roundUp) quotient += BigInteger.One;
             }
 
-            if (precision > 999)
+            var sign = negative ? 1UL << (fractionBits + TNumber.ExponentBits) : 0;
+            if (quotient.IsZero) return TNumber.BitsToFloat(sign);
+            var roundedDigits = quotient.ToString().ToCharArray();
+            var roundedBits = ConvertDecimalToFloatingBits<TNumber>(
+                roundedDigits,
+                roundedDigits.Length,
+                -digits,
+                negative);
+            return TNumber.BitsToFloat(roundedBits);
+        }
+
+        private static char ParseFloatingFormat(string? format, out int precision)
+            => ParseFloatingFormat(format.AsSpan(), out precision);
+
+        private static char ParseFloatingFormat(ReadOnlySpan<char> format, out int precision)
+        {
+            precision = -1;
+            if (format.Length == 0)
+            {
+                return 'G';
+            }
+
+            var symbol = format[0];
+            if (symbol is not ('G' or 'g' or 'R' or 'r' or 'F' or 'f' or 'E' or 'e'))
             {
                 throw new FormatException();
             }
-
-            return true;
+            if (format.Length > 1)
+            {
+                precision = 0;
+                for (var index = 1; index < format.Length; index++)
+                {
+                    var digit = format[index] - '0';
+                    if ((uint)digit > 9u || precision > 99)
+                    {
+                        throw new FormatException();
+                    }
+                    precision = precision * 10 + digit;
+                }
+            }
+            if (precision > 999 || (symbol is 'R' or 'r') && precision >= 0) throw new FormatException();
+            return symbol;
         }
 
-        private static string FormatFixedFloating(ulong bits, bool single, int precision)
+        private static string FormatFixedFloating(ulong bits, bool single, int precision) => single
+            ? FormatFixedFloating<float>(bits, precision)
+            : FormatFixedFloating<double>(bits, precision);
+
+        private static string FormatFixedFloating<TNumber>(ulong bits, int precision)
+            where TNumber : unmanaged, IBinaryFloatParseAndFormatInfo<TNumber>
         {
-            var signMask = single ? 0x80000000UL : 0x8000000000000000UL;
-            var exponentMask = single ? 0x7F800000UL : 0x7FF0000000000000UL;
-            var fractionMask = single ? 0x007FFFFFUL : 0x000FFFFFFFFFFFFFUL;
+            var builder = new ValueStringBuilder(32);
+            AppendFixedFloating<TNumber>(ref builder, bits, precision);
+            return builder.ToString();
+        }
+
+        private static void AppendFixedFloating<TNumber>(
+            scoped ref ValueStringBuilder builder,
+            ulong bits,
+            int precision)
+            where TNumber : unmanaged, IBinaryFloatParseAndFormatInfo<TNumber>
+        {
+            var fractionBits = TNumber.NormalMantissaBits - 1;
+            var signMask = 1UL << (fractionBits + TNumber.ExponentBits);
+            var exponentMask = ((1UL << TNumber.ExponentBits) - 1) << fractionBits;
+            var fractionMask = (1UL << fractionBits) - 1;
             var negative = (bits & signMask) != 0;
             var magnitude = bits & ~signMask;
             if ((magnitude & exponentMask) == exponentMask)
             {
-                return FormatFloating(bits, single, null);
+                AppendFloating<TNumber>(ref builder, bits, default);
+                return;
             }
 
             if ((magnitude & (exponentMask | fractionMask)) == 0)
             {
-                return FormatFixedDigits([], 0, 0, negative, precision);
+                AppendFixedDigits(ref builder, [], 0, 0, negative, precision);
+                return;
             }
 
             GetFloatingRational(
                 magnitude,
-                single,
                 out var numerator,
-                out var denominator);
+                out var denominator,
+                TNumber.ExponentBits,
+                TNumber.ExponentBias,
+                TNumber.NormalMantissaBits);
             var decimalExponent = 0;
             if (CompareToPower10(numerator, denominator, 0) >= 0)
             {
@@ -297,15 +347,18 @@ namespace System
                         denominator,
                         precision))
                 {
-                    return FormatFixedDigits([], 0, 0, negative, precision);
+                    AppendFixedDigits(ref builder, [], 0, 0, negative, precision);
+                    return;
                 }
 
-                return FormatFixedDigits(
+                AppendFixedDigits(
+                    ref builder,
                     ['1'],
                     1,
                     -precision,
                     negative,
                     precision);
+                return;
             }
 
             var digits = GenerateRoundedDigits(
@@ -315,7 +368,8 @@ namespace System
                 significantPrecision,
                 out var resultExponent,
                 out var resultLength);
-            return FormatFixedDigits(
+            AppendFixedDigits(
+                ref builder,
                 digits,
                 resultLength,
                 resultExponent,
@@ -342,42 +396,46 @@ namespace System
             bool negative,
             int precision)
         {
-            var integerDigitCount = decimalExponent >= 0
-                ? decimalExponent + 1
-                : 1;
-            var signLength = negative ? 1 : 0;
-            var fractionLength = precision == 0 ? 0 : precision + 1;
-            var result = new char[
-                signLength + integerDigitCount + fractionLength];
-            var destination = 0;
+            var builder = new ValueStringBuilder(32);
+            AppendFixedDigits(ref builder, digits, digitCount, decimalExponent, negative, precision);
+            return builder.ToString();
+        }
+
+        private static void AppendFixedDigits(
+            scoped ref ValueStringBuilder builder,
+            char[] digits,
+            int digitCount,
+            int decimalExponent,
+            bool negative,
+            int precision)
+        {
+            var integerDigitCount = decimalExponent >= 0 ? decimalExponent + 1 : 1;
             if (negative)
             {
-                result[destination++] = '-';
+                builder.Append('-');
             }
 
             for (var power = integerDigitCount - 1; power >= 0; power--)
             {
-                result[destination++] = ReadFixedDigit(
+                builder.Append(ReadFixedDigit(
                     digits,
                     digitCount,
                     decimalExponent,
-                    power);
+                    power));
             }
 
             if (precision != 0)
             {
-                result[destination++] = '.';
+                builder.Append('.');
                 for (var power = -1; power >= -precision; power--)
                 {
-                    result[destination++] = ReadFixedDigit(
+                    builder.Append(ReadFixedDigit(
                         digits,
                         digitCount,
                         decimalExponent,
-                        power);
+                        power));
                 }
             }
-
-            return new string(result);
         }
 
         private static char ReadFixedDigit(
@@ -390,34 +448,74 @@ namespace System
             return (uint)index < (uint)digitCount ? digits[index] : '0';
         }
 
-        private static string FormatFloating(ulong bits, bool single, string? format)
+        private static string FormatFloating(ulong bits, bool single, string? format) => single
+            ? FormatFloating<float>(bits, format)
+            : FormatFloating<double>(bits, format);
+
+        private static string FormatFloating<TNumber>(ulong bits, string? format)
+            where TNumber : unmanaged, IBinaryFloatParseAndFormatInfo<TNumber>
         {
-            var lowerExponent = false;
-            if (format != null && format.Length != 0)
+            var builder = new ValueStringBuilder(32);
+            AppendFloating<TNumber>(ref builder, bits, format.AsSpan());
+            return builder.ToString();
+        }
+
+        internal static void AppendFloating<TNumber>(
+            scoped ref ValueStringBuilder builder,
+            ulong bits,
+            scoped ReadOnlySpan<char> format)
+            where TNumber : unmanaged, IBinaryFloatParseAndFormatInfo<TNumber>
+        {
+            var symbol = ParseInvariantFormatSpecifier(format, out var precision);
+            var customFormat = symbol == '\0';
+            if (!customFormat)
             {
-                if (format.Length != 1 || format[0] is not ('G' or 'g' or 'R' or 'r'))
-                {
-                    throw new FormatException();
-                }
-                lowerExponent = format[0] is 'g' or 'r';
+                symbol = ParseFloatingFormat(format, out precision);
             }
-            var fractionBits = single ? 23 : 52;
-            var exponentBits = single ? 8 : 11;
+            if (symbol is 'F' or 'f')
+            {
+                AppendFixedFloating<TNumber>(ref builder, bits, precision < 0 ? 2 : precision);
+                return;
+            }
+            var lowerExponent = symbol is 'g' or 'r' or 'e';
+            var fractionBits = TNumber.NormalMantissaBits - 1;
+            var exponentBits = TNumber.ExponentBits;
             var exponentMask = (1UL << exponentBits) - 1;
             var fractionMask = (1UL << fractionBits) - 1;
             var exponent = (bits >> fractionBits) & exponentMask;
             var fraction = bits & fractionMask;
             if (exponent == exponentMask)
             {
-                if (fraction != 0) return "NaN";
-                return (bits >> (fractionBits + exponentBits)) != 0
-                    ? "-Infinity"
-                    : "Infinity";
+                builder.Append(fraction != 0 ? "NaN" :
+                    (bits >> (fractionBits + exponentBits)) != 0 ? "-Infinity" : "Infinity");
+                return;
             }
             var negative = (bits >> (fractionBits + exponentBits)) != 0;
-            if (exponent == 0 && fraction == 0) return negative ? "-0" : "0";
+            if (exponent == 0 && fraction == 0)
+            {
+                if (customFormat)
+                {
+                    AppendCustomInvariant(ref builder, [], 0, negative, NumberBufferKind.FloatingPoint, format);
+                    return;
+                }
+                if (symbol is 'E' or 'e')
+                {
+                    AppendScientificDigits(ref builder, ['0'], 1, 0, negative, precision < 0 ? 6 : precision, lowerExponent);
+                }
+                else
+                {
+                    builder.Append(negative ? "-0" : "0");
+                }
+                return;
+            }
 
-            GetFloatingRational(bits, single, out var numerator, out var denominator);
+            GetFloatingRational(
+                bits,
+                out var numerator,
+                out var denominator,
+                TNumber.ExponentBits,
+                TNumber.ExponentBias,
+                TNumber.NormalMantissaBits);
             var binaryExponent = FloorBinaryExponent(numerator, denominator);
             var decimalExponent = (int)(binaryExponent * 30_103L / 100_000L);
             while (CompareToPower10(numerator, denominator, decimalExponent) < 0)
@@ -429,31 +527,91 @@ namespace System
                 decimalExponent++;
             }
 
-            var maxDigits = single ? 9 : 17;
+            if (customFormat)
+            {
+                var customDigits = GenerateRoundedDigits(
+                    numerator,
+                    denominator,
+                    decimalExponent,
+                    TNumber.MaxPrecisionCustomFormat,
+                    out var customExponent,
+                    out var customLength);
+                AppendCustomInvariant(
+                    ref builder,
+                    customDigits.AsSpan(0, customLength),
+                    customExponent + 1,
+                    negative,
+                    NumberBufferKind.FloatingPoint,
+                    format);
+                return;
+            }
+
+            if (symbol is 'E' or 'e')
+            {
+                var fractionalDigits = precision < 0 ? 6 : precision;
+                var scientificDigits = GenerateRoundedDigits(
+                    numerator,
+                    denominator,
+                    decimalExponent,
+                    fractionalDigits + 1,
+                    out var scientificExponent,
+                    out var scientificLength);
+                AppendScientificDigits(
+                    ref builder,
+                    scientificDigits,
+                    scientificLength,
+                    scientificExponent,
+                    negative,
+                    fractionalDigits,
+                    lowerExponent);
+                return;
+            }
+
+            var maxDigits = precision > 0 ? precision : TNumber.MaxRoundTripDigits;
+            if (precision > 0 && (symbol is 'G' or 'g'))
+            {
+                var generalDigits = GenerateRoundedDigits(
+                    numerator,
+                    denominator,
+                    decimalExponent,
+                    maxDigits,
+                    out var generalExponent,
+                    out var generalLength);
+                AppendGeneralDigits(
+                    ref builder,
+                    generalDigits,
+                    generalLength,
+                    generalExponent,
+                    negative,
+                    maxDigits,
+                    lowerExponent);
+                return;
+            }
+
             var selected = new char[maxDigits];
             var selectedLength = maxDigits;
-            for (var precision = 1; precision <= maxDigits; precision++)
+            for (var candidatePrecision = 1; candidatePrecision <= maxDigits; candidatePrecision++)
             {
                 var candidate = GenerateRoundedDigits(
                     numerator,
                     denominator,
                     decimalExponent,
-                    precision,
+                    candidatePrecision,
                     out var candidateExponent,
                     out var candidateLength);
-                var candidateBits = ConvertDecimalToFloatingBits(
+                var candidateBits = ConvertDecimalToFloatingBits<TNumber>(
                     candidate,
                     candidateLength,
                     candidateExponent - candidateLength + 1,
-                    negative,
-                    single);
+                    negative);
                 if (candidateBits != bits) continue;
                 selected = candidate;
                 selectedLength = candidateLength;
                 decimalExponent = candidateExponent;
                 break;
             }
-            return FormatGeneralDigits(
+            AppendGeneralDigits(
+                ref builder,
                 selected,
                 selectedLength,
                 decimalExponent,
@@ -462,127 +620,69 @@ namespace System
                 lowerExponent);
         }
 
-        private static bool TryParseFloating(string? text, bool single, out ulong bits)
-        {
-            bits = 0;
-            if (text == null) return false;
-            var start = 0;
-            var end = text.Length;
-            while (start < end && IsAsciiWhiteSpace(text[start])) start++;
-            while (end > start && IsAsciiWhiteSpace(text[end - 1])) end--;
-            if (start == end) return false;
-            var negative = false;
-            if (text[start] is '+' or '-')
-            {
-                negative = text[start] == '-';
-                start++;
-                if (start == end) return false;
-            }
-            if (EqualsIgnoreCase(text, start, end, "NaN"))
-            {
-                bits = single ? 0x7fc0_0000UL : 0x7ff8_0000_0000_0000UL;
-                return true;
-            }
-            if (EqualsIgnoreCase(text, start, end, "Infinity"))
-            {
-                bits = single ? 0x7f80_0000UL : 0x7ff0_0000_0000_0000UL;
-                if (negative) bits |= single ? 0x8000_0000UL : 0x8000_0000_0000_0000UL;
-                return true;
-            }
-
-            var digits = new char[end - start];
-            var digitCount = 0;
-            var fractionalDigits = 0;
-            var decimalPoint = false;
-            var sawDigit = false;
-            while (start < end)
-            {
-                var value = text[start];
-                if (value >= '0' && value <= '9')
-                {
-                    digits[digitCount++] = value;
-                    if (decimalPoint) fractionalDigits++;
-                    sawDigit = true;
-                    start++;
-                    continue;
-                }
-                if (value == '.' && !decimalPoint)
-                {
-                    decimalPoint = true;
-                    start++;
-                    continue;
-                }
-                break;
-            }
-            if (!sawDigit) return false;
-            var explicitExponent = 0L;
-            if (start < end && text[start] is 'e' or 'E')
-            {
-                start++;
-                var exponentNegative = false;
-                if (start < end && text[start] is '+' or '-')
-                {
-                    exponentNegative = text[start] == '-';
-                    start++;
-                }
-                if (start == end || text[start] < '0' || text[start] > '9') return false;
-                while (start < end && text[start] >= '0' && text[start] <= '9')
-                {
-                    if (explicitExponent < 1_000_000)
-                    {
-                        explicitExponent = explicitExponent * 10 + text[start] - '0';
-                    }
-                    start++;
-                }
-                if (exponentNegative) explicitExponent = -explicitExponent;
-            }
-            if (start != end) return false;
-
-            var first = 0;
-            while (first < digitCount && digits[first] == '0') first++;
-            if (first == digitCount)
-            {
-                bits = negative
-                    ? single ? 0x8000_0000UL : 0x8000_0000_0000_0000UL
-                    : 0;
-                return true;
-            }
-            var last = digitCount;
-            while (last > first && digits[last - 1] == '0') last--;
-            var exponent10 = explicitExponent - fractionalDigits + digitCount - last;
-            var significant = new char[last - first];
-            for (var index = 0; index < significant.Length; index++)
-            {
-                significant[index] = digits[first + index];
-            }
-            bits = ConvertDecimalToFloatingBits(
-                significant,
-                significant.Length,
-                exponent10,
-                negative,
-                single);
-            return true;
-        }
-
-        private static ulong ConvertDecimalToFloatingBits(
+        private static string FormatScientificDigits(
             char[] digits,
             int digitCount,
-            long exponent10,
+            int decimalExponent,
             bool negative,
-            bool single)
+            int fractionalDigits,
+            bool lowerExponent)
         {
-            var sign = negative
-                ? single ? 0x8000_0000UL : 0x8000_0000_0000_0000UL
-                : 0;
+            var builder = new ValueStringBuilder(32);
+            AppendScientificDigits(ref builder, digits, digitCount, decimalExponent, negative, fractionalDigits, lowerExponent);
+            return builder.ToString();
+        }
+
+        private static void AppendScientificDigits(
+            scoped ref ValueStringBuilder builder,
+            char[] digits,
+            int digitCount,
+            int decimalExponent,
+            bool negative,
+            int fractionalDigits,
+            bool lowerExponent)
+        {
+            var exponentMagnitude = decimalExponent < 0 ? -decimalExponent : decimalExponent;
+            var exponentDigits = 3;
+            for (var remaining = exponentMagnitude; remaining >= 1000; remaining /= 10) exponentDigits++;
+            if (negative) builder.Append('-');
+            builder.Append(digits[0]);
+            if (fractionalDigits != 0)
+            {
+                builder.Append('.');
+                for (var index = 0; index < fractionalDigits; index++)
+                {
+                    builder.Append(index + 1 < digitCount ? digits[index + 1] : '0');
+                }
+            }
+            builder.Append(lowerExponent ? 'e' : 'E');
+            builder.Append(decimalExponent < 0 ? '-' : '+');
+            Span<char> exponentBuffer = stackalloc char[10];
+            var position = exponentBuffer.Length;
+            for (var index = exponentDigits - 1; index >= 0; index--)
+            {
+                exponentBuffer[--position] = (char)('0' + exponentMagnitude % 10);
+                exponentMagnitude /= 10;
+            }
+            builder.Append(exponentBuffer[position..]);
+        }
+
+        internal static ulong ConvertDecimalToFloatingBits<TNumber>(
+            ReadOnlySpan<char> digits,
+            int digitCount,
+            long exponent10,
+            bool negative)
+            where TNumber : unmanaged, IBinaryFloatParseAndFormatInfo<TNumber>
+        {
+            var fractionBits = TNumber.NormalMantissaBits - 1;
+            var sign = negative ? 1UL << (fractionBits + TNumber.ExponentBits) : 0;
             if (digitCount == 0) return sign;
             var decimalExponent = exponent10 + digitCount - 1;
-            var maximumDecimalExponent = single ? 39 : 309;
-            var minimumDecimalExponent = single ? -60 : -400;
-            if (decimalExponent > maximumDecimalExponent)
+            if (decimalExponent > TNumber.MaxDecimalExponent)
             {
-                return sign | (single ? 0x7f80_0000UL : 0x7ff0_0000_0000_0000UL);
+                return sign | TNumber.InfinityBits;
             }
-            if (decimalExponent < minimumDecimalExponent) return sign;
+            if (decimalExponent < TNumber.MinDecimalExponent - TNumber.MaxRoundTripDigits - 2) return sign;
 
             var numerator = new FloatingBigInteger(0U);
             for (var index = 0; index < digitCount; index++)
@@ -594,15 +694,12 @@ namespace System
             if (exponent10 > 0) numerator.MultiplyPower10((int)exponent10);
             if (exponent10 < 0) denominator.MultiplyPower10((int)-exponent10);
 
-            var fractionBits = single ? 23 : 52;
-            var bias = single ? 127 : 1023;
-            var minimumNormalExponent = single ? -126 : -1022;
             var binaryExponent = FloorBinaryExponent(numerator, denominator);
-            if (binaryExponent > bias)
+            if (binaryExponent > TNumber.MaxBinaryExponent)
             {
-                return sign | (single ? 0x7f80_0000UL : 0x7ff0_0000_0000_0000UL);
+                return sign | TNumber.InfinityBits;
             }
-            if (binaryExponent >= minimumNormalExponent)
+            if (binaryExponent >= TNumber.MinBinaryExponent)
             {
                 var shift = fractionBits - binaryExponent;
                 var scaledNumerator = numerator.Clone();
@@ -619,17 +716,17 @@ namespace System
                 {
                     significand >>= 1;
                     binaryExponent++;
-                    if (binaryExponent > bias)
+                    if (binaryExponent > TNumber.MaxBinaryExponent)
                     {
-                        return sign | (single ? 0x7f80_0000UL : 0x7ff0_0000_0000_0000UL);
+                        return sign | TNumber.InfinityBits;
                     }
                 }
-                var encodedExponent = (ulong)(binaryExponent + bias);
+                var encodedExponent = (ulong)(binaryExponent + TNumber.ExponentBias);
                 var fractionMask = (1UL << fractionBits) - 1;
                 return sign | encodedExponent << fractionBits | significand & fractionMask;
             }
 
-            var subnormalShift = single ? 149 : 1074;
+            var subnormalShift = fractionBits - TNumber.MinBinaryExponent;
             var subnormalNumerator = numerator.Clone();
             subnormalNumerator.ShiftLeft(subnormalShift);
             var fraction = FloatingBigInteger.DivideToUInt64(
@@ -730,13 +827,13 @@ namespace System
 
         private static void GetFloatingRational(
             ulong bits,
-            bool single,
             out FloatingBigInteger numerator,
-            out FloatingBigInteger denominator)
+            out FloatingBigInteger denominator,
+            int exponentBits,
+            int bias,
+            int normalMantissaBits)
         {
-            var fractionBits = single ? 23 : 52;
-            var exponentBits = single ? 8 : 11;
-            var bias = single ? 127 : 1023;
+            var fractionBits = normalMantissaBits - 1;
             var fractionMask = (1UL << fractionBits) - 1;
             var exponent = (int)((bits >> fractionBits) & ((1UL << exponentBits) - 1));
             var fraction = bits & fractionMask;
@@ -758,78 +855,66 @@ namespace System
             int maxRoundTripDigits,
             bool lowerExponent)
         {
+            var builder = new ValueStringBuilder(32);
+            AppendGeneralDigits(ref builder, digits, digitCount, decimalExponent, negative, maxRoundTripDigits, lowerExponent);
+            return builder.ToString();
+        }
+
+        private static void AppendGeneralDigits(
+            scoped ref ValueStringBuilder builder,
+            char[] digits,
+            int digitCount,
+            int decimalExponent,
+            bool negative,
+            int maxRoundTripDigits,
+            bool lowerExponent)
+        {
             var scientific = decimalExponent < -4 || decimalExponent >= maxRoundTripDigits;
-            var signLength = negative ? 1 : 0;
             if (!scientific)
             {
+                if (negative) builder.Append('-');
                 if (decimalExponent >= 0)
                 {
                     var wholeDigits = decimalExponent + 1;
                     var fractionDigits = digitCount > wholeDigits ? digitCount - wholeDigits : 0;
-                    var result = new char[signLength + wholeDigits + (fractionDigits == 0 ? 0 : fractionDigits + 1)];
-                    var target = 0;
-                    if (negative) result[target++] = '-';
                     for (var index = 0; index < wholeDigits; index++)
                     {
-                        result[target++] = index < digitCount ? digits[index] : '0';
+                        builder.Append(index < digitCount ? digits[index] : '0');
                     }
                     if (fractionDigits != 0)
                     {
-                        result[target++] = '.';
-                        for (var index = wholeDigits; index < digitCount; index++) result[target++] = digits[index];
+                        builder.Append('.');
+                        for (var index = wholeDigits; index < digitCount; index++) builder.Append(digits[index]);
                     }
-                    return string.Create(result);
+                    return;
                 }
                 var zeros = -decimalExponent - 1;
-                var fractionalResult = new char[signLength + 2 + zeros + digitCount];
-                var fractionalPosition = 0;
-                if (negative) fractionalResult[fractionalPosition++] = '-';
-                fractionalResult[fractionalPosition++] = '0';
-                fractionalResult[fractionalPosition++] = '.';
-                for (var index = 0; index < zeros; index++) fractionalResult[fractionalPosition++] = '0';
-                for (var index = 0; index < digitCount; index++) fractionalResult[fractionalPosition++] = digits[index];
-                return string.Create(fractionalResult);
+                builder.Append('0');
+                builder.Append('.');
+                builder.Append('0', zeros);
+                builder.Append(digits.AsSpan(0, digitCount));
+                return;
             }
 
             var absoluteExponent = decimalExponent < 0 ? -decimalExponent : decimalExponent;
             var exponentDigits = absoluteExponent >= 100 ? 3 : 2;
-            var fractionLength = digitCount > 1 ? digitCount : 0;
-            var scientificResult = new char[
-                signLength + 1 + (fractionLength == 0 ? 0 : fractionLength) + 2 + exponentDigits];
-            var position = 0;
-            if (negative) scientificResult[position++] = '-';
-            scientificResult[position++] = digits[0];
-            if (fractionLength != 0)
+            if (negative) builder.Append('-');
+            builder.Append(digits[0]);
+            if (digitCount > 1)
             {
-                scientificResult[position++] = '.';
-                for (var index = 1; index < digitCount; index++) scientificResult[position++] = digits[index];
+                builder.Append('.');
+                builder.Append(digits.AsSpan(1, digitCount - 1));
             }
-            scientificResult[position++] = lowerExponent ? 'e' : 'E';
-            scientificResult[position++] = decimalExponent < 0 ? '-' : '+';
+            builder.Append(lowerExponent ? 'e' : 'E');
+            builder.Append(decimalExponent < 0 ? '-' : '+');
+            Span<char> exponentBuffer = stackalloc char[10];
+            var position = exponentBuffer.Length;
             for (var index = exponentDigits - 1; index >= 0; index--)
             {
-                scientificResult[position + index] = (char)('0' + absoluteExponent % 10);
+                exponentBuffer[--position] = (char)('0' + absoluteExponent % 10);
                 absoluteExponent /= 10;
             }
-            return string.Create(scientificResult);
-        }
-
-        private static bool EqualsIgnoreCase(
-            string value,
-            int start,
-            int end,
-            string expected)
-        {
-            if (end - start != expected.Length) return false;
-            for (var index = 0; index < expected.Length; index++)
-            {
-                var actual = value[start + index];
-                var canonical = expected[index];
-                if (actual >= 'A' && actual <= 'Z') actual = (char)(actual + ('a' - 'A'));
-                if (canonical >= 'A' && canonical <= 'Z') canonical = (char)(canonical + ('a' - 'A'));
-                if (actual != canonical) return false;
-            }
-            return true;
+            builder.Append(exponentBuffer[position..]);
         }
 
         private static bool IsAsciiWhiteSpace(char value) =>
@@ -837,19 +922,6 @@ namespace System
 
         internal static int Compare(long left, long right) => left < right ? -1 : left > right ? 1 : 0;
         internal static int Compare(ulong left, ulong right) => left < right ? -1 : left > right ? 1 : 0;
-
-        internal static bool IsHexadecimal(Globalization.NumberStyles style)
-        {
-            if (style == Globalization.NumberStyles.Integer)
-            {
-                return false;
-            }
-            if (style == Globalization.NumberStyles.HexNumber)
-            {
-                return true;
-            }
-            throw new ArgumentException();
-        }
 
         private static int Digit(char value, bool hexadecimal)
         {
@@ -876,11 +948,15 @@ namespace System
             {
                 return false;
             }
-            while (start < end && text[start] == ' ')
+            while (start < end && IsAsciiWhiteSpace(text[start]))
             {
                 start++;
             }
-            while (end > start && text[end - 1] == ' ')
+            while (end > start && text[end - 1] == '\0')
+            {
+                end--;
+            }
+            while (end > start && IsAsciiWhiteSpace(text[end - 1]))
             {
                 end--;
             }

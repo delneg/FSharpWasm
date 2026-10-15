@@ -5,7 +5,7 @@ namespace NetWasm.Sdk.Pack.Tests;
 public sealed class SdkToolchainContractTests
 {
     private static readonly string[] RuntimeTargets = ["wasm32", "wasm64"];
-    private static readonly string[] RuntimeCollectors = ["compact", "boehm"];
+    private static readonly string[] RuntimeCollectors = ["compact", "netwasm", "boehm", "bump"];
     private static readonly string[] RuntimeVariantFiles = ["libnetwasm-runtime.a", "libgc.a", "layout.json"];
 
     [Fact]
@@ -43,7 +43,8 @@ public sealed class SdkToolchainContractTests
         Assert.Contains("NetWasmSdkRejectWorkerRun", targetNames);
         Assert.Contains("NetWasmSdkRejectLibraryLifecycle", targetNames);
         Assert.Contains("NetWasmComponentInput", source, StringComparison.Ordinal);
-        Assert.Contains("NetWasmComponentRuntime", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("NetWasmComponentRuntime", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("NetWasmRuntimeModulePath", source, StringComparison.Ordinal);
         Assert.Contains("NetWasmComponentizeDependsOn", source, StringComparison.Ordinal);
         Assert.Contains("NetWasmWitPath", source, StringComparison.Ordinal);
         Assert.Contains("NetWasmCompilerWitPath", source, StringComparison.Ordinal);
@@ -139,6 +140,49 @@ public sealed class SdkToolchainContractTests
         Assert.Contains("--forward-command-result", runArguments.Value, StringComparison.Ordinal);
         Assert.Contains("--result", runArguments.Value, StringComparison.Ordinal);
         Assert.Contains("--replace-result", runArguments.Value, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("Application")]
+    [InlineData("Application With Spaces")]
+    [InlineData("Application;With;Separators")]
+    [InlineData("Application'With'Quotes")]
+    public void ExecutionArgumentsPreserveOneProgramNameBeforeConfiguredValues(string applicationName)
+    {
+        XNamespace ns = "http://schemas.microsoft.com/developer/msbuild/2003";
+        var document = LoadSdkTarget("NetWasm.Toolchain.targets");
+        var resolution = Assert.Single(document.Descendants(ns + "Target"),
+            target => (string?)target.Attribute("Name") == "NetWasmSdkResolveExecutionArguments");
+        var projectDocument = new XDocument(new XElement(ns + "Project",
+            new XElement(ns + "PropertyGroup", new XElement(ns + "AssemblyName", applicationName)),
+            new XElement(ns + "ItemGroup",
+                new XElement(ns + "NetWasmArgument", new XAttribute("Include", "configured value")),
+                new XElement(ns + "NetWasmArgument", new XAttribute("Include", "semi%3Bcolon"))),
+            new XElement(resolution)));
+        using var reader = projectDocument.CreateReader();
+        using var projects = new Microsoft.Build.Evaluation.ProjectCollection();
+        var project = new Microsoft.Build.Evaluation.Project(reader, null, null, projects);
+        var instance = project.CreateProjectInstance();
+        Assert.True(instance.Build("NetWasmSdkResolveExecutionArguments",
+            Array.Empty<Microsoft.Build.Framework.ILogger>()));
+        Assert.Equal([applicationName, "configured value", "semi;colon"],
+            instance.GetItems("_NetWasmExecutionArgument").Select(item => item.EvaluatedInclude));
+    }
+
+    [Theory]
+    [InlineData("NetWasmSdkPrepareLocalDeployment", "NetWasmWriteExecutionRequestTask")]
+    [InlineData("NetWasmSdkPublishJsWorker", "NetWasmWriteWorkerHostEntryTask")]
+    [InlineData("NetWasmSdkPublishWitWorker", "NetWasmWriteWitWorkerHostEntryTask")]
+    public void ExecutionConsumersShareTheCompleteArgumentVector(string targetName, string taskName)
+    {
+        XNamespace ns = "http://schemas.microsoft.com/developer/msbuild/2003";
+        var document = LoadSdkTarget("NetWasm.Toolchain.targets");
+        var target = Assert.Single(document.Descendants(ns + "Target"),
+            element => (string?)element.Attribute("Name") == targetName);
+        Assert.Contains("NetWasmSdkResolveExecutionArguments",
+            ((string?)target.Attribute("DependsOnTargets"))!.Split(';'));
+        var task = Assert.Single(target.Elements(ns + taskName));
+        Assert.Equal("@(_NetWasmExecutionArgument)", (string?)task.Attribute("Arguments"));
     }
 
     [Fact]
@@ -517,6 +561,28 @@ public sealed class SdkToolchainContractTests
     }
 
     [Fact]
+    public void ManagedCandidateBuildCanonicalizesTemporaryRootBeforeDerivingSourceRoot()
+    {
+        var repositoryRoot = FindRepositoryRoot();
+        var script = File.ReadAllText(Path.Combine(
+            repositoryRoot,
+            "eng/build-managed-candidate-packages.sh"));
+        var temporaryRootIndex = script.IndexOf(
+            "build_root=\"$(mktemp -d ",
+            StringComparison.Ordinal);
+        var canonicalRootIndex = script.IndexOf(
+            "build_root=\"$(cd \"${build_root}\" && pwd -P)\"",
+            StringComparison.Ordinal);
+        var sourceRootIndex = script.IndexOf(
+            "source_root=\"${build_root}/source\"",
+            StringComparison.Ordinal);
+
+        Assert.True(temporaryRootIndex >= 0);
+        Assert.True(canonicalRootIndex > temporaryRootIndex);
+        Assert.True(sourceRootIndex > canonicalRootIndex);
+    }
+
+    [Fact]
     public void PackageBuildRegeneratesTheRuntimePackFromSource()
     {
         var repositoryRoot = FindRepositoryRoot();
@@ -621,9 +687,64 @@ public sealed class SdkToolchainContractTests
         Assert.Equal(2, errors.Length);
         Assert.Equal("NWPACK007", (string?)errors[0].Attribute("Code"));
         Assert.Contains("System.String]::Equals", (string?)errors[0].Attribute("Condition"), StringComparison.Ordinal);
+        Assert.Contains("NetWasm", (string?)errors[0].Attribute("Condition"), StringComparison.Ordinal);
         Assert.Equal("NWPACK006", (string?)errors[1].Attribute("Code"));
         Assert.Contains("@(NetWasmComponentRuntime)", (string?)errors[1].Attribute("Condition"), StringComparison.Ordinal);
         Assert.Contains("$(NetWasmRuntimeModulePath)", (string?)errors[1].Attribute("Condition"), StringComparison.Ordinal);
+        Assert.DoesNotContain("NetWasmGarbageCollector", (string?)errors[1].Attribute("Condition"), StringComparison.Ordinal);
+        Assert.Contains("local NuGet feed", (string?)errors[1].Attribute("Text"), StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("", "", null)]
+    [InlineData("NetWasm", "", null)]
+    [InlineData("Compact", "", null)]
+    [InlineData("Boehm", "", null)]
+    [InlineData("Bump", "", null)]
+    [InlineData("", "property", "NWPACK006")]
+    [InlineData("NetWasm", "property", "NWPACK006")]
+    [InlineData("", "item", "NWPACK006")]
+    [InlineData("NetWasm", "item", "NWPACK006")]
+    [InlineData("compact", "", "NWPACK007")]
+    public void CollectorValidationRejectsFileOverridesWithoutCompilerGcSelection(
+        string collector, string overrideKind, string? expectedError)
+    {
+        XNamespace ns = "http://schemas.microsoft.com/developer/msbuild/2003";
+        var validation = Assert.Single(LoadSdkTarget("Sdk.targets").Descendants(ns + "Target"),
+            target => (string?)target.Attribute("Name") == "NetWasmSdkValidateGarbageCollectorSelection");
+        var projectDocument = new XDocument(new XElement(ns + "Project",
+            new XElement(ns + "UsingTask", new XAttribute("TaskName", "Error"),
+                new XAttribute("AssemblyFile", typeof(Microsoft.Build.Tasks.Error).Assembly.Location)),
+            new XElement(ns + "PropertyGroup",
+                new XElement(ns + "TargetFramework", "netwasm0.1"),
+                new XElement(ns + "OutputType", "Exe"),
+                new XElement(ns + "NetWasmGarbageCollector", collector),
+                new XElement(ns + "NetWasmRuntimeModulePath",
+                    overrideKind == "property" ? "custom.wasm" : "")),
+            new XElement(ns + "ItemGroup", overrideKind == "item"
+                ? new XElement(ns + "NetWasmComponentRuntime", new XAttribute("Include", "custom.wasm"))
+                : null),
+            new XElement(validation)));
+        using var reader = projectDocument.CreateReader();
+        using var projects = new Microsoft.Build.Evaluation.ProjectCollection();
+        var project = new Microsoft.Build.Evaluation.Project(reader, null, null, projects);
+        var logger = new ValidationErrorLogger();
+        var succeeded = project.CreateProjectInstance().Build(
+            "NetWasmSdkValidateGarbageCollectorSelection", [logger]);
+        Assert.Equal(expectedError is null, succeeded);
+        Assert.Equal(expectedError is null ? [] : new[] { expectedError }, logger.Codes);
+    }
+
+    private sealed class ValidationErrorLogger : Microsoft.Build.Framework.ILogger
+    {
+        public List<string> Codes { get; } = [];
+        public Microsoft.Build.Framework.LoggerVerbosity Verbosity { get; set; }
+        public string? Parameters { get; set; }
+
+        public void Initialize(Microsoft.Build.Framework.IEventSource eventSource)
+            => eventSource.ErrorRaised += (_, error) => Codes.Add(error.Code ?? "");
+
+        public void Shutdown() { }
     }
 
     private static XDocument LoadSdkTarget(string fileName)

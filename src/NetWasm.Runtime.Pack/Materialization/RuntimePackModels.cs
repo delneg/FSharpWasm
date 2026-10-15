@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Text.Json.Serialization;
 using NetWasm.Runtime.Pack.Planning;
 
 namespace NetWasm.Runtime.Pack.Materialization;
@@ -13,8 +14,20 @@ internal sealed record RuntimePackManifest(
     ImmutableArray<RuntimePackTarget> Targets)
 {
     public string DefaultGarbageCollector { get; init; } = string.Empty;
+    public ImmutableArray<RuntimeFunctionInlineIntent> InlineIntents { get; init; } = [];
     internal ImmutableDictionary<(string Target, string GarbageCollector), RuntimePackTarget> TargetLookup { get; init; } =
         ImmutableDictionary<(string Target, string GarbageCollector), RuntimePackTarget>.Empty;
+}
+
+internal sealed record RuntimeFunctionInlineIntent(
+    string Export,
+    RuntimeFunctionInlinePreference Preference);
+
+[JsonConverter(typeof(JsonStringEnumConverter<RuntimeFunctionInlinePreference>))]
+internal enum RuntimeFunctionInlinePreference
+{
+    Never,
+    Aggressive,
 }
 
 internal sealed record RuntimePackProvenance(
@@ -41,6 +54,7 @@ internal sealed record RuntimePackTarget(
 {
     public string GarbageCollector { get; init; } = string.Empty;
     public RuntimeNativeValidationProfile? NativeValidation { get; init; }
+    public RuntimePackSpeedAssets? Speed { get; init; }
 }
 
 internal sealed record RuntimePackSystemLibraries(

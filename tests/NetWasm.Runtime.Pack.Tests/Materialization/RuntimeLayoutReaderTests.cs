@@ -37,7 +37,7 @@ public sealed class RuntimeLayoutReaderTests
         using var directory = new TemporaryDirectory();
         var selectedPath = directory.Write("selected.json", """
             {"schemaVersion":3,"target":"wasm32","applicationStaticDataEnd":0,
-             "runtimeFeatures":["ephemeron-handles","structured-command-diagnostics"],
+             "runtimeFeatures":["ephemeron-handles","finalization","structured-command-diagnostics","weak-handles"],
              "nativeImports":[]}
             """);
         var emptyPath = directory.Write("empty.json", """
@@ -47,7 +47,7 @@ public sealed class RuntimeLayoutReaderTests
 
         var reader = new RuntimeLayoutReader();
         Assert.Equal(
-            ["ephemeron-handles", "structured-command-diagnostics"],
+            ["ephemeron-handles", "finalization", "structured-command-diagnostics", "weak-handles"],
             reader.Read(selectedPath).RuntimeFeatures.ToArray());
         Assert.Empty(reader.Read(emptyPath).RuntimeFeatures);
         Assert.False(reader.Read(emptyPath).RuntimeFeatures.IsDefault);

@@ -445,9 +445,7 @@ namespace System.Collections.Immutable
                     }
                     else
                     {
-                        mutated = false;
-                        result = this;
-                        ImmutableDictionaryThrowHelper.ThrowDuplicateKey(key);
+                        throw new ArgumentException(SR.Format(SR.DuplicateKey, key));
                     }
                 }
 

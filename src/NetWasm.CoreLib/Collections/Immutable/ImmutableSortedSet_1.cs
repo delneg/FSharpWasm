@@ -224,7 +224,7 @@ namespace System.Collections.Immutable
             Requires.NotNull(other, nameof(other));
 
             ImmutableSortedSet<T> newSet = this.Clear();
-            foreach (T item in other)
+            foreach (T item in other.GetEnumerableDisposable<T, Enumerator>())
             {
                 if (this.Contains(item))
                 {
@@ -244,7 +244,7 @@ namespace System.Collections.Immutable
             Requires.NotNull(other, nameof(other));
 
             ImmutableSortedSet<T>.Node result = _root;
-            foreach (T item in other)
+            foreach (T item in other.GetEnumerableDisposable<T, Enumerator>())
             {
                 bool mutated;
                 result = result.Remove(item, _comparer, out mutated);
@@ -493,7 +493,7 @@ namespace System.Collections.Immutable
             }
 
             int count = 0;
-            foreach (T item in other)
+            foreach (T item in other.GetEnumerableDisposable<T, Enumerator>())
             {
                 count++;
                 if (!this.Contains(item))
@@ -549,7 +549,7 @@ namespace System.Collections.Immutable
         {
             Requires.NotNull(other, nameof(other));
 
-            foreach (T item in other)
+            foreach (T item in other.GetEnumerableDisposable<T, Enumerator>())
             {
                 if (!this.Contains(item))
                 {
@@ -574,7 +574,7 @@ namespace System.Collections.Immutable
                 return false;
             }
 
-            foreach (T item in other)
+            foreach (T item in other.GetEnumerableDisposable<T, Enumerator>())
             {
                 if (this.Contains(item))
                 {
@@ -989,7 +989,9 @@ namespace System.Collections.Immutable
         /// </returns>
         IEnumerator<T> IEnumerable<T>.GetEnumerator()
         {
-            return this.GetEnumerator();
+            return this.IsEmpty ?
+                GenericEmptyEnumerator<T>.Instance :
+                this.GetEnumerator();
         }
 
         #endregion
@@ -1078,7 +1080,7 @@ namespace System.Collections.Immutable
             // Let's not implement in terms of ImmutableSortedSet.Add so that we're
             // not unnecessarily generating a new wrapping set object for each item.
             ImmutableSortedSet<T>.Node result = _root;
-            foreach (T item in items)
+            foreach (T item in items.GetEnumerableDisposable<T, Enumerator>())
             {
                 result = result.Add(item, _comparer, out _);
             }
@@ -1224,7 +1226,7 @@ namespace System.Collections.Immutable
             list.RemoveRange(index, list.Count - index);
 
             // Use the now sorted list of unique items to construct a new sorted set.
-            Node root = Node.NodeTreeFromList(list, 0, list.Count);
+            Node root = Node.NodeTreeFromList(list.AsReadOnlyList(), 0, list.Count);
             return this.Wrap(root);
         }
 
@@ -1276,7 +1278,7 @@ namespace System.Collections.Immutable
             list.RemoveRange(index, list.Count - index);
 
             // Use the now sorted list of unique items to construct a new sorted set.
-            Node root = Node.NodeTreeFromList(list, 0, list.Count);
+            Node root = Node.NodeTreeFromList(list.AsReadOnlyList(), 0, list.Count);
             return this.Wrap(root);
         }
 

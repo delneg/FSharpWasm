@@ -54,10 +54,10 @@ public readonly struct GCMemoryInfo
         _pinnedObjectsCount = pinnedObjectsCount;
     }
 
-    // The collector currently exposes only heap size, free/live heap size,
-    // collection count, and pinned-reference count. The remaining values use
-    // the upstream snapshot's zero/empty "not available" representation until
-    // the collector grows generation and pause-detail counters.
+    // These properties preserve the upstream value contract for a future true
+    // completed-collection snapshot. GC.GetGCMemoryInfo currently reports the
+    // snapshot capability as unsupported rather than fabricating one from live
+    // collector counters.
     public bool Compacted => false;
     public bool Concurrent => false;
     public long FinalizationPendingCount => 0;

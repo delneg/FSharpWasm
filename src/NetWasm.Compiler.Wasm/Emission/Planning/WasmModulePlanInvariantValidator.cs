@@ -126,16 +126,17 @@ internal sealed class WasmModulePlanInvariantValidator :
             }
             RequireIndex(index.Value, expected++, indices, "constructed method");
         }
+        RequireOptional(
+            plan.FunctionIndices.ManagedThrowFunctionIndex,
+            ref expected,
+            indices,
+            "managed throw function");
         foreach (var invoke in plan.DelegateInvokes)
         {
             var index = plan.FunctionIndices.GetDelegateInvokeHelper(
                 invoke.DeclaringType.CanonicalName);
             RequireIndex(index.Value, expected++, indices, "delegate invoke helper");
         }
-        RequireOptional(plan.DelegateCountHelperIndex, ref expected, indices);
-        RequireOptional(plan.DelegateLeafHelperIndex, ref expected, indices);
-        RequireOptional(plan.DelegateEqualityHelperIndex, ref expected, indices);
-        RequireOptional(plan.DelegateRemoveHelperIndex, ref expected, indices);
         if (plan.FunctionIndices.DirectMethods.Count != plan.OrderedMethods.Length ||
             plan.FunctionIndices.ConstructedMethods.Count !=
                 plan.OrderedConstructedMethods.Length ||
@@ -151,13 +152,14 @@ internal sealed class WasmModulePlanInvariantValidator :
     private static void RequireOptional(
         OptionalFunctionIndex index,
         ref int expected,
-        HashSet<int> indices)
+        HashSet<int> indices,
+        string kind)
     {
         if (!index.IsPresent)
         {
             return;
         }
-        RequireIndex(index.Value, expected++, indices, "delegate helper");
+        RequireIndex(index.Value, expected++, indices, kind);
     }
 
     private static void RequireIndex(

@@ -12,6 +12,7 @@
   "name": "RoundingArguments",
   "namespace": "NetWasm.Correctness.RoundingArguments",
   "entryMethod": "Run",
+  "desktopEntryMethod": "Reference",
   "inputs": [
     0,
     1,
@@ -957,43 +958,43 @@
     },
     {
       "input": 8,
-      "returnValue": null,
-      "exceptionType": "System.ArgumentOutOfRangeException"
+      "returnValue": 42,
+      "exceptionType": null
     },
     {
       "input": 9,
-      "returnValue": null,
-      "exceptionType": "System.ArgumentOutOfRangeException"
+      "returnValue": 42,
+      "exceptionType": null
     },
     {
       "input": 10,
-      "returnValue": null,
-      "exceptionType": "System.ArgumentOutOfRangeException"
+      "returnValue": 42,
+      "exceptionType": null
     },
     {
       "input": 11,
       "returnValue": null,
-      "exceptionType": "System.ArgumentOutOfRangeException"
+      "exceptionType": "System.ArgumentException"
     },
     {
       "input": 12,
-      "returnValue": null,
-      "exceptionType": "System.ArgumentOutOfRangeException"
+      "returnValue": 42,
+      "exceptionType": null
     },
     {
       "input": 13,
-      "returnValue": null,
-      "exceptionType": "System.ArgumentOutOfRangeException"
+      "returnValue": 42,
+      "exceptionType": null
     },
     {
       "input": 14,
-      "returnValue": null,
-      "exceptionType": "System.ArgumentOutOfRangeException"
+      "returnValue": 42,
+      "exceptionType": null
     },
     {
       "input": 15,
       "returnValue": null,
-      "exceptionType": "System.ArgumentOutOfRangeException"
+      "exceptionType": "System.ArgumentException"
     },
     {
       "input": 16,
@@ -1182,43 +1183,43 @@
     },
     {
       "input": 53,
-      "returnValue": null,
-      "exceptionType": "System.ArgumentOutOfRangeException"
+      "returnValue": 42,
+      "exceptionType": null
     },
     {
       "input": 54,
-      "returnValue": null,
-      "exceptionType": "System.ArgumentOutOfRangeException"
+      "returnValue": 42,
+      "exceptionType": null
     },
     {
       "input": 55,
-      "returnValue": null,
-      "exceptionType": "System.ArgumentOutOfRangeException"
+      "returnValue": 42,
+      "exceptionType": null
     },
     {
       "input": 56,
       "returnValue": null,
-      "exceptionType": "System.ArgumentOutOfRangeException"
+      "exceptionType": "System.ArgumentException"
     },
     {
       "input": 57,
-      "returnValue": null,
-      "exceptionType": "System.ArgumentOutOfRangeException"
+      "returnValue": 42,
+      "exceptionType": null
     },
     {
       "input": 58,
-      "returnValue": null,
-      "exceptionType": "System.ArgumentOutOfRangeException"
+      "returnValue": 42,
+      "exceptionType": null
     },
     {
       "input": 59,
-      "returnValue": null,
-      "exceptionType": "System.ArgumentOutOfRangeException"
+      "returnValue": 42,
+      "exceptionType": null
     },
     {
       "input": 60,
       "returnValue": null,
-      "exceptionType": "System.ArgumentOutOfRangeException"
+      "exceptionType": "System.ArgumentException"
     },
     {
       "input": 61,
@@ -1407,43 +1408,43 @@
     },
     {
       "input": 98,
-      "returnValue": null,
-      "exceptionType": "System.ArgumentOutOfRangeException"
+      "returnValue": 42,
+      "exceptionType": null
     },
     {
       "input": 99,
-      "returnValue": null,
-      "exceptionType": "System.ArgumentOutOfRangeException"
+      "returnValue": 42,
+      "exceptionType": null
     },
     {
       "input": 100,
-      "returnValue": null,
-      "exceptionType": "System.ArgumentOutOfRangeException"
+      "returnValue": 42,
+      "exceptionType": null
     },
     {
       "input": 101,
       "returnValue": null,
-      "exceptionType": "System.ArgumentOutOfRangeException"
+      "exceptionType": "System.ArgumentException"
     },
     {
       "input": 102,
-      "returnValue": null,
-      "exceptionType": "System.ArgumentOutOfRangeException"
+      "returnValue": 42,
+      "exceptionType": null
     },
     {
       "input": 103,
-      "returnValue": null,
-      "exceptionType": "System.ArgumentOutOfRangeException"
+      "returnValue": 42,
+      "exceptionType": null
     },
     {
       "input": 104,
-      "returnValue": null,
-      "exceptionType": "System.ArgumentOutOfRangeException"
+      "returnValue": 42,
+      "exceptionType": null
     },
     {
       "input": 105,
       "returnValue": null,
-      "exceptionType": "System.ArgumentOutOfRangeException"
+      "exceptionType": "System.ArgumentException"
     },
     {
       "input": 106,
@@ -1632,43 +1633,43 @@
     },
     {
       "input": 143,
-      "returnValue": null,
-      "exceptionType": "System.ArgumentOutOfRangeException"
+      "returnValue": 42,
+      "exceptionType": null
     },
     {
       "input": 144,
-      "returnValue": null,
-      "exceptionType": "System.ArgumentOutOfRangeException"
+      "returnValue": 42,
+      "exceptionType": null
     },
     {
       "input": 145,
-      "returnValue": null,
-      "exceptionType": "System.ArgumentOutOfRangeException"
+      "returnValue": 42,
+      "exceptionType": null
     },
     {
       "input": 146,
       "returnValue": null,
-      "exceptionType": "System.ArgumentOutOfRangeException"
+      "exceptionType": "System.ArgumentException"
     },
     {
       "input": 147,
-      "returnValue": null,
-      "exceptionType": "System.ArgumentOutOfRangeException"
+      "returnValue": 42,
+      "exceptionType": null
     },
     {
       "input": 148,
-      "returnValue": null,
-      "exceptionType": "System.ArgumentOutOfRangeException"
+      "returnValue": 42,
+      "exceptionType": null
     },
     {
       "input": 149,
-      "returnValue": null,
-      "exceptionType": "System.ArgumentOutOfRangeException"
+      "returnValue": 42,
+      "exceptionType": null
     },
     {
       "input": 150,
       "returnValue": null,
-      "exceptionType": "System.ArgumentOutOfRangeException"
+      "exceptionType": "System.ArgumentException"
     },
     {
       "input": 151,
@@ -1677,13 +1678,13 @@
     },
     {
       "input": 152,
-      "returnValue": 42,
-      "exceptionType": null
+      "returnValue": null,
+      "exceptionType": "System.ArgumentException"
     },
     {
       "input": 153,
-      "returnValue": 42,
-      "exceptionType": null
+      "returnValue": null,
+      "exceptionType": "System.ArgumentException"
     },
     {
       "input": 154,
@@ -1692,13 +1693,13 @@
     },
     {
       "input": 155,
-      "returnValue": 42,
-      "exceptionType": null
+      "returnValue": null,
+      "exceptionType": "System.ArgumentException"
     },
     {
       "input": 156,
-      "returnValue": 42,
-      "exceptionType": null
+      "returnValue": null,
+      "exceptionType": "System.ArgumentException"
     },
     {
       "input": 157,
@@ -1707,13 +1708,13 @@
     },
     {
       "input": 158,
-      "returnValue": 42,
-      "exceptionType": null
+      "returnValue": null,
+      "exceptionType": "System.ArgumentException"
     },
     {
       "input": 159,
-      "returnValue": 42,
-      "exceptionType": null
+      "returnValue": null,
+      "exceptionType": "System.ArgumentException"
     },
     {
       "input": 160,
@@ -1722,13 +1723,13 @@
     },
     {
       "input": 161,
-      "returnValue": 42,
-      "exceptionType": null
+      "returnValue": null,
+      "exceptionType": "System.ArgumentException"
     },
     {
       "input": 162,
-      "returnValue": 42,
-      "exceptionType": null
+      "returnValue": null,
+      "exceptionType": "System.ArgumentException"
     },
     {
       "input": 163,
@@ -1857,43 +1858,43 @@
     },
     {
       "input": 188,
-      "returnValue": null,
-      "exceptionType": "System.ArgumentOutOfRangeException"
+      "returnValue": 42,
+      "exceptionType": null
     },
     {
       "input": 189,
-      "returnValue": null,
-      "exceptionType": "System.ArgumentOutOfRangeException"
+      "returnValue": 42,
+      "exceptionType": null
     },
     {
       "input": 190,
-      "returnValue": null,
-      "exceptionType": "System.ArgumentOutOfRangeException"
+      "returnValue": 42,
+      "exceptionType": null
     },
     {
       "input": 191,
       "returnValue": null,
-      "exceptionType": "System.ArgumentOutOfRangeException"
+      "exceptionType": "System.ArgumentException"
     },
     {
       "input": 192,
-      "returnValue": null,
-      "exceptionType": "System.ArgumentOutOfRangeException"
+      "returnValue": 42,
+      "exceptionType": null
     },
     {
       "input": 193,
-      "returnValue": null,
-      "exceptionType": "System.ArgumentOutOfRangeException"
+      "returnValue": 42,
+      "exceptionType": null
     },
     {
       "input": 194,
-      "returnValue": null,
-      "exceptionType": "System.ArgumentOutOfRangeException"
+      "returnValue": 42,
+      "exceptionType": null
     },
     {
       "input": 195,
       "returnValue": null,
-      "exceptionType": "System.ArgumentOutOfRangeException"
+      "exceptionType": "System.ArgumentException"
     },
     {
       "input": 196,
@@ -1902,13 +1903,13 @@
     },
     {
       "input": 197,
-      "returnValue": 42,
-      "exceptionType": null
+      "returnValue": null,
+      "exceptionType": "System.ArgumentException"
     },
     {
       "input": 198,
-      "returnValue": 42,
-      "exceptionType": null
+      "returnValue": null,
+      "exceptionType": "System.ArgumentException"
     },
     {
       "input": 199,
@@ -1917,13 +1918,13 @@
     },
     {
       "input": 200,
-      "returnValue": 42,
-      "exceptionType": null
+      "returnValue": null,
+      "exceptionType": "System.ArgumentException"
     },
     {
       "input": 201,
-      "returnValue": 42,
-      "exceptionType": null
+      "returnValue": null,
+      "exceptionType": "System.ArgumentException"
     },
     {
       "input": 202,
@@ -1932,13 +1933,13 @@
     },
     {
       "input": 203,
-      "returnValue": 42,
-      "exceptionType": null
+      "returnValue": null,
+      "exceptionType": "System.ArgumentException"
     },
     {
       "input": 204,
-      "returnValue": 42,
-      "exceptionType": null
+      "returnValue": null,
+      "exceptionType": "System.ArgumentException"
     },
     {
       "input": 205,
@@ -1947,13 +1948,13 @@
     },
     {
       "input": 206,
-      "returnValue": 42,
-      "exceptionType": null
+      "returnValue": null,
+      "exceptionType": "System.ArgumentException"
     },
     {
       "input": 207,
-      "returnValue": 42,
-      "exceptionType": null
+      "returnValue": null,
+      "exceptionType": "System.ArgumentException"
     },
     {
       "input": 208,
@@ -2082,43 +2083,43 @@
     },
     {
       "input": 233,
-      "returnValue": null,
-      "exceptionType": "System.ArgumentOutOfRangeException"
+      "returnValue": 42,
+      "exceptionType": null
     },
     {
       "input": 234,
-      "returnValue": null,
-      "exceptionType": "System.ArgumentOutOfRangeException"
+      "returnValue": 42,
+      "exceptionType": null
     },
     {
       "input": 235,
-      "returnValue": null,
-      "exceptionType": "System.ArgumentOutOfRangeException"
+      "returnValue": 42,
+      "exceptionType": null
     },
     {
       "input": 236,
       "returnValue": null,
-      "exceptionType": "System.ArgumentOutOfRangeException"
+      "exceptionType": "System.ArgumentException"
     },
     {
       "input": 237,
-      "returnValue": null,
-      "exceptionType": "System.ArgumentOutOfRangeException"
+      "returnValue": 42,
+      "exceptionType": null
     },
     {
       "input": 238,
-      "returnValue": null,
-      "exceptionType": "System.ArgumentOutOfRangeException"
+      "returnValue": 42,
+      "exceptionType": null
     },
     {
       "input": 239,
-      "returnValue": null,
-      "exceptionType": "System.ArgumentOutOfRangeException"
+      "returnValue": 42,
+      "exceptionType": null
     },
     {
       "input": 240,
       "returnValue": null,
-      "exceptionType": "System.ArgumentOutOfRangeException"
+      "exceptionType": "System.ArgumentException"
     },
     {
       "input": 241,
@@ -2307,43 +2308,43 @@
     },
     {
       "input": 278,
-      "returnValue": null,
-      "exceptionType": "System.ArgumentOutOfRangeException"
+      "returnValue": 42,
+      "exceptionType": null
     },
     {
       "input": 279,
-      "returnValue": null,
-      "exceptionType": "System.ArgumentOutOfRangeException"
+      "returnValue": 42,
+      "exceptionType": null
     },
     {
       "input": 280,
-      "returnValue": null,
-      "exceptionType": "System.ArgumentOutOfRangeException"
+      "returnValue": 42,
+      "exceptionType": null
     },
     {
       "input": 281,
       "returnValue": null,
-      "exceptionType": "System.ArgumentOutOfRangeException"
+      "exceptionType": "System.ArgumentException"
     },
     {
       "input": 282,
-      "returnValue": null,
-      "exceptionType": "System.ArgumentOutOfRangeException"
+      "returnValue": 42,
+      "exceptionType": null
     },
     {
       "input": 283,
-      "returnValue": null,
-      "exceptionType": "System.ArgumentOutOfRangeException"
+      "returnValue": 42,
+      "exceptionType": null
     },
     {
       "input": 284,
-      "returnValue": null,
-      "exceptionType": "System.ArgumentOutOfRangeException"
+      "returnValue": 42,
+      "exceptionType": null
     },
     {
       "input": 285,
       "returnValue": null,
-      "exceptionType": "System.ArgumentOutOfRangeException"
+      "exceptionType": "System.ArgumentException"
     },
     {
       "input": 286,
@@ -2532,43 +2533,43 @@
     },
     {
       "input": 323,
-      "returnValue": null,
-      "exceptionType": "System.ArgumentOutOfRangeException"
+      "returnValue": 42,
+      "exceptionType": null
     },
     {
       "input": 324,
-      "returnValue": null,
-      "exceptionType": "System.ArgumentOutOfRangeException"
+      "returnValue": 42,
+      "exceptionType": null
     },
     {
       "input": 325,
-      "returnValue": null,
-      "exceptionType": "System.ArgumentOutOfRangeException"
+      "returnValue": 42,
+      "exceptionType": null
     },
     {
       "input": 326,
       "returnValue": null,
-      "exceptionType": "System.ArgumentOutOfRangeException"
+      "exceptionType": "System.ArgumentException"
     },
     {
       "input": 327,
-      "returnValue": null,
-      "exceptionType": "System.ArgumentOutOfRangeException"
+      "returnValue": 42,
+      "exceptionType": null
     },
     {
       "input": 328,
-      "returnValue": null,
-      "exceptionType": "System.ArgumentOutOfRangeException"
+      "returnValue": 42,
+      "exceptionType": null
     },
     {
       "input": 329,
-      "returnValue": null,
-      "exceptionType": "System.ArgumentOutOfRangeException"
+      "returnValue": 42,
+      "exceptionType": null
     },
     {
       "input": 330,
       "returnValue": null,
-      "exceptionType": "System.ArgumentOutOfRangeException"
+      "exceptionType": "System.ArgumentException"
     },
     {
       "input": 331,
@@ -2757,43 +2758,43 @@
     },
     {
       "input": 368,
-      "returnValue": null,
-      "exceptionType": "System.ArgumentOutOfRangeException"
+      "returnValue": 42,
+      "exceptionType": null
     },
     {
       "input": 369,
-      "returnValue": null,
-      "exceptionType": "System.ArgumentOutOfRangeException"
+      "returnValue": 42,
+      "exceptionType": null
     },
     {
       "input": 370,
-      "returnValue": null,
-      "exceptionType": "System.ArgumentOutOfRangeException"
+      "returnValue": 42,
+      "exceptionType": null
     },
     {
       "input": 371,
       "returnValue": null,
-      "exceptionType": "System.ArgumentOutOfRangeException"
+      "exceptionType": "System.ArgumentException"
     },
     {
       "input": 372,
-      "returnValue": null,
-      "exceptionType": "System.ArgumentOutOfRangeException"
+      "returnValue": 42,
+      "exceptionType": null
     },
     {
       "input": 373,
-      "returnValue": null,
-      "exceptionType": "System.ArgumentOutOfRangeException"
+      "returnValue": 42,
+      "exceptionType": null
     },
     {
       "input": 374,
-      "returnValue": null,
-      "exceptionType": "System.ArgumentOutOfRangeException"
+      "returnValue": 42,
+      "exceptionType": null
     },
     {
       "input": 375,
       "returnValue": null,
-      "exceptionType": "System.ArgumentOutOfRangeException"
+      "exceptionType": "System.ArgumentException"
     },
     {
       "input": 376,
@@ -2802,13 +2803,13 @@
     },
     {
       "input": 377,
-      "returnValue": 42,
-      "exceptionType": null
+      "returnValue": null,
+      "exceptionType": "System.ArgumentException"
     },
     {
       "input": 378,
-      "returnValue": 42,
-      "exceptionType": null
+      "returnValue": null,
+      "exceptionType": "System.ArgumentException"
     },
     {
       "input": 379,
@@ -2817,13 +2818,13 @@
     },
     {
       "input": 380,
-      "returnValue": 42,
-      "exceptionType": null
+      "returnValue": null,
+      "exceptionType": "System.ArgumentException"
     },
     {
       "input": 381,
-      "returnValue": 42,
-      "exceptionType": null
+      "returnValue": null,
+      "exceptionType": "System.ArgumentException"
     },
     {
       "input": 382,
@@ -2832,13 +2833,13 @@
     },
     {
       "input": 383,
-      "returnValue": 42,
-      "exceptionType": null
+      "returnValue": null,
+      "exceptionType": "System.ArgumentException"
     },
     {
       "input": 384,
-      "returnValue": 42,
-      "exceptionType": null
+      "returnValue": null,
+      "exceptionType": "System.ArgumentException"
     },
     {
       "input": 385,
@@ -2847,13 +2848,13 @@
     },
     {
       "input": 386,
-      "returnValue": 42,
-      "exceptionType": null
+      "returnValue": null,
+      "exceptionType": "System.ArgumentException"
     },
     {
       "input": 387,
-      "returnValue": 42,
-      "exceptionType": null
+      "returnValue": null,
+      "exceptionType": "System.ArgumentException"
     },
     {
       "input": 388,
@@ -2982,43 +2983,43 @@
     },
     {
       "input": 413,
-      "returnValue": null,
-      "exceptionType": "System.ArgumentOutOfRangeException"
+      "returnValue": 42,
+      "exceptionType": null
     },
     {
       "input": 414,
-      "returnValue": null,
-      "exceptionType": "System.ArgumentOutOfRangeException"
+      "returnValue": 42,
+      "exceptionType": null
     },
     {
       "input": 415,
-      "returnValue": null,
-      "exceptionType": "System.ArgumentOutOfRangeException"
+      "returnValue": 42,
+      "exceptionType": null
     },
     {
       "input": 416,
       "returnValue": null,
-      "exceptionType": "System.ArgumentOutOfRangeException"
+      "exceptionType": "System.ArgumentException"
     },
     {
       "input": 417,
-      "returnValue": null,
-      "exceptionType": "System.ArgumentOutOfRangeException"
+      "returnValue": 42,
+      "exceptionType": null
     },
     {
       "input": 418,
-      "returnValue": null,
-      "exceptionType": "System.ArgumentOutOfRangeException"
+      "returnValue": 42,
+      "exceptionType": null
     },
     {
       "input": 419,
-      "returnValue": null,
-      "exceptionType": "System.ArgumentOutOfRangeException"
+      "returnValue": 42,
+      "exceptionType": null
     },
     {
       "input": 420,
       "returnValue": null,
-      "exceptionType": "System.ArgumentOutOfRangeException"
+      "exceptionType": "System.ArgumentException"
     },
     {
       "input": 421,
@@ -3027,13 +3028,13 @@
     },
     {
       "input": 422,
-      "returnValue": 42,
-      "exceptionType": null
+      "returnValue": null,
+      "exceptionType": "System.ArgumentException"
     },
     {
       "input": 423,
-      "returnValue": 42,
-      "exceptionType": null
+      "returnValue": null,
+      "exceptionType": "System.ArgumentException"
     },
     {
       "input": 424,
@@ -3042,13 +3043,13 @@
     },
     {
       "input": 425,
-      "returnValue": 42,
-      "exceptionType": null
+      "returnValue": null,
+      "exceptionType": "System.ArgumentException"
     },
     {
       "input": 426,
-      "returnValue": 42,
-      "exceptionType": null
+      "returnValue": null,
+      "exceptionType": "System.ArgumentException"
     },
     {
       "input": 427,
@@ -3057,13 +3058,13 @@
     },
     {
       "input": 428,
-      "returnValue": 42,
-      "exceptionType": null
+      "returnValue": null,
+      "exceptionType": "System.ArgumentException"
     },
     {
       "input": 429,
-      "returnValue": 42,
-      "exceptionType": null
+      "returnValue": null,
+      "exceptionType": "System.ArgumentException"
     },
     {
       "input": 430,
@@ -3072,13 +3073,13 @@
     },
     {
       "input": 431,
-      "returnValue": 42,
-      "exceptionType": null
+      "returnValue": null,
+      "exceptionType": "System.ArgumentException"
     },
     {
       "input": 432,
-      "returnValue": 42,
-      "exceptionType": null
+      "returnValue": null,
+      "exceptionType": "System.ArgumentException"
     },
     {
       "input": 433,
@@ -5423,5 +5424,5 @@
   "usesTypedTrace": false,
   "exposesLegacyTrace": false,
   "reportAllMismatches": true,
-  "testMethod": "NetWasm.Compiler.Tests.Correctness.FloatingMathEdgeTests.RoundingArgumentsRespectNet10LimitsAndExceptionPrecedence"
+  "testMethod": "NetWasm.Compiler.Tests.Correctness.FloatingMathEdgeTests.RoundingArgumentsRespectSelectedNet11Contract"
 }

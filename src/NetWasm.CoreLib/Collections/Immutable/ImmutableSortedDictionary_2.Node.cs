@@ -245,12 +245,7 @@ namespace System.Collections.Immutable
             {
                 Requires.NotNull(dictionary, nameof(dictionary));
 
-                var list = new List<KeyValuePair<TKey, TValue>>(dictionary.Count);
-                foreach (KeyValuePair<TKey, TValue> item in dictionary)
-                {
-                    list.Add(item);
-                }
-
+                IReadOnlyList<KeyValuePair<TKey, TValue>> list = dictionary.AsReadOnlyList();
                 return NodeTreeFromList(list, 0, list.Count);
             }
 
@@ -316,7 +311,7 @@ namespace System.Collections.Immutable
                 ImmutableSortedDictionary<TKey, TValue>.Node match = this.Search(key, keyComparer);
                 if (match.IsEmpty)
                 {
-                    ImmutableDictionaryThrowHelper.ThrowKeyNotFoundException(key);
+                    ThrowHelper.ThrowKeyNotFoundException(key);
                 }
 
                 return ref match._value;
@@ -680,9 +675,7 @@ namespace System.Collections.Immutable
                         }
                         else
                         {
-                            mutated = false;
-                            result = this;
-                            ImmutableDictionaryThrowHelper.ThrowDuplicateKey(key);
+                            throw new ArgumentException(SR.Format(SR.DuplicateKey, key));
                         }
                     }
 

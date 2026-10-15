@@ -12,7 +12,7 @@ public sealed class ImmutableListCompatibilityCorpusTests(CorrectnessTestRunner 
             "ImmutableListCompatibilityCorpus",
             "NetWasm.Correctness.ImmutableLists",
             Source,
-            [0, 1, 2, 3, 4, 5, 6, 7, 8])
+            [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13])
         {
             ExpectedReturnValues = ImmutableDictionary<int, int>.Empty.Add(4, 41),
             CaptureCompilerDiagnostics = true,
@@ -42,7 +42,12 @@ public sealed class ImmutableListCompatibilityCorpusTests(CorrectnessTestRunner 
                 5 => PredicatesAndConversion(),
                 6 => InterfaceContracts(),
                 7 => FailureContracts(),
-                _ => EmptyAndNoOpSharing(),
+                8 => EmptyAndNoOpSharing(),
+                9 => CopiedEnumeratorDisposal(),
+                10 => RemoveRangeAndReplace(),
+                11 => BuilderSyncRootAndRangeMutation(),
+                12 => UnknownCountFactoriesAndPartialSort(),
+                _ => EmptyInterfaceEnumeration(),
             };
 
             private static int PersistentAddsAndIndexes()
@@ -146,6 +151,82 @@ public sealed class ImmutableListCompatibilityCorpusTests(CorrectnessTestRunner 
                     (ReferenceEquals(empty, cleared) ? 100 : 0) +
                     (empty.Count == 0 ? 10 : 0) +
                     (empty.GetEnumerator().MoveNext() ? 1 : 0);
+            }
+
+            private static int CopiedEnumeratorDisposal()
+            {
+                var enumerator = ImmutableList.Create(3, 5, 7).GetEnumerator();
+                var copy = enumerator;
+                enumerator.Dispose();
+                try
+                {
+                    copy.MoveNext();
+                    return -1;
+                }
+                catch (ObjectDisposedException)
+                {
+                    return 357;
+                }
+            }
+
+            private static int RemoveRangeAndReplace()
+            {
+                var items = ImmutableList.Create(2, 4);
+                var values = ImmutableList.Create(1, 2, 3, 4, 2)
+                    .RemoveRange(items)
+                    .Replace(2, 9);
+                var messageMatches = false;
+                try
+                {
+                    values.Replace(8, 0);
+                }
+                catch (ArgumentException exception)
+                {
+                    messageMatches = exception.ParamName == "oldValue";
+                }
+
+                return values[0] * 10000 + values[1] * 1000 + values[2] * 100 +
+                    values.Count * 10 + (messageMatches ? 1 : 0);
+            }
+
+            private static int BuilderSyncRootAndRangeMutation()
+            {
+                var builder = ImmutableList.Create(1, 2, 3, 2, 4).ToBuilder();
+                ICollection collection = builder;
+                var syncRoot = collection.SyncRoot;
+                builder.RemoveRange(ImmutableList.Create(2, 4), null);
+                builder.Replace(2, 8, null);
+                var converted = builder.ConvertAll(static value => value * 2);
+                return (ReferenceEquals(syncRoot, collection.SyncRoot) ? 10000 : 0) +
+                    converted[0] * 1000 + converted[1] * 100 + converted[2] * 10 +
+                    converted.Count;
+            }
+
+            private static int UnknownCountFactoriesAndPartialSort()
+            {
+                var values = ImmutableList.CreateRange(UnknownCount());
+                var sorted = values.Sort(1, 3, Comparer<int>.Default);
+                return sorted[0] * 10000 + sorted[1] * 1000 + sorted[2] * 100 +
+                    sorted[3] * 10 + sorted[4];
+            }
+
+            private static IEnumerable<int> UnknownCount()
+            {
+                yield return 9;
+                yield return 7;
+                yield return 3;
+                yield return 5;
+                yield return 1;
+            }
+
+            private static int EmptyInterfaceEnumeration()
+            {
+                IEnumerable<int> values = ImmutableList<int>.Empty;
+                using IEnumerator<int> enumerator = values.GetEnumerator();
+                var before = enumerator.MoveNext();
+                enumerator.Reset();
+                var after = enumerator.MoveNext();
+                return (!before && !after) ? 1 : 0;
             }
         }
         """;

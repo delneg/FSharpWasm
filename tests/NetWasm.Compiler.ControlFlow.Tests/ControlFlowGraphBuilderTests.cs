@@ -7,6 +7,66 @@ using static NetWasm.Compiler.ControlFlow.Tests.ControlFlowTestSupport;
 
 public sealed class ControlFlowGraphBuilderTests
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ActivatesNestedExceptionRootsOnlyFromReachableProtectedCode(bool enter)
+    {
+        var body = Body(CliValueKind.Void, 0, [],
+            enter ? I(0, CilOperation.Nop) : I(0, CilOperation.Branch, new CilOperand.BranchTarget(8)),
+            I(1, CilOperation.Nop),
+            I(2, CilOperation.Leave, new CilOperand.BranchTarget(8)),
+            I(3, CilOperation.Nop),
+            I(4, CilOperation.Leave, new CilOperand.BranchTarget(7)),
+            I(5, CilOperation.Nop),
+            I(6, CilOperation.EndFinally),
+            I(7, CilOperation.EndFinally),
+            I(8, CilOperation.Return)) with
+        {
+            ExceptionRegions =
+            [
+                new(CilExceptionRegionKind.Finally, 1, 2, 3, 5, null, null),
+                new(CilExceptionRegionKind.Finally, 3, 2, 5, 2, null, null),
+            ],
+        };
+
+        var graph = CreateGraphBuilder().Build(body);
+
+        Assert.Contains(graph.Entry.Index, graph.ReachableBlocks);
+        Assert.Contains(graph.GetBlockAtOffset(8).Index, graph.ReachableBlocks);
+        Assert.Equal(enter, graph.ReachableBlocks.Contains(graph.GetBlockAtOffset(3).Index));
+        Assert.Equal(enter, graph.ReachableBlocks.Contains(graph.GetBlockAtOffset(5).Index));
+        Assert.Same(body, graph.MethodBody);
+        Assert.Equal(2, graph.MethodBody.ExceptionRegions.Length);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ActivatesFilterAndHandlerExceptionRootsTogether(bool enter)
+    {
+        var body = Body(CliValueKind.Void, 1, [],
+            enter ? I(0, CilOperation.Nop) : I(0, CilOperation.Branch, new CilOperand.BranchTarget(8)),
+            I(1, CilOperation.Nop),
+            I(2, CilOperation.Leave, new CilOperand.BranchTarget(8)),
+            I(3, CilOperation.Pop),
+            I(4, CilOperation.LoadInt32, new CilOperand.ConstantI4(1)),
+            I(5, CilOperation.EndFilter),
+            I(6, CilOperation.Pop),
+            I(7, CilOperation.Leave, new CilOperand.BranchTarget(8)),
+            I(8, CilOperation.Return)) with
+        {
+            ExceptionRegions = [new(CilExceptionRegionKind.Filter, 1, 2, 6, 2, null, 3)],
+        };
+
+        var graph = CreateGraphBuilder().Build(body);
+
+        Assert.Equal(enter, graph.ReachableBlocks.Contains(graph.GetBlockAtOffset(3).Index));
+        Assert.Equal(enter, graph.ReachableBlocks.Contains(graph.GetBlockAtOffset(6).Index));
+        Assert.Contains(graph.GetBlockAtOffset(8).Index, graph.ReachableBlocks);
+        Assert.Same(body, graph.MethodBody);
+    }
+
     [Fact]
     public void GraphBuildsConditionalJoinAndLeavesUnreachableBlockMarked()
     {

@@ -91,11 +91,11 @@
           BeforeTargets="NetWasmCompileCoreModule;NetWasmRuntimePackMaterialize"
           Condition="'$(TargetFramework)' == 'netwasm0.1' AND ('$(OutputType)' == 'Exe' OR '$(_NetWasmWorkerKind)' != '')">
     <Error Code="NWPACK007"
-           Condition="'$(NetWasmGarbageCollector)' != '' AND !$([System.String]::Equals('$(NetWasmGarbageCollector)', 'Compact')) AND !$([System.String]::Equals('$(NetWasmGarbageCollector)', 'Boehm'))"
-           Text="NetWasmGarbageCollector must be exactly Compact or Boehm, or unset to use the runtime pack default." />
+           Condition="'$(NetWasmGarbageCollector)' != '' AND !$([System.String]::Equals('$(NetWasmGarbageCollector)', 'Compact')) AND !$([System.String]::Equals('$(NetWasmGarbageCollector)', 'NetWasm')) AND !$([System.String]::Equals('$(NetWasmGarbageCollector)', 'Boehm')) AND !$([System.String]::Equals('$(NetWasmGarbageCollector)', 'Bump'))"
+           Text="NetWasmGarbageCollector must be exactly Compact, NetWasm, Boehm or Bump, or unset to use the runtime pack default." />
     <Error Code="NWPACK006"
-           Condition="'$(NetWasmGarbageCollector)' != '' AND ('$(NetWasmRuntimeModulePath)' != '' OR '@(NetWasmComponentRuntime)' != '')"
-           Text="An explicit NetWasmGarbageCollector cannot be combined with a caller-supplied runtime module. Remove the override or leave the collector unset." />
+           Condition="'$(NetWasmRuntimeModulePath)' != '' OR '@(NetWasmComponentRuntime)' != ''"
+           Text="Runtime-file overrides are unsupported. Remove NetWasmRuntimeModulePath and caller-added NetWasmComponentRuntime items. To test a modified runtime, restore a uniquely versioned NetWasm.Runtime.Pack package from a local NuGet feed." />
   </Target>
 
   <Import Project="$(MSBuildThisFileDirectory)NetWasm.NativeLibraries.targets" />

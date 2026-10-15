@@ -592,7 +592,7 @@ namespace System
         }
 
         private static bool IsTrimCharacter(char value) =>
-            value is ' ' or '\t' or '\r' or '\n' or '\f' or '\v' or '\0';
+            char.IsWhiteSpace(value) || value == '\0';
     }
 
     public partial struct Byte : IComparable, IComparable<byte>, IConvertible, IEquatable<byte>,
@@ -615,17 +615,12 @@ namespace System
         public int CompareTo(object? value) => CompareObject(value);
         public override bool Equals(object? value) => value is byte other && Equals(other);
         public override int GetHashCode() => this;
-        public override string ToString() => Number.FormatUnsigned(this, 8, null);
-        public string ToString(string? format) => Number.FormatUnsigned(this, 8, format);
-        public static byte Parse(string value) => ParseUnsigned(value, false);
+        public override string ToString() => Number.UInt32ToDecStr(this);
+        public string ToString(string? format) => Number.FormatUInt32(this, format, null);
+        public static byte Parse(string value) =>
+            (byte)Number.ParseUnsignedInteger(value, 8, Globalization.NumberStyles.Integer);
         public static byte Parse(string value, Globalization.NumberStyles style) =>
-            ParseByteWithStyle(value, style);
-        private static byte ParseByteWithStyle(string value, Globalization.NumberStyles style)
-        {
-            PrimitiveGenericMathSmall.ValidateIntegerStyle(style);
-            if (value is null) throw new ArgumentNullException();
-            return PrimitiveGenericMathSmall.ParseByte(new ReadOnlySpan<char>(value.ToCharArray()), style);
-        }
+            (byte)Number.ParseUnsignedInteger(value, 8, style);
         public static bool TryParse(string? value, out byte result)
         {
             if (value is null)
@@ -634,27 +629,15 @@ namespace System
                 return false;
             }
 
-            var valid = PrimitiveGenericMathSmall.TryParseUnsigned(new ReadOnlySpan<char>(value.ToCharArray()), Globalization.NumberStyles.Integer, MaxValue, out var parsed);
+            var valid = Number.TryParseUnsignedInteger(value, 8, Globalization.NumberStyles.Integer, out var parsed);
             result = (byte)parsed;
             return valid;
         }
         public static bool TryParse(string? value, Globalization.NumberStyles style, out byte result)
         {
-            if (value is null)
-            {
-                PrimitiveGenericMathSmall.ValidateIntegerStyle(style);
-                result = 0;
-                return false;
-            }
-
-            var valid = PrimitiveGenericMathSmall.TryParseUnsigned(new ReadOnlySpan<char>(value.ToCharArray()), style, MaxValue, out var parsed);
+            var valid = Number.TryParseUnsignedInteger(value, 8, style, out var parsed);
             result = (byte)parsed;
             return valid;
-        }
-        private static byte ParseUnsigned(string value, bool hexadecimal)
-        {
-            if (value == null) throw new ArgumentNullException();
-            return PrimitiveGenericMathSmall.ParseByte(new ReadOnlySpan<char>(value.ToCharArray()), hexadecimal ? Globalization.NumberStyles.HexNumber : Globalization.NumberStyles.Integer);
         }
         private int CompareObject(object? value)
         {
@@ -693,43 +676,14 @@ namespace System
         public static byte MaxMagnitudeNumber(byte left, byte right) => Max(left, right);
         public static byte MinMagnitude(byte left, byte right) => Min(left, right);
         public static byte MinMagnitudeNumber(byte left, byte right) => Min(left, right);
-        public static byte Log2(byte value)
-        {
-            var result = 0;
-            while (value > 1) { value >>= 1; result++; }
-            return (byte)result;
-        }
+        public static byte Log2(byte value) => (byte)Numerics.BitOperations.Log2(value);
         public static bool IsPow2(byte value) => value != 0 && (value & (value - 1)) == 0;
-        public static byte LeadingZeroCount(byte value)
-        {
-            var result = 0;
-            for (var bit = 7; bit >= 0 && (value & (1 << bit)) == 0; bit--) result++;
-            return (byte)result;
-        }
-        public static byte PopCount(byte value)
-        {
-            var result = 0;
-            while (value != 0) { value &= (byte)(value - 1); result++; }
-            return (byte)result;
-        }
-        public static byte RotateLeft(byte value, int rotateAmount)
-        {
-            rotateAmount &= 7;
-            return (byte)((value << rotateAmount) | (value >> ((8 - rotateAmount) & 7)));
-        }
-        public static byte RotateRight(byte value, int rotateAmount) => RotateLeft(value, -rotateAmount);
-        public static byte TrailingZeroCount(byte value)
-        {
-            if (value == 0) return 8;
-            var result = 0;
-            while ((value & 1) == 0) { value >>= 1; result++; }
-            return (byte)result;
-        }
-        public static (byte Quotient, byte Remainder) DivRem(byte left, byte right)
-        {
-            var quotient = (byte)(left / right);
-            return (quotient, (byte)(left - quotient * right));
-        }
+        public static byte LeadingZeroCount(byte value) => (byte)(Numerics.BitOperations.LeadingZeroCount(value) - 24);
+        public static byte PopCount(byte value) => (byte)Numerics.BitOperations.PopCount(value);
+        public static byte RotateLeft(byte value, int rotateAmount) => (byte)((value << (rotateAmount & 7)) | (value >> ((8 - rotateAmount) & 7)));
+        public static byte RotateRight(byte value, int rotateAmount) => (byte)((value >> (rotateAmount & 7)) | (value << ((8 - rotateAmount) & 7)));
+        public static byte TrailingZeroCount(byte value) => (byte)(Numerics.BitOperations.TrailingZeroCount(value << 24) - 24);
+        public static (byte Quotient, byte Remainder) DivRem(byte left, byte right) => Math.DivRem(left, right);
         public int GetByteCount() => 1;
         public int GetShortestBitLength() => this == 0 ? 0 : 8 - LeadingZeroCount(this);
         public bool TryWriteBigEndian(Span<byte> destination, out int bytesWritten)
@@ -764,17 +718,19 @@ namespace System
             value = source[0];
             return true;
         }
-        public static byte Parse(ReadOnlySpan<char> value, Globalization.NumberStyles style = System.Globalization.NumberStyles.Integer, IFormatProvider? provider = null) => PrimitiveGenericMathSmall.ParseByte(value, style);
+        public static byte Parse(ReadOnlySpan<char> value, Globalization.NumberStyles style = System.Globalization.NumberStyles.Integer, IFormatProvider? provider = null) =>
+            (byte)Number.ParseUnsignedInteger(value, 8, style);
         public static bool TryParse(ReadOnlySpan<char> value, Globalization.NumberStyles style, IFormatProvider? provider, out byte result)
         {
-            var valid = PrimitiveGenericMathSmall.TryParseUnsigned(value, style, MaxValue, out var parsed);
+            var valid = Number.TryParseUnsignedInteger(value, 8, style, out var parsed);
             result = (byte)parsed;
             return valid;
         }
-        public static byte Parse(ReadOnlySpan<byte> value, Globalization.NumberStyles style = System.Globalization.NumberStyles.Integer, IFormatProvider? provider = null) => PrimitiveGenericMathSmall.ParseByteUtf8(value, style);
+        public static byte Parse(ReadOnlySpan<byte> value, Globalization.NumberStyles style = System.Globalization.NumberStyles.Integer, IFormatProvider? provider = null) =>
+            (byte)Number.ParseUnsignedInteger(value, 8, style);
         public static bool TryParse(ReadOnlySpan<byte> value, Globalization.NumberStyles style, IFormatProvider? provider, out byte result)
         {
-            var valid = PrimitiveGenericMathSmall.TryParseUtf8(value, style, out var parsed, MaxValue);
+            var valid = Number.TryParseUnsignedInteger(value, 8, style, out var parsed);
             result = (byte)parsed;
             return valid;
         }
@@ -812,24 +768,6 @@ namespace System
         static byte Numerics.IMinMaxValue<byte>.MinValue => MinValue;
         static byte Numerics.IMinMaxValue<byte>.MaxValue => MaxValue;
 
-        private static bool TryConvert<TOther>(TOther value, out byte result)
-            where TOther : Numerics.INumberBase<TOther>
-        {
-            try { result = Convert.ToByte((object?)value); return true; }
-            catch { result = 0; return false; }
-        }
-        static bool Numerics.INumberBase<byte>.TryConvertFromChecked<TOther>(TOther value, out byte result) => TryConvert(value, out result);
-        static bool Numerics.INumberBase<byte>.TryConvertFromSaturating<TOther>(TOther value, out byte result) => TryConvert(value, out result);
-        static bool Numerics.INumberBase<byte>.TryConvertFromTruncating<TOther>(TOther value, out byte result) => TryConvert(value, out result);
-        static bool Numerics.INumberBase<byte>.TryConvertToChecked<TOther>(byte value, out TOther result) => TryConvertTo(value, out result);
-        static bool Numerics.INumberBase<byte>.TryConvertToSaturating<TOther>(byte value, out TOther result) => TryConvertTo(value, out result);
-        static bool Numerics.INumberBase<byte>.TryConvertToTruncating<TOther>(byte value, out TOther result) => TryConvertTo(value, out result);
-        private static bool TryConvertTo<TOther>(byte value, out TOther result)
-            where TOther : Numerics.INumberBase<TOther>
-        {
-            try { result = TOther.CreateTruncating(value); return true; }
-            catch { result = default!; return false; }
-        }
     }
 
     public partial struct SByte : IComparable, IComparable<sbyte>, IConvertible, IEquatable<sbyte>,
@@ -852,17 +790,12 @@ namespace System
         public int CompareTo(object? value) => CompareObject(value);
         public override bool Equals(object? value) => value is sbyte other && Equals(other);
         public override int GetHashCode() => this;
-        public override string ToString() => Number.FormatSigned(this, 8, null);
-        public string ToString(string? format) => Number.FormatSigned(this, 8, format);
-        public static sbyte Parse(string value) => ParseSigned(value, false);
+        public override string ToString() => Number.Int32ToDecStr(this);
+        public string ToString(string? format) => ToString(format, null);
+        public static sbyte Parse(string value) =>
+            (sbyte)Number.ParseSignedInteger(value, 8, Globalization.NumberStyles.Integer);
         public static sbyte Parse(string value, Globalization.NumberStyles style) =>
-            ParseSByteWithStyle(value, style);
-        private static sbyte ParseSByteWithStyle(string value, Globalization.NumberStyles style)
-        {
-            PrimitiveGenericMathSmall.ValidateIntegerStyle(style);
-            if (value is null) throw new ArgumentNullException();
-            return PrimitiveGenericMathSmall.ParseSByte(new ReadOnlySpan<char>(value.ToCharArray()), style);
-        }
+            (sbyte)Number.ParseSignedInteger(value, 8, style);
         public static bool TryParse(string? value, out sbyte result)
         {
             if (value is null)
@@ -871,27 +804,15 @@ namespace System
                 return false;
             }
 
-            var valid = PrimitiveGenericMathSmall.TryParseSigned(new ReadOnlySpan<char>(value.ToCharArray()), Globalization.NumberStyles.Integer, 8, out var parsed);
+            var valid = Number.TryParseSignedInteger(value, 8, Globalization.NumberStyles.Integer, out var parsed);
             result = (sbyte)parsed;
             return valid;
         }
         public static bool TryParse(string? value, Globalization.NumberStyles style, out sbyte result)
         {
-            if (value is null)
-            {
-                PrimitiveGenericMathSmall.ValidateIntegerStyle(style);
-                result = 0;
-                return false;
-            }
-
-            var valid = PrimitiveGenericMathSmall.TryParseSigned(new ReadOnlySpan<char>(value.ToCharArray()), style, 8, out var parsed);
+            var valid = Number.TryParseSignedInteger(value, 8, style, out var parsed);
             result = (sbyte)parsed;
             return valid;
-        }
-        private static sbyte ParseSigned(string value, bool hexadecimal)
-        {
-            if (value == null) throw new ArgumentNullException();
-            return PrimitiveGenericMathSmall.ParseSByte(new ReadOnlySpan<char>(value.ToCharArray()), hexadecimal ? Globalization.NumberStyles.HexNumber : Globalization.NumberStyles.Integer);
         }
         private int CompareObject(object? value)
         {
@@ -955,40 +876,15 @@ namespace System
         public static sbyte Log2(sbyte value)
         {
             if (value < 0) throw new ArgumentOutOfRangeException();
-            var result = 0;
-            while (value > 1) { value >>= 1; result++; }
-            return (sbyte)result;
+            return (sbyte)Numerics.BitOperations.Log2((byte)value);
         }
         public static bool IsPow2(sbyte value) => value > 0 && (value & (value - 1)) == 0;
-        public static sbyte LeadingZeroCount(sbyte value)
-        {
-            var bits = (byte)value;
-            var result = 0;
-            for (var bit = 7; bit >= 0 && (bits & (1 << bit)) == 0; bit--) result++;
-            return (sbyte)result;
-        }
-        public static sbyte PopCount(sbyte value)
-        {
-            var bits = (byte)value;
-            var result = 0;
-            while (bits != 0) { bits &= (byte)(bits - 1); result++; }
-            return (sbyte)result;
-        }
-        public static sbyte RotateLeft(sbyte value, int rotateAmount) => (sbyte)(((byte)value << (rotateAmount & 7)) | ((byte)value >> ((8 - rotateAmount) & 7)));
-        public static sbyte RotateRight(sbyte value, int rotateAmount) => RotateLeft(value, -rotateAmount);
-        public static sbyte TrailingZeroCount(sbyte value)
-        {
-            if (value == 0) return 8;
-            var bits = (byte)value;
-            var result = 0;
-            while ((bits & 1) == 0) { bits >>= 1; result++; }
-            return (sbyte)result;
-        }
-        public static (sbyte Quotient, sbyte Remainder) DivRem(sbyte left, sbyte right)
-        {
-            var quotient = (sbyte)(left / right);
-            return (quotient, (sbyte)(left - quotient * right));
-        }
+        public static sbyte LeadingZeroCount(sbyte value) => (sbyte)(Numerics.BitOperations.LeadingZeroCount((byte)value) - 24);
+        public static sbyte PopCount(sbyte value) => (sbyte)Numerics.BitOperations.PopCount((byte)value);
+        public static sbyte RotateLeft(sbyte value, int rotateAmount) => (sbyte)((value << (rotateAmount & 7)) | ((byte)value >> ((8 - rotateAmount) & 7)));
+        public static sbyte RotateRight(sbyte value, int rotateAmount) => (sbyte)(((byte)value >> (rotateAmount & 7)) | (value << ((8 - rotateAmount) & 7)));
+        public static sbyte TrailingZeroCount(sbyte value) => (sbyte)(Numerics.BitOperations.TrailingZeroCount(value << 24) - 24);
+        public static (sbyte Quotient, sbyte Remainder) DivRem(sbyte left, sbyte right) => Math.DivRem(left, right);
         public int GetByteCount() => 1;
         public int GetShortestBitLength() => this switch { 0 => 0, > 0 => 8 - LeadingZeroCount(this), _ => 9 - LeadingZeroCount((sbyte)~this) };
         public bool TryWriteBigEndian(Span<byte> destination, out int bytesWritten)
@@ -1067,32 +963,19 @@ namespace System
             value = (sbyte)source[0];
             return true;
         }
-        public static sbyte Parse(ReadOnlySpan<char> value, Globalization.NumberStyles style = System.Globalization.NumberStyles.Integer, IFormatProvider? provider = null) => PrimitiveGenericMathSmall.ParseSByte(value, style);
+        public static sbyte Parse(ReadOnlySpan<char> value, Globalization.NumberStyles style = System.Globalization.NumberStyles.Integer, IFormatProvider? provider = null) =>
+            (sbyte)Number.ParseSignedInteger(value, 8, style);
         public static bool TryParse(ReadOnlySpan<char> value, Globalization.NumberStyles style, IFormatProvider? provider, out sbyte result)
         {
-            var valid = PrimitiveGenericMathSmall.TryParseSigned(value, style, 8, out var parsed);
+            var valid = Number.TryParseSignedInteger(value, 8, style, out var parsed);
             result = (sbyte)parsed;
             return valid;
         }
-        public static sbyte Parse(ReadOnlySpan<byte> value, Globalization.NumberStyles style = System.Globalization.NumberStyles.Integer, IFormatProvider? provider = null) => PrimitiveGenericMathSmall.ParseSByteUtf8(value, style);
+        public static sbyte Parse(ReadOnlySpan<byte> value, Globalization.NumberStyles style = System.Globalization.NumberStyles.Integer, IFormatProvider? provider = null) =>
+            (sbyte)Number.ParseSignedInteger(value, 8, style);
         public static bool TryParse(ReadOnlySpan<byte> value, Globalization.NumberStyles style, IFormatProvider? provider, out sbyte result)
         {
-            PrimitiveGenericMathSmall.ValidateIntegerStyle(style);
-            var chars = new char[value.Length];
-            var valid = true;
-            for (var index = 0; index < value.Length; index++)
-            {
-                if (value[index] > 0x7F)
-                {
-                    valid = false;
-                    break;
-                }
-
-                chars[index] = (char)value[index];
-            }
-
-            var parsed = 0L;
-            valid = valid && PrimitiveGenericMathSmall.TryParseSigned(chars, style, 8, out parsed);
+            var valid = Number.TryParseSignedInteger(value, 8, style, out var parsed);
             result = (sbyte)parsed;
             return valid;
         }
@@ -1130,24 +1013,6 @@ namespace System
         static sbyte Numerics.IMinMaxValue<sbyte>.MinValue => MinValue;
         static sbyte Numerics.IMinMaxValue<sbyte>.MaxValue => MaxValue;
         static sbyte Numerics.ISignedNumber<sbyte>.NegativeOne => NegativeOne;
-        private static bool TryConvert<TOther>(TOther value, out sbyte result)
-            where TOther : Numerics.INumberBase<TOther>
-        {
-            try { result = Convert.ToSByte((object?)value); return true; }
-            catch { result = 0; return false; }
-        }
-        static bool Numerics.INumberBase<sbyte>.TryConvertFromChecked<TOther>(TOther value, out sbyte result) => TryConvert(value, out result);
-        static bool Numerics.INumberBase<sbyte>.TryConvertFromSaturating<TOther>(TOther value, out sbyte result) => TryConvert(value, out result);
-        static bool Numerics.INumberBase<sbyte>.TryConvertFromTruncating<TOther>(TOther value, out sbyte result) => TryConvert(value, out result);
-        static bool Numerics.INumberBase<sbyte>.TryConvertToChecked<TOther>(sbyte value, out TOther result) => TryConvertTo(value, out result);
-        static bool Numerics.INumberBase<sbyte>.TryConvertToSaturating<TOther>(sbyte value, out TOther result) => TryConvertTo(value, out result);
-        static bool Numerics.INumberBase<sbyte>.TryConvertToTruncating<TOther>(sbyte value, out TOther result) => TryConvertTo(value, out result);
-        private static bool TryConvertTo<TOther>(sbyte value, out TOther result)
-            where TOther : Numerics.INumberBase<TOther>
-        {
-            try { result = TOther.CreateTruncating(value); return true; }
-            catch { result = default!; return false; }
-        }
     }
 
     public partial struct Int16 : IComparable, IComparable<short>, IConvertible, IEquatable<short>,
@@ -1170,11 +1035,11 @@ namespace System
         public int CompareTo(object? value) => CompareObject(value);
         public override bool Equals(object? value) => value is short other && Equals(other);
         public override int GetHashCode() => this;
-        public override string ToString() => Number.FormatSigned(this, 16, null);
-        public string ToString(string? format) => Number.FormatSigned(this, 16, format);
+        public override string ToString() => Number.Int32ToDecStr(this);
+        public string ToString(string? format) => ToString(format, null);
         public static short Parse(string value) => ParseSigned(value, false);
         public static short Parse(string value, Globalization.NumberStyles style) =>
-            ParseSigned(value, Number.IsHexadecimal(style));
+            (short)Number.ParseSignedInteger(value, 16, style);
         public static bool TryParse(string? value, out short result)
         {
             var valid = Number.TryParseSigned(value, 16, false, out var parsed, out _);
@@ -1183,7 +1048,7 @@ namespace System
         }
         public static bool TryParse(string? value, Globalization.NumberStyles style, out short result)
         {
-            var valid = Number.TryParseSigned(value, 16, Number.IsHexadecimal(style), out var parsed, out _);
+            var valid = Number.TryParseSignedInteger(value, 16, style, out var parsed);
             result = (short)parsed;
             return valid;
         }
@@ -1230,45 +1095,20 @@ namespace System
         public static short Log2(short value)
         {
             if (value < 0) throw new ArgumentOutOfRangeException();
-            var result = 0;
-            ulong bits = (ulong)value;
-            while (bits > 1) { bits >>= 1; result++; }
-            return (short)result;
+            return (short)Numerics.BitOperations.Log2((ushort)value);
         }
         public static bool IsPow2(short value)
         {
             ulong bits = (ulong)value;
             return value > 0 && bits != 0 && (bits & (bits - 1)) == 0;
         }
-        public static short LeadingZeroCount(short value)
-        {
-            ulong bits = (ulong)value;
-            var result = 0;
-            for (var bit = 15; bit >= 0 && (bits & (1UL << bit)) == 0; bit--) result++;
-            return (short)result;
-        }
-        public static short PopCount(short value)
-        {
-            ulong bits = (ulong)value;
-            var result = 0;
-            while (bits != 0) { bits &= bits - 1; result++; }
-            return (short)result;
-        }
-        public static short RotateLeft(short value, int rotateAmount)
-        {
-            rotateAmount &= 15;
-            ulong bits = (ulong)value;
-            return (short)((bits << rotateAmount) | (bits >> ((16 - rotateAmount) & 15)));
-        }
-        public static short RotateRight(short value, int rotateAmount) => RotateLeft(value, -rotateAmount);
-        public static short TrailingZeroCount(short value)
-        {
-            if (value == 0) return 16;
-            var bits = (ushort)value;
-            var result = 0;
-            while ((bits & 1) == 0) { bits >>= 1; result++; }
-            return (short)result;
-        }
+        // Scalar bit operations follow dotnet/runtime Int16.cs at
+        // 811225a482702af7ecc35d817966bc70b88a3a23.
+        public static short LeadingZeroCount(short value) => (short)(Numerics.BitOperations.LeadingZeroCount((ushort)value) - 16);
+        public static short PopCount(short value) => (short)Numerics.BitOperations.PopCount((ushort)value);
+        public static short RotateLeft(short value, int rotateAmount) => (short)((value << (rotateAmount & 15)) | ((ushort)value >> ((16 - rotateAmount) & 15)));
+        public static short RotateRight(short value, int rotateAmount) => (short)(((ushort)value >> (rotateAmount & 15)) | (value << ((16 - rotateAmount) & 15)));
+        public static short TrailingZeroCount(short value) => (byte)(Numerics.BitOperations.TrailingZeroCount(value << 16) - 16);
         public static (short Quotient, short Remainder) DivRem(short left, short right)
         {
             var quotient = (short)(left / right);
@@ -1409,12 +1249,22 @@ namespace System
         public static bool TryParse(string? value, Globalization.NumberStyles style, IFormatProvider? provider, out short result) => TryParse(value, style, out result);
         public static short Parse(ReadOnlySpan<char> value, IFormatProvider? provider) => Parse(value, Globalization.NumberStyles.Integer, provider);
         public static bool TryParse(ReadOnlySpan<char> value, IFormatProvider? provider, out short result) => TryParse(value, Globalization.NumberStyles.Integer, provider, out result);
-        public static short Parse(ReadOnlySpan<char> value, Globalization.NumberStyles style = System.Globalization.NumberStyles.Integer, IFormatProvider? provider = null) => Parse(value.ToString(), style);
-        public static bool TryParse(ReadOnlySpan<char> value, Globalization.NumberStyles style, IFormatProvider? provider, out short result) => TryParse(value.ToString(), style, out result);
+        public static short Parse(ReadOnlySpan<char> value, Globalization.NumberStyles style = System.Globalization.NumberStyles.Integer, IFormatProvider? provider = null) => (short)Number.ParseSignedInteger(value, 16, style);
+        public static bool TryParse(ReadOnlySpan<char> value, Globalization.NumberStyles style, IFormatProvider? provider, out short result)
+        {
+            var valid = Number.TryParseSignedInteger(value, 16, style, out var parsed);
+            result = (short)parsed;
+            return valid;
+        }
         public static short Parse(ReadOnlySpan<byte> value, IFormatProvider? provider) => Parse(value, Globalization.NumberStyles.Integer, provider);
         public static bool TryParse(ReadOnlySpan<byte> value, IFormatProvider? provider, out short result) => TryParse(value, Globalization.NumberStyles.Integer, provider, out result);
-        public static short Parse(ReadOnlySpan<byte> value, Globalization.NumberStyles style = System.Globalization.NumberStyles.Integer, IFormatProvider? provider = null) => Parse(PrimitiveGenericMathSmall.CreateStringFromUtf8(value), style);
-        public static bool TryParse(ReadOnlySpan<byte> value, Globalization.NumberStyles style, IFormatProvider? provider, out short result) => TryParse(PrimitiveGenericMathSmall.CreateStringFromUtf8(value), style, out result);
+        public static short Parse(ReadOnlySpan<byte> value, Globalization.NumberStyles style = System.Globalization.NumberStyles.Integer, IFormatProvider? provider = null) => (short)Number.ParseSignedInteger(value, 16, style);
+        public static bool TryParse(ReadOnlySpan<byte> value, Globalization.NumberStyles style, IFormatProvider? provider, out short result)
+        {
+            var valid = Number.TryParseSignedInteger(value, 16, style, out var parsed);
+            result = (short)parsed;
+            return valid;
+        }
 
         private int CompareObject(object? value)
         {
@@ -1444,11 +1294,11 @@ namespace System
         public int CompareTo(object? value) => CompareObject(value);
         public override bool Equals(object? value) => value is ushort other && Equals(other);
         public override int GetHashCode() => this;
-        public override string ToString() => Number.FormatUnsigned(this, 16, null);
-        public string ToString(string? format) => Number.FormatUnsigned(this, 16, format);
+        public override string ToString() => Number.UInt32ToDecStr(this);
+        public string ToString(string? format) => Number.FormatUInt32(this, format, null);
         public static ushort Parse(string value) => ParseUnsigned(value, false);
         public static ushort Parse(string value, Globalization.NumberStyles style) =>
-            ParseUnsigned(value, Number.IsHexadecimal(style));
+            (ushort)Number.ParseUnsignedInteger(value, 16, style);
         public static bool TryParse(string? value, out ushort result)
         {
             var valid = Number.TryParseUnsigned(value, 16, false, out var parsed, out _);
@@ -1457,7 +1307,7 @@ namespace System
         }
         public static bool TryParse(string? value, Globalization.NumberStyles style, out ushort result)
         {
-            var valid = Number.TryParseUnsigned(value, 16, Number.IsHexadecimal(style), out var parsed, out _);
+            var valid = Number.TryParseUnsignedInteger(value, 16, style, out var parsed);
             result = (ushort)parsed;
             return valid;
         }
@@ -1498,13 +1348,14 @@ namespace System
         public static ushort MaxMagnitudeNumber(ushort left, ushort right) => Max(left, right);
         public static ushort MinMagnitude(ushort left, ushort right) => Min(left, right);
         public static ushort MinMagnitudeNumber(ushort left, ushort right) => Min(left, right);
-        public static ushort Log2(ushort value) { var result = 0; while (value > 1) { value >>= 1; result++; } return (ushort)result; }
+        public static ushort Log2(ushort value) => (ushort)Numerics.BitOperations.Log2(value);
         public static bool IsPow2(ushort value) => value != 0 && (value & (value - 1)) == 0;
-        public static ushort LeadingZeroCount(ushort value) { var result = 0; for (var bit = 15; bit >= 0 && (value & (1 << bit)) == 0; bit--) result++; return (ushort)result; }
-        public static ushort PopCount(ushort value) { var result = 0; while (value != 0) { value &= (ushort)(value - 1); result++; } return (ushort)result; }
-        public static ushort RotateLeft(ushort value, int amount) { amount &= 15; return (ushort)((value << amount) | (value >> ((16 - amount) & 15))); }
-        public static ushort RotateRight(ushort value, int amount) => RotateLeft(value, -amount);
-        public static ushort TrailingZeroCount(ushort value) { if (value == 0) return 16; var result = 0; while ((value & 1) == 0) { value >>= 1; result++; } return (ushort)result; }
+        // Scalar bit operations follow the corresponding upstream UInt16 expressions.
+        public static ushort LeadingZeroCount(ushort value) => (ushort)(Numerics.BitOperations.LeadingZeroCount(value) - 16);
+        public static ushort PopCount(ushort value) => (ushort)Numerics.BitOperations.PopCount(value);
+        public static ushort RotateLeft(ushort value, int amount) => (ushort)((value << (amount & 15)) | (value >> ((16 - amount) & 15)));
+        public static ushort RotateRight(ushort value, int amount) => (ushort)((value >> (amount & 15)) | (value << ((16 - amount) & 15)));
+        public static ushort TrailingZeroCount(ushort value) => (ushort)(Numerics.BitOperations.TrailingZeroCount(value << 16) - 16);
         public static (ushort Quotient, ushort Remainder) DivRem(ushort left, ushort right) { var q = (ushort)(left / right); return (q, (ushort)(left - q * right)); }
         public int GetByteCount() => 2;
         public int GetShortestBitLength() => this == 0 ? 0 : 16 - LeadingZeroCount(this);
@@ -1585,12 +1436,22 @@ namespace System
         public static bool TryParse(string? value, Globalization.NumberStyles style, IFormatProvider? provider, out ushort result) => TryParse(value, style, out result);
         public static ushort Parse(ReadOnlySpan<char> value, IFormatProvider? provider) => Parse(value, Globalization.NumberStyles.Integer, provider);
         public static bool TryParse(ReadOnlySpan<char> value, IFormatProvider? provider, out ushort result) => TryParse(value, Globalization.NumberStyles.Integer, provider, out result);
-        public static ushort Parse(ReadOnlySpan<char> value, Globalization.NumberStyles style = System.Globalization.NumberStyles.Integer, IFormatProvider? provider = null) => Parse(value.ToString(), style);
-        public static bool TryParse(ReadOnlySpan<char> value, Globalization.NumberStyles style, IFormatProvider? provider, out ushort result) => TryParse(value.ToString(), style, out result);
+        public static ushort Parse(ReadOnlySpan<char> value, Globalization.NumberStyles style = System.Globalization.NumberStyles.Integer, IFormatProvider? provider = null) => (ushort)Number.ParseUnsignedInteger(value, 16, style);
+        public static bool TryParse(ReadOnlySpan<char> value, Globalization.NumberStyles style, IFormatProvider? provider, out ushort result)
+        {
+            var valid = Number.TryParseUnsignedInteger(value, 16, style, out var parsed);
+            result = (ushort)parsed;
+            return valid;
+        }
         public static ushort Parse(ReadOnlySpan<byte> value, IFormatProvider? provider) => Parse(value, Globalization.NumberStyles.Integer, provider);
         public static bool TryParse(ReadOnlySpan<byte> value, IFormatProvider? provider, out ushort result) => TryParse(value, Globalization.NumberStyles.Integer, provider, out result);
-        public static ushort Parse(ReadOnlySpan<byte> value, Globalization.NumberStyles style = System.Globalization.NumberStyles.Integer, IFormatProvider? provider = null) => Parse(PrimitiveGenericMathSmall.CreateStringFromUtf8(value), style);
-        public static bool TryParse(ReadOnlySpan<byte> value, Globalization.NumberStyles style, IFormatProvider? provider, out ushort result) => TryParse(PrimitiveGenericMathSmall.CreateStringFromUtf8(value), style, out result);
+        public static ushort Parse(ReadOnlySpan<byte> value, Globalization.NumberStyles style = System.Globalization.NumberStyles.Integer, IFormatProvider? provider = null) => (ushort)Number.ParseUnsignedInteger(value, 16, style);
+        public static bool TryParse(ReadOnlySpan<byte> value, Globalization.NumberStyles style, IFormatProvider? provider, out ushort result)
+        {
+            var valid = Number.TryParseUnsignedInteger(value, 16, style, out var parsed);
+            result = (ushort)parsed;
+            return valid;
+        }
 
         private int CompareObject(object? value)
         {
@@ -1629,11 +1490,11 @@ namespace System
             value is int other && this == other;
 
         public override int GetHashCode() => this;
-        public override string ToString() => Number.FormatSigned(this, 32, null);
-        public string ToString(string? format) => Number.FormatSigned(this, 32, format);
+        public override string ToString() => Number.Int32ToDecStr(this);
+        public string ToString(string? format) => ToString(format, null);
         public static int Parse(string value) => ParseSigned(value, false);
         public static int Parse(string value, Globalization.NumberStyles style) =>
-            ParseSigned(value, Number.IsHexadecimal(style));
+            (int)Number.ParseSignedInteger(value, 32, style);
         public static bool TryParse(string? value, out int result)
         {
             var valid = Number.TryParseSigned(value, 32, false, out var parsed, out _);
@@ -1642,7 +1503,7 @@ namespace System
         }
         public static bool TryParse(string? value, Globalization.NumberStyles style, out int result)
         {
-            var valid = Number.TryParseSigned(value, 32, Number.IsHexadecimal(style), out var parsed, out _);
+            var valid = Number.TryParseSignedInteger(value, 32, style, out var parsed);
             result = (int)parsed;
             return valid;
         }
@@ -1685,13 +1546,15 @@ namespace System
         public static int MaxMagnitudeNumber(int left, int right) => MaxMagnitude(left, right);
         public static int MinMagnitude(int left, int right) => Abs(left) <= Abs(right) ? left : right;
         public static int MinMagnitudeNumber(int left, int right) => MinMagnitude(left, right);
-        public static int Log2(int value) { if (value < 0) throw new ArgumentOutOfRangeException(); var result = 0; uint bits = (uint)value; while (bits > 1) { bits >>= 1; result++; } return result; }
+        public static int Log2(int value) => value < 0
+            ? throw new ArgumentOutOfRangeException()
+            : Numerics.BitOperations.Log2((uint)value);
         public static bool IsPow2(int value) => value > 0 && (value & (value - 1)) == 0;
-        public static int LeadingZeroCount(int value) { uint bits = (uint)value; var result = 0; for (var bit = 31; bit >= 0 && (bits & (1u << bit)) == 0; bit--) result++; return result; }
-        public static int PopCount(int value) { uint bits = (uint)value; var result = 0; while (bits != 0) { bits &= bits - 1; result++; } return result; }
-        public static int TrailingZeroCount(int value) { if (value == 0) return 32; uint bits = (uint)value; var result = 0; while ((bits & 1) == 0) { bits >>= 1; result++; } return result; }
-        public static int RotateLeft(int value, int amount) { amount &= 31; uint bits = (uint)value; return (int)((bits << amount) | (bits >> ((32 - amount) & 31))); }
-        public static int RotateRight(int value, int amount) => RotateLeft(value, -amount);
+        public static int LeadingZeroCount(int value) => Numerics.BitOperations.LeadingZeroCount((uint)value);
+        public static int PopCount(int value) => Numerics.BitOperations.PopCount((uint)value);
+        public static int TrailingZeroCount(int value) => Numerics.BitOperations.TrailingZeroCount(value);
+        public static int RotateLeft(int value, int amount) => (int)Numerics.BitOperations.RotateLeft((uint)value, amount);
+        public static int RotateRight(int value, int amount) => (int)Numerics.BitOperations.RotateRight((uint)value, amount);
         public static (int Quotient, int Remainder) DivRem(int left, int right) { var q = left / right; return (q, left - q * right); }
         public int GetByteCount() => 4;
         public int GetShortestBitLength() => this == 0 ? 0 : (this >= 0 ? 32 - LeadingZeroCount(this) : 33 - LeadingZeroCount(~this));
@@ -1775,12 +1638,22 @@ namespace System
         public static bool TryParse(string? value, Globalization.NumberStyles style, IFormatProvider? provider, out int result) => TryParse(value, style, out result);
         public static int Parse(ReadOnlySpan<char> value, IFormatProvider? provider) => Parse(value, Globalization.NumberStyles.Integer, provider);
         public static bool TryParse(ReadOnlySpan<char> value, IFormatProvider? provider, out int result) => TryParse(value, Globalization.NumberStyles.Integer, provider, out result);
-        public static int Parse(ReadOnlySpan<char> value, Globalization.NumberStyles style = System.Globalization.NumberStyles.Integer, IFormatProvider? provider = null) => Parse(value.ToString(), style);
-        public static bool TryParse(ReadOnlySpan<char> value, Globalization.NumberStyles style, IFormatProvider? provider, out int result) => TryParse(value.ToString(), style, out result);
+        public static int Parse(ReadOnlySpan<char> value, Globalization.NumberStyles style = System.Globalization.NumberStyles.Integer, IFormatProvider? provider = null) => (int)Number.ParseSignedInteger(value, 32, style);
+        public static bool TryParse(ReadOnlySpan<char> value, Globalization.NumberStyles style, IFormatProvider? provider, out int result)
+        {
+            var valid = Number.TryParseSignedInteger(value, 32, style, out var parsed);
+            result = (int)parsed;
+            return valid;
+        }
         public static int Parse(ReadOnlySpan<byte> value, IFormatProvider? provider) => Parse(value, Globalization.NumberStyles.Integer, provider);
         public static bool TryParse(ReadOnlySpan<byte> value, IFormatProvider? provider, out int result) => TryParse(value, Globalization.NumberStyles.Integer, provider, out result);
-        public static int Parse(ReadOnlySpan<byte> value, Globalization.NumberStyles style = System.Globalization.NumberStyles.Integer, IFormatProvider? provider = null) => Parse(PrimitiveGenericMathSmall.CreateStringFromUtf8(value), style);
-        public static bool TryParse(ReadOnlySpan<byte> value, Globalization.NumberStyles style, IFormatProvider? provider, out int result) => TryParse(PrimitiveGenericMathSmall.CreateStringFromUtf8(value), style, out result);
+        public static int Parse(ReadOnlySpan<byte> value, Globalization.NumberStyles style = System.Globalization.NumberStyles.Integer, IFormatProvider? provider = null) => (int)Number.ParseSignedInteger(value, 32, style);
+        public static bool TryParse(ReadOnlySpan<byte> value, Globalization.NumberStyles style, IFormatProvider? provider, out int result)
+        {
+            var valid = Number.TryParseSignedInteger(value, 32, style, out var parsed);
+            result = (int)parsed;
+            return valid;
+        }
 
     }
 
@@ -1810,11 +1683,11 @@ namespace System
         }
         public override bool Equals(object? value) => value is uint other && Equals(other);
         public override int GetHashCode() => unchecked((int)this);
-        public override string ToString() => Number.FormatUnsigned(this, 32, null);
-        public string ToString(string? format) => Number.FormatUnsigned(this, 32, format);
+        public override string ToString() => Number.UInt32ToDecStr(this);
+        public string ToString(string? format) => Number.FormatUInt32(this, format, null);
         public static uint Parse(string value) => ParseUnsigned(value, false);
         public static uint Parse(string value, Globalization.NumberStyles style) =>
-            ParseUnsigned(value, Number.IsHexadecimal(style));
+            (uint)Number.ParseUnsignedInteger(value, 32, style);
         public static bool TryParse(string? value, out uint result)
         {
             var valid = Number.TryParseUnsigned(value, 32, false, out var parsed, out _);
@@ -1823,7 +1696,7 @@ namespace System
         }
         public static bool TryParse(string? value, Globalization.NumberStyles style, out uint result)
         {
-            var valid = Number.TryParseUnsigned(value, 32, Number.IsHexadecimal(style), out var parsed, out _);
+            var valid = Number.TryParseUnsignedInteger(value, 32, style, out var parsed);
             result = (uint)parsed;
             return valid;
         }
@@ -1863,13 +1736,13 @@ namespace System
         public static uint MaxMagnitudeNumber(uint l, uint r) => MaxMagnitude(l, r);
         public static uint MinMagnitude(uint l, uint r) => Min(l, r);
         public static uint MinMagnitudeNumber(uint l, uint r) => MinMagnitude(l, r);
-        public static uint Log2(uint value) { if (false) throw new ArgumentOutOfRangeException(); ulong bits = (ulong)value; var result = 0; while (bits > 1) { bits >>= 1; result++; } return (uint)result; }
+        public static uint Log2(uint value) => (uint)Numerics.BitOperations.Log2(value);
         public static bool IsPow2(uint value) { ulong bits = (ulong)value; return bits != 0 && (bits & (bits - 1)) == 0; }
-        public static uint LeadingZeroCount(uint value) { ulong bits = (ulong)value; var result = 0; for (var bit = 31; bit >= 0 && (bits & (1UL << bit)) == 0; bit--) result++; return (uint)result; }
-        public static uint PopCount(uint value) { ulong bits = (ulong)value; var result = 0; while (bits != 0) { bits &= bits - 1; result++; } return (uint)result; }
-        public static uint TrailingZeroCount(uint value) { if (value == 0) return (uint)32; ulong bits = (ulong)value; var result = 0; while ((bits & 1) == 0) { bits >>= 1; result++; } return (uint)result; }
-        public static uint RotateLeft(uint value, int amount) { amount &= 31; ulong bits = (ulong)value; return (uint)((bits << amount) | (bits >> (32 - amount & 31))); }
-        public static uint RotateRight(uint value, int amount) => RotateLeft(value, -amount);
+        public static uint LeadingZeroCount(uint value) => (uint)Numerics.BitOperations.LeadingZeroCount(value);
+        public static uint PopCount(uint value) => (uint)Numerics.BitOperations.PopCount(value);
+        public static uint TrailingZeroCount(uint value) => (uint)Numerics.BitOperations.TrailingZeroCount(value);
+        public static uint RotateLeft(uint value, int amount) => Numerics.BitOperations.RotateLeft(value, amount);
+        public static uint RotateRight(uint value, int amount) => Numerics.BitOperations.RotateRight(value, amount);
         public static (uint Quotient, uint Remainder) DivRem(uint l, uint r) { var q = (uint)(l / r); return (q, (uint)(l - q * r)); }
         public int GetByteCount() => 4;
         public int GetShortestBitLength() => this == 0 ? 0 : 32 - (int)LeadingZeroCount(this);
@@ -1952,12 +1825,22 @@ namespace System
         public static bool TryParse(string? value, Globalization.NumberStyles style, IFormatProvider? provider, out uint result) => TryParse(value, style, out result);
         public static uint Parse(ReadOnlySpan<char> value, IFormatProvider? provider) => Parse(value, Globalization.NumberStyles.Integer, provider);
         public static bool TryParse(ReadOnlySpan<char> value, IFormatProvider? provider, out uint result) => TryParse(value, Globalization.NumberStyles.Integer, provider, out result);
-        public static uint Parse(ReadOnlySpan<char> value, Globalization.NumberStyles style = System.Globalization.NumberStyles.Integer, IFormatProvider? provider = null) => Parse(value.ToString(), style);
-        public static bool TryParse(ReadOnlySpan<char> value, Globalization.NumberStyles style, IFormatProvider? provider, out uint result) => TryParse(value.ToString(), style, out result);
+        public static uint Parse(ReadOnlySpan<char> value, Globalization.NumberStyles style = System.Globalization.NumberStyles.Integer, IFormatProvider? provider = null) => (uint)Number.ParseUnsignedInteger(value, 32, style);
+        public static bool TryParse(ReadOnlySpan<char> value, Globalization.NumberStyles style, IFormatProvider? provider, out uint result)
+        {
+            var valid = Number.TryParseUnsignedInteger(value, 32, style, out var parsed);
+            result = (uint)parsed;
+            return valid;
+        }
         public static uint Parse(ReadOnlySpan<byte> value, IFormatProvider? provider) => Parse(value, Globalization.NumberStyles.Integer, provider);
         public static bool TryParse(ReadOnlySpan<byte> value, IFormatProvider? provider, out uint result) => TryParse(value, Globalization.NumberStyles.Integer, provider, out result);
-        public static uint Parse(ReadOnlySpan<byte> value, Globalization.NumberStyles style = System.Globalization.NumberStyles.Integer, IFormatProvider? provider = null) => Parse(PrimitiveGenericMathSmall.CreateStringFromUtf8(value), style);
-        public static bool TryParse(ReadOnlySpan<byte> value, Globalization.NumberStyles style, IFormatProvider? provider, out uint result) => TryParse(PrimitiveGenericMathSmall.CreateStringFromUtf8(value), style, out result);
+        public static uint Parse(ReadOnlySpan<byte> value, Globalization.NumberStyles style = System.Globalization.NumberStyles.Integer, IFormatProvider? provider = null) => (uint)Number.ParseUnsignedInteger(value, 32, style);
+        public static bool TryParse(ReadOnlySpan<byte> value, Globalization.NumberStyles style, IFormatProvider? provider, out uint result)
+        {
+            var valid = Number.TryParseUnsignedInteger(value, 32, style, out var parsed);
+            result = (uint)parsed;
+            return valid;
+        }
 
     }
 
@@ -1987,14 +1870,14 @@ namespace System
         }
         public override bool Equals(object? value) => value is long other && Equals(other);
         public override int GetHashCode() => unchecked((int)this) ^ (int)(this >> 32);
-        public override string ToString() => Number.FormatSigned(this, 64, null);
-        public string ToString(string? format) => Number.FormatSigned(this, 64, format);
+        public override string ToString() => Number.Int64ToDecStr(this);
+        public string ToString(string? format) => Number.FormatInt64(this, format, null);
         public static long Parse(string value) => ParseSigned(value, false);
         public static long Parse(string value, Globalization.NumberStyles style) =>
-            ParseSigned(value, Number.IsHexadecimal(style));
+            Number.ParseSignedInteger(value, 64, style);
         public static bool TryParse(string? value, out long result) => Number.TryParseSigned(value, 64, false, out result, out _);
         public static bool TryParse(string? value, Globalization.NumberStyles style, out long result) =>
-            Number.TryParseSigned(value, 64, Number.IsHexadecimal(style), out result, out _);
+            Number.TryParseSignedInteger(value, 64, style, out result);
         private static long ParseSigned(string value, bool hexadecimal)
         {
             if (value == null) throw new ArgumentNullException();
@@ -2033,13 +1916,15 @@ namespace System
         public static long MaxMagnitudeNumber(long l, long r) => MaxMagnitude(l, r);
         public static long MinMagnitude(long l, long r) => Abs(l) <= Abs(r) ? l : r;
         public static long MinMagnitudeNumber(long l, long r) => MinMagnitude(l, r);
-        public static long Log2(long value) { if (value < 0) throw new ArgumentOutOfRangeException(); ulong bits = (ulong)value; var result = 0; while (bits > 1) { bits >>= 1; result++; } return (long)result; }
+        public static long Log2(long value) => value < 0
+            ? throw new ArgumentOutOfRangeException()
+            : Numerics.BitOperations.Log2((ulong)value);
         public static bool IsPow2(long value) { ulong bits = (ulong)value; return value > 0 && bits != 0 && (bits & (bits - 1)) == 0; }
-        public static long LeadingZeroCount(long value) { ulong bits = (ulong)value; var result = 0; for (var bit = 63; bit >= 0 && (bits & (1UL << bit)) == 0; bit--) result++; return (long)result; }
-        public static long PopCount(long value) { ulong bits = (ulong)value; var result = 0; while (bits != 0) { bits &= bits - 1; result++; } return (long)result; }
-        public static long TrailingZeroCount(long value) { if (value == 0) return (long)68; ulong bits = (ulong)value; var result = 0; while ((bits & 1) == 0) { bits >>= 1; result++; } return (long)result; }
-        public static long RotateLeft(long value, int amount) { amount &= 63; ulong bits = (ulong)value; return (long)((bits << amount) | (bits >> (68 - amount & 63))); }
-        public static long RotateRight(long value, int amount) => RotateLeft(value, -amount);
+        public static long LeadingZeroCount(long value) => Numerics.BitOperations.LeadingZeroCount((ulong)value);
+        public static long PopCount(long value) => Numerics.BitOperations.PopCount((ulong)value);
+        public static long TrailingZeroCount(long value) => Numerics.BitOperations.TrailingZeroCount(value);
+        public static long RotateLeft(long value, int amount) => (long)Numerics.BitOperations.RotateLeft((ulong)value, amount);
+        public static long RotateRight(long value, int amount) => (long)Numerics.BitOperations.RotateRight((ulong)value, amount);
         public static (long Quotient, long Remainder) DivRem(long l, long r) { var q = (long)(l / r); return (q, (long)(l - q * r)); }
         public int GetByteCount() => 8;
         public int GetShortestBitLength() => this == 0 ? 0 : (this >= 0 ? 64 - (int)LeadingZeroCount(this) : 65 - (int)LeadingZeroCount((long)~(ulong)this));
@@ -2319,12 +2204,12 @@ namespace System
         public static bool TryParse(string? value, Globalization.NumberStyles style, IFormatProvider? provider, out long result) => TryParse(value, style, out result);
         public static long Parse(ReadOnlySpan<char> value, IFormatProvider? provider) => Parse(value, Globalization.NumberStyles.Integer, provider);
         public static bool TryParse(ReadOnlySpan<char> value, IFormatProvider? provider, out long result) => TryParse(value, Globalization.NumberStyles.Integer, provider, out result);
-        public static long Parse(ReadOnlySpan<char> value, Globalization.NumberStyles style = System.Globalization.NumberStyles.Integer, IFormatProvider? provider = null) => Parse(value.ToString(), style);
-        public static bool TryParse(ReadOnlySpan<char> value, Globalization.NumberStyles style, IFormatProvider? provider, out long result) => TryParse(value.ToString(), style, out result);
+        public static long Parse(ReadOnlySpan<char> value, Globalization.NumberStyles style = System.Globalization.NumberStyles.Integer, IFormatProvider? provider = null) => Number.ParseSignedInteger(value, 64, style);
+        public static bool TryParse(ReadOnlySpan<char> value, Globalization.NumberStyles style, IFormatProvider? provider, out long result) => Number.TryParseSignedInteger(value, 64, style, out result);
         public static long Parse(ReadOnlySpan<byte> value, IFormatProvider? provider) => Parse(value, Globalization.NumberStyles.Integer, provider);
         public static bool TryParse(ReadOnlySpan<byte> value, IFormatProvider? provider, out long result) => TryParse(value, Globalization.NumberStyles.Integer, provider, out result);
-        public static long Parse(ReadOnlySpan<byte> value, Globalization.NumberStyles style = System.Globalization.NumberStyles.Integer, IFormatProvider? provider = null) => Parse(PrimitiveGenericMathSmall.CreateStringFromUtf8(value), style);
-        public static bool TryParse(ReadOnlySpan<byte> value, Globalization.NumberStyles style, IFormatProvider? provider, out long result) => TryParse(PrimitiveGenericMathSmall.CreateStringFromUtf8(value), style, out result);
+        public static long Parse(ReadOnlySpan<byte> value, Globalization.NumberStyles style = System.Globalization.NumberStyles.Integer, IFormatProvider? provider = null) => Number.ParseSignedInteger(value, 64, style);
+        public static bool TryParse(ReadOnlySpan<byte> value, Globalization.NumberStyles style, IFormatProvider? provider, out long result) => Number.TryParseSignedInteger(value, 64, style, out result);
         static long Numerics.ISignedNumber<long>.NegativeOne => NegativeOne;
 
     }
@@ -2354,14 +2239,14 @@ namespace System
         }
         public override bool Equals(object? value) => value is ulong other && Equals(other);
         public override int GetHashCode() => unchecked((int)this) ^ (int)(this >> 32);
-        public override string ToString() => Number.FormatUnsigned(this, 64, null);
-        public string ToString(string? format) => Number.FormatUnsigned(this, 64, format);
+        public override string ToString() => Number.UInt64ToDecStr(this);
+        public string ToString(string? format) => Number.FormatUInt64(this, format, null);
         public static ulong Parse(string value) => ParseUnsigned(value, false);
         public static ulong Parse(string value, Globalization.NumberStyles style) =>
-            ParseUnsigned(value, Number.IsHexadecimal(style));
+            Number.ParseUnsignedInteger(value, 64, style);
         public static bool TryParse(string? value, out ulong result) => Number.TryParseUnsigned(value, 64, false, out result, out _);
         public static bool TryParse(string? value, Globalization.NumberStyles style, out ulong result) =>
-            Number.TryParseUnsigned(value, 64, Number.IsHexadecimal(style), out result, out _);
+            Number.TryParseUnsignedInteger(value, 64, style, out result);
         private static ulong ParseUnsigned(string value, bool hexadecimal)
         {
             if (value == null) throw new ArgumentNullException();
@@ -2398,13 +2283,13 @@ namespace System
         public static ulong MaxMagnitudeNumber(ulong l, ulong r) => MaxMagnitude(l, r);
         public static ulong MinMagnitude(ulong l, ulong r) => Min(l, r);
         public static ulong MinMagnitudeNumber(ulong l, ulong r) => MinMagnitude(l, r);
-        public static ulong Log2(ulong value) { if (false) throw new ArgumentOutOfRangeException(); ulong bits = (ulong)value; var result = 0; while (bits > 1) { bits >>= 1; result++; } return (ulong)result; }
+        public static ulong Log2(ulong value) => (ulong)Numerics.BitOperations.Log2(value);
         public static bool IsPow2(ulong value) { ulong bits = (ulong)value; return bits != 0 && (bits & (bits - 1)) == 0; }
-        public static ulong LeadingZeroCount(ulong value) { ulong bits = (ulong)value; var result = 0; for (var bit = 63; bit >= 0 && (bits & (1UL << bit)) == 0; bit--) result++; return (ulong)result; }
-        public static ulong PopCount(ulong value) { ulong bits = (ulong)value; var result = 0; while (bits != 0) { bits &= bits - 1; result++; } return (ulong)result; }
-        public static ulong TrailingZeroCount(ulong value) { if (value == 0) return (ulong)68; ulong bits = (ulong)value; var result = 0; while ((bits & 1) == 0) { bits >>= 1; result++; } return (ulong)result; }
-        public static ulong RotateLeft(ulong value, int amount) { amount &= 63; ulong bits = (ulong)value; return (ulong)((bits << amount) | (bits >> (68 - amount & 63))); }
-        public static ulong RotateRight(ulong value, int amount) => RotateLeft(value, -amount);
+        public static ulong LeadingZeroCount(ulong value) => (ulong)Numerics.BitOperations.LeadingZeroCount(value);
+        public static ulong PopCount(ulong value) => (ulong)Numerics.BitOperations.PopCount(value);
+        public static ulong TrailingZeroCount(ulong value) => (ulong)Numerics.BitOperations.TrailingZeroCount(value);
+        public static ulong RotateLeft(ulong value, int amount) => Numerics.BitOperations.RotateLeft(value, amount);
+        public static ulong RotateRight(ulong value, int amount) => Numerics.BitOperations.RotateRight(value, amount);
         public static (ulong Quotient, ulong Remainder) DivRem(ulong l, ulong r) { var q = (ulong)(l / r); return (q, (ulong)(l - q * r)); }
         public int GetByteCount() => 8;
         public int GetShortestBitLength() => this == 0 ? 0 : 64 - (int)LeadingZeroCount(this);
@@ -2759,12 +2644,12 @@ namespace System
         public static bool TryParse(string? value, Globalization.NumberStyles style, IFormatProvider? provider, out ulong result) => TryParse(value, style, out result);
         public static ulong Parse(ReadOnlySpan<char> value, IFormatProvider? provider) => Parse(value, Globalization.NumberStyles.Integer, provider);
         public static bool TryParse(ReadOnlySpan<char> value, IFormatProvider? provider, out ulong result) => TryParse(value, Globalization.NumberStyles.Integer, provider, out result);
-        public static ulong Parse(ReadOnlySpan<char> value, Globalization.NumberStyles style = System.Globalization.NumberStyles.Integer, IFormatProvider? provider = null) => Parse(value.ToString(), style);
-        public static bool TryParse(ReadOnlySpan<char> value, Globalization.NumberStyles style, IFormatProvider? provider, out ulong result) => TryParse(value.ToString(), style, out result);
+        public static ulong Parse(ReadOnlySpan<char> value, Globalization.NumberStyles style = System.Globalization.NumberStyles.Integer, IFormatProvider? provider = null) => Number.ParseUnsignedInteger(value, 64, style);
+        public static bool TryParse(ReadOnlySpan<char> value, Globalization.NumberStyles style, IFormatProvider? provider, out ulong result) => Number.TryParseUnsignedInteger(value, 64, style, out result);
         public static ulong Parse(ReadOnlySpan<byte> value, IFormatProvider? provider) => Parse(value, Globalization.NumberStyles.Integer, provider);
         public static bool TryParse(ReadOnlySpan<byte> value, IFormatProvider? provider, out ulong result) => TryParse(value, Globalization.NumberStyles.Integer, provider, out result);
-        public static ulong Parse(ReadOnlySpan<byte> value, Globalization.NumberStyles style = System.Globalization.NumberStyles.Integer, IFormatProvider? provider = null) => Parse(PrimitiveGenericMathSmall.CreateStringFromUtf8(value), style);
-        public static bool TryParse(ReadOnlySpan<byte> value, Globalization.NumberStyles style, IFormatProvider? provider, out ulong result) => TryParse(PrimitiveGenericMathSmall.CreateStringFromUtf8(value), style, out result);
+        public static ulong Parse(ReadOnlySpan<byte> value, Globalization.NumberStyles style = System.Globalization.NumberStyles.Integer, IFormatProvider? provider = null) => Number.ParseUnsignedInteger(value, 64, style);
+        public static bool TryParse(ReadOnlySpan<byte> value, Globalization.NumberStyles style, IFormatProvider? provider, out ulong result) => Number.TryParseUnsignedInteger(value, 64, style, out result);
 
     }
 
@@ -2835,13 +2720,14 @@ namespace System
         public static char MaxMagnitudeNumber(char l, char r) => MaxMagnitude(l, r);
         public static char MinMagnitude(char l, char r) => Min(l, r);
         public static char MinMagnitudeNumber(char l, char r) => MinMagnitude(l, r);
-        public static char Log2(char value) { if (false) throw new ArgumentOutOfRangeException(); ulong bits = (ulong)value; var result = 0; while (bits > 1) { bits >>= 1; result++; } return (char)result; }
+        public static char Log2(char value) => (char)ushort.Log2(value);
         public static bool IsPow2(char value) { ulong bits = (ulong)value; return bits != 0 && (bits & (bits - 1)) == 0; }
-        public static char LeadingZeroCount(char value) { ulong bits = (ulong)value; var result = 0; for (var bit = 15; bit >= 0 && (bits & (1UL << bit)) == 0; bit--) result++; return (char)result; }
-        public static char PopCount(char value) { ulong bits = (ulong)value; var result = 0; while (bits != 0) { bits &= bits - 1; result++; } return (char)result; }
-        public static char TrailingZeroCount(char value) { if (value == 0) return (char)16; ulong bits = (ulong)value; var result = 0; while ((bits & 1) == 0) { bits >>= 1; result++; } return (char)result; }
-        public static char RotateLeft(char value, int amount) { amount &= 15; ulong bits = (ulong)value; return (char)((bits << amount) | (bits >> (16 - amount & 15))); }
-        public static char RotateRight(char value, int amount) => RotateLeft(value, -amount);
+        // Scalar bit operations follow the corresponding upstream Char expressions.
+        public static char LeadingZeroCount(char value) => (char)(Numerics.BitOperations.LeadingZeroCount(value) - 16);
+        public static char PopCount(char value) => (char)Numerics.BitOperations.PopCount(value);
+        public static char TrailingZeroCount(char value) => (char)(Numerics.BitOperations.TrailingZeroCount(value << 16) - 16);
+        public static char RotateLeft(char value, int amount) => (char)((value << (amount & 15)) | (value >> ((16 - amount) & 15)));
+        public static char RotateRight(char value, int amount) => (char)((value >> (amount & 15)) | (value << ((16 - amount) & 15)));
         public static (char Quotient, char Remainder) DivRem(char l, char r) { var q = (char)(l / r); return (q, (char)(l - q * r)); }
         public int GetByteCount() => 2;
         public int GetShortestBitLength() => this == 0 ? 0 : 16 - (int)LeadingZeroCount(this);
@@ -3127,12 +3013,29 @@ namespace System
         public bool TryWriteExponentLittleEndian(Span<byte> d, out int n) => TryWriteExponentBigEndian(d, out n);
         public bool TryWriteSignificandBigEndian(Span<byte> d, out int n) { if (d.Length < 4) { n = 0; return false; } for (var i = 0; i < 4; i++) d[4 - 1 - i] = 0; n = 4; return true; }
         public bool TryWriteSignificandLittleEndian(Span<byte> d, out int n) => TryWriteSignificandBigEndian(d, out n);
-        public static float Parse(string v, Globalization.NumberStyles s, IFormatProvider? p) => Parse(v);
-        public static bool TryParse(string? v, Globalization.NumberStyles s, IFormatProvider? p, out float r) => TryParse(v, out r);
+        public static float Parse(string v, Globalization.NumberStyles s, IFormatProvider? p)
+        {
+            if (v == null) throw new ArgumentNullException();
+            return Parse(v.AsSpan(), s, p);
+        }
+        public static bool TryParse(string? v, Globalization.NumberStyles s, IFormatProvider? p, out float r)
+        {
+            if (v != null) return TryParse(v.AsSpan(), s, p, out r);
+            r = default;
+            return false;
+        }
         public static float Parse(ReadOnlySpan<char> v, IFormatProvider? p) => Parse(v.ToString());
         public static bool TryParse(ReadOnlySpan<char> v, IFormatProvider? p, out float r) => TryParse(v.ToString(), out r);
-        public static float Parse(ReadOnlySpan<char> v, System.Globalization.NumberStyles s = System.Globalization.NumberStyles.AllowDecimalPoint | System.Globalization.NumberStyles.AllowExponent | System.Globalization.NumberStyles.AllowLeadingSign | System.Globalization.NumberStyles.AllowLeadingWhite | System.Globalization.NumberStyles.AllowThousands | System.Globalization.NumberStyles.AllowTrailingWhite, IFormatProvider? p = null) => Parse(v.ToString(), s, p);
-        public static bool TryParse(ReadOnlySpan<char> v, Globalization.NumberStyles s, IFormatProvider? p, out float r) => TryParse(v.ToString(), s, p, out r);
+        public static float Parse(ReadOnlySpan<char> v, System.Globalization.NumberStyles s = System.Globalization.NumberStyles.AllowDecimalPoint | System.Globalization.NumberStyles.AllowExponent | System.Globalization.NumberStyles.AllowLeadingSign | System.Globalization.NumberStyles.AllowLeadingWhite | System.Globalization.NumberStyles.AllowThousands | System.Globalization.NumberStyles.AllowTrailingWhite, IFormatProvider? p = null)
+        {
+            Globalization.NumberFormatInfo.ValidateParseStyleFloatingPoint(s);
+            return Number.ParseFloat<char, float>(v, s, Globalization.NumberFormatInfo.GetInstance(p));
+        }
+        public static bool TryParse(ReadOnlySpan<char> v, Globalization.NumberStyles s, IFormatProvider? p, out float r)
+        {
+            Globalization.NumberFormatInfo.ValidateParseStyleFloatingPoint(s);
+            return Number.TryParseFloat(v, s, Globalization.NumberFormatInfo.GetInstance(p), out r, out _);
+        }
         public static float Parse(ReadOnlySpan<byte> v, IFormatProvider? p) => Parse(PrimitiveScalarContracts.Utf8ToString(v));
         public static bool TryParse(ReadOnlySpan<byte> v, IFormatProvider? p, out float r) => TryParse(PrimitiveScalarContracts.Utf8ToString(v), out r);
         static float Numerics.INumberBase<float>.One => One;
@@ -3480,12 +3383,29 @@ namespace System
         public bool TryWriteExponentLittleEndian(Span<byte> d, out int n) => TryWriteExponentBigEndian(d, out n);
         public bool TryWriteSignificandBigEndian(Span<byte> d, out int n) { if (d.Length < 8) { n = 0; return false; } for (var i = 0; i < 8; i++) d[8 - 1 - i] = 0; n = 8; return true; }
         public bool TryWriteSignificandLittleEndian(Span<byte> d, out int n) => TryWriteSignificandBigEndian(d, out n);
-        public static double Parse(string v, Globalization.NumberStyles s, IFormatProvider? p) => Parse(v);
-        public static bool TryParse(string? v, Globalization.NumberStyles s, IFormatProvider? p, out double r) => TryParse(v, out r);
+        public static double Parse(string v, Globalization.NumberStyles s, IFormatProvider? p)
+        {
+            if (v == null) throw new ArgumentNullException();
+            return Parse(v.AsSpan(), s, p);
+        }
+        public static bool TryParse(string? v, Globalization.NumberStyles s, IFormatProvider? p, out double r)
+        {
+            if (v != null) return TryParse(v.AsSpan(), s, p, out r);
+            r = default;
+            return false;
+        }
         public static double Parse(ReadOnlySpan<char> v, IFormatProvider? p) => Parse(v.ToString());
         public static bool TryParse(ReadOnlySpan<char> v, IFormatProvider? p, out double r) => TryParse(v.ToString(), out r);
-        public static double Parse(ReadOnlySpan<char> v, System.Globalization.NumberStyles s = System.Globalization.NumberStyles.AllowDecimalPoint | System.Globalization.NumberStyles.AllowExponent | System.Globalization.NumberStyles.AllowLeadingSign | System.Globalization.NumberStyles.AllowLeadingWhite | System.Globalization.NumberStyles.AllowThousands | System.Globalization.NumberStyles.AllowTrailingWhite, IFormatProvider? p = null) => Parse(v.ToString(), s, p);
-        public static bool TryParse(ReadOnlySpan<char> v, Globalization.NumberStyles s, IFormatProvider? p, out double r) => TryParse(v.ToString(), s, p, out r);
+        public static double Parse(ReadOnlySpan<char> v, System.Globalization.NumberStyles s = System.Globalization.NumberStyles.AllowDecimalPoint | System.Globalization.NumberStyles.AllowExponent | System.Globalization.NumberStyles.AllowLeadingSign | System.Globalization.NumberStyles.AllowLeadingWhite | System.Globalization.NumberStyles.AllowThousands | System.Globalization.NumberStyles.AllowTrailingWhite, IFormatProvider? p = null)
+        {
+            Globalization.NumberFormatInfo.ValidateParseStyleFloatingPoint(s);
+            return Number.ParseFloat<char, double>(v, s, Globalization.NumberFormatInfo.GetInstance(p));
+        }
+        public static bool TryParse(ReadOnlySpan<char> v, Globalization.NumberStyles s, IFormatProvider? p, out double r)
+        {
+            Globalization.NumberFormatInfo.ValidateParseStyleFloatingPoint(s);
+            return Number.TryParseFloat(v, s, Globalization.NumberFormatInfo.GetInstance(p), out r, out _);
+        }
         public static double Parse(ReadOnlySpan<byte> v, IFormatProvider? p) => Parse(PrimitiveScalarContracts.Utf8ToString(v));
         public static bool TryParse(ReadOnlySpan<byte> v, IFormatProvider? p, out double r) => TryParse(PrimitiveScalarContracts.Utf8ToString(v), out r);
         static double Numerics.INumberBase<double>.One => One;

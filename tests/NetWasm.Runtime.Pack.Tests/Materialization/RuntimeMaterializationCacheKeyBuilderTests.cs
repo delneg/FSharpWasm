@@ -9,6 +9,41 @@ public sealed class RuntimeMaterializationCacheKeyBuilderTests
 {
     private readonly RuntimeMaterializationCacheKeyBuilder _builder = new();
 
+    [Theory]
+    [InlineData("wasm32")]
+    [InlineData("wasm64")]
+    public void BindsSelectedNativeProfileWithoutHashingUnselectedSpeedAssets(string target)
+    {
+        var manifest = RuntimePackTestData.Manifest();
+        var selector = Assert.IsAssignableFrom<IRuntimePackTargetSelector>(
+            new RuntimePackTargetSelector(new RuntimeOptimizationPolicyResolver()));
+        var request = Request("/test") with { Manifest = manifest };
+        var size = selector.Select(manifest, target, null, RuntimeWasmOptimization.Oz);
+        var speed = selector.Select(manifest, target, null, RuntimeWasmOptimization.O3);
+        var sizeRequest = request with { Target = size, Optimization = RuntimeWasmOptimization.Oz };
+        var speedRequest = request with { Target = speed, Optimization = RuntimeWasmOptimization.O3 };
+        var sizeKey = _builder.Build(sizeRequest);
+        var speedKey = _builder.Build(speedRequest);
+        Assert.NotEqual(sizeKey, speedKey);
+        Assert.NotEqual(sizeKey, _builder.Build(sizeRequest with { Target = speed }));
+        Assert.Equal(sizeKey, _builder.Build(sizeRequest with
+        {
+            Target = size with { Speed = size.Speed! with { RuntimeFootprintBytes = size.RuntimeFootprintBytes + 8192 } },
+        }));
+        Assert.NotEqual(speedKey, _builder.Build(speedRequest with
+        {
+            Target = speed with { RuntimeArchive = speed.RuntimeArchive with { Sha256 = new string('b', 64) } },
+        }));
+        Assert.NotEqual(speedKey, _builder.Build(speedRequest with
+        {
+            Target = speed with { CollectorArchive = speed.CollectorArchive with { Sha256 = new string('b', 64) } },
+        }));
+        Assert.NotEqual(speedKey, _builder.Build(speedRequest with
+        {
+            Target = speed with { RuntimeFootprintBytes = speed.RuntimeFootprintBytes + 8192 },
+        }));
+    }
+
     [Fact]
     public void NativeKeyTracksCurrentArchiveBytesPhysicalAbiAndEffectiveRequest()
     {
@@ -201,6 +236,20 @@ public sealed class RuntimeMaterializationCacheKeyBuilderTests
             baseline with { BuildIdentity = baseline.BuildIdentity with { WasmOptVersion = "wasm-opt-2" } },
             baseline with { BuildIdentity = baseline.BuildIdentity with { WasmToolsVersion = "wasm-tools-2" } },
             baseline with { Manifest = baseline.Manifest with { RuntimeAbi = "netwasm.runtime.v2" } },
+            baseline with
+            {
+                Manifest = baseline.Manifest with
+                {
+                    InlineIntents = [new("initialize", RuntimeFunctionInlinePreference.Never)],
+                },
+            },
+            baseline with
+            {
+                Manifest = baseline.Manifest with
+                {
+                    InlineIntents = [new("allocate", RuntimeFunctionInlinePreference.Aggressive)],
+                },
+            },
             baseline with
             {
                 Manifest = baseline.Manifest with

@@ -32,8 +32,8 @@ internal sealed class DelegateFieldOffsetResolver(
             : new ManagedDelegateFieldOffsets(
                 ResolveOffset(fields, "Target", "_target"),
                 ResolveOffset(fields, "MethodId"),
-                ResolveOffset(fields, "Left"),
-                ResolveOffset(fields, "Right"));
+                ResolveOffset(fields, "InvocationList", "_invocationList"),
+                ResolveOffset(fields, "InvocationCount", "_invocationCount"));
     }
 
     private static int ResolveOffset(

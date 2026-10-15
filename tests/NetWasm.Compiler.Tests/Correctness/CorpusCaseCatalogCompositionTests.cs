@@ -11,6 +11,7 @@ public sealed class CorpusCaseCatalogCompositionTests
     [InlineData(CorpusCaseTestData.CollectorLifecycle, 7, 7)]
     [InlineData(CorpusCaseTestData.NativeOwnership, 12, 0)]
     [InlineData(CorpusCaseTestData.ExactRootSlots, 4, 5)]
+    [InlineData(CorpusCaseTestData.ValueFrameInitialization, 1, 0)]
     [InlineData(CorpusCaseTestData.AsyncLifetime, 8, 1)]
     [InlineData(CorpusCaseTestData.ImplicitExceptionLifetime, 30, 1)]
     [InlineData(CorpusCaseTestData.AsyncEnumeration, 12, 1)]
@@ -19,12 +20,9 @@ public sealed class CorpusCaseCatalogCompositionTests
     {
         var declaration = CorpusCaseTestData.Get(caseId);
         var rows = CorpusCaseTestData.Cells(caseId).ToArray();
-        var expected = declaration.MatrixProfile switch
-        {
-            CorpusMatrixProfile.Fast => 1,
-            CorpusMatrixProfile.Family => 4,
-            _ => 8,
-        };
+        var expected = new CorpusMatrixExpander().Expand(
+            declaration.InputKind,
+            new(declaration.MatrixProfile, Backend: declaration.ExecutionBackend)).Length;
 
         Assert.Equal(expected, rows.Length);
         Assert.Equal(expected * inputs, CorpusCaseTestData.InputCells(caseId).Count);
@@ -60,9 +58,9 @@ public sealed class CorpusCaseCatalogCompositionTests
     {
         var catalog = CorpusCaseTestData.Catalog;
 
-        Assert.Equal(76, catalog.Cases.Count);
-        Assert.Equal(76, CorpusCaseTestData.Bindings.Length);
-        Assert.Equal(76, CorpusCaseTestData.Assets.Manifests.Length);
+        Assert.Equal(77, catalog.Cases.Count);
+        Assert.Equal(77, CorpusCaseTestData.Bindings.Length);
+        Assert.Equal(77, CorpusCaseTestData.Assets.Manifests.Length);
         Assert.Equal(72, CorpusCaseTestData.Assets.SourceFiles.Length);
         Assert.Equal(32, CorpusCaseTestData.Assets.Features.Ids.Count);
         foreach (var binding in CorpusCaseTestData.Bindings)
@@ -156,6 +154,7 @@ public sealed class CorpusCaseCatalogCompositionTests
     [InlineData(CorpusCaseTestData.MultiFile, 16)]
     [InlineData(CorpusCaseTestData.ZeroBound, 8)]
     [InlineData(CorpusCaseTestData.NonZeroBound, 8)]
+    [InlineData(CorpusCaseTestData.ValueFrameInitialization, 2)]
     public void DiscoveryExposesEveryCaseAndCellAsAnOrdinaryTheoryRow(string caseId, int count)
     {
         var rows = CorpusCaseTestData.Cells(caseId).ToArray();
@@ -286,16 +285,16 @@ public sealed class CorpusCaseCatalogCompositionTests
     }
 
     [Fact]
-    public void MathMigrationPreservesOriginalSourceAndAllEightIndependentSuccessContracts()
+    public void MathFixturePreservesApprovedSourceAndAllNineIndependentSuccessContracts()
     {
         var declaration = CorpusCaseTestData.Get(CorpusCaseTestData.Math);
         var fixture = Factory().Create(declaration, "Release-Wasm32-Direct");
         var source = new EmbeddedCorpusSourceReader().Read(Assert.Single(declaration.SourceFiles));
 
-        Assert.Equal("41863545be951f4a244105f9440f3f7e21d6a8851c38587e7d80c2b3a0fefa74",
+        Assert.Equal("c8a03d8d48b646ff3f4157d2819fd8dcf91fb40c666df6e9e3c1614c52ca7f0c",
             Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(source))));
-        Assert.Equal(Enumerable.Range(1, 8), fixture.Inputs);
-        Assert.Equal(8, fixture.ExpectedReturnValues.Count);
+        Assert.Equal(Enumerable.Range(1, 9), fixture.Inputs);
+        Assert.Equal(9, fixture.ExpectedReturnValues.Count);
         Assert.All(fixture.ExpectedReturnValues, pair => Assert.Equal(100, pair.Value));
         Assert.True(fixture.SupportsBatchedOracle);
         Assert.Equal(OracleMode.SameSource, fixture.OracleMode);

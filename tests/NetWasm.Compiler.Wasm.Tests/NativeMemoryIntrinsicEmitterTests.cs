@@ -11,6 +11,113 @@ using static EmitterTestSupport;
 public sealed class NativeMemoryIntrinsicEmitterTests
 {
     [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ClearEmitsZeroValuedBulkMemoryFill(bool memory64)
+    {
+        var request = CreateBulkRequest(
+            RuntimeIntrinsic.NativeMemoryClear,
+            memory64,
+            [CliValueKind.NativeInt, CliValueKind.NativeInt]);
+        var emitter = RuntimeIntrinsicEmitterTestFactory.Create(
+            RuntimeIntrinsic.NativeMemoryClear,
+            WasmRuntimeImports.CreateCatalog());
+        var writer = new EmitterTestSupport.RecordingInstructionWriter();
+
+        emitter.Emit(request, writer);
+
+        var instructions = writer.ToInstructions();
+        Assert.Equal(
+            [WasmOpcodes.LocalGet, WasmOpcodes.I32Constant,
+                WasmOpcodes.LocalGet, WasmOpcodes.Prefixed],
+            instructions.Select(instruction => instruction.Opcode));
+        Assert.Equal(
+            (uint)request.Local(0, CliValueKind.NativeInt),
+            instructions[0].Operand.UnsignedValue);
+        Assert.Equal(WasmInstructionOperand.Signed(0), instructions[1].Operand);
+        Assert.Equal(
+            (uint)request.Local(1, CliValueKind.NativeInt),
+            instructions[2].Operand.UnsignedValue);
+        Assert.Equal(
+            WasmInstructionOperand.PrefixedPair(WasmOpcodes.MemoryFill, 0),
+            instructions[3].Operand);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void CopyEmitsDestinationSourceAndCountBulkMemoryCopy(bool memory64)
+    {
+        var request = CreateBulkRequest(
+            RuntimeIntrinsic.NativeMemoryCopy,
+            memory64,
+            [CliValueKind.NativeInt, CliValueKind.NativeInt,
+                CliValueKind.NativeInt]);
+        var emitter = RuntimeIntrinsicEmitterTestFactory.Create(
+            RuntimeIntrinsic.NativeMemoryCopy,
+            WasmRuntimeImports.CreateCatalog());
+        var writer = new EmitterTestSupport.RecordingInstructionWriter();
+
+        emitter.Emit(request, writer);
+
+        var instructions = writer.ToInstructions();
+        Assert.Equal(
+            [WasmOpcodes.LocalGet, WasmOpcodes.LocalGet,
+                WasmOpcodes.LocalGet, WasmOpcodes.Prefixed],
+            instructions.Select(instruction => instruction.Opcode));
+        Assert.Equal(
+            (uint)request.Local(1, CliValueKind.NativeInt),
+            instructions[0].Operand.UnsignedValue);
+        Assert.Equal(
+            (uint)request.Local(0, CliValueKind.NativeInt),
+            instructions[1].Operand.UnsignedValue);
+        Assert.Equal(
+            (uint)request.Local(2, CliValueKind.NativeInt),
+            instructions[2].Operand.UnsignedValue);
+        Assert.Equal(
+            WasmInstructionOperand.PrefixedTriple(
+                WasmOpcodes.MemoryCopy,
+                0,
+                0),
+            instructions[3].Operand);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void FillEmitsPointerValueAndCountBulkMemoryFill(bool memory64)
+    {
+        var request = CreateBulkRequest(
+            RuntimeIntrinsic.NativeMemoryFill,
+            memory64,
+            [CliValueKind.NativeInt, CliValueKind.NativeInt, CliValueKind.I4]);
+        var emitter = RuntimeIntrinsicEmitterTestFactory.Create(
+            RuntimeIntrinsic.NativeMemoryFill,
+            WasmRuntimeImports.CreateCatalog());
+        var writer = new EmitterTestSupport.RecordingInstructionWriter();
+
+        emitter.Emit(request, writer);
+
+        var instructions = writer.ToInstructions();
+        Assert.Equal(
+            [WasmOpcodes.LocalGet, WasmOpcodes.LocalGet,
+                WasmOpcodes.LocalGet, WasmOpcodes.Prefixed],
+            instructions.Select(instruction => instruction.Opcode));
+        Assert.Equal(
+            (uint)request.Local(0, CliValueKind.NativeInt),
+            instructions[0].Operand.UnsignedValue);
+        Assert.Equal(
+            (uint)request.Local(2, CliValueKind.I4),
+            instructions[1].Operand.UnsignedValue);
+        Assert.Equal(
+            (uint)request.Local(1, CliValueKind.NativeInt),
+            instructions[2].Operand.UnsignedValue);
+        Assert.Equal(
+            WasmInstructionOperand.PrefixedPair(WasmOpcodes.MemoryFill, 0),
+            instructions[3].Operand);
+    }
+
+    [Theory]
     [InlineData(RuntimeIntrinsic.NativeMemoryAlloc, (int)RuntimeImportSymbol.NativeAlloc, 1)]
     [InlineData(RuntimeIntrinsic.NativeMemoryRealloc, (int)RuntimeImportSymbol.NativeRealloc, 2)]
     [InlineData(RuntimeIntrinsic.NativeMemoryAlignedAlloc, (int)RuntimeImportSymbol.NativeAlignedAlloc, 2)]
@@ -101,6 +208,18 @@ public sealed class NativeMemoryIntrinsicEmitterTests
 
     private static INativeMemoryAllocationEmitter ThroughAllocationContract(
         INativeMemoryAllocationEmitter emitter) => emitter;
+
+    private static RuntimeIntrinsicEmissionRequest CreateBulkRequest(
+        RuntimeIntrinsic intrinsic,
+        bool memory64,
+        IReadOnlyList<CliValueKind> arguments)
+    {
+        var request = CreateRuntimeIntrinsicRequest(intrinsic, arguments);
+        return request with
+        {
+            Target = memory64 ? WasmTargetLayout.Wasm64 : WasmTargetLayout.Wasm32,
+        };
+    }
 
     private static INativeMemoryReleaseEmitter ThroughReleaseContract(
         INativeMemoryReleaseEmitter emitter) => emitter;

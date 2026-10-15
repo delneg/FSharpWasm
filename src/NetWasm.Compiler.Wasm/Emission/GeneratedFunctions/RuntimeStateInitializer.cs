@@ -17,6 +17,14 @@ internal sealed class RuntimeStateInitializer(
         RuntimeInitializationPlan plan)
     {
         runtimeCore.Initialize(code, plan.StaticDataEnd);
+        if (plan.RuntimeImportSelection.IncludeFinalization)
+        {
+            code.Instructions.Write(WasmInstruction.WithOperand(
+                WasmOpcodes.Call,
+                WasmInstructionOperand.Unsigned((uint)runtimeImports.Resolve(
+                    RuntimeImportSymbol.InitializeFinalization,
+                    plan.RuntimeImportSelection))));
+        }
         if (!plan.StackTraceMethods.Symbols.IsEmpty)
         {
             code.Instructions.Write(WasmInstruction.WithOperand(

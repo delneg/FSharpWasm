@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using NetWasm.Compiler.ComponentModel;
 using NetWasm.Compiler.Core;
 
 namespace NetWasm.Compiler.Tests.Correctness;
@@ -127,6 +128,9 @@ internal sealed record CorpusFixture(
 
     public string? SameSourceReason { get; init; } =
         "The fixture exercises NetWasm.CoreLib or runtime-specific behavior.";
+
+    public FinalWasmOptimization Optimization { get; init; } =
+        FinalWasmOptimization.Oz;
 
 
     public string EntryType => $"{Namespace}.EntryPoint";

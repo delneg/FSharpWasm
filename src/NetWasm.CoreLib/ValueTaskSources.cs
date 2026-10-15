@@ -52,7 +52,6 @@ namespace System.Threading.Tasks.Sources
         private Exception? _error;
         private TResult _result;
         private short _version;
-        private bool _completed;
 
         public bool RunContinuationsAsynchronously { readonly get; set; }
         public short Version => _version;
@@ -67,7 +66,6 @@ namespace System.Threading.Tasks.Sources
             _executionContext = null;
             _error = null;
             _result = default!;
-            _completed = false;
         }
 
         public void SetResult(TResult result)
@@ -85,7 +83,7 @@ namespace System.Threading.Tasks.Sources
         public ValueTaskSourceStatus GetStatus(short token)
         {
             ValidateToken(token);
-            if (!_completed)
+            if (!IsCompleted)
             {
                 return ValueTaskSourceStatus.Pending;
             }
@@ -101,7 +99,7 @@ namespace System.Threading.Tasks.Sources
         public TResult GetResult(short token)
         {
             ValidateToken(token);
-            if (!_completed)
+            if (!IsCompleted)
             {
                 throw new InvalidOperationException();
             }
@@ -123,11 +121,17 @@ namespace System.Threading.Tasks.Sources
                 throw new ArgumentNullException();
             }
             ValidateToken(token);
-            if (_continuation != null)
+            var registeredContinuation = _continuation;
+            if (registeredContinuation is not null &&
+                !ReferenceEquals(
+                    registeredContinuation,
+                    ManualResetValueTaskSourceCoreShared.CompletionSentinel))
             {
                 throw new InvalidOperationException();
             }
-            if (_completed)
+            if (ReferenceEquals(
+                registeredContinuation,
+                ManualResetValueTaskSourceCoreShared.CompletionSentinel))
             {
                 CaptureSchedulingContext(
                     flags,
@@ -140,7 +144,8 @@ namespace System.Threading.Tasks.Sources
                     scheduler,
                     (flags & ValueTaskSourceOnCompletedFlags.FlowExecutionContext) != 0
                         ? Threading.ExecutionContext.Capture()
-                        : null);
+                        : null,
+                    forceAsynchronous: true);
                 return;
             }
             _continuationState = state;
@@ -157,17 +162,18 @@ namespace System.Threading.Tasks.Sources
 
         private void Complete()
         {
-            if (_completed)
+            var continuation = _continuation;
+            if (ReferenceEquals(
+                continuation,
+                ManualResetValueTaskSourceCoreShared.CompletionSentinel))
             {
                 throw new InvalidOperationException();
             }
-            _completed = true;
-            var continuation = _continuation;
+            _continuation = ManualResetValueTaskSourceCoreShared.CompletionSentinel;
             var state = _continuationState;
             var synchronizationContext = _synchronizationContext;
             var scheduler = _scheduler;
             var executionContext = _executionContext;
-            _continuation = null;
             _continuationState = null;
             _synchronizationContext = null;
             _scheduler = null;
@@ -179,9 +185,14 @@ namespace System.Threading.Tasks.Sources
                     state,
                     synchronizationContext,
                     scheduler,
-                    executionContext);
+                    executionContext,
+                    forceAsynchronous: false);
             }
         }
+
+        private readonly bool IsCompleted => ReferenceEquals(
+            _continuation,
+            ManualResetValueTaskSourceCoreShared.CompletionSentinel);
 
         private static void CaptureSchedulingContext(
             ValueTaskSourceOnCompletedFlags flags,
@@ -215,7 +226,8 @@ namespace System.Threading.Tasks.Sources
             object? state,
             Threading.SynchronizationContext? synchronizationContext,
             Threading.Tasks.TaskScheduler? scheduler,
-            Threading.ExecutionContext? executionContext)
+            Threading.ExecutionContext? executionContext,
+            bool forceAsynchronous)
         {
             var invocation = new ContinuationInvocation(
                 continuation,
@@ -236,7 +248,7 @@ namespace System.Threading.Tasks.Sources
                     invocation.Invoke);
                 return;
             }
-            if (RunContinuationsAsynchronously)
+            if (forceAsynchronous || RunContinuationsAsynchronously)
             {
                 Runtime.InteropServices.PlatformServices.Scheduler.Schedule(
                     invocation.Invoke,
@@ -288,5 +300,11 @@ namespace System.Threading.Tasks.Sources
                 throw new InvalidOperationException();
             }
         }
+    }
+
+    internal static class ManualResetValueTaskSourceCoreShared
+    {
+        internal static readonly Action<object?> CompletionSentinel = static _ =>
+            throw new InvalidOperationException();
     }
 }

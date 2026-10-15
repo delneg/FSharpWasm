@@ -1,3 +1,6 @@
+using System.Diagnostics.CodeAnalysis;
+using System.Runtime.CompilerServices;
+
 namespace System.Collections.Generic
 {
     // Contract definitions adapted from dotnet/runtime System.Private.CoreLib
@@ -7,15 +10,16 @@ namespace System.Collections.Generic
 
     public interface IEqualityComparer<in T> where T : allows ref struct
     {
-        bool Equals(T? left, T? right);
-        int GetHashCode(T value);
+        bool Equals(T? x, T? y);
+        int GetHashCode([DisallowNull] T obj);
     }
 
     public interface IComparer<in T> where T : allows ref struct
     {
-        int Compare(T? left, T? right);
+        int Compare(T? x, T? y);
     }
 
+    [Intrinsic]
     public interface IEnumerator<out T> : System.Collections.IEnumerator, System.IDisposable where T : allows ref struct
     {
         new T Current { get; }
@@ -24,20 +28,21 @@ namespace System.Collections.Generic
     public interface IEnumerable<out T> : System.Collections.IEnumerable
         where T : allows ref struct
     {
+        [Intrinsic]
         new IEnumerator<T> GetEnumerator();
     }
 
-    public interface IReadOnlyCollection<out T> : IEnumerable<T>, System.Collections.IEnumerable
+    public interface IReadOnlyCollection<out T> : IEnumerable<T>
     {
         int Count { get; }
     }
 
-    public interface IReadOnlyList<out T> : IEnumerable<T>, IReadOnlyCollection<T>, System.Collections.IEnumerable
+    public interface IReadOnlyList<out T> : IReadOnlyCollection<T>
     {
         T this[int index] { get; }
     }
 
-    public interface ICollection<T> : IEnumerable<T>, System.Collections.IEnumerable
+    public interface ICollection<T> : IEnumerable<T>
     {
         int Count { get; }
         bool IsReadOnly { get; }
@@ -48,7 +53,7 @@ namespace System.Collections.Generic
         bool Remove(T item);
     }
 
-    public interface IList<T> : ICollection<T>, IEnumerable<T>, System.Collections.IEnumerable
+    public interface IList<T> : ICollection<T>
     {
         T this[int index] { get; set; }
         int IndexOf(T item);
@@ -58,20 +63,17 @@ namespace System.Collections.Generic
 
     public interface IReadOnlyDictionary<TKey, TValue> :
         IEnumerable<KeyValuePair<TKey, TValue>>,
-        IReadOnlyCollection<KeyValuePair<TKey, TValue>>,
-        System.Collections.IEnumerable
+        IReadOnlyCollection<KeyValuePair<TKey, TValue>>
     {
         TValue this[TKey key] { get; }
         IEnumerable<TKey> Keys { get; }
         IEnumerable<TValue> Values { get; }
         bool ContainsKey(TKey key);
-        bool TryGetValue(TKey key, out TValue value);
+        bool TryGetValue(TKey key, [MaybeNullWhen(false)] out TValue value);
     }
 
     public interface IDictionary<TKey, TValue> :
-        ICollection<KeyValuePair<TKey, TValue>>,
-        IEnumerable<KeyValuePair<TKey, TValue>>,
-        System.Collections.IEnumerable
+        ICollection<KeyValuePair<TKey, TValue>>
     {
         TValue this[TKey key] { get; set; }
         ICollection<TKey> Keys { get; }
@@ -79,13 +81,13 @@ namespace System.Collections.Generic
         void Add(TKey key, TValue value);
         bool ContainsKey(TKey key);
         bool Remove(TKey key);
-        bool TryGetValue(TKey key, out TValue value);
+        bool TryGetValue(TKey key, [MaybeNullWhen(false)] out TValue value);
     }
 
     // Portions derived from dotnet/runtime System.Private.CoreLib's set contracts.
     // Licensed to the .NET Foundation under one or more agreements; the .NET
     // Foundation licenses this file to you under the MIT license.
-    public interface ISet<T> : ICollection<T>, IEnumerable<T>, System.Collections.IEnumerable
+    public interface ISet<T> : ICollection<T>
     {
         new bool Add(T item);
         void UnionWith(IEnumerable<T> other);
@@ -102,7 +104,7 @@ namespace System.Collections.Generic
 
     // Portions derived from dotnet/runtime System.Private.CoreLib's set contracts.
     public interface IReadOnlySet<T> :
-        IEnumerable<T>, IReadOnlyCollection<T>, System.Collections.IEnumerable
+        IReadOnlyCollection<T>
     {
         bool Contains(T item);
         bool IsProperSubsetOf(IEnumerable<T> other);

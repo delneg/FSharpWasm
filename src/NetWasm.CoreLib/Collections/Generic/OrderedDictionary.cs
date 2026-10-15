@@ -1,15 +1,18 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
+// Adapted from dotnet/runtime System.Collections/src/System/Collections/Generic/OrderedDictionary.cs
+// at commit 811225a482702af7ecc35d817966bc70b88a3a23. Debugger-only views are omitted
+// and the shared insertion enum is consolidated for the NetWasm CoreLib profile.
 
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
-#if NET
+#if NET || NETWASM_REF_STRUCT_GENERICS
 using static System.ArgumentOutOfRangeException;
 #else
-using static System.ArgumentOutOfRangeException;
+using static System.Collections.ThrowHelper;
 #endif
 
 namespace System.Collections.Generic
@@ -24,8 +27,7 @@ namespace System.Collections.Generic
     /// class, except with lookups by key similar in complexity to that of <see cref="Dictionary{TKey, TValue}"/>.
     /// </remarks>
     [DebuggerDisplay("Count = {Count}")]
-    public
-    class OrderedDictionary<TKey, TValue> :
+    public class OrderedDictionary<TKey, TValue> :
         IDictionary<TKey, TValue>, IReadOnlyDictionary<TKey, TValue>, IDictionary,
         IList<KeyValuePair<TKey, TValue>>, IReadOnlyList<KeyValuePair<TKey, TValue>>, IList
         where TKey : notnull
@@ -44,38 +46,8 @@ namespace System.Collections.Generic
         private int _count;
         /// <summary>Version number used to invalidate an enumerator.</summary>
         private int _version;
-        private static class OrderedDictionaryCompat
-        {
-            internal static void ThrowConcurrentOperation() => throw new InvalidOperationException();
-            internal static void ThrowDuplicateKey(TKey key) => throw new ArgumentException("An item with the same key has already been added.");
-            internal static void ThrowIndexArgumentOutOfRange() => throw new ArgumentOutOfRangeException();
-            internal static void ThrowKeyNotFound(TKey key) => throw new KeyNotFoundException();
-            internal static void ThrowVersionCheckFailed() => throw new InvalidOperationException();
-
-            internal static IEnumerator<T> GetEmptyEnumerator<T>() => new EmptyEnumerator<T>();
-
-            internal static void Reset<TEnumerator>(ref TEnumerator enumerator)
-                where TEnumerator : IEnumerator => enumerator.Reset();
-
-            private sealed class EmptyEnumerator<T> : IEnumerator<T>
-            {
-                public T Current => default!;
-                object? IEnumerator.Current => null;
-                public bool MoveNext() => false;
-                public void Reset() { }
-                public void Dispose() { }
-            }
-        }
-
-        private static class SR
-        {
-            internal const string Arg_ArrayPlusOffTooSmall = "The array is too small.";
-            internal const string Arg_NonZeroLowerBound = "Non-zero lower bound arrays are not supported.";
-            internal const string Arg_RankMultiDimNotSupported = "Only single dimensional arrays are supported.";
-            internal const string Argument_IncompatibleArrayType = "The array type is incompatible.";
-            internal const string Arg_WrongType = "The value is of the wrong type.";
-            internal static string Format(string format, object? value, object? type) => format;
-        }
+        /// <summary>Multiplier used on 64-bit to enable faster % operations.</summary>
+        private ulong _fastModMultiplier;
 
         /// <summary>
         /// Initializes a new instance of the <see cref="OrderedDictionary{TKey, TValue}"/> class that is empty,
@@ -137,7 +109,7 @@ namespace System.Collections.Generic
             // - Value types: if no comparer is provided, or if the default is provided, we'd prefer to use
             //   EqualityComparer<TKey>.Default.Equals on every use, enabling the JIT to
             //   devirtualize and possibly inline the operation.
-            if (!(!RuntimeHelpers.IsReferenceOrContainsReferences<TKey>()))
+            if (!typeof(TKey).IsValueType)
             {
                 _comparer = comparer ?? EqualityComparer<TKey>.Default;
 
@@ -230,7 +202,7 @@ namespace System.Collections.Generic
         [MemberNotNull(nameof(_entries))]
         private void EnsureBucketsAndEntriesInitialized(int capacity)
         {
-            Resize(OrderedDictionaryHashHelpers.GetPrime(capacity));
+            Resize(HashHelpers.GetPrime(capacity));
         }
 
         /// <summary>Gets the total number of key/value pairs the internal data structure can hold without resizing.</summary>
@@ -277,8 +249,7 @@ namespace System.Collections.Generic
         bool IList.IsFixedSize => false;
 
         /// <summary>Gets a collection containing the keys in the <see cref="OrderedDictionary{TKey, TValue}"/>.</summary>
-        private KeyCollection? _keys;
-        public KeyCollection Keys => _keys ??= new(this);
+        public KeyCollection Keys => field ??= new(this);
 
         /// <inheritdoc/>
         IEnumerable<TKey> IReadOnlyDictionary<TKey, TValue>.Keys => Keys;
@@ -290,8 +261,7 @@ namespace System.Collections.Generic
         ICollection IDictionary.Keys => Keys;
 
         /// <summary>Gets a collection containing the values in the <see cref="OrderedDictionary{TKey, TValue}"/>.</summary>
-        private ValueCollection? _values;
-        public ValueCollection Values => _values ??= new(this);
+        public ValueCollection Values => field ??= new(this);
 
         /// <inheritdoc/>
         IEnumerable<TValue> IReadOnlyDictionary<TKey, TValue>.Values => Values;
@@ -387,9 +357,9 @@ namespace System.Collections.Generic
         {
             get
             {
-                if (!TryGetValue(key, out TValue value))
+                if (!TryGetValue(key, out TValue? value))
                 {
-                    OrderedDictionaryCompat.ThrowKeyNotFound(key);
+                    ThrowHelper.ThrowKeyNotFound(key);
                 }
 
                 return value;
@@ -437,11 +407,11 @@ namespace System.Collections.Generic
                         return true;
 
                     case InsertionBehavior.ThrowOnExisting:
-                        OrderedDictionaryCompat.ThrowDuplicateKey(key);
+                        ThrowHelper.ThrowDuplicateKey(key);
                         break;
 
                     default:
-                        Debug.Assert(behavior is InsertionBehavior.IgnoreInsertion, $"Unknown behavior: {behavior}");
+                        Debug.Assert(behavior is InsertionBehavior.None, $"Unknown behavior: {behavior}");
                         Debug.Assert(index < 0, "Expected index to be unspecied when ignoring a duplicate key.");
                         return false;
                 }
@@ -468,7 +438,7 @@ namespace System.Collections.Generic
             // Grow capacity if necessary to accommodate the extra entry.
             if (entries.Length == _count)
             {
-                Resize(OrderedDictionaryHashHelpers.ExpandPrime(entries.Length));
+                Resize(HashHelpers.ExpandPrime(entries.Length));
                 entries = _entries;
             }
 
@@ -527,7 +497,7 @@ namespace System.Collections.Generic
         {
             ArgumentNullException.ThrowIfNull(key);
 
-            return TryInsert(index: -1, key, value, InsertionBehavior.IgnoreInsertion, out index);
+            return TryInsert(index: -1, key, value, InsertionBehavior.None, out index);
         }
 
         /// <summary>Adds each element of the enumerable to the dictionary.</summary>
@@ -584,7 +554,7 @@ namespace System.Collections.Generic
                 return false;
             }
 
-            if ((!RuntimeHelpers.IsReferenceOrContainsReferences<TValue>()))
+            if (typeof(TValue).IsValueType)
             {
                 for (int i = 0; i < count; i++)
                 {
@@ -617,7 +587,7 @@ namespace System.Collections.Generic
         {
             if ((uint)index >= (uint)_count)
             {
-                OrderedDictionaryCompat.ThrowIndexArgumentOutOfRange();
+                ThrowHelper.ThrowIndexArgumentOutOfRange();
             }
 
             Debug.Assert(_entries is not null, "count must be positive, which means we must have entries");
@@ -659,7 +629,7 @@ namespace System.Collections.Generic
             Entry[]? entries = _entries;
             Debug.Assert(entries is not null, "expected entries to be is not null");
 
-            if ((!RuntimeHelpers.IsReferenceOrContainsReferences<TKey>()) && // comparer can only be null for value types; enable JIT to eliminate entire if block for ref types
+            if (typeof(TKey).IsValueType && // comparer can only be null for value types; enable JIT to eliminate entire if block for ref types
                 comparer is null)
             {
                 // ValueType: Devirtualize with EqualityComparer<TKey>.Default intrinsic
@@ -728,7 +698,7 @@ namespace System.Collections.Generic
         ConcurrentOperation:
             // We examined more entries than are actually in the list, which means there's a cycle
             // that's caused by erroneous concurrent use.
-            OrderedDictionaryCompat.ThrowConcurrentOperation();
+            ThrowHelper.ThrowConcurrentOperation();
 
         Return:
             outHashCode = hashCode;
@@ -746,7 +716,7 @@ namespace System.Collections.Generic
         {
             if ((uint)index > (uint)_count)
             {
-                OrderedDictionaryCompat.ThrowIndexArgumentOutOfRange();
+                ThrowHelper.ThrowIndexArgumentOutOfRange();
             }
 
             ArgumentNullException.ThrowIfNull(key);
@@ -782,7 +752,7 @@ namespace System.Collections.Generic
                 return true;
             }
 
-            value = default!;
+            value = default;
             return false;
         }
 
@@ -794,7 +764,7 @@ namespace System.Collections.Generic
             int count = _count;
             if ((uint)index >= (uint)count)
             {
-                OrderedDictionaryCompat.ThrowIndexArgumentOutOfRange();
+                ThrowHelper.ThrowIndexArgumentOutOfRange();
             }
 
             // Remove from the associated bucket chain the entry that lives at the specified index.
@@ -821,7 +791,7 @@ namespace System.Collections.Generic
         {
             if ((uint)index >= (uint)_count)
             {
-                OrderedDictionaryCompat.ThrowIndexArgumentOutOfRange();
+                ThrowHelper.ThrowIndexArgumentOutOfRange();
             }
 
             Debug.Assert(_entries is not null);
@@ -840,7 +810,7 @@ namespace System.Collections.Generic
         {
             if ((uint)index >= (uint)_count)
             {
-                OrderedDictionaryCompat.ThrowIndexArgumentOutOfRange();
+                ThrowHelper.ThrowIndexArgumentOutOfRange();
             }
 
             ArgumentNullException.ThrowIfNull(key);
@@ -849,7 +819,7 @@ namespace System.Collections.Generic
             ref Entry e = ref _entries[index];
 
             // If the key matches the one that's already in that slot, just update the value.
-            if ((!RuntimeHelpers.IsReferenceOrContainsReferences<TKey>()) && _comparer is null)
+            if (typeof(TKey).IsValueType && _comparer is null)
             {
                 if (EqualityComparer<TKey>.Default.Equals(key, e.Key))
                 {
@@ -871,7 +841,7 @@ namespace System.Collections.Generic
             uint hashCode = 0, collisionCount = 0;
             if (IndexOf(key, ref hashCode, ref collisionCount) >= 0)
             {
-                OrderedDictionaryCompat.ThrowDuplicateKey(key);
+                ThrowHelper.ThrowDuplicateKey(key);
             }
 
             // The key doesn't exist in the collection. Update the key and value, but also update
@@ -905,7 +875,7 @@ namespace System.Collections.Generic
                 }
                 else
                 {
-                    Resize(OrderedDictionaryHashHelpers.GetPrime(capacity));
+                    Resize(HashHelpers.GetPrime(capacity));
                 }
 
                 _version++;
@@ -922,10 +892,10 @@ namespace System.Collections.Generic
         /// <exception cref="ArgumentOutOfRangeException"><paramref name="capacity"/> is less than <see cref="Count"/>.</exception>
         public void TrimExcess(int capacity)
         {
-            ArgumentOutOfRangeException.ThrowIfLessThan(capacity, Count);
+            ThrowIfLessThan(capacity, Count);
 
             int currentCapacity = _entries?.Length ?? 0;
-            capacity = OrderedDictionaryHashHelpers.GetPrime(capacity);
+            capacity = HashHelpers.GetPrime(capacity);
             if (capacity < currentCapacity)
             {
                 Resize(capacity);
@@ -940,7 +910,7 @@ namespace System.Collections.Generic
         /// </param>
         /// <returns><see langword="true"/> if the <see cref="OrderedDictionary{TKey, TValue}"/> contains an element with the specified key; otherwise, <see langword="false"/>.</returns>
         /// <exception cref="ArgumentNullException"><paramref name="key"/> is <see langword="null"/>.</exception>
-        public bool TryGetValue(TKey key, out TValue value) => TryGetValue(key, out value, out _);
+        public bool TryGetValue(TKey key, [MaybeNullWhen(false)] out TValue value) => TryGetValue(key, out value, out _);
 
         /// <summary>Gets the value associated with the specified key.</summary>
         /// <param name="key">The key of the value to get.</param>
@@ -951,7 +921,7 @@ namespace System.Collections.Generic
         /// <param name="index">The index of <paramref name="key"/> if found; otherwise, -1.</param>
         /// <returns><see langword="true"/> if the <see cref="OrderedDictionary{TKey, TValue}"/> contains an element with the specified key; otherwise, <see langword="false"/>.</returns>
         /// <exception cref="ArgumentNullException"><paramref name="key"/> is <see langword="null"/>.</exception>
-        public bool TryGetValue(TKey key, out TValue value, out int index)
+        public bool TryGetValue(TKey key, [MaybeNullWhen(false)] out TValue value, out int index)
         {
             ArgumentNullException.ThrowIfNull(key);
 
@@ -965,7 +935,7 @@ namespace System.Collections.Generic
                 return true;
             }
 
-            value = default!;
+            value = default;
             return false;
         }
 
@@ -1021,7 +991,7 @@ namespace System.Collections.Generic
                     {
                         // We examined more entries than are actually in the list, which means there's a cycle
                         // that's caused by erroneous concurrent use.
-                        OrderedDictionaryCompat.ThrowConcurrentOperation();
+                        ThrowHelper.ThrowConcurrentOperation();
                     }
                 }
             }
@@ -1073,7 +1043,7 @@ namespace System.Collections.Generic
                     {
                         // We examined more entries than are actually in the list, which means there's a cycle
                         // that's caused by erroneous concurrent use.
-                        OrderedDictionaryCompat.ThrowConcurrentOperation();
+                        ThrowHelper.ThrowConcurrentOperation();
                     }
                 }
             }
@@ -1090,8 +1060,8 @@ namespace System.Collections.Generic
 #if SYSTEM_COLLECTIONS
             // If we exceeded the hash collision threshold and we're using a randomized comparer, rehash.
             // This is only ever done for string keys, so we can optimize it all away for value type keys.
-            if (!(!RuntimeHelpers.IsReferenceOrContainsReferences<TKey>()) &&
-                collisionCount > OrderedDictionaryHashHelpers.HashCollisionThreshold &&
+            if (!typeof(TKey).IsValueType &&
+                collisionCount > HashHelpers.HashCollisionThreshold &&
                 _comparer is NonRandomizedStringEqualityComparer)
             {
                 // Switch to a randomized comparer and rehash.
@@ -1105,13 +1075,20 @@ namespace System.Collections.Generic
         [MemberNotNull(nameof(_entries))]
         private void Resize(int newSize, bool forceNewHashCodes = false)
         {
-            Debug.Assert(!forceNewHashCodes || !(!RuntimeHelpers.IsReferenceOrContainsReferences<TKey>()), "Value types never rehash.");
+            Debug.Assert(!forceNewHashCodes || !typeof(TKey).IsValueType, "Value types never rehash.");
             Debug.Assert(newSize >= _count, "The requested size must accommodate all of the current elements.");
 
             // Create the new arrays. We allocate both prior to storing either; in case one of the allocation fails,
             // we want to avoid corrupting the data structure.
             int[] newBuckets = new int[newSize];
             Entry[] newEntries = new Entry[newSize];
+            if (IntPtr.Size == 8)
+            {
+                // Any time the capacity changes, that impacts the divisor of modulo operations,
+                // and we need to update our fast modulo multiplier.
+                _fastModMultiplier = HashHelpers.GetFastModMultiplier((uint)newSize);
+            }
+
             // Copy the existing entries to the new entries array.
             int count = _count;
             if (_entries is not null)
@@ -1121,7 +1098,7 @@ namespace System.Collections.Generic
 
 #if SYSTEM_COLLECTIONS
             // If we're being asked to upgrade to a non-randomized comparer due to too many collisions, do so.
-            if (!(!RuntimeHelpers.IsReferenceOrContainsReferences<TKey>()) && forceNewHashCodes)
+            if (!typeof(TKey).IsValueType && forceNewHashCodes)
             {
                 // Store the original randomized comparer instead of the non-randomized one.
                 Debug.Assert(_comparer is NonRandomizedStringEqualityComparer);
@@ -1160,7 +1137,15 @@ namespace System.Collections.Generic
         {
             int[]? buckets = _buckets;
             Debug.Assert(buckets is not null);
-            return ref buckets[(int)(hashCode % (uint)buckets.Length)];
+
+            if (IntPtr.Size == 8)
+            {
+                return ref buckets[HashHelpers.FastMod(hashCode, (uint)buckets.Length, _fastModMultiplier)];
+            }
+            else
+            {
+                return ref buckets[(uint)hashCode % buckets.Length];
+            }
         }
 
         /// <summary>Returns an enumerator that iterates through the <see cref="OrderedDictionary{TKey, TValue}"/>.</summary>
@@ -1169,7 +1154,7 @@ namespace System.Collections.Generic
 
         /// <inheritdoc/>
         IEnumerator<KeyValuePair<TKey, TValue>> IEnumerable<KeyValuePair<TKey, TValue>>.GetEnumerator() =>
-            Count == 0 ? OrderedDictionaryCompat.GetEmptyEnumerator<KeyValuePair<TKey, TValue>>() :
+            Count == 0 ? EnumerableHelpers.GetEmptyEnumerator<KeyValuePair<TKey, TValue>>() :
             GetEnumerator();
 
         /// <inheritdoc/>
@@ -1442,7 +1427,7 @@ namespace System.Collections.Generic
 
                 if (_version != dictionary._version)
                 {
-                    OrderedDictionaryCompat.ThrowVersionCheckFailed();
+                    ThrowHelper.ThrowVersionCheckFailed();
                 }
 
                 if (_index < dictionary._count)
@@ -1463,7 +1448,7 @@ namespace System.Collections.Generic
             {
                 if (_version != _dictionary._version)
                 {
-                    OrderedDictionaryCompat.ThrowVersionCheckFailed();
+                    ThrowHelper.ThrowVersionCheckFailed();
                 }
 
                 _index = 0;
@@ -1600,7 +1585,7 @@ namespace System.Collections.Generic
 
             /// <inheritdoc/>
             IEnumerator<TKey> IEnumerable<TKey>.GetEnumerator() =>
-                Count == 0 ? OrderedDictionaryCompat.GetEmptyEnumerator<TKey>() :
+                Count == 0 ? EnumerableHelpers.GetEmptyEnumerator<TKey>() :
                 GetEnumerator();
 
             /// <inheritdoc/>
@@ -1661,7 +1646,7 @@ namespace System.Collections.Generic
                 public bool MoveNext() => _enumerator.MoveNext();
 
                 /// <inheritdoc/>
-                void IEnumerator.Reset() => OrderedDictionaryCompat.Reset(ref _enumerator);
+                void IEnumerator.Reset() => EnumerableHelpers.Reset(ref _enumerator);
 
                 /// <inheritdoc/>
                 readonly void IDisposable.Dispose() { }
@@ -1744,7 +1729,7 @@ namespace System.Collections.Generic
 
             /// <inheritdoc/>
             IEnumerator<TValue> IEnumerable<TValue>.GetEnumerator() =>
-                Count == 0 ? OrderedDictionaryCompat.GetEmptyEnumerator<TValue>() :
+                Count == 0 ? EnumerableHelpers.GetEmptyEnumerator<TValue>() :
                 GetEnumerator();
 
             /// <inheritdoc/>
@@ -1904,7 +1889,7 @@ namespace System.Collections.Generic
                 public bool MoveNext() => _enumerator.MoveNext();
 
                 /// <inheritdoc/>
-                void IEnumerator.Reset() => OrderedDictionaryCompat.Reset(ref _enumerator);
+                void IEnumerator.Reset() => EnumerableHelpers.Reset(ref _enumerator);
 
                 /// <inheritdoc/>
                 readonly void IDisposable.Dispose() { }
@@ -1912,70 +1897,4 @@ namespace System.Collections.Generic
         }
     }
 
-    /// <summary>Used to control behavior of insertion into a <see cref="OrderedDictionary{TKey, TValue}"/>.</summary>
-    /// <remarks>Not nested in <see cref="OrderedDictionary{TKey, TValue}"/> to avoid multiple generic instantiations.</remarks>
-    internal enum InsertionBehavior
-    {
-        /// <summary>Skip the insertion operation.</summary>
-        IgnoreInsertion = 0,
-
-        /// <summary>Specifies that an existing entry with the same key should be overwritten if encountered.</summary>
-        OverwriteExisting = 1,
-
-        /// <summary>Specifies that if an existing entry with the same key is encountered, an exception should be thrown.</summary>
-        ThrowOnExisting = 2
-    }
-
-    // The desktop implementation obtains these operations from the runtime's
-    // shared HashHelpers type. Keep the port self-contained because that type
-    // is not part of NetWasm.CoreLib's supported surface.
-    internal static class OrderedDictionaryHashHelpers
-    {
-        internal const int HashCollisionThreshold = 100;
-
-        internal static int GetPrime(int minimum)
-        {
-            if (minimum < 0)
-            {
-                throw new ArgumentOutOfRangeException(nameof(minimum));
-            }
-
-            var candidate = minimum < 3 ? 3 : minimum | 1;
-            for (; candidate < int.MaxValue; candidate += 2)
-            {
-                if (IsPrime(candidate))
-                {
-                    return candidate;
-                }
-            }
-
-            return minimum;
-        }
-
-        internal static int ExpandPrime(int oldSize)
-        {
-            var newSize = 2 * oldSize;
-            return newSize > 0 && newSize < Array.MaxLength
-                ? GetPrime(newSize)
-                : Array.MaxLength;
-        }
-
-        private static bool IsPrime(int candidate)
-        {
-            if ((candidate & 1) == 0)
-            {
-                return candidate == 2;
-            }
-
-            for (var divisor = 3; divisor * divisor <= candidate; divisor += 2)
-            {
-                if (candidate % divisor == 0)
-                {
-                    return false;
-                }
-            }
-
-            return true;
-        }
-    }
 }
