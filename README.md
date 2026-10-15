@@ -9,13 +9,13 @@ Write C#. Deploy like C++. Target WebAssembly and WASI.
 **C# with precise garbage collection: 47,798 bytes. Rust's size-oriented
 profile: 53,635 bytes.**
 
-For the same print-`42` workload, the measured NetWasm 0.8.0 candidate is
+For the same print-`42` workload, the measured NetWasm 0.8.0 release is
 **10.9% smaller**, with its runtime and precise Compact GC included.
 Both outputs are standalone WASI Preview 2 components. The Rust reference uses
 Rust 1.95.0 with `opt-level = "z"`, LTO and the size settings documented in
 [the methodology](docs/size-and-methodology.md#rust-a-footprint-reference-not-a-gc-comparison).
 This is a measured workload/profile result, not a language-wide size guarantee.
-The 0.8.0 release is being qualified; these are candidate-package measurements.
+These measurements were reproduced using the released NetWasm 0.8.0 SDK packages.
 
 ![C# with precise GC beats Rust's size-oriented profile for printing 42: NetWasm 47,798 bytes, Rust 53,635 bytes. Both are WASI Preview 2 components.](docs/images/csharp-rust-console42-size.svg)
 
@@ -52,7 +52,7 @@ globalization and size-focused native compilation/linking enabled. Both the
 
 | AOT build | Uncompressed Wasm | Size relative to NetWasm |
 | --- | ---: | ---: |
-| **NetWasm 0.8.0 candidate, Compact GC** | **47,798 bytes (46.7 KiB)** | **1x** |
+| **NetWasm 0.8.0, Compact GC** | **47,798 bytes (46.7 KiB)** | **1x** |
 | Blazor WebAssembly, .NET 10 | 12,276,684 bytes (11.71 MiB) | 257x |
 | Blazor WebAssembly, .NET 11 RC1 | 15,289,241 bytes (14.58 MiB) | 320x |
 

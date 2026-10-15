@@ -1,6 +1,6 @@
 # Size measurements and methodology
 
-## NetWasm 0.8.0 candidate: C# with precise GC beats Rust's size profile
+## NetWasm 0.8.0: C# with precise GC beats Rust's size profile
 
 The measured Release/Oz `Console.WriteLine(42)` WASI Preview 2 component is
 **47,798 bytes (46.7 KiB)** with the default precise Compact collector, or
@@ -9,9 +9,9 @@ Rust 1.95.0's size-oriented profile produces a **53,635-byte** WASI Preview 2
 component. NetWasm is **5,837 bytes (10.9%) smaller**, including its linked
 runtime and reachable precise-GC support.
 
-These NetWasm figures come from qualified candidate packages for the upcoming
-0.8.0 release, not a claim that 0.8.0 is already published. Final release-package
-verification must reproduce or update them. The retained Rust reference uses
+These NetWasm figures were reproduced using the released 0.8.0 SDK and template
+packages from NuGet.org. All four collector variants execute and print `42`.
+The retained Rust reference uses
 the exact toolchain and Cargo profile documented below; it is not a claim about
 the smallest possible Rust binary.
 
@@ -26,9 +26,9 @@ Console.WriteLine(42);
 Use the canonical assembly name `NetWasmApp` for exact-size reproduction.
 Assembly identity participates in deterministic method/type ordering, so
 renaming an otherwise identical assembly can change encoded index bytes.
-The qualified candidate ran on macOS arm64 under Wasmtime 49.0.3.
+The released-package reproduction ran on macOS arm64 under Wasmtime 49.0.3.
 
-Once stable 0.8.0 is published, the ordinary SDK reproduction is:
+The ordinary released-SDK reproduction is:
 
 ```sh
 dotnet new install NetWasm.Templates::0.8.0
@@ -213,7 +213,7 @@ fn main() {
 
 | Toolchain and build | Final component |
 | --- | ---: |
-| NetWasm 0.8.0 candidate, Release/Oz, Compact | 47,798 bytes |
+| NetWasm 0.8.0, Release/Oz, Compact | 47,798 bytes |
 | Rust 1.90.0, ordinary Cargo release | 86,248 bytes |
 | Rust 1.95.0, ordinary Cargo release | 81,997 bytes |
 | Rust 1.95.0, size-oriented profile below | 53,635 bytes |
@@ -293,7 +293,7 @@ settings**:
 
 | Build | Artifact | Bytes | Collector boundary |
 | --- | --- | ---: | --- |
-| NetWasm 0.8.0 candidate Release/Oz, Compact | WASI Preview 2 Component | 47,798 | Precise Compact GC included in the artifact |
+| NetWasm 0.8.0 Release/Oz, Compact | WASI Preview 2 Component | 47,798 | Precise Compact GC included in the artifact |
 | Kotlin 2.4.0 production `wasmWasi` | WASI Preview 1 core module | 79,293 | WasmGC supplied by the host engine, not the artifact |
 | TinyGo 0.39.0 Hello World* | WASI Preview 1 core module | 110,084 | Precise GC configured |
 
