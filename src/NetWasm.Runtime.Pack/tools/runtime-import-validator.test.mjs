@@ -30,9 +30,11 @@ for (const target of ['wasm32', 'wasm64']) {
   test(`${target}: accepts required imports without optional output or termination`, () => {
     assert.doesNotThrow(() => validateRuntimeImports(allowed.slice(0, 4), target));
   });
-  test(`${target}: Bump does not require the unsupported finalizer callback`, () => {
-    assert.doesNotThrow(() => validateRuntimeImports(
-      allowed.filter(entry => entry.name !== 'netwasm.finalize'), target, 'bump'));
+  test(`${target}: accepts pruned finalization for every collector`, () => {
+    for (const collector of [undefined, 'boehm', 'tcms', 'netwasm', 'bump']) {
+      assert.doesNotThrow(() => validateRuntimeImports(
+        allowed.filter(entry => entry.name !== 'netwasm.finalize'), target, collector));
+    }
     assert.throws(() => validateRuntimeImports(
       allowed.filter(entry => entry.name !== 'netwasm.filter'), target, 'bump'),
     { message: 'Missing runtime import: netwasm.application.v1.netwasm.filter' });
@@ -64,7 +66,7 @@ for (const target of ['wasm32', 'wasm64']) {
   test(`${target}: rejects an empty import surface`, () => {
     assert.throws(() => validateRuntimeImports([], target), /Missing runtime import/);
   });
-  for (const missing of allowed.slice(0, 4)) {
+  for (const missing of allowed.slice(0, 4).filter(entry => entry.name !== 'netwasm.finalize')) {
     test(`${target}: rejects a missing required import ${missing.name}`, () => {
       assert.throws(() => validateRuntimeImports(
         allowed.filter(entry => entry !== missing), target),
