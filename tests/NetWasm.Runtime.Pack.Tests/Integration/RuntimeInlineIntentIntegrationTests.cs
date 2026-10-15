@@ -99,7 +99,7 @@ public sealed class RuntimeInlineIntentIntegrationTests
         editor.Rewrite(runtimePath, sanitizedRuntime, settings.RuntimeInlineAnnotations);
 
         var mergedPath = Path.Combine(cell, "merged.wasm");
-        var hostTools = RequiredDirectory("NETWASM_INLINE_INTENT_HOST_TOOLS_ROOT");
+        var hostTools = RequiredDirectory("NETWASM_NATIVE_INTEROP_HOST_TOOLS_ROOT");
         var suffix = OperatingSystem.IsWindows() ? ".exe" : string.Empty;
         var mergePath = Path.Combine(hostTools, "tools", "bin", "wasm-merge" + suffix);
         var tools = new ProcessBinaryenToolRunner(
@@ -130,8 +130,8 @@ public sealed class RuntimeInlineIntentIntegrationTests
     {
         var repository = RepositoryRoot();
         var assetRoot = Path.Combine(repository, "src", "NetWasm.Runtime.Pack", "runtime");
-        var hostTools = RequiredDirectory("NETWASM_INLINE_INTENT_HOST_TOOLS_ROOT");
-        var toolchain = RequiredDirectory("NETWASM_INLINE_INTENT_TOOLCHAIN_ROOT");
+        var hostTools = RequiredDirectory("NETWASM_NATIVE_INTEROP_HOST_TOOLS_ROOT");
+        var toolchain = RequiredDirectory("NETWASM_NATIVE_INTEROP_TOOLCHAIN_ROOT");
         var suffix = OperatingSystem.IsWindows() ? ".exe" : string.Empty;
         var layoutPath = temporary.Write("runtime-layout.json", JsonSerializer.Serialize(new
         {
