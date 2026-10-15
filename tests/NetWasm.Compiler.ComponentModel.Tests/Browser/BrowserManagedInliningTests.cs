@@ -1,4 +1,5 @@
 using NetWasm.Compiler.ComponentModel.Browser;
+using NetWasm.Compiler.ComponentModel.Browser.Plans;
 using NetWasm.Compiler.ComponentModel.Inlining;
 using NetWasm.Compiler.ComponentModel.Raw;
 using NetWasm.Compiler.ComponentModel.Optimization;
@@ -33,13 +34,13 @@ public sealed class BrowserManagedInliningTests
             var raw = BrowserRawCoreModules.CreateLinkPlan(rawRequest, new("temporary", "linked"));
             var expected = hint == ManagedInliningHints.Preserve
                 ? WasmInlineAnnotationSelection.Preserve : WasmInlineAnnotationSelection.SizeAware;
-            Assert.Equal(expected, component.ManagedInlining.Selection);
-            Assert.Equal(expected, raw.ManagedInlining.Selection);
+            Assert.Equal(expected, component.Operations.OfType<BrowserLinkInlineOperation>().First().Selection);
+            Assert.Equal(expected, raw.Operations.OfType<BrowserLinkInlineOperation>().First().Selection);
             var runtimeExpected = IsSpeedProfile(optimization)
                 ? WasmInlineAnnotationSelection.Preserve
                 : WasmInlineAnnotationSelection.SizeAware;
-            Assert.Equal(runtimeExpected, component.RuntimeInlining.Selection);
-            Assert.Equal(runtimeExpected, raw.RuntimeInlining.Selection);
+            Assert.Equal(runtimeExpected, component.Operations.OfType<BrowserLinkInlineOperation>().Skip(1).First().Selection);
+            Assert.Equal(runtimeExpected, raw.Operations.OfType<BrowserLinkInlineOperation>().Skip(1).First().Selection);
         }
     }
 
@@ -77,8 +78,8 @@ public sealed class BrowserManagedInliningTests
 
         foreach (var (managedEdit, runtimeEdit, merge) in new[]
         {
-            (component.ManagedInlining, component.RuntimeInlining, component.Merge),
-            (raw.ManagedInlining, raw.RuntimeInlining, raw.Merge),
+            (component.Operations.OfType<BrowserLinkInlineOperation>().First(), component.Operations.OfType<BrowserLinkInlineOperation>().Skip(1).First(), component.Operations.OfType<BrowserLinkToolOperation>().First()),
+            (raw.Operations.OfType<BrowserLinkInlineOperation>().First(), raw.Operations.OfType<BrowserLinkInlineOperation>().Skip(1).First(), raw.Operations.OfType<BrowserLinkToolOperation>().First()),
         })
         {
             Assert.Equal("application", managedEdit.InputPath);
@@ -90,10 +91,10 @@ public sealed class BrowserManagedInliningTests
             Assert.DoesNotContain("application", merge.Arguments);
             Assert.DoesNotContain("runtime", merge.Arguments);
         }
-        Assert.Equal("sanitized", component.ManagedInlining.OutputPath);
-        Assert.Equal("runtime-sanitized", component.RuntimeInlining.OutputPath);
-        Assert.Equal(Path.Combine("temporary", "sanitized.wasm"), raw.ManagedInlining.OutputPath);
-        Assert.Equal(Path.Combine("temporary", "runtime-sanitized.wasm"), raw.RuntimeInlining.OutputPath);
+        Assert.Equal("sanitized", component.Operations.OfType<BrowserLinkInlineOperation>().First().OutputPath);
+        Assert.Equal("runtime-sanitized", component.Operations.OfType<BrowserLinkInlineOperation>().Skip(1).First().OutputPath);
+        Assert.Equal(Path.Combine("temporary", "sanitized.wasm"), raw.Operations.OfType<BrowserLinkInlineOperation>().First().OutputPath);
+        Assert.Equal(Path.Combine("temporary", "runtime-sanitized.wasm"), raw.Operations.OfType<BrowserLinkInlineOperation>().Skip(1).First().OutputPath);
     }
 
     private static bool IsSpeedProfile(FinalWasmOptimization optimization) =>

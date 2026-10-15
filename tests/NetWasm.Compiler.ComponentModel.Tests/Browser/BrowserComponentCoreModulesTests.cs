@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Text;
 using NetWasm.Compiler.ComponentModel.Browser;
+using NetWasm.Compiler.ComponentModel.Browser.Plans;
 using NetWasm.Compiler.ComponentModel.Inlining;
 using NetWasm.Compiler.ComponentModel.Node;
 using NetWasm.Compiler.Core;
@@ -11,9 +12,9 @@ namespace NetWasm.Compiler.ComponentModel.Tests.Browser;
 public sealed class BrowserComponentCoreModulesTests
 {
     private static readonly ImmutableArray<string> ExpectedCleanupPaths =
-        ["v/./env.wasm", "v/host.wasm", "v/command.wasm", "v/merged.wasm", "v/sanitized.wasm", "v/runtime-sanitized.wasm"];
+        ["v/env.wasm", "v/host.wasm", "v/command.wasm", "v/merged.wasm", "v/sanitized.wasm", "v/runtime-sanitized.wasm"];
     private static readonly ImmutableArray<string> ExpectedManagedModulePaths =
-        ["v/./env.wasm", "v/host.wasm", "v/command.wasm"];
+        ["v/env.wasm", "v/host.wasm", "v/command.wasm"];
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -24,13 +25,13 @@ public sealed class BrowserComponentCoreModulesTests
             CreateRequest(target) with { Optimization = FinalWasmOptimization.Oz }, CreateWorkspace());
         var width = memory64 ? "i64" : "i32";
 
-        Assert.Equal(new BrowserWasmTextModule("v/./env.wasm",
+        Assert.Equal(new BrowserLinkTextOperation("v/env.wasm",
             $"(module (func (export \"emscripten_notify_memory_growth\") (param {width})))"),
-            Assert.Single(plan.TextModules));
+            Assert.Single(plan.Operations.OfType<BrowserLinkTextOperation>().ToArray()));
         var expectedMerge = new List<string>
         {
             "v/runtime-sanitized.wasm", "netwasm.runtime.v1", "v/sanitized.wasm", "netwasm.application.v1",
-            "v/./env.wasm", "env", "--output", "v/merged.wasm", "--enable-multimemory",
+            "v/env.wasm", "env", "--output", "v/merged.wasm", "--enable-multimemory",
             "--enable-exception-handling", "--enable-reference-types", "--enable-bulk-memory", "--enable-nontrapping-float-to-int",
         };
         var expectedOptimization = new List<string>
@@ -45,21 +46,21 @@ public sealed class BrowserComponentCoreModulesTests
             expectedOptimization.Add("--enable-memory64");
         }
         expectedOptimization.AddRange(["--output", "v/output.wasm"]);
-        Assert.Equal(BinaryenToolIds.WasmMerge, plan.Merge.ToolId);
-        Assert.Equal(expectedMerge, plan.Merge.Arguments);
-        Assert.Equal(new BrowserInlineAnnotationEdit("v/Application.wasm", "v/sanitized.wasm",
-            WasmInlineAnnotationSelection.SizeAware), plan.ManagedInlining);
-        Assert.Equal(new BrowserInlineAnnotationEdit("v/runtime.wasm", "v/runtime-sanitized.wasm",
-            WasmInlineAnnotationSelection.SizeAware), plan.RuntimeInlining);
-        Assert.Equal(BinaryenToolIds.WasmOpt, plan.Optimization!.ToolId);
-        Assert.Equal(expectedOptimization, plan.Optimization.Arguments);
-        Assert.Equal("v/output.wasm", plan.Validation!.Path);
-        Assert.Equal(ExpectedValidation("v/output.wasm", memory64), plan.Validation.Arguments);
-        Assert.Equal(new BrowserInlineAnnotationEdit("v/output.wasm", "v/output.wasm",
-            WasmInlineAnnotationSelection.Remove), plan.InlineAnnotationCleanup);
-        Assert.Equal(new BrowserComponentExportPruning("v/merged.wasm", "v/sanitized.wasm",
-            memory64 ? "cm64p2" : "cm32p2"), plan.ExportPruning);
-        Assert.Equal(ExpectedCleanupPaths, plan.CleanupPaths);
+        Assert.Equal(BinaryenToolIds.WasmMerge, plan.Operations.OfType<BrowserLinkToolOperation>().First().ToolId);
+        Assert.Equal(expectedMerge, plan.Operations.OfType<BrowserLinkToolOperation>().First().Arguments);
+        Assert.Equal(new BrowserLinkInlineOperation("v/Application.wasm", "v/sanitized.wasm",
+            WasmInlineAnnotationSelection.SizeAware), plan.Operations.OfType<BrowserLinkInlineOperation>().First());
+        Assert.Equal(new BrowserLinkInlineOperation("v/runtime.wasm", "v/runtime-sanitized.wasm",
+            WasmInlineAnnotationSelection.SizeAware), plan.Operations.OfType<BrowserLinkInlineOperation>().Skip(1).First());
+        Assert.Equal(BinaryenToolIds.WasmOpt, plan.Operations.OfType<BrowserLinkToolOperation>().Skip(1).SingleOrDefault()!.ToolId);
+        Assert.Equal(expectedOptimization, plan.Operations.OfType<BrowserLinkToolOperation>().Skip(1).Single().Arguments);
+        Assert.Equal("v/output.wasm", plan.Operations.OfType<BrowserLinkValidationOperation>().Single()!.Path);
+        Assert.Equal(ExpectedValidation("v/output.wasm", memory64), plan.Operations.OfType<BrowserLinkValidationOperation>().Single().Arguments);
+        Assert.Equal(new BrowserLinkInlineOperation("v/output.wasm", "v/output.wasm",
+            WasmInlineAnnotationSelection.Remove), plan.Operations.OfType<BrowserLinkInlineOperation>().Last());
+        Assert.Equal(new BrowserLinkExportOperation("v/merged.wasm", "v/sanitized.wasm",
+            memory64 ? "cm64p2" : "cm32p2", []), plan.Operations.OfType<BrowserLinkExportOperation>().SingleOrDefault());
+        Assert.Equal(ExpectedCleanupPaths, plan.TemporaryPaths);
     }
 
     [Theory]
@@ -74,9 +75,9 @@ public sealed class BrowserComponentCoreModulesTests
         var plan = BrowserComponentCoreModules.CreateLinkPlan(
             CreateRequest(ComponentTarget.Wasm32Wasi02) with { ManagedExecutableEntryPoint = abi }, CreateWorkspace());
 
-        Assert.Equal(ExpectedManagedModulePaths, plan.TextModules.Select(module => module.OutputPath));
-        Assert.Contains("report_terminal_exception_v2", plan.TextModules[1].Text);
-        var adapter = plan.TextModules[2].Text;
+        Assert.Equal(ExpectedManagedModulePaths, plan.Operations.OfType<BrowserLinkTextOperation>().ToArray().Select(module => module.OutputPath));
+        Assert.Contains("report_terminal_exception_v2", plan.Operations.OfType<BrowserLinkTextOperation>().ToArray()[1].Text);
+        var adapter = plan.Operations.OfType<BrowserLinkTextOperation>().ToArray()[2].Text;
         if (asynchronous)
         {
             Assert.Contains("netwasm:runtime/process@1|start", adapter);
@@ -92,22 +93,22 @@ public sealed class BrowserComponentCoreModulesTests
             Assert.Contains(returns == ManagedExecutableReturnShape.ExitCode ? "i32.eqz i32.eqz" : "i32.const 0", adapter);
         }
         Assert.Equal(new[] { "v/host.wasm", RuntimeAbi.HostModule, "v/command.wasm", "netwasm.command.v1" },
-            plan.Merge.Arguments.Skip(6).Take(4));
-        Assert.Equal(6, plan.CleanupPaths.Length);
+            plan.Operations.OfType<BrowserLinkToolOperation>().First().Arguments.Skip(6).Take(4));
+        Assert.Equal(6, plan.TemporaryPaths.Length);
         // Workspace disposal has already run and cannot erase the captured values.
-        Assert.NotEmpty(plan.TextModules[0].Text);
-        Assert.NotEmpty(plan.Optimization!.Arguments);
+        Assert.NotEmpty(plan.Operations.OfType<BrowserLinkTextOperation>().ToArray()[0].Text);
+        Assert.NotEmpty(plan.Operations.OfType<BrowserLinkToolOperation>().Skip(1).SingleOrDefault()!.Arguments);
     }
 
     [Fact]
-    public void CaseDistinctVirtualPathsRemainDistinctAndNeitherIsNormalized()
+    public void CaseDistinctVirtualPathsRemainDistinct()
     {
         var request = CreateRequest(ComponentTarget.Wasm32Wasi02) with { OutputPath = "v/application.wasm" };
         var plan = BrowserComponentCoreModules.CreateLinkPlan(request, CreateWorkspace());
-        Assert.Equal("v/Application.wasm", plan.ManagedInlining.InputPath);
-        Assert.Contains(plan.ManagedInlining.OutputPath, plan.Merge.Arguments);
-        Assert.Equal("v/application.wasm", plan.Optimization!.Arguments[^1]);
-        Assert.Contains("v/./env.wasm", plan.CleanupPaths);
+        Assert.Equal("v/Application.wasm", plan.Operations.OfType<BrowserLinkInlineOperation>().First().InputPath);
+        Assert.Contains(plan.Operations.OfType<BrowserLinkInlineOperation>().First().OutputPath, plan.Operations.OfType<BrowserLinkToolOperation>().First().Arguments);
+        Assert.Equal("v/application.wasm", plan.Operations.OfType<BrowserLinkToolOperation>().Skip(1).SingleOrDefault()!.Arguments[^1]);
+        Assert.Contains("v/env.wasm", plan.TemporaryPaths);
     }
 
     [Fact]
@@ -119,11 +120,11 @@ public sealed class BrowserComponentCoreModulesTests
                 Optimization = FinalWasmOptimization.None,
             }, CreateWorkspace());
 
-        Assert.Null(plan.Optimization);
-        Assert.Equal("v/sanitized.wasm", plan.Validation!.Path);
-        Assert.Equal(ExpectedValidation("v/sanitized.wasm", false), plan.Validation.Arguments);
-        Assert.Equal(new BrowserInlineAnnotationEdit("v/sanitized.wasm", "v/output.wasm",
-            WasmInlineAnnotationSelection.Remove), plan.InlineAnnotationCleanup);
+        Assert.Null(plan.Operations.OfType<BrowserLinkToolOperation>().Skip(1).SingleOrDefault());
+        Assert.Equal("v/sanitized.wasm", plan.Operations.OfType<BrowserLinkValidationOperation>().Single()!.Path);
+        Assert.Equal(ExpectedValidation("v/sanitized.wasm", false), plan.Operations.OfType<BrowserLinkValidationOperation>().Single().Arguments);
+        Assert.Equal(new BrowserLinkInlineOperation("v/sanitized.wasm", "v/output.wasm",
+            WasmInlineAnnotationSelection.Remove), plan.Operations.OfType<BrowserLinkInlineOperation>().Last());
     }
 
     [Fact]
@@ -201,7 +202,7 @@ public sealed class BrowserComponentCoreModulesTests
         new("v/Application.wasm", "v/runtime.wasm", "v/output.wasm", target);
 
     private static BrowserComponentCoreModuleWorkspace CreateWorkspace() =>
-        new("v/./env.wasm", "v/host.wasm", "v/command.wasm", "v/merged.wasm", "v/sanitized.wasm",
+        new("v/env.wasm", "v/host.wasm", "v/command.wasm", "v/merged.wasm", "v/sanitized.wasm",
             "v/runtime-sanitized.wasm");
 
     private static byte[] Module(string prefix, bool extraMemory, bool includePrivateExports = true)

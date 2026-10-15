@@ -1,0 +1,68 @@
+using System.Text.Json;
+using NetWasm.Compiler.ComponentModel.Browser.Optimization;
+using NetWasm.Compiler.ComponentModel.Optimization;
+
+namespace NetWasm.Compiler.ComponentModel.Tests.Browser.Optimization;
+
+public sealed class BrowserOptimizationOverridesDeserializerTests
+{
+    [Fact]
+    public void PreservesEveryCompilerOwnedOverrideWithoutResolvingPolicy()
+    {
+        var result = Create().Deserialize("""
+            {
+              "managedInliningHints":"IgnoreAggressive",
+              "loopInvariantFieldHoisting":"Enabled",
+              "staticDataViewElimination":"Disabled",
+              "addressTakenValuePromotion":"Enabled",
+              "managedMethodInlining":"Disabled",
+              "branchPrefixDuplication":"Enabled",
+              "scalarCallPreservation":"Disabled",
+              "arrayBoundsCheckElimination":"Enabled",
+              "loopUnrolling":"Disabled",
+              "constantArgumentPropagation":"Enabled",
+              "staticArrayPopulationElimination":"Disabled"
+            }
+            """);
+        Assert.Equal(new WasmOptimizationOverrides(
+            ManagedInliningHints.IgnoreAggressive,
+            ManagedLoopInvariantFieldHoisting.Enabled,
+            ManagedStaticDataViewElimination.Disabled,
+            ManagedAddressTakenValuePromotion.Enabled,
+            ManagedMethodInlining.Disabled,
+            ManagedBranchPrefixDuplication.Enabled,
+            ManagedScalarCallPreservation.Disabled,
+            ManagedArrayBoundsCheckElimination.Enabled,
+            ManagedLoopUnrolling.Disabled,
+            ManagedConstantArgumentPropagation.Enabled,
+            ManagedStaticArrayPopulationElimination.Disabled), result);
+    }
+
+    [Fact]
+    public void MissingOverridesAndMembersRetainCompilerDefaults()
+    {
+        var deserializer = Create();
+        Assert.Null(deserializer.Deserialize("null"));
+        Assert.Equal(new WasmOptimizationOverrides(), deserializer.Deserialize("{}"));
+        Assert.Equal(new WasmOptimizationOverrides(ManagedInliningHints.Preserve),
+            deserializer.Deserialize("{\"managedInliningHints\":\"Preserve\"}"));
+    }
+
+    [Theory]
+    [InlineData("[]")]
+    [InlineData("{")]
+    [InlineData("{\"unknown\":\"Enabled\"}")]
+    [InlineData("{\"loopUnrolling\":\"Unknown\"}")]
+    public void InvalidContractsFailExplicitly(string json) =>
+        Assert.Throws<JsonException>(() => Create().Deserialize(json));
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData(" ")]
+    public void MissingJsonIsRejected(string? json) =>
+        Assert.ThrowsAny<ArgumentException>(() => Create().Deserialize(json!));
+
+    private static IBrowserOptimizationOverridesDeserializer Create() =>
+        Assert.IsAssignableFrom<IBrowserOptimizationOverridesDeserializer>(new BrowserOptimizationOverridesDeserializer());
+}

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
+using NetWasm.Compiler.ComponentModel.Browser.Plans;
 using NetWasm.Compiler.ComponentModel.Inlining;
 using NetWasm.Compiler.ComponentModel.Optimization;
 using NetWasm.Compiler.ComponentModel.ManagedExecutables;
@@ -11,53 +12,48 @@ namespace NetWasm.Compiler.ComponentModel.Browser;
 /// <summary>Plans component core linking and edits exports without host file or process access.</summary>
 public static class BrowserComponentCoreModules
 {
-    public static BrowserComponentCoreModuleLinkPlan CreateLinkPlan(
+    public static BrowserLinkPlan CreateOrderedLinkPlan(
         ComponentCoreModuleLinkRequest request, BrowserComponentCoreModuleWorkspace workspace)
     {
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(workspace);
         ArgumentNullException.ThrowIfNull(request.Target);
-        var paths = ValidatePaths(request, workspace);
-        var capture = new BrowserComponentLinkPlanCapture(
-            paths,
-            request.ApplicationModulePath,
-            request.RuntimeModulePath);
-        var modules = new BrowserWasmTextModuleCapture(capture);
-        var tools = new BrowserBinaryenInvocationCapture(capture);
-        var adapters = new ManagedExecutableComponentAdapterWriter(
-            new KeyValuePair<ManagedExecutableCompletionShape, IManagedExecutableComponentAdapterWriter>[]
-            {
-                new(ManagedExecutableCompletionShape.Synchronous,
-                    new SynchronousManagedExecutableComponentAdapterWriter(modules)),
-                new(ManagedExecutableCompletionShape.Asynchronous,
-                    new AsynchronousManagedExecutableComponentAdapterWriter(modules)),
-            });
+        var owned = ValidatePaths(request, workspace);
+        ImmutableArray<string> inputs = [request.ApplicationModulePath, request.RuntimeModulePath];
+        ImmutableArray<string> outputs = [request.OutputPath];
+        ImmutableArray<string> temporary = [workspace.EnvironmentModulePath, workspace.HostModulePath,
+            workspace.ManagedExecutableAdapterModulePath, workspace.MergedModulePath, workspace.SanitizedModulePath,
+            workspace.SanitizedRuntimeModulePath];
+        var state = new BrowserLinkCaptureState(inputs, outputs, temporary);
+        var recorder = new BrowserLinkOperationRecorder(state, BrowserLinkPlanValidation.CreateInspector());
+        var modules = new BrowserLinkTextCapture(recorder);
+        var tools = BrowserLinkPlanValidation.CreateToolCapture(recorder);
+        var inline = new BrowserLinkInlineCapture(recorder);
         var execution = new ComponentCoreModuleLinkExecution(
-            new ComponentCoreModuleMergeRunner(tools),
-            new EmscriptenEnvironmentShimWriter(modules),
+            new ComponentCoreModuleMergeRunner(tools), new EmscriptenEnvironmentShimWriter(modules),
             new NetWasmHostComponentShimWriter(
             [
-                new(ManagedExecutableCompletionShape.Synchronous,
-                    new PortableCommandHostComponentShimWriter(modules)),
-                new(ManagedExecutableCompletionShape.Asynchronous,
-                    new HostedNetWasmHostComponentShimWriter(modules)),
+                new(ManagedExecutableCompletionShape.Synchronous, new PortableCommandHostComponentShimWriter(modules)),
+                new(ManagedExecutableCompletionShape.Asynchronous, new HostedNetWasmHostComponentShimWriter(modules)),
             ]),
-            adapters,
-            new BrowserComponentExportPruningCapture(capture),
-            new ComponentCoreModuleOptimizer(tools, new BrowserPlannedFileExistence(capture),
-                new WasmCoreModuleValidator(new BrowserCoreModuleValidationOperationCapture(capture)),
-                new BrowserInlineAnnotationCapture(capture)),
-            new WasmOptimizationSettingsResolver(), new BrowserInlineAnnotationCapture(capture));
-        execution.Run(request, new ComponentCoreModuleWorkspace(
-            new BrowserCleanupPathCapture(capture),
-            workspace.EnvironmentModulePath,
-            workspace.HostModulePath,
-            workspace.ManagedExecutableAdapterModulePath,
-            workspace.MergedModulePath,
-            workspace.SanitizedModulePath,
-            workspace.SanitizedRuntimeModulePath));
-        return capture.Snapshot();
+            new ManagedExecutableComponentAdapterWriter(
+            [
+                new(ManagedExecutableCompletionShape.Synchronous, new SynchronousManagedExecutableComponentAdapterWriter(modules)),
+                new(ManagedExecutableCompletionShape.Asynchronous, new AsynchronousManagedExecutableComponentAdapterWriter(modules)),
+            ]),
+            new BrowserLinkExportCapture(recorder),
+            new ComponentCoreModuleOptimizer(tools, new BrowserLinkCaptureFileExistence(state),
+                new WasmCoreModuleValidator(new BrowserLinkValidationCapture(recorder)), inline),
+            new WasmOptimizationSettingsResolver(), inline);
+        execution.Run(request, new ComponentCoreModuleWorkspace(new BrowserLinkFileCleanupCapture(owned),
+            workspace.EnvironmentModulePath, workspace.HostModulePath, workspace.ManagedExecutableAdapterModulePath,
+            workspace.MergedModulePath, workspace.SanitizedModulePath, workspace.SanitizedRuntimeModulePath));
+        return BrowserLinkPlanValidation.CreateBuilder().Build([.. state.Operations], inputs, outputs, temporary);
     }
+
+    public static BrowserLinkPlan CreateLinkPlan(
+        ComponentCoreModuleLinkRequest request, BrowserComponentCoreModuleWorkspace workspace) =>
+        CreateOrderedLinkPlan(request, workspace);
 
     /// <summary>
     /// Applies the authoritative component export policy to caller-provided bytes.
