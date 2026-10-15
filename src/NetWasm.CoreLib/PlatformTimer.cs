@@ -39,6 +39,9 @@ namespace System.Runtime.InteropServices
         private TimeSpan _period;
         private IPlatformSchedule? _schedule;
         private bool _disposed;
+        private bool _hasFired;
+
+        internal bool HasFired => _hasFired;
 
         internal PlatformTimer(
             IPlatformScheduler scheduler,
@@ -106,6 +109,7 @@ namespace System.Runtime.InteropServices
         private void Fire()
         {
             _schedule = null;
+            _hasFired = true;
             if (_disposed)
             {
                 return;

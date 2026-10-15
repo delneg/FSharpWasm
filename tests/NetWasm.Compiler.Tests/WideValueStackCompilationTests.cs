@@ -129,6 +129,81 @@ public sealed class WideValueStackCompilationTests
         Assert.Equal(47, Execute("WideValueStack", source, optimize, target, input: 5));
     }
 
+    [Theory]
+    [InlineData(false, WasmTarget.Wasm32)]
+    [InlineData(false, WasmTarget.Wasm64)]
+    [InlineData(true, WasmTarget.Wasm32)]
+    [InlineData(true, WasmTarget.Wasm64)]
+    public void CompilerKeepsAggregateResultsSeparateFromConsumedValues(
+        bool optimize,
+        WasmTarget target)
+    {
+        const string source = """
+            public struct Pair
+            {
+                public Pair(int first, int second)
+                {
+                    First = first;
+                    Second = second;
+                }
+
+                public int First;
+                public int Second;
+            }
+
+            public struct Wrapper
+            {
+                public Wrapper(Pair value)
+                {
+                    Value = new Pair(value.Second + 30, value.First + 40);
+                }
+
+                public Pair Value;
+            }
+
+            public abstract class Transformer
+            {
+                public abstract Pair Apply(Pair value);
+            }
+
+            public sealed class DerivedTransformer : Transformer
+            {
+                public override Pair Apply(Pair value) =>
+                    new Pair(value.First + 10, value.Second + 20);
+            }
+
+            public delegate Pair PairTransform(Pair value);
+
+            public static class Program
+            {
+                public static int Run(int input)
+                {
+                    var value = new Pair(input + 1, input + 2);
+                    var direct = Transform(value);
+                    Transformer transformer = new DerivedTransformer();
+                    var dispatched = transformer.Apply(value);
+                    PairTransform callback = Transform;
+                    var delegated = callback(value);
+                    var wrapped = new Wrapper(value);
+                    return direct.First + direct.Second +
+                        dispatched.First + dispatched.Second +
+                        delegated.First + delegated.Second +
+                        wrapped.Value.First + wrapped.Value.Second;
+                }
+
+                private static Pair Transform(Pair value) =>
+                    new Pair(value.Second + 1, value.First + 2);
+            }
+            """;
+
+        Assert.Equal(158, Execute(
+            "AggregateResultAliasing",
+            source,
+            optimize,
+            target,
+            input: 5));
+    }
+
     private static int Execute(
         string name,
         string source,

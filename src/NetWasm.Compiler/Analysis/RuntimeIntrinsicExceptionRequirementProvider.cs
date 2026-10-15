@@ -22,6 +22,8 @@ internal sealed class RuntimeIntrinsicExceptionRequirementProvider(
         new(ManagedExceptionKind.InvalidCast, "System.InvalidCastException");
     private static readonly ReachabilityExceptionRequirement Overflow =
         new(ManagedExceptionKind.Overflow, "System.OverflowException");
+    private static readonly ReachabilityExceptionRequirement DivideByZero =
+        new(ManagedExceptionKind.DivideByZero, "System.DivideByZeroException");
     private static readonly ReachabilityExceptionRequirement InvalidOperation =
         new(ManagedExceptionKind.InvalidOperation, "System.InvalidOperationException");
 
@@ -84,6 +86,7 @@ internal sealed class RuntimeIntrinsicExceptionRequirementProvider(
             RuntimeIntrinsic.EnumGetUnderlyingType or
             RuntimeIntrinsic.EnumFormat or
             RuntimeIntrinsic.EnumToObject => [ArgumentNull, Argument],
+            RuntimeIntrinsic.IntegerDivRem => DivRemRequirements(method),
             RuntimeIntrinsic.EnumConvert => ConvertRequirements(method),
             _ => [],
         };
@@ -97,4 +100,11 @@ internal sealed class RuntimeIntrinsicExceptionRequirementProvider(
             "InternalToDateTime" => [InvalidCast],
             _ => [],
         };
+
+    private static ImmutableArray<ReachabilityExceptionRequirement> DivRemRequirements(
+        MethodDefinitionModel method) =>
+        method.Signature.ParameterSignatureTypes[0].CanonicalName is
+            "primitive:i4" or "primitive:i8" or "primitive:nativeint"
+                ? [DivideByZero, Overflow]
+                : [DivideByZero];
 }

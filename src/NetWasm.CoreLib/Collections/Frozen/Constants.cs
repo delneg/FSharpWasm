@@ -73,7 +73,7 @@ namespace System.Collections.Frozen
             typeof(T) == typeof(Int128) ||
             typeof(T) == typeof(UInt128) ||
 #endif
-            false;
+            typeof(T).IsEnum;
 
         // for these types GetHashCode returns their value casted to int, so when we receive a Dictionary/HashSet where there are key
         // we know that all hash codes are unique and we can avoid some work later

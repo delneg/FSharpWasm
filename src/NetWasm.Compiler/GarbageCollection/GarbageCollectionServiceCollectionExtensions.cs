@@ -8,6 +8,7 @@ internal static class GarbageCollectionServiceCollectionExtensions
         this IServiceCollection services)
     {
         services.AddSingleton<IRootMapAnalyzerFactory, RootMapAnalyzerFactory>();
+        services.AddSingleton<IRootSlotAllocator, RootSlotAllocator>();
         services.AddSingleton<IRootDecisionClassifierFactory,
             RootDecisionClassifierFactory>();
         services.AddSingleton<IRuntimeAllocationSafepointClassifier,

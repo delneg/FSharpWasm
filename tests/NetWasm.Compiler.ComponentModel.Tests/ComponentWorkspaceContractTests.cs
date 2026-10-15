@@ -34,11 +34,12 @@ public sealed class ComponentWorkspaceContractTests
         Assert.Equal("component.wasm.managed-executable.wasm", workspace.ManagedExecutableAdapterModulePath);
         Assert.Equal("component.wasm.merged.wasm", workspace.MergedModulePath);
         Assert.Equal("component.wasm.sanitized.wasm", workspace.SanitizedModulePath);
+        Assert.Equal("component.wasm.runtime-sanitized.wasm", workspace.SanitizedRuntimeModulePath);
         workspace.Dispose();
         Assert.Equal([
             "component.wasm.environment.wasm", "component.wasm.netwasm-host.wasm",
             "component.wasm.managed-executable.wasm", "component.wasm.merged.wasm",
-            "component.wasm.sanitized.wasm",
+            "component.wasm.sanitized.wasm", "component.wasm.runtime-sanitized.wasm",
         ], deletions.Paths);
     }
 

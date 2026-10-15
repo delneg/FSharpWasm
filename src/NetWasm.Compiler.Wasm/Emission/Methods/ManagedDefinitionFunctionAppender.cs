@@ -43,7 +43,11 @@ internal sealed class ManagedDefinitionFunctionAppender(
         var functionType = methodInstance is null
             ? functionTypes.Resolve(method)
             : functionTypes.Resolve(methodInstance);
-        functions.Add(new(symbols.Format(method), functionType, emission.Body));
+        functions.Add(new(symbols.Format(method), functionType, emission.Body)
+        {
+            IsAggressiveInlining = method.IsAggressiveInlining,
+            IsNoInlining = method.IsNoInlining,
+        });
         filterEnvironments[emission.MethodKey] = emission.FilterEnvironment;
         emissions.Add(new(method.Key.ToString(), emission.MethodKey, emission));
     }

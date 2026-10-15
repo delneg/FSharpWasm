@@ -78,6 +78,12 @@ public sealed class WasmInstructionEncodingTests
             WasmInstruction.WithOperand(0x10, WasmInstructionOperand.Byte(0x2a)),
             [0x10, 0x2a]
         },
+        {
+            WasmInstruction.WithOperand(
+                WasmOpcodes.BranchTable,
+                WasmInstructionOperand.BranchTable([0, 128], 2)),
+            [WasmOpcodes.BranchTable, 0x02, 0x00, 0x80, 0x01, 0x02]
+        },
     };
 
     [Theory]
@@ -297,6 +303,62 @@ public sealed class WasmInstructionEncodingTests
         source[0] = 9;
 
         Assert.Equal([1, 2], operand.Bytes.ToArray());
+    }
+
+    [Fact]
+    public void BranchTableDistinguishesUninitializedAndEmptyTargets()
+    {
+        var error = Assert.Throws<ArgumentException>(() => WasmInstructionOperand.BranchTable(default, 0));
+        Assert.Equal("targets", error.ParamName);
+        var operand = WasmInstructionOperand.BranchTable([], 128);
+        Assert.Equal(WasmInstructionOperandShape.BranchTable, operand.Shape);
+        Assert.Empty(operand.BranchTableTargets);
+        Assert.Equal(128u, operand.BranchTableDefault);
+    }
+
+    [Fact]
+    public void BranchTableEncoderValidatesContractsBeforeWriting()
+    {
+        var operands = new RecordingUnsignedEncoder();
+        var writer = new MemoryWriter();
+        var encoder = new BranchTableInstructionEncoder(operands);
+        var instruction = WasmInstruction.WithOperand(WasmOpcodes.BranchTable,
+            WasmInstructionOperand.BranchTable([], 0));
+
+        Assert.Throws<ArgumentNullException>(() => new BranchTableInstructionEncoder(null!));
+        Assert.Throws<ArgumentNullException>(() => encoder.Encode(null!, instruction));
+        Assert.Throws<ArgumentNullException>(() => encoder.Encode(writer, null!));
+        Assert.Empty(writer.ToArray());
+        Assert.Empty(operands.Values);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void BranchTableEncoderForwardsCountTargetsAndDefaultInOrder(bool empty)
+    {
+        var operands = new RecordingUnsignedEncoder();
+        var writer = new MemoryWriter();
+        var encoder = new BranchTableInstructionEncoder(operands);
+        var instruction = WasmInstruction.WithOperand(WasmOpcodes.BranchTable,
+            WasmInstructionOperand.BranchTable(empty ? [] : [3, 128], 256));
+
+        encoder.Encode(writer, instruction);
+
+        Assert.Equal(WasmOpcodes.BranchTable, Assert.Single(writer.ToArray()));
+        Assert.Equal(empty ? new uint[] { 0, 256 } : [2, 3, 128, 256], operands.Values);
+        Assert.All(operands.Writers, item => Assert.Same(writer, item));
+    }
+
+    private sealed class RecordingUnsignedEncoder : IUnsignedLeb128Encoder
+    {
+        public List<uint> Values { get; } = [];
+        public List<IWasmBinaryWriter> Writers { get; } = [];
+        public void Encode(IWasmBinaryWriter writer, uint value)
+        {
+            Writers.Add(writer);
+            Values.Add(value);
+        }
     }
 
     private sealed class MemoryWriter : IWasmBinaryWriter

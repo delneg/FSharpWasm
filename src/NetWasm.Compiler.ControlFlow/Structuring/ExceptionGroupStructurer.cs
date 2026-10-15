@@ -30,6 +30,12 @@ internal sealed class ExceptionGroupStructurer(
             return [];
         }
         var sources = regions
+            // Keep all original regions in the CIL graph for lexical transfer
+            // validation, but only executable protected code owns a group.
+            .Where(region => state.Graph.Blocks.Any(block =>
+                state.Graph.ReachableBlocks.Contains(block.Index) &&
+                block.StartOffset >= region.TryOffset &&
+                block.StartOffset < region.TryOffset + region.TryLength))
             .GroupBy(region => (region.TryOffset, region.TryLength))
             .Select(group => new ExceptionGroupSource(
                 group.Key.TryOffset,

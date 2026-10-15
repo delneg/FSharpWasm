@@ -18,8 +18,10 @@ GitHub Sponsors tier. Any organization that productizes the compiler itself—by
 bundling it into an SDK or IDE, redistributing it as a commercial feature, or
 exposing compilation as a service—needs a separate OEM or commercial agreement
 regardless of size. CoreLib, runtime components, WIT/WASI libraries, generated
-support code, and templates are MIT licensed unless an upstream notice says
-otherwise. Generated applications may use any license their authors choose.
+support code, and templates are MIT licensed unless a component or upstream
+notice says otherwise. NetWasmGC and CompactGC are Apache-2.0 licensed.
+Generated applications may use any license their authors choose, subject to
+the notices and terms of included components.
 
 ## License boundary
 
@@ -27,6 +29,7 @@ otherwise. Generated applications may use any license their authors choose.
 | --- | --- |
 | Compiler, linker, optimizer, CLI, SDK/pack, build, debugger, IDE/browser, and developer tooling | NetWasm Community License 1.0 |
 | CoreLib, runtime libraries, templates, generated support code, and adjacent framework ports | MIT, subject to preserved upstream notices |
+| NetWasmGC and CompactGC collector implementations | Apache-2.0 |
 | Vendored WASI inputs and other third-party material | Their preserved upstream license |
 
 See the public mirror’s [license map](../LICENSE-MAP.md) for the exact path

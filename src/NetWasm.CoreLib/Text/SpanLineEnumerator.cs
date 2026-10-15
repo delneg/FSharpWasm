@@ -12,11 +12,13 @@ namespace System.Text
     {
         private ReadOnlySpan<char> _remaining;
         private ReadOnlySpan<char> _current;
+        private bool _isEnumeratorActive;
 
         internal SpanLineEnumerator(ReadOnlySpan<char> source)
         {
             _remaining = source;
             _current = default;
+            _isEnumeratorActive = true;
         }
 
         public ReadOnlySpan<char> Current
@@ -28,16 +30,18 @@ namespace System.Text
 
         public bool MoveNext()
         {
-            var remaining = _remaining;
-            if (remaining.IsEmpty)
+            if (!_isEnumeratorActive)
             {
+                _current = default;
                 return false;
             }
+
+            var remaining = _remaining;
 
             var lineBreak = -1;
             for (var index = 0; index < remaining.Length; index++)
             {
-                if (remaining[index] is '\r' or '\n')
+                if (remaining[index] is '\r' or '\n' or '\f' or '\u0085' or '\u2028' or '\u2029')
                 {
                     lineBreak = index;
                     break;
@@ -48,6 +52,7 @@ namespace System.Text
             {
                 _current = remaining;
                 _remaining = default;
+                _isEnumeratorActive = false;
                 return true;
             }
 

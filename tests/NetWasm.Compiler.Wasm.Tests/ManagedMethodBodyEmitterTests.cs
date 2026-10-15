@@ -13,6 +13,11 @@ using NetWasm.Compiler.Wasm.Emission.Methods;
 using NetWasm.Compiler.Wasm.Emission.Planning;
 using NetWasm.Compiler.Wasm.Emission.Support;
 using NetWasm.Compiler.Wasm.Encoding;
+using NetWasm.Compiler.Wasm.Emission.AddressTakenValues;
+using NetWasm.Compiler.Wasm.Emission.Values;
+using NetWasm.Compiler.Wasm.Emission.Arrays;
+using NetWasm.Compiler.Wasm.Emission.CallLifetimes;
+using NetWasm.Compiler.ControlFlow;
 
 namespace NetWasm.Compiler.Wasm.Tests;
 
@@ -33,9 +38,15 @@ public sealed class ManagedMethodBodyEmitterTests
         var method = program.GetMethod(ConstructorKey);
         var structured = Structure(program, method, I(0, CilOperation.Return));
         var roots = new MethodRootMap(ConstructorKey, [], []);
+        var byRefEffects = new ManagedByRefMethodEffects([0], [], []);
         var target = CreateInstructionModuleTarget(program) with
         {
             MemberExecution = MemberExecutionPlan.Empty with { MethodInvokers = [EntryKey] },
+            EnableAddressTakenAggregatePromotion = true,
+            ManagedByRefEffects = new(
+                ImmutableDictionary<string, ManagedByRefMethodEffects>.Empty.Add(
+                    "Tests.Caller",
+                    byRefEffects)),
         };
         var functionIndices = CreateFunctionIndexResolver(program);
         var expectedEnvironment = new FilterEnvironmentLayout(
@@ -51,11 +62,52 @@ public sealed class ManagedMethodBodyEmitterTests
         var methods = new RecordingMethodEmitter(expected);
         var sequences = new RecordingSequenceEmitter(expectedCounts);
         var heap = new RecordingHeapSampler(100, 200);
+        var promotionPlan = new AddressTakenScalarPromotionPlan(
+            ImmutableDictionary<int, CliTypeIdentity>.Empty.Add(
+                0,
+                CliTypeIdentity.FromStackKind(CliValueKind.I4)),
+            []);
+        var promotions = new RecordingPromotionPlanner(promotionPlan);
+        var aggregateType = CliTypeIdentity.Named(new("body-tests"), "Tests", "Aggregate", true);
+        var aggregatePromotionPlan = AddressTakenAggregatePromotionPlan.Empty with
+        {
+            PromotedLocals = ImmutableDictionary<int, AddressTakenAggregateLocalPlan>.Empty.Add(2,
+                AddressTakenAggregateLocalPlan.CreateI4Storage(aggregateType, 8)),
+        };
+        var aggregatePromotions = new RecordingAggregatePromotionPlanner(
+            aggregatePromotionPlan);
+        var managedByRefPromotionPlan = ManagedByRefAggregatePromotionPlan.Empty with
+        {
+            PromotedParameters = ImmutableDictionary<int, ManagedByRefAggregateParameterPlan>.Empty.Add(1,
+                new(aggregateType, 8, AddressTakenAggregateLocalPlan.CreateI4Storage(aggregateType, 8).StorageSlots)),
+        };
+        var managedByRefPromotions = new RecordingManagedByRefPromotionPlanner(
+            managedByRefPromotionPlan);
+        var aggregateStorage = new ManagedAggregateStorage(
+            new(ManagedAggregateStorageKind.Argument, 0),
+            CliTypeIdentity.FromStackKind(CliValueKind.I4),
+            sizeof(int),
+            true);
+        var aggregatePlan = ManagedAggregateSsaPlan.Empty with
+        {
+            Storages = ImmutableDictionary<
+                ManagedAggregateStorageId,
+                ManagedAggregateStorage>.Empty.Add(
+                    aggregateStorage.Id,
+                    aggregateStorage),
+        };
+        var projectedRoots = new MethodRootMap(ConstructorKey, [], []);
+        var managedValues = new RecordingValuePlanBuilder(
+            new(projectedRoots, aggregatePlan));
         var emitter = new ManagedMethodBodyEmitter(
             methods,
             sequences,
             new StackTraceMethodIdProvider(),
-            heap);
+            heap,
+            promotions,
+            aggregatePromotions,
+            managedByRefPromotions,
+            managedValues);
 
         var result = emitter.Emit(
             method,
@@ -74,15 +126,83 @@ public sealed class ManagedMethodBodyEmitterTests
         Assert.Same(structured, methods.Structured);
         Assert.Same(target.NativeImports, methods.NativeImports);
         Assert.Same(target.MemberExecution, methods.MemberExecution);
+        Assert.Same(byRefEffects, methods.ByRefEffects);
+        Assert.Same(promotionPlan, methods.AddressTakenScalarPromotions);
+        Assert.Same(
+            aggregatePromotionPlan,
+            methods.AddressTakenAggregatePromotions);
+        Assert.Same(
+            managedByRefPromotionPlan,
+            methods.ManagedByRefAggregatePromotions);
+        Assert.Same(structured, promotions.Request!.Method);
+        Assert.Equal(new ManagedMethodIdentity("Tests.Caller"), promotions.Request.Caller);
+        Assert.Same(target.ManagedCallSites, promotions.Request.CallSites);
+        Assert.Same(target.ManagedByRefEffects, promotions.Request.ByRefEffects);
+        Assert.False(promotions.Request.Enabled);
+        Assert.Same(structured, aggregatePromotions.Request!.Method);
+        Assert.Same(target.ManagedCallSites, aggregatePromotions.Request.CallSites);
+        Assert.Same(target.ManagedByRefEffects, aggregatePromotions.Request.ByRefEffects);
+        Assert.True(aggregatePromotions.Request.Enabled);
+        Assert.Same(structured, managedByRefPromotions.Request!.Method);
+        Assert.Same(target.ManagedCallSites, managedByRefPromotions.Request.CallSites);
+        Assert.True(managedByRefPromotions.Request.Enabled);
+        Assert.Same(structured, managedValues.Request!.Method);
+        Assert.Same(roots, managedValues.Request.RootMap);
+        Assert.Same(target.ManagedByRefEffects, managedValues.Request.ByRefEffects);
+        Assert.True(managedValues.Request.Enabled);
+        Assert.Equal(2, managedValues.Request.ReservedStorages.Count);
+        Assert.Contains(new ManagedAggregateStorageId(ManagedAggregateStorageKind.Local, 2), managedValues.Request.ReservedStorages);
+        Assert.Contains(new ManagedAggregateStorageId(ManagedAggregateStorageKind.Argument, 1), managedValues.Request.ReservedStorages);
+        Assert.Same(projectedRoots, methods.RootMap);
+        Assert.Same(aggregatePlan, methods.ManagedAggregateValues);
         Assert.Same(target, sequences.Target);
         Assert.Same(functionIndices, sequences.FunctionIndices);
         Assert.Equal(structured.Body, sequences.Sequence);
         Assert.Null(result.PeakObservedManagedMemoryBytes);
         Assert.Equal(0, heap.CallCount);
+        Assert.Throws<ArgumentNullException>(() => new ManagedMethodBodyEmitter(methods, sequences,
+            new StackTraceMethodIdProvider(), heap, null!, aggregatePromotions, managedByRefPromotions, managedValues));
         Assert.Throws<ArgumentNullException>(() => new ManagedMethodBodyEmitter(
             methods,
             sequences,
             new StackTraceMethodIdProvider(),
+            null!,
+            new AddressTakenScalarPromotionPlanner(),
+            new RecordingAggregatePromotionPlanner(
+                AddressTakenAggregatePromotionPlan.Empty),
+            new RecordingManagedByRefPromotionPlanner(
+                ManagedByRefAggregatePromotionPlan.Empty),
+            new RecordingValuePlanBuilder()));
+        Assert.Throws<ArgumentNullException>(() => new ManagedMethodBodyEmitter(
+            methods,
+            sequences,
+            new StackTraceMethodIdProvider(),
+            heap,
+            new AddressTakenScalarPromotionPlanner(),
+            null!,
+            new RecordingManagedByRefPromotionPlanner(
+                ManagedByRefAggregatePromotionPlan.Empty),
+            new RecordingValuePlanBuilder()));
+        Assert.Throws<ArgumentNullException>(() => new ManagedMethodBodyEmitter(
+            methods,
+            sequences,
+            new StackTraceMethodIdProvider(),
+            heap,
+            new AddressTakenScalarPromotionPlanner(),
+            new RecordingAggregatePromotionPlanner(
+                AddressTakenAggregatePromotionPlan.Empty),
+            null!,
+            new RecordingValuePlanBuilder()));
+        Assert.Throws<ArgumentNullException>(() => new ManagedMethodBodyEmitter(
+            methods,
+            sequences,
+            new StackTraceMethodIdProvider(),
+            heap,
+            new AddressTakenScalarPromotionPlanner(),
+            new RecordingAggregatePromotionPlanner(
+                AddressTakenAggregatePromotionPlan.Empty),
+            new RecordingManagedByRefPromotionPlanner(
+                ManagedByRefAggregatePromotionPlan.Empty),
             null!));
     }
 
@@ -99,7 +219,13 @@ public sealed class ManagedMethodBodyEmitterTests
             methods,
             new RecordingSequenceEmitter([]),
             new StackTraceMethodIdProvider(),
-            new RecordingHeapSampler());
+            new RecordingHeapSampler(),
+            new AddressTakenScalarPromotionPlanner(),
+            new RecordingAggregatePromotionPlanner(
+                AddressTakenAggregatePromotionPlan.Empty),
+            new RecordingManagedByRefPromotionPlanner(
+                ManagedByRefAggregatePromotionPlan.Empty),
+            new RecordingValuePlanBuilder());
 
         var result = emitter.Emit(
             method,
@@ -120,6 +246,12 @@ public sealed class ManagedMethodBodyEmitterTests
             new RecordingSequenceEmitter([]),
             new StackTraceMethodIdProvider(),
             new RecordingHeapSampler(),
+            new AddressTakenScalarPromotionPlanner(),
+            new RecordingAggregatePromotionPlanner(
+                AddressTakenAggregatePromotionPlan.Empty),
+            new RecordingManagedByRefPromotionPlanner(
+                ManagedByRefAggregatePromotionPlan.Empty),
+            new RecordingValuePlanBuilder(),
             NullLogger<WasmModuleEmitterFactory>.Instance);
 
         var first = factory.Create();
@@ -223,11 +355,13 @@ public sealed class ManagedMethodBodyEmitterTests
             exceptions,
             frameExit,
             CreateFilterEnvironmentRoots(layouts),
-            addresses);
+            addresses,
+            new SmallValueCopyEmitter(new BulkValueCopyEmitter(layouts)));
         var dispatcher = new CilInstructionDispatcher(new InstructionCommandRegistry(
             returnEmitter.Commands,
             [CilOperation.Return]),
-            new RecordingRootPublicationEmitter(_ => { }));
+            new RecordingRootPublicationEmitter(_ => { }),
+            new RecordingStackStorageAnchorEmitter(_ => { }));
         var heap = new RecordingHeapSampler(100, 200);
         var emitter = new ManagedMethodBodyEmitter(
             new ManagedMethodEmitter(
@@ -244,7 +378,12 @@ public sealed class ManagedMethodBodyEmitterTests
                 frameEntry,
                 new MethodExceptionBoundaryEmitter(exceptionPayloadBlocks, frameExit),
                 new GeneratedFunctionWriterFactory(),
-                new InstructionCountingWriterFactory()),
+                new InstructionCountingWriterFactory(), new TerminalBranchValueFramePlanner(),
+                new ArrayMetadataCachingPlanner(types),
+                new ArrayMetadataSnapshotEmitter(layouts, layouts, addresses),
+                new ScalarCallLifetimePlanner(new ControlFlowGraphBuilderFactory().Create(),
+                    new ControlFlowNaturalLoopAnalyzer(new ControlFlowDominanceAnalyzer())),
+                new AuthoritativeRootSourceSelector(), new AuthoritativeRootLayoutPlanner(), new RootClearElisionPlanner(), new RootValueElisionPlanner()),
             new ManagedMethodSequenceEmitter(
                 layouts,
                 new ExceptionRegionEmitter(
@@ -254,16 +393,32 @@ public sealed class ManagedMethodBodyEmitterTests
                     frameExit,
                     new StructuredExceptionGroupKeyFactory()),
                 new StructuredControlFlowEmitter(
-                    layouts,
-                    new ControlFlowDispatcherEmitter()),
+                    new StructuredConditionValueEmitter(layouts),
+                    new ControlFlowDispatcherEmitter(
+                        new DispatcherBranchTablePlanner()),
+                    new ArrayMetadataSnapshotEmitter(layouts, layouts, addresses)),
                 new StructuredLeaveEmitter(),
                 new BranchComparisonEmitter(
                     layouts,
                     new NetWasm.Compiler.ControlFlow.StackTypeCompatibilityValidator()),
                 dispatcher,
-                new StackTraceFrameLocationEmitter(imports)),
+                new StackTraceFrameLocationEmitter(imports),
+                new ManagedAggregateValueInstructionEmitter(
+                    layouts,
+                    new ValueFrameAddressEmitter(layouts)),
+                new ManagedAggregateValueReloadEmitter(
+                    layouts,
+                    new ValueFrameAddressEmitter(layouts)),
+                CreateTerminalBranchValueFrames(program, layouts, imports),
+                new ScalarCallPreservationEmitter(layouts, new ValueFrameAddressEmitter(layouts))),
             new StackTraceMethodIdProvider(),
-            heap);
+            heap,
+            new AddressTakenScalarPromotionPlanner(),
+            new RecordingAggregatePromotionPlanner(
+                AddressTakenAggregatePromotionPlan.Empty),
+            new RecordingManagedByRefPromotionPlanner(
+                ManagedByRefAggregatePromotionPlan.Empty),
+            new RecordingValuePlanBuilder());
         var method = program.GetMethod(ConstructorKey);
         var structured = Structure(program, method, I(0, CilOperation.Return));
         var roots = new MethodRootMap(ConstructorKey, [], []);
@@ -302,6 +457,21 @@ public sealed class ManagedMethodBodyEmitterTests
 
         public MemberExecutionPlan? MemberExecution { get; private set; }
 
+        public ManagedByRefMethodEffects? ByRefEffects { get; private set; }
+
+        public MethodRootMap? RootMap { get; private set; }
+
+        public AddressTakenScalarPromotionPlan? AddressTakenScalarPromotions
+        { get; private set; }
+
+        public AddressTakenAggregatePromotionPlan? AddressTakenAggregatePromotions
+        { get; private set; }
+
+        public ManagedByRefAggregatePromotionPlan? ManagedByRefAggregatePromotions
+        { get; private set; }
+
+        public ManagedAggregateSsaPlan? ManagedAggregateValues { get; private set; }
+
         public ManagedMethodEmission Emit(
 MethodDefinitionModel method,
 ManagedMethodIdentity callerIdentity,
@@ -312,12 +482,27 @@ StructuredMethod structured,
             RuntimeImportSelection runtimeImportSelection,
             Action<IWasmInstructionWriter, StructuredMethod, MethodEmissionContext> emitBody,
             NativeImportPlan? nativeImports = null,
-            MemberExecutionPlan? memberExecution = null)
+            MemberExecutionPlan? memberExecution = null,
+            ManagedByRefMethodEffects? byRefEffects = null,
+            NetWasm.Compiler.Wasm.Emission.AddressTakenValues.AddressTakenScalarPromotionPlan?
+                addressTakenScalarPromotions = null,
+            AddressTakenAggregatePromotionPlan? addressTakenAggregatePromotions = null,
+            ManagedByRefAggregatePromotionPlan? managedByRefAggregatePromotions = null,
+            ManagedAggregateSsaPlan? managedAggregateValues = null,
+            bool enableBranchValueFramePlacement = false,
+            bool enableArrayMetadataCaching = false,
+            bool enableScalarCallPreservation = false)
         {
             Method = method;
             Structured = structured;
             NativeImports = nativeImports;
             MemberExecution = memberExecution;
+            ByRefEffects = byRefEffects;
+            RootMap = rootMap;
+            AddressTakenScalarPromotions = addressTakenScalarPromotions;
+            AddressTakenAggregatePromotions = addressTakenAggregatePromotions;
+            ManagedByRefAggregatePromotions = managedByRefAggregatePromotions;
+            ManagedAggregateValues = managedAggregateValues;
             if (invokeBody)
             {
                 emitBody(
@@ -325,6 +510,60 @@ StructuredMethod structured,
                     structured,
                     CreateMethodEmissionContext());
             }
+            return result;
+        }
+    }
+
+    private sealed class RecordingValuePlanBuilder(
+        ManagedMethodValuePlan? result = null) : IManagedMethodValuePlanBuilder
+    {
+        public ManagedMethodValuePlanRequest? Request { get; private set; }
+
+        public ManagedMethodValuePlan Build(ManagedMethodValuePlanRequest request)
+        {
+            Request = request;
+            return result ?? ManagedMethodValuePlan.Unchanged(request.RootMap);
+        }
+    }
+
+    private sealed class RecordingPromotionPlanner(
+        AddressTakenScalarPromotionPlan result) :
+        IAddressTakenScalarPromotionPlanner
+    {
+        public AddressTakenScalarPromotionRequest? Request { get; private set; }
+
+        public AddressTakenScalarPromotionPlan Plan(
+            AddressTakenScalarPromotionRequest request)
+        {
+            Request = request;
+            return result;
+        }
+    }
+
+    private sealed class RecordingAggregatePromotionPlanner(
+        AddressTakenAggregatePromotionPlan result) :
+        IAddressTakenAggregatePromotionPlanner
+    {
+        public AddressTakenAggregatePromotionRequest? Request { get; private set; }
+
+        public AddressTakenAggregatePromotionPlan Plan(
+            AddressTakenAggregatePromotionRequest request)
+        {
+            Request = request;
+            return result;
+        }
+    }
+
+    private sealed class RecordingManagedByRefPromotionPlanner(
+        ManagedByRefAggregatePromotionPlan result) :
+        IManagedByRefAggregatePromotionPlanner
+    {
+        public ManagedByRefAggregatePromotionRequest? Request { get; private set; }
+
+        public ManagedByRefAggregatePromotionPlan Plan(
+            ManagedByRefAggregatePromotionRequest request)
+        {
+            Request = request;
             return result;
         }
     }

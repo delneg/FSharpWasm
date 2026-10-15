@@ -43,7 +43,7 @@ namespace System.Collections.Generic
         public static bool Remove<TKey, TValue>(
             this IDictionary<TKey, TValue> dictionary,
             TKey key,
-            out TValue value)
+            [System.Diagnostics.CodeAnalysis.MaybeNullWhen(false)] out TValue value)
         {
             if (dictionary == null)
             {

@@ -30,7 +30,12 @@ public sealed class EntryPointEmitterTests
 
         var body = emitter.Emit(
             new FakeProgram().GetMethod(EntryKey),
-            initialization: TestRuntimeInitialization.Create(512),
+            initialization: TestRuntimeInitialization.Create(
+                512,
+                new RuntimeImportSelection(
+                    WasmModuleProfile.CoreApplication,
+                    IncludeTerminalExceptionReporter: true,
+                    IncludeFinalization: hasFinalizers)),
             hasFinalizers,
             new FunctionIndexResolver(new FakeProgram(), new FakeProgram(), indices));
 
@@ -39,7 +44,12 @@ public sealed class EntryPointEmitterTests
             hasFinalizers,
             body.AsSpan().IndexOf([
                 WasmOpcodes.Call,
-                (byte)imports.Resolve(RuntimeImportSymbol.FinalizerSafepoint),
+                (byte)imports.Resolve(
+                    RuntimeImportSymbol.FinalizerSafepoint,
+                    new RuntimeImportSelection(
+                        WasmModuleProfile.CoreApplication,
+                        IncludeTerminalExceptionReporter: true,
+                        IncludeFinalization: true)),
             ]) >= 0);
     }
 

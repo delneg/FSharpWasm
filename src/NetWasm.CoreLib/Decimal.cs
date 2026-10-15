@@ -1,11 +1,14 @@
 // Decimal's representation and observable contract follow System.Decimal.
-// The arithmetic is a NetWasm-specific managed implementation. It deliberately
-// favors small, reviewable code over the architecture-specific optimizations in
-// dotnet/runtime's MIT-licensed Decimal implementation.
-// Binary/decimal conversion portions adapted from dotnet/runtime, commit
-// 811225a482702af7ecc35d817966bc70b88a3a23, Decimal.DecCalc.cs.
+// Addition, subtraction, multiplication, division, binary conversion and
+// scalar rounding are adapted from dotnet/runtime commit
+// 811225a482702af7ecc35d817966bc70b88a3a23, Decimal.DecCalc.cs. The remaining
+// arithmetic uses a small managed implementation where the upstream port is
+// not yet complete.
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses those portions under the MIT license.
+using System.Runtime.InteropServices;
+using System.Text;
+
 namespace System
 {
     public enum MidpointRounding
@@ -17,16 +20,23 @@ namespace System
         ToPositiveInfinity = 4,
     }
 
-    public readonly partial struct Decimal : IComparable, IComparable<decimal>, IEquatable<decimal>,
+    [StructLayout(LayoutKind.Sequential)]
+    public readonly partial struct Decimal : IComparable, IConvertible, IComparable<decimal>, IEquatable<decimal>,
         Numerics.IFloatingPoint<decimal>, Numerics.IMinMaxValue<decimal>
     {
         private const uint SignMask = 0x80000000U;
         private const int MaximumScale = 28;
 
-        private readonly uint _low;
-        private readonly uint _middle;
-        private readonly uint _high;
-        private readonly uint _flags;
+        // Keep this exact order and these exact field types aligned with
+        // dotnet/runtime and the native DECIMAL representation.
+        private readonly int _flags;
+        private readonly uint _hi32;
+        private readonly ulong _lo64;
+
+        internal uint High => _hi32;
+        internal uint Low => (uint)_lo64;
+        internal uint Mid => (uint)(_lo64 >> 32);
+        internal ulong Low64 => _lo64;
 
         public static readonly decimal Zero = new(0);
         public static readonly decimal One = new(1);
@@ -39,17 +49,15 @@ namespace System
         public Decimal(int value)
         {
             var negative = value < 0;
-            _low = negative ? unchecked((uint)-(long)value) : (uint)value;
-            _middle = 0;
-            _high = 0;
-            _flags = negative ? SignMask : 0;
+            _lo64 = negative ? unchecked((uint)-(long)value) : (uint)value;
+            _hi32 = 0;
+            _flags = negative ? unchecked((int)SignMask) : 0;
         }
 
         public Decimal(uint value)
         {
-            _low = value;
-            _middle = 0;
-            _high = 0;
+            _lo64 = value;
+            _hi32 = 0;
             _flags = 0;
         }
 
@@ -57,17 +65,15 @@ namespace System
         {
             var negative = value < 0;
             var magnitude = negative ? unchecked((ulong)-(value + 1)) + 1 : (ulong)value;
-            _low = (uint)magnitude;
-            _middle = (uint)(magnitude >> 32);
-            _high = 0;
-            _flags = negative ? SignMask : 0;
+            _lo64 = magnitude;
+            _hi32 = 0;
+            _flags = negative ? unchecked((int)SignMask) : 0;
         }
 
         public Decimal(ulong value)
         {
-            _low = (uint)value;
-            _middle = (uint)(value >> 32);
-            _high = 0;
+            _lo64 = value;
+            _hi32 = 0;
             _flags = 0;
         }
 
@@ -86,10 +92,9 @@ namespace System
             {
                 throw new ArgumentOutOfRangeException();
             }
-            _low = (uint)low;
-            _middle = (uint)middle;
-            _high = (uint)high;
-            _flags = ((uint)scale << 16) | (isNegative ? SignMask : 0);
+            _lo64 = (uint)low | ((ulong)(uint)middle << 32);
+            _hi32 = (uint)high;
+            _flags = unchecked((int)(((uint)scale << 16) | (isNegative ? SignMask : 0)));
         }
 
         public Decimal(int[] bits)
@@ -104,10 +109,9 @@ namespace System
             {
                 throw new ArgumentException();
             }
-            _low = (uint)bits[0];
-            _middle = (uint)bits[1];
-            _high = (uint)bits[2];
-            _flags = (uint)bits[3];
+            _lo64 = (uint)bits[0] | ((ulong)(uint)bits[1] << 32);
+            _hi32 = (uint)bits[2];
+            _flags = bits[3];
         }
 
         public Decimal(ReadOnlySpan<int> bits)
@@ -118,43 +122,53 @@ namespace System
             {
                 throw new ArgumentException();
             }
-            _low = (uint)bits[0];
-            _middle = (uint)bits[1];
-            _high = (uint)bits[2];
-            _flags = (uint)bits[3];
+            _lo64 = (uint)bits[0] | ((ulong)(uint)bits[1] << 32);
+            _hi32 = (uint)bits[2];
+            _flags = bits[3];
         }
 
         private Decimal(uint low, uint middle, uint high, bool negative, int scale)
         {
-            _low = low;
-            _middle = middle;
-            _high = high;
-            _flags = ((uint)scale << 16) | (negative ? SignMask : 0);
+            _lo64 = low | ((ulong)middle << 32);
+            _hi32 = high;
+            _flags = unchecked((int)(((uint)scale << 16) | (negative ? SignMask : 0)));
         }
 
-        private bool IsNegativeValue => (_flags & SignMask) != 0;
+        private bool IsNegativeValue => _flags < 0;
         public byte Scale { get => (byte)(_flags >> 16); }
-        private bool IsZero => (_low | _middle | _high) == 0;
+        private bool IsZero => (_lo64 | _hi32) == 0;
 
-        public static decimal Add(decimal left, decimal right) =>
-            DecimalMath.Add(left, right, subtractRight: false);
+        public static decimal Add(decimal left, decimal right)
+        {
+            DecCalc.DecAddSub(ref AsMutable(ref left), ref AsMutable(ref right), false);
+            return left;
+        }
 
-        public static decimal Subtract(decimal left, decimal right) =>
-            DecimalMath.Add(left, right, subtractRight: true);
+        public static decimal Subtract(decimal left, decimal right)
+        {
+            DecCalc.DecAddSub(ref AsMutable(ref left), ref AsMutable(ref right), true);
+            return left;
+        }
 
-        public static decimal Multiply(decimal left, decimal right) =>
-            DecimalMath.Multiply(left, right);
+        public static decimal Multiply(decimal left, decimal right)
+        {
+            DecCalc.VarDecMul(ref AsMutable(ref left), ref AsMutable(ref right));
+            return left;
+        }
 
-        public static decimal Divide(decimal left, decimal right) =>
-            DecimalMath.Divide(left, right);
+        public static decimal Divide(decimal left, decimal right)
+        {
+            DecCalc.VarDecDiv(ref AsMutable(ref left), ref AsMutable(ref right));
+            return left;
+        }
 
         public static decimal Remainder(decimal left, decimal right) =>
             DecimalMath.Remainder(left, right);
 
         public static decimal Negate(decimal value) => new(
-            value._low,
-            value._middle,
-            value._high,
+            value.Low,
+            value.Mid,
+            value.High,
             !value.IsNegativeValue,
             value.Scale);
 
@@ -177,7 +191,7 @@ namespace System
             {
                 return 0;
             }
-            return (int)(value._flags ^ value._high ^ value._middle ^ value._low);
+            return value._flags ^ (int)value.High ^ (int)value.Mid ^ (int)value.Low;
         }
 
         public int CompareTo(decimal value) => Compare(this, value);
@@ -254,24 +268,16 @@ namespace System
             {
                 throw new ArgumentNullException();
             }
-            if (!DecimalMath.TryParse(value, out var result, out var overflow))
-            {
-                if (overflow)
-                {
-                    throw new OverflowException();
-                }
-                throw new FormatException();
-            }
-            return result;
+            return Parse(value, Globalization.NumberStyles.Number, null);
         }
 
         public static bool TryParse(string? value, out decimal result) =>
-            DecimalMath.TryParse(value, out result, out _);
+            TryParse(value, Globalization.NumberStyles.Number, null, out result);
 
         public override string ToString() => DecimalMath.Format(this);
 
         public static int[] GetBits(decimal value) =>
-            [(int)value._low, (int)value._middle, (int)value._high, (int)value._flags];
+            [(int)value.Low, (int)value.Mid, (int)value.High, value._flags];
 
         public static int GetBits(decimal value, Span<int> destination)
         {
@@ -279,10 +285,10 @@ namespace System
             {
                 throw new ArgumentException();
             }
-            destination[0] = (int)value._low;
-            destination[1] = (int)value._middle;
-            destination[2] = (int)value._high;
-            destination[3] = (int)value._flags;
+            destination[0] = (int)value.Low;
+            destination[1] = (int)value.Mid;
+            destination[2] = (int)value.High;
+            destination[3] = value._flags;
             return 4;
         }
 
@@ -359,10 +365,26 @@ namespace System
         public static explicit operator float(decimal value) => DecimalMath.ToSingle(value);
         public static explicit operator double(decimal value) => DecimalMath.ToDouble(value);
 
-        public static decimal operator +(decimal left, decimal right) => Add(left, right);
-        public static decimal operator -(decimal left, decimal right) => Subtract(left, right);
-        public static decimal operator *(decimal left, decimal right) => Multiply(left, right);
-        public static decimal operator /(decimal left, decimal right) => Divide(left, right);
+        public static decimal operator +(decimal left, decimal right)
+        {
+            DecCalc.DecAddSub(ref AsMutable(ref left), ref AsMutable(ref right), false);
+            return left;
+        }
+        public static decimal operator -(decimal left, decimal right)
+        {
+            DecCalc.DecAddSub(ref AsMutable(ref left), ref AsMutable(ref right), true);
+            return left;
+        }
+        public static decimal operator *(decimal left, decimal right)
+        {
+            DecCalc.VarDecMul(ref AsMutable(ref left), ref AsMutable(ref right));
+            return left;
+        }
+        public static decimal operator /(decimal left, decimal right)
+        {
+            DecCalc.VarDecDiv(ref AsMutable(ref left), ref AsMutable(ref right));
+            return left;
+        }
         public static decimal operator %(decimal left, decimal right) => Remainder(left, right);
         public static decimal operator +(decimal value) => Plus(value);
         public static decimal operator -(decimal value) => Negate(value);
@@ -377,109 +399,26 @@ namespace System
 
         private static class DecimalMath
         {
-            internal static decimal Add(decimal left, decimal right, bool subtractRight)
-            {
-                var scale = left.Scale > right.Scale ? left.Scale : right.Scale;
-                var leftScale = left.Scale;
-                var rightScale = right.Scale;
-                var leftNegative = left.IsNegativeValue;
-                var rightNegative = right.IsNegativeValue ^ subtractRight;
-                var leftValue = Coefficient(left);
-                var rightValue = Coefficient(right);
-                MultiplyPower10(ref leftValue, scale - leftScale);
-                MultiplyPower10(ref rightValue, scale - rightScale);
-                if (leftNegative == rightNegative)
-                {
-                    return Create(Add(leftValue, rightValue), scale, leftNegative, trim: false);
-                }
-                var comparison = Compare(leftValue, rightValue);
-                if (comparison == 0)
-                {
-                    return new decimal(0, 0, 0, false, scale);
-                }
-                return comparison > 0
-                    ? Create(Subtract(leftValue, rightValue), scale, leftNegative, trim: false)
-                    : Create(Subtract(rightValue, leftValue), scale, rightNegative, trim: false);
-            }
-
-            internal static decimal Multiply(decimal left, decimal right)
-            {
-                var scale = left.Scale + right.Scale;
-                var negative = left.IsNegativeValue ^ right.IsNegativeValue;
-                return Create(
-                    Multiply(Coefficient(left), Coefficient(right)),
-                    scale,
-                    negative,
-                    trim: false);
-            }
-
-            internal static decimal Divide(decimal left, decimal right)
-            {
-                var leftScale = left.Scale;
-                var rightScale = right.Scale;
-                var leftNegative = left.IsNegativeValue;
-                var rightNegative = right.IsNegativeValue;
-                var negative = leftNegative ^ rightNegative;
-                var leftIsZero = left.IsZero;
-                var rightIsZero = right.IsZero;
-                if (rightIsZero)
-                {
-                    throw new DivideByZeroException();
-                }
-                if (leftIsZero)
-                {
-                    return new decimal(0U, 0U, 0U, negative, 0);
-                }
-                var numerator = Coefficient(left);
-                var denominator = Coefficient(right);
-                var result = default(decimal);
-                var found = false;
-                for (var scale = MaximumScale; scale >= 0; scale--)
-                {
-                    if (found)
-                    {
-                        continue;
-                    }
-                    var scaledNumerator = Copy(numerator);
-                    var scaledDenominator = Copy(denominator);
-                    var exponent = rightScale - leftScale + scale;
-                    if (exponent >= 0)
-                    {
-                        if (!TryMultiplyPower10(ref scaledNumerator, exponent))
-                        {
-                            continue;
-                        }
-                    }
-                    else
-                    {
-                        if (!TryMultiplyPower10(ref scaledDenominator, -exponent))
-                        {
-                            continue;
-                        }
-                    }
-                    var division = DivRem(scaledNumerator, scaledDenominator);
-                    RoundQuotient(ref division.Quotient, division.Remainder, scaledDenominator, false,
-                        MidpointRounding.ToEven);
-                    if (Fits96(division.Quotient))
-                    {
-                        result = Create(division.Quotient, scale, negative, trim: true);
-                        found = true;
-                    }
-                }
-                if (!found)
-                {
-                    throw new OverflowException();
-                }
-                return result;
-            }
-
             internal static decimal Remainder(decimal left, decimal right)
             {
                 if (right.IsZero)
                 {
                     throw new DivideByZeroException();
                 }
+                if (left.IsZero)
+                {
+                    return left;
+                }
+                var comparison = Compare(Abs(left), Abs(right));
+                if (comparison < 0)
+                {
+                    return left;
+                }
                 var scale = left.Scale > right.Scale ? left.Scale : right.Scale;
+                if (comparison == 0)
+                {
+                    return Create(default, scale, left.IsNegativeValue, trim: false);
+                }
                 var leftValue = Coefficient(left);
                 var rightValue = Coefficient(right);
                 MultiplyPower10(ref leftValue, scale - left.Scale);
@@ -515,11 +454,11 @@ namespace System
                 {
                     return value;
                 }
-                var remove = value.Scale - decimals;
-                var divisor = Power10(remove);
-                var division = DivRem(Coefficient(value), divisor);
-                RoundQuotient(ref division.Quotient, division.Remainder, divisor, value.IsNegativeValue, mode);
-                return Create(division.Quotient, decimals, value.IsNegativeValue, trim: false);
+                DecCalc.InternalRound(
+                    ref AsMutable(ref value),
+                    (uint)(value.Scale - decimals),
+                    mode);
+                return value;
             }
 
             internal static decimal TrimTrailingZeroes(decimal value)
@@ -555,15 +494,15 @@ namespace System
                 var negative = value.IsNegativeValue;
                 if (value.Scale == 0)
                 {
-                    if (value._high != 0 || value._middle != 0 ||
-                        !negative && value._low > int.MaxValue ||
-                        negative && value._low > 0x80000000U)
+                    if (value.High != 0 || value.Mid != 0 ||
+                        !negative && value.Low > int.MaxValue ||
+                        negative && value.Low > 0x80000000U)
                     {
                         throw new OverflowException();
                     }
                     return negative
-                        ? value._low == 0x80000000U ? int.MinValue : -(int)value._low
-                        : (int)value._low;
+                        ? value.Low == 0x80000000U ? int.MinValue : -(int)value.Low
+                        : (int)value.Low;
                 }
                 var raw = GetLow32(IntegralMagnitude(value));
                 if (negative)
@@ -624,19 +563,34 @@ namespace System
 
             internal static double ToDouble(decimal value)
             {
-                var result = DecimalToFloatingPointExact(
-                    ((ulong)value._middle << 32) | value._low, value._high, value.Scale, 53);
+                var result = value.High == 0 &&
+                    value.Low64 <= 2UL << 52 &&
+                    value.Scale <= 22
+                        ? (double)value.Low64 / PowerOfTenDouble(value.Scale)
+                        : DecimalToFloatingPointExact(
+                            value.Low64, value.High, value.Scale, 53);
                 return value.IsNegativeValue ? -result : result;
             }
 
             internal static float ToSingle(decimal value)
             {
-                // The result already has at most 24 significand bits, so the
-                // narrowing is exact; rounding through a 53-bit value is not.
-                var result = (float)DecimalToFloatingPointExact(
-                    ((ulong)value._middle << 32) | value._low, value._high, value.Scale, 24);
+                var result = value.High == 0 &&
+                    value.Low64 <= 2UL << 23 &&
+                    value.Scale <= 10
+                        ? (float)((double)value.Low64 / PowerOfTenDouble(value.Scale))
+                        : (float)DecimalToFloatingPointExact(
+                            value.Low64, value.High, value.Scale, 24);
                 return value.IsNegativeValue ? -result : result;
             }
+
+            private static double PowerOfTenDouble(int exponent) => Pow10DoubleTable[exponent];
+
+            private static ReadOnlySpan<double> Pow10DoubleTable =>
+            [
+                1d, 1e1, 1e2, 1e3, 1e4, 1e5, 1e6, 1e7,
+                1e8, 1e9, 1e10, 1e11, 1e12, 1e13, 1e14, 1e15,
+                1e16, 1e17, 1e18, 1e19, 1e20, 1e21, 1e22,
+            ];
 
             private static double DecimalToFloatingPointExact(ulong low64, uint high, int scale, int significandBits)
             {
@@ -800,9 +754,23 @@ namespace System
                 out decimal result,
                 out bool overflow)
             {
+                if (text == null)
+                {
+                    result = Zero;
+                    overflow = false;
+                    return false;
+                }
+                return TryParse(text.AsSpan(), out result, out overflow);
+            }
+
+            internal static bool TryParse(
+                ReadOnlySpan<char> text,
+                out decimal result,
+                out bool overflow)
+            {
                 result = Zero;
                 overflow = false;
-                if (text == null || text.Length == 0)
+                if (text.Length == 0)
                 {
                     return false;
                 }
@@ -993,47 +961,45 @@ namespace System
 
             internal static string Format(decimal value)
             {
+                var builder = new ValueStringBuilder(32);
+                AppendFormat(ref builder, value);
+                return builder.ToString();
+            }
+
+            internal static void AppendFormat(scoped ref ValueStringBuilder builder, decimal value)
+            {
                 var coefficient = Coefficient(value);
                 var digits = ToDigits(coefficient);
                 var scale = value.Scale;
-                var signLength = value.IsNegativeValue ? 1 : 0;
                 var integerDigits = digits.Length - scale;
-                var length = scale == 0
-                    ? signLength + digits.Length
-                    : signLength + (integerDigits > 0
-                        ? digits.Length + 1
-                        : 2 - integerDigits + digits.Length);
-                var characters = new char[length];
-                var destination = 0;
                 if (value.IsNegativeValue)
                 {
-                    characters[destination++] = '-';
+                    builder.Append('-');
                 }
                 if (scale == 0)
                 {
-                    CopyDigits(digits, characters, ref destination);
-                    return string.Create(characters);
+                    builder.Append(digits);
+                    return;
                 }
                 if (integerDigits <= 0)
                 {
-                    characters[destination++] = '0';
-                    characters[destination++] = '.';
+                    builder.Append('0');
+                    builder.Append('.');
                     for (var zero = integerDigits; zero < 0; zero++)
                     {
-                        characters[destination++] = '0';
+                        builder.Append('0');
                     }
-                    CopyDigits(digits, characters, ref destination);
-                    return string.Create(characters);
+                    builder.Append(digits);
+                    return;
                 }
                 for (var index = 0; index < digits.Length; index++)
                 {
                     if (index == integerDigits)
                     {
-                        characters[destination++] = '.';
+                        builder.Append('.');
                     }
-                    characters[destination++] = digits[index];
+                    builder.Append(digits[index]);
                 }
-                return string.Create(characters);
             }
 
             private static decimal Create(WideInteger coefficient, int scale, bool negative, bool trim)
@@ -1086,9 +1052,9 @@ namespace System
 
             internal static WideInteger Coefficient(decimal value)
             {
-                var low = value._low;
-                var middle = value._middle;
-                var high = value._high;
+                var low = value.Low;
+                var middle = value.Mid;
+                var high = value.High;
                 var result = new WideInteger();
                 result[0] = low;
                 result[1] = middle;
@@ -1209,7 +1175,18 @@ namespace System
                 if (power == 6) return 1_000_000U;
                 if (power == 7) return 10_000_000U;
                 if (power == 8) return 100_000_000U;
+                if (power == 9) return 1_000_000_000U;
                 return 1U;
+            }
+
+            private static ulong Power10UInt64(int power)
+            {
+                var result = 1UL;
+                for (var index = 0; index < power; index++)
+                {
+                    result *= 10;
+                }
+                return result;
             }
 
             private static WideInteger Add(WideInteger left, WideInteger right)

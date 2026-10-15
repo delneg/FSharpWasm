@@ -1,111 +1,179 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// Adapted from dotnet/runtime System.Collections.Immutable at commit
-// 811225a482702af7ecc35d817966bc70b88a3a23.
 
 using System.Collections.Generic;
 using System.ComponentModel;
 
-namespace System.Collections.Immutable;
-
-public sealed partial class ImmutableStack<T>
+namespace System.Collections.Immutable
 {
-    /// <summary>Enumerates a stack with no memory allocations.</summary>
-    [EditorBrowsable(EditorBrowsableState.Advanced)]
-    public struct Enumerator
+    public sealed partial class ImmutableStack<T>
     {
-        private readonly ImmutableStack<T> _originalStack;
-        private ImmutableStack<T>? _remainingStack;
-
-        internal Enumerator(ImmutableStack<T> stack)
+        /// <summary>
+        /// Enumerates a stack with no memory allocations.
+        /// </summary>
+        [EditorBrowsable(EditorBrowsableState.Advanced)]
+        public struct Enumerator
         {
-            _originalStack = stack;
-            _remainingStack = null;
-        }
+            /// <summary>
+            /// The original stack being enumerated.
+            /// </summary>
+            private readonly ImmutableStack<T> _originalStack;
 
-        public T Current
-        {
-            get
+            /// <summary>
+            /// The remaining stack not yet enumerated.
+            /// </summary>
+            private ImmutableStack<T>? _remainingStack;
+
+            /// <summary>
+            /// Initializes a new instance of the <see cref="Enumerator"/> struct.
+            /// </summary>
+            /// <param name="stack">The stack to enumerator.</param>
+            internal Enumerator(ImmutableStack<T> stack)
             {
-                if (_remainingStack is null || _remainingStack.IsEmpty)
+                Requires.NotNull(stack, nameof(stack));
+                _originalStack = stack;
+                _remainingStack = null;
+            }
+
+            /// <summary>
+            /// Gets the current element.
+            /// </summary>
+            public T Current
+            {
+                get
                 {
-                    throw new InvalidOperationException();
+                    if (_remainingStack == null || _remainingStack.IsEmpty)
+                    {
+                        ThrowHelper.ThrowInvalidOperationException();
+                    }
+
+                    return _remainingStack.Peek();
+                }
+            }
+
+            /// <summary>
+            /// Moves to the first or next element.
+            /// </summary>
+            /// <returns>A value indicating whether there are any more elements.</returns>
+            public bool MoveNext()
+            {
+                if (_remainingStack == null)
+                {
+                    // initial move
+                    _remainingStack = _originalStack;
+                }
+                else if (!_remainingStack.IsEmpty)
+                {
+                    _remainingStack = _remainingStack.Pop();
                 }
 
-                return _remainingStack.Peek();
+                return !_remainingStack.IsEmpty;
             }
         }
 
-        public bool MoveNext()
+        /// <summary>
+        /// Enumerates a stack with no memory allocations.
+        /// </summary>
+        private sealed class EnumeratorObject : IEnumerator<T>
         {
-            if (_remainingStack is null)
+            /// <summary>
+            /// The original stack being enumerated.
+            /// </summary>
+            private readonly ImmutableStack<T> _originalStack;
+
+            /// <summary>
+            /// The remaining stack not yet enumerated.
+            /// </summary>
+            private ImmutableStack<T>? _remainingStack;
+
+            /// <summary>
+            /// A flag indicating whether this enumerator has been disposed.
+            /// </summary>
+            private bool _disposed;
+
+            /// <summary>
+            /// Initializes a new instance of the <see cref="EnumeratorObject"/> class.
+            /// </summary>
+            /// <param name="stack">The stack to enumerator.</param>
+            internal EnumeratorObject(ImmutableStack<T> stack)
             {
-                _remainingStack = _originalStack;
+                Requires.NotNull(stack, nameof(stack));
+                _originalStack = stack;
             }
-            else if (!_remainingStack.IsEmpty)
+
+            /// <summary>
+            /// Gets the current element.
+            /// </summary>
+            public T Current
             {
-                _remainingStack = _remainingStack.Pop();
-            }
-
-            return !_remainingStack.IsEmpty;
-        }
-    }
-
-    private sealed class EnumeratorObject : IEnumerator<T>
-    {
-        private readonly ImmutableStack<T> _originalStack;
-        private ImmutableStack<T>? _remainingStack;
-        private bool _disposed;
-
-        internal EnumeratorObject(ImmutableStack<T> stack)
-        {
-            _originalStack = stack;
-        }
-
-        public T Current
-        {
-            get
-            {
-                ThrowIfDisposed();
-                if (_remainingStack is null || _remainingStack.IsEmpty)
+                get
                 {
-                    throw new InvalidOperationException();
+                    this.ThrowIfDisposed();
+                    if (_remainingStack == null || _remainingStack.IsEmpty)
+                    {
+                        ThrowHelper.ThrowInvalidOperationException();
+                    }
+
+                    return _remainingStack.Peek();
+                }
+            }
+
+            /// <summary>
+            /// Gets the current element.
+            /// </summary>
+            object? IEnumerator.Current
+            {
+                get { return this.Current; }
+            }
+
+            /// <summary>
+            /// Moves to the first or next element.
+            /// </summary>
+            /// <returns>A value indicating whether there are any more elements.</returns>
+            public bool MoveNext()
+            {
+                this.ThrowIfDisposed();
+
+                if (_remainingStack == null)
+                {
+                    // initial move
+                    _remainingStack = _originalStack;
+                }
+                else if (!_remainingStack.IsEmpty)
+                {
+                    _remainingStack = _remainingStack.Pop();
                 }
 
-                return _remainingStack.Peek();
-            }
-        }
-
-        object? System.Collections.IEnumerator.Current => Current;
-
-        public bool MoveNext()
-        {
-            ThrowIfDisposed();
-            if (_remainingStack is null)
-            {
-                _remainingStack = _originalStack;
-            }
-            else if (!_remainingStack.IsEmpty)
-            {
-                _remainingStack = _remainingStack.Pop();
+                return !_remainingStack.IsEmpty;
             }
 
-            return !_remainingStack.IsEmpty;
-        }
-
-        public void Reset()
-        {
-            ThrowIfDisposed();
-            _remainingStack = null;
-        }
-
-        public void Dispose() => _disposed = true;
-
-        private void ThrowIfDisposed()
-        {
-            if (_disposed)
+            /// <summary>
+            /// Resets the position to just before the first element in the list.
+            /// </summary>
+            public void Reset()
             {
-                Requires.FailObjectDisposed(this);
+                this.ThrowIfDisposed();
+                _remainingStack = null;
+            }
+
+            /// <summary>
+            /// Disposes this instance.
+            /// </summary>
+            public void Dispose()
+            {
+                _disposed = true;
+            }
+
+            /// <summary>
+            /// Throws an <see cref="ObjectDisposedException"/> if this
+            /// enumerator has already been disposed.
+            /// </summary>
+            private void ThrowIfDisposed()
+            {
+                if (_disposed)
+                {
+                    Requires.FailObjectDisposed(this);
+                }
             }
         }
     }

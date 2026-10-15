@@ -14,27 +14,27 @@ public sealed class WasmModuleEmitterTests
     [Fact]
     public void ConstructorRejectsMissingMethodRepository()
     {
-        Assert.Throws<ArgumentNullException>(() => new WasmModuleEmitter(
-            null!, null!, null!, null!, null!, null!, null!, null!, null!, null!,
-            null!, null!, null!, null!, null!, null!, null!, null!, null!, null!,
+        Assert.Throws<ArgumentNullException>(() => CreateEmitter(
+            null!,
+            null!,
             null!));
     }
 
     [Fact]
     public void ConstructorRejectsMissingSymbolFormatter()
     {
-        Assert.Throws<ArgumentNullException>(() => new WasmModuleEmitter(
-            new FakeProgram(), null!, null!, null!, null!, null!, null!, null!, null!,
-            null!, null!, null!, null!, null!, null!, null!, null!, null!, null!, null!,
+        Assert.Throws<ArgumentNullException>(() => CreateEmitter(
+            new FakeProgram(),
+            null!,
             null!));
     }
 
     [Fact]
     public void ConstructorRejectsMissingTargetLayout()
     {
-        Assert.Throws<ArgumentNullException>(() => new WasmModuleEmitter(
-            new FakeProgram(), new FakeProgram(), null!, null!, null!, null!, null!,
-            null!, null!, null!, null!, null!, null!, null!, null!, null!, null!, null!, null!, null!,
+        Assert.Throws<ArgumentNullException>(() => CreateEmitter(
+            new FakeProgram(),
+            new FakeProgram(),
             null!));
     }
 
@@ -134,4 +134,31 @@ public sealed class WasmModuleEmitterTests
         public List<RuntimeInitializationPlan> Plans { get; } = [];
         public void Initialize(GeneratedFunctionWriterLease code, RuntimeInitializationPlan plan) => Plans.Add(plan);
     }
+
+    private static WasmModuleEmitter CreateEmitter(
+        IMethodRepository methods,
+        ISymbolFormatter symbols,
+        ITargetLayout layouts) => new(
+            methods,
+            symbols,
+            layouts,
+            null!,
+            null!,
+            null!,
+            null!,
+            null!,
+            null!,
+            null!,
+            null!,
+            null!,
+            null!,
+            null!,
+            null!,
+            null!,
+            null!,
+            null!,
+            null!,
+            null!,
+            null!,
+            null!);
 }

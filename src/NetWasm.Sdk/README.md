@@ -1,5 +1,13 @@
 # NetWasm.Sdk
 
+Arguments supplied through `NetWasmArgument` items or `dotnet run -- ...` reach
+`Main(string[] args)` unchanged, with configured items before invocation values.
+SDK-generated local and worker requests supply the logical assembly name as the
+program-name entry in the underlying WASI command line.
+`Environment.GetCommandLineArgs()` includes that entry; `Main` does not.
+Browser callers constructing Hosting requests supply the complete WASI argument
+vector themselves, including its program-name entry.
+
 `NetWasm.Sdk` contains the project-SDK implementation for the current
 `netwasm0.1` profile. It composes `Microsoft.NET.Sdk` and maps the user-facing
 alias to the tested NetWasm identity.

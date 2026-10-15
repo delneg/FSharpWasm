@@ -56,6 +56,7 @@ void collector_trace_root_range(void *start, void *end)
 {
     uintptr_t first = (uintptr_t)start, limit = (uintptr_t)end;
     if (!netwasm_tcms.collecting || limit < first || (limit - first) % sizeof(uintptr_t) != 0) abort();
+    TCMS_COUNT(&netwasm_tcms, root_slots, (limit - first) / sizeof(uintptr_t));
     for (uintptr_t slot = first; slot < limit; slot += sizeof(uintptr_t)) {
         uintptr_t reference;
         memcpy(&reference, (void *)slot, sizeof(reference));

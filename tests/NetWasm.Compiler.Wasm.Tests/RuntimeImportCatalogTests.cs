@@ -25,15 +25,12 @@ public sealed class RuntimeImportCatalogTests
             RuntimeAbi.RuntimeBeginRethrow,
             RuntimeAbi.RuntimeAllocateReferenceArray,
             RuntimeAbi.RuntimeAllocateString,
-            RuntimeAbi.RuntimeSuppressFinalize,
-            RuntimeAbi.RuntimeReRegisterForFinalize,
             RuntimeAbi.RuntimeReportUnobservedTaskException,
             RuntimeAbi.RuntimeIsAssignable,
             RuntimeAbi.RuntimeEndCatch,
             RuntimeAbi.RuntimeExceptionFrameEnter,
             RuntimeAbi.RuntimeExceptionFrameLeave,
             RuntimeAbi.RuntimeExceptionFrameTargetClause,
-            RuntimeAbi.RuntimeFinalizerSafepoint,
             RuntimeAbi.RuntimeRegisterValueType,
             RuntimeAbi.RuntimeAllocateValueArray,
             RuntimeAbi.RuntimeAllocateRectangularArray,
@@ -61,8 +58,9 @@ public sealed class RuntimeImportCatalogTests
             RuntimeAbi.RuntimeGcHandleRelease,
             RuntimeAbi.RuntimeGcGetMetric,
             RuntimeAbi.RuntimeGcMetricIsSupported,
-            RuntimeAbi.RuntimeGcWaitForPendingFinalizers,
             RuntimeAbi.RuntimeObjectIdentityHash,
+            RuntimeAbi.RuntimeBoxedValueClone,
+            RuntimeAbi.RuntimeHelpersEquals,
             RuntimeAbi.RuntimeNativeAlloc,
             RuntimeAbi.RuntimeNativeRealloc,
             RuntimeAbi.RuntimeNativeFree,
@@ -82,7 +80,16 @@ public sealed class RuntimeImportCatalogTests
             RuntimeAbi.RuntimeEphemeronHandleCreate,
             RuntimeAbi.RuntimeEphemeronHandleGetKey,
             RuntimeAbi.RuntimeEphemeronHandleGetValue,
+            RuntimeAbi.RuntimeEphemeronHandleSetTargetToNull,
+            RuntimeAbi.RuntimeEphemeronHandleSetValue,
             RuntimeAbi.RuntimeEphemeronHandleRelease,
+            RuntimeAbi.RuntimeSuppressFinalize,
+            RuntimeAbi.RuntimeReRegisterForFinalize,
+            RuntimeAbi.RuntimeFinalizerSafepoint,
+            RuntimeAbi.RuntimeGcWaitForPendingFinalizers,
+            RuntimeAbi.RuntimeInitializeFinalization,
+            RuntimeAbi.RuntimeAllocateFinalizable,
+            RuntimeAbi.RuntimeRandomSeed,
         };
 
         Assert.Equal(expectedNames, catalog.Imports.Select(import => import.Name));
@@ -120,6 +127,65 @@ public sealed class RuntimeImportCatalogTests
     [Theory]
     [InlineData(WasmModuleProfile.CoreApplication)]
     [InlineData(WasmModuleProfile.ComponentCoreModule)]
+    public void FinalizationImportsAreIncludedOnlyWhenSelected(
+        WasmModuleProfile profile)
+    {
+        var catalog = WasmRuntimeImports.CreateCatalog();
+        var disabled = new RuntimeImportSelection(
+            profile,
+            IncludeTerminalExceptionReporter: false);
+        var enabled = disabled with { IncludeFinalization = true };
+        var finalizationNames = new[]
+        {
+            RuntimeAbi.RuntimeInitializeFinalization,
+            RuntimeAbi.RuntimeAllocateFinalizable,
+            RuntimeAbi.RuntimeSuppressFinalize,
+            RuntimeAbi.RuntimeReRegisterForFinalize,
+            RuntimeAbi.RuntimeFinalizerSafepoint,
+            RuntimeAbi.RuntimeGcWaitForPendingFinalizers,
+        };
+
+        Assert.DoesNotContain(
+            catalog.Resolve(disabled),
+            import => finalizationNames.Contains(import.Name));
+        Assert.Throws<InvalidOperationException>(() => catalog.Resolve(
+            RuntimeImportSymbol.AllocateFinalizable,
+            disabled));
+        var imports = catalog.Resolve(enabled);
+        Assert.All(
+            finalizationNames,
+            name => Assert.Contains(imports, import => import.Name == name));
+        Assert.Equal(
+            RuntimeAbi.RuntimeAllocateFinalizable,
+            imports[catalog.Resolve(
+                RuntimeImportSymbol.AllocateFinalizable,
+                enabled)].Name);
+    }
+
+    [Theory]
+    [InlineData(WasmModuleProfile.CoreApplication)]
+    [InlineData(WasmModuleProfile.ComponentCoreModule)]
+    public void RandomSeedImportIsIncludedOnlyWhenSelected(WasmModuleProfile profile)
+    {
+        var catalog = WasmRuntimeImports.CreateCatalog();
+        var disabled = new RuntimeImportSelection(
+            profile,
+            IncludeTerminalExceptionReporter: false);
+        var enabled = disabled with { IncludeRandomSeed = true };
+
+        Assert.DoesNotContain(
+            catalog.Resolve(disabled),
+            import => import.Name == RuntimeAbi.RuntimeRandomSeed);
+        Assert.Throws<InvalidOperationException>(() =>
+            catalog.Resolve(RuntimeImportSymbol.RandomSeed, disabled));
+        Assert.Equal(
+            RuntimeAbi.RuntimeRandomSeed,
+            catalog.Resolve(enabled)[catalog.Resolve(RuntimeImportSymbol.RandomSeed, enabled)].Name);
+    }
+
+    [Theory]
+    [InlineData(WasmModuleProfile.CoreApplication)]
+    [InlineData(WasmModuleProfile.ComponentCoreModule)]
     public void ExceptionCaptureIsIncludedOnlyWhenSelected(WasmModuleProfile profile)
     {
         var catalog = WasmRuntimeImports.CreateCatalog();
@@ -131,9 +197,14 @@ public sealed class RuntimeImportCatalogTests
         Assert.Throws<InvalidOperationException>(() =>
             catalog.Resolve(RuntimeImportSymbol.ManagedExceptionCapture, disabled));
         var imports = catalog.Resolve(enabled);
+        var captureIndex = catalog.Resolve(
+            RuntimeImportSymbol.ManagedExceptionCapture,
+            enabled);
         Assert.Equal(RuntimeAbi.RuntimeCaptureManagedException,
-            imports[catalog.Resolve(RuntimeImportSymbol.ManagedExceptionCapture, enabled)].Name);
-        Assert.Equal(catalog.Resolve(disabled).ToArray(), imports.RemoveAt(imports.Length - 1).ToArray());
+            imports[captureIndex].Name);
+        Assert.Equal(
+            catalog.Resolve(disabled).ToArray(),
+            imports.RemoveAt(captureIndex).ToArray());
     }
 
     [Fact]

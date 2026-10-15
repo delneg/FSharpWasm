@@ -2,6 +2,7 @@ using System;
 using System.Linq;
 using NetWasm.Compiler.Analysis;
 using NetWasm.Compiler.ComponentModel;
+using NetWasm.Compiler.ComponentModel.Optimization;
 using NetWasm.Compiler.Core;
 using NetWasm.Compiler.EntryPoints;
 using NetWasm.Compiler.Interop;
@@ -27,7 +28,8 @@ internal sealed class CompilationPreparationBuilder(
     IMethodFinderFactory methodFinders,
     ISymbolFormatterFactory symbols,
     IStackTraceReachabilityRootProvider stackTraceRoots,
-    IManagedExecutableArgumentFactoryResolver argumentFactories) :
+    IManagedExecutableArgumentFactoryResolver argumentFactories,
+    IWasmOptimizationSettingsResolver optimizationSettings) :
     ICompilationPreparationBuilder
 {
     private readonly IBaseTypeResolverFactory _baseTypes = baseTypes ??
@@ -64,6 +66,8 @@ internal sealed class CompilationPreparationBuilder(
         stackTraceRoots ?? throw new ArgumentNullException(nameof(stackTraceRoots));
     private readonly IManagedExecutableArgumentFactoryResolver _argumentFactories =
         argumentFactories ?? throw new ArgumentNullException(nameof(argumentFactories));
+    private readonly IWasmOptimizationSettingsResolver _optimizationSettings =
+        optimizationSettings ?? throw new ArgumentNullException(nameof(optimizationSettings));
 
     public CompilationPreparation Prepare(
         MetadataCompilationSnapshot metadata,
@@ -129,6 +133,9 @@ internal sealed class CompilationPreparationBuilder(
             entry,
             exports,
             reachabilityRoots,
-            argumentFactory);
+            argumentFactory,
+            _optimizationSettings.Resolve(
+                options.Optimization,
+                options.OptimizationOverrides));
     }
 }

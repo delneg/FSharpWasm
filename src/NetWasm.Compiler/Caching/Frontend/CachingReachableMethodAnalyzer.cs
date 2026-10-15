@@ -20,6 +20,12 @@ internal sealed class CachingReachableMethodAnalyzer(
     public ReachableMethodAnalysis Analyze(ReachableMethodRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);
+        if (request.RewrittenBody is not null)
+        {
+            // Whole-program facts are specific to this closure and must neither
+            // restore nor replace a context-independent frontend cache entry.
+            return _inner.Analyze(request);
+        }
         if (_restorer.TryRestore(request.Method, out var artifact))
         {
             return artifact.Analysis;
@@ -48,6 +54,7 @@ internal sealed class CachingReachableMethodAnalyzerFactory(
         IFieldRepository fields,
         IMethodRepository methods,
         IMethodSpecializer specializer,
+        IManagedMethodOptimizer optimizer,
         IImplicitExceptionDiscovery exceptionDiscovery,
         IReachabilityInstructionAnalyzer instructionAnalyzer) =>
         new CachingReachableMethodAnalyzer(
@@ -57,6 +64,7 @@ internal sealed class CachingReachableMethodAnalyzerFactory(
                 fields,
                 methods,
                 specializer,
+                optimizer,
                 exceptionDiscovery,
                 instructionAnalyzer),
             _restorer,

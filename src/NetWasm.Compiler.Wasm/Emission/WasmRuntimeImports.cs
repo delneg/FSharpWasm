@@ -115,10 +115,49 @@ internal static class WasmRuntimeImports
             RuntimeAbi.RuntimeModule,
             RuntimeAbi.RuntimeEphemeronHandleGetValue,
             WasmFunctionType.Create(CliValueKind.ManagedReference, CliValueKind.I4))),
+        new(RuntimeImportSymbol.EphemeronHandleSetTargetToNull, new WasmFunctionImport(
+            RuntimeAbi.RuntimeModule,
+            RuntimeAbi.RuntimeEphemeronHandleSetTargetToNull,
+            WasmFunctionType.Create(CliValueKind.Void, CliValueKind.I4))),
+        new(RuntimeImportSymbol.EphemeronHandleSetValue, new WasmFunctionImport(
+            RuntimeAbi.RuntimeModule,
+            RuntimeAbi.RuntimeEphemeronHandleSetValue,
+            WasmFunctionType.Create(CliValueKind.Void, CliValueKind.I4, CliValueKind.ManagedReference))),
         new(RuntimeImportSymbol.EphemeronHandleRelease, new WasmFunctionImport(
             RuntimeAbi.RuntimeModule,
             RuntimeAbi.RuntimeEphemeronHandleRelease,
             WasmFunctionType.Create(CliValueKind.Void, CliValueKind.I4))),
+        new(RuntimeImportSymbol.SuppressFinalize, new WasmFunctionImport(
+            RuntimeAbi.RuntimeModule,
+            RuntimeAbi.RuntimeSuppressFinalize,
+            WasmFunctionType.Create(CliValueKind.Void, CliValueKind.ManagedReference))),
+        new(RuntimeImportSymbol.ReRegisterForFinalize, new WasmFunctionImport(
+            RuntimeAbi.RuntimeModule,
+            RuntimeAbi.RuntimeReRegisterForFinalize,
+            WasmFunctionType.Create(CliValueKind.Void, CliValueKind.ManagedReference))),
+        new(RuntimeImportSymbol.FinalizerSafepoint, new WasmFunctionImport(
+            RuntimeAbi.RuntimeModule,
+            RuntimeAbi.RuntimeFinalizerSafepoint,
+            WasmFunctionType.Create(CliValueKind.ManagedReference))),
+        new(RuntimeImportSymbol.GcWaitForPendingFinalizers, new WasmFunctionImport(
+            RuntimeAbi.RuntimeModule,
+            RuntimeAbi.RuntimeGcWaitForPendingFinalizers,
+            WasmFunctionType.Create(CliValueKind.Void))),
+        new(RuntimeImportSymbol.InitializeFinalization, new WasmFunctionImport(
+            RuntimeAbi.RuntimeModule,
+            RuntimeAbi.RuntimeInitializeFinalization,
+            WasmFunctionType.Create(CliValueKind.Void))),
+        new(RuntimeImportSymbol.AllocateFinalizable, new WasmFunctionImport(
+            RuntimeAbi.RuntimeModule,
+            RuntimeAbi.RuntimeAllocateFinalizable,
+            WasmFunctionType.Create(
+                CliValueKind.ManagedReference,
+                CliValueKind.ManagedAddress,
+                CliValueKind.I4))),
+        new(RuntimeImportSymbol.RandomSeed, new WasmFunctionImport(
+            RuntimeAbi.RuntimeModule,
+            RuntimeAbi.RuntimeRandomSeed,
+            WasmFunctionType.Create(CliValueKind.I8))),
     ];
 
     private static RuntimeImportBinding[] CreateLegacyBindings() =>
@@ -202,14 +241,6 @@ internal static class WasmRuntimeImports
                 CliValueKind.I4,
                 CliValueKind.I4,
                 CliValueKind.I4))),
-        new(RuntimeImportSymbol.SuppressFinalize, new WasmFunctionImport(
-            RuntimeAbi.RuntimeModule,
-            RuntimeAbi.RuntimeSuppressFinalize,
-            WasmFunctionType.Create(CliValueKind.Void, CliValueKind.ManagedReference))),
-        new(RuntimeImportSymbol.ReRegisterForFinalize, new WasmFunctionImport(
-            RuntimeAbi.RuntimeModule,
-            RuntimeAbi.RuntimeReRegisterForFinalize,
-            WasmFunctionType.Create(CliValueKind.Void, CliValueKind.ManagedReference))),
         new(RuntimeImportSymbol.ReportUnobservedTaskException, new WasmFunctionImport(
             RuntimeAbi.RuntimeModule,
             RuntimeAbi.RuntimeReportUnobservedTaskException,
@@ -244,10 +275,6 @@ internal static class WasmRuntimeImports
             RuntimeAbi.RuntimeModule,
             RuntimeAbi.RuntimeExceptionFrameTargetClause,
             WasmFunctionType.Create(CliValueKind.I4, CliValueKind.I4))),
-        new(RuntimeImportSymbol.FinalizerSafepoint, new WasmFunctionImport(
-            RuntimeAbi.RuntimeModule,
-            RuntimeAbi.RuntimeFinalizerSafepoint,
-            WasmFunctionType.Create(CliValueKind.ManagedReference))),
         new(RuntimeImportSymbol.RegisterValueType, new WasmFunctionImport(
             RuntimeAbi.RuntimeModule,
             RuntimeAbi.RuntimeRegisterValueType,
@@ -332,7 +359,9 @@ internal static class WasmRuntimeImports
             RuntimeAbi.RuntimeArrayClone,
             WasmFunctionType.Create(
                 CliValueKind.ManagedReference,
-                CliValueKind.ManagedReference))),
+                CliValueKind.ManagedReference,
+                CliValueKind.I4,
+                CliValueKind.I4))),
         new(RuntimeImportSymbol.ExceptionFrameSetEnvironment, new WasmFunctionImport(
             RuntimeAbi.RuntimeModule,
             RuntimeAbi.RuntimeExceptionFrameSetEnvironment,
@@ -415,14 +444,23 @@ internal static class WasmRuntimeImports
                 RuntimeAbi.RuntimeModule,
                 RuntimeAbi.RuntimeGcMetricIsSupported,
                 WasmFunctionType.Create(CliValueKind.I4, CliValueKind.I4))),
-            new(RuntimeImportSymbol.GcWaitForPendingFinalizers, new WasmFunctionImport(
-                RuntimeAbi.RuntimeModule,
-                RuntimeAbi.RuntimeGcWaitForPendingFinalizers,
-                WasmFunctionType.Create(CliValueKind.Void))),
             new(RuntimeImportSymbol.ObjectIdentityHash, new WasmFunctionImport(
                 RuntimeAbi.RuntimeModule,
                 RuntimeAbi.RuntimeObjectIdentityHash,
                 WasmFunctionType.Create(CliValueKind.I4, CliValueKind.ManagedReference))),
+            new(RuntimeImportSymbol.BoxedValueClone, new WasmFunctionImport(
+                RuntimeAbi.RuntimeModule,
+                RuntimeAbi.RuntimeBoxedValueClone,
+                WasmFunctionType.Create(
+                    CliValueKind.ManagedReference,
+                    CliValueKind.ManagedReference))),
+            new(RuntimeImportSymbol.RuntimeHelpersEquals, new WasmFunctionImport(
+                RuntimeAbi.RuntimeModule,
+                RuntimeAbi.RuntimeHelpersEquals,
+                WasmFunctionType.Create(
+                    CliValueKind.I4,
+                    CliValueKind.ManagedReference,
+                    CliValueKind.ManagedReference))),
             new(RuntimeImportSymbol.NativeAlloc, new WasmFunctionImport(
             RuntimeAbi.RuntimeModule,
             RuntimeAbi.RuntimeNativeAlloc,

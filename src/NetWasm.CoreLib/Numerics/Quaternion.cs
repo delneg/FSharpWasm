@@ -5,6 +5,7 @@
 
 namespace System.Numerics;
 
+// TODO(netwasm-simd)
 public struct Quaternion : IEquatable<Quaternion>
 {
     public float X;

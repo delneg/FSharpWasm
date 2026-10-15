@@ -57,7 +57,8 @@ public sealed class SynchronousJSExportEmitterTests
         var selection = new RuntimeImportSelection(
             WasmModuleProfile.CoreApplication,
             IncludeTerminalExceptionReporter: includeReporter,
-            IncludeTerminalExceptionRaise: includeRaise);
+            IncludeTerminalExceptionRaise: includeRaise,
+            IncludeFinalization: true);
         var initialization = TestRuntimeInitialization.Create(512, selection);
 
         var body = emitter.Emit(

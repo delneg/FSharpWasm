@@ -7,6 +7,7 @@ namespace NetWasm.Runtime.Pack.Materialization;
 internal sealed class RuntimeLinkExportPlanBuilder : IRuntimeLinkExportPlanBuilder
 {
     private const string EphemeronHandlesFeature = "ephemeron-handles";
+    private const string FinalizationFeature = "finalization";
     private const string StructuredCommandDiagnosticsFeature =
         "structured-command-diagnostics";
     private static readonly ImmutableArray<string> EphemeronExports =
@@ -15,6 +16,17 @@ internal sealed class RuntimeLinkExportPlanBuilder : IRuntimeLinkExportPlanBuild
         "ephemeron_handle_get_value",
         "ephemeron_handle_new",
         "ephemeron_handle_release",
+        "ephemeron_handle_set_target_to_null",
+        "ephemeron_handle_set_value",
+    ];
+    private static readonly ImmutableArray<string> FinalizationExports =
+    [
+        "allocate_finalizable",
+        "finalizer_safepoint",
+        "gc_wait_for_pending_finalizers",
+        "initialize_finalization",
+        "reregister_for_finalize",
+        "suppress_finalize",
     ];
     private static readonly ImmutableArray<string> StructuredCommandDiagnosticsExports =
     [
@@ -75,6 +87,8 @@ internal sealed class RuntimeLinkExportPlanBuilder : IRuntimeLinkExportPlanBuild
             request.RuntimeFeatures.Contains(EphemeronHandlesFeature);
         var includeStructuredDiagnostics = request.RuntimeFeatures.IsDefault ||
             request.RuntimeFeatures.Contains(StructuredCommandDiagnosticsFeature);
+        var includeFinalization = request.RuntimeFeatures.IsDefault ||
+            request.RuntimeFeatures.Contains(FinalizationFeature);
         var exports = includeEphemerons
             ? request.PublicExports
             : request.PublicExports
@@ -84,6 +98,12 @@ internal sealed class RuntimeLinkExportPlanBuilder : IRuntimeLinkExportPlanBuild
         {
             exports = exports.AddRange(StructuredCommandDiagnosticsExports
                 .Where(name => !exports.Contains(name)));
+        }
+        if (!includeFinalization)
+        {
+            exports = exports
+                .Where(name => !FinalizationExports.Contains(name))
+                .ToImmutableArray();
         }
         return exports;
     }

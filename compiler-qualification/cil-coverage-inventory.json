@@ -2,10 +2,6 @@
   "schemaVersion": 2,
   "internalLoweredOperations": [
     "DefaultValue",
-    "DelegateCombine",
-    "DelegateRemove",
-    "DelegateEqual",
-    "DelegateNotEqual",
     "CompareExchange",
     "MaterializeType",
     "MaterializeMethod",
@@ -13,6 +9,8 @@
     "GetTypeFacts",
     "GetObjectType",
     "InitializeArrayData",
+    "CreateReadOnlySpanFromRva",
+    "LoadStaticDataElement",
     "NewRectangularArray",
     "NewBoundedRectangularArray",
     "LoadRectangularArrayElement",
@@ -55,12 +53,6 @@
       "validator": "tests/NetWasm.Compiler.ControlFlow.Tests/TypedStackValidatorTests.cs#ValidatorAcceptsConstrainedValueReceiverAndRejectsMalformedOperands",
       "emitter": "tests/NetWasm.Compiler.Wasm.Tests/CallInstructionEmitterTests.cs",
       "semantic": "tests/NetWasm.Compiler.Tests/Correctness/ValueAndCallDifferentialTests.cs#DebugAndReleaseValuesStorageAndDispatchMatchDesktopDotNet"
-    },
-    "Delegates": {
-      "decoder": "tests/NetWasm.Compiler.Tests/Correctness/LambdaIteratorDifferentialTests.cs#DebugAndReleaseClosuresAndIteratorsMatchDesktopDotNet",
-      "validator": "tests/NetWasm.Compiler.ControlFlow.Tests/TypedStackValidatorTests.cs#ValidatorAcceptsAddressArrayDelegateAndTypeOperations",
-      "emitter": "tests/NetWasm.Compiler.Wasm.Tests/DelegateInstructionEmitterTests.cs",
-      "semantic": "tests/NetWasm.Compiler.Tests/Correctness/LambdaIteratorDifferentialTests.cs#DebugAndReleaseClosuresAndIteratorsMatchDesktopDotNet"
     },
     "StructuredControlFlow": {
       "decoder": "tests/NetWasm.Compiler.Metadata.Tests/CilDecoderTests.cs#DecoderRetainsTypedExceptionRegionsAndNormalizedTransfers",
@@ -737,6 +729,8 @@
       ],
       "operations": [
         "InitializeArrayData",
+        "CreateReadOnlySpanFromRva",
+        "LoadStaticDataElement",
         "DefaultValue"
       ]
     },
@@ -842,18 +836,6 @@
         "CallVirtual",
         "CallIndirect",
         "Constrained"
-      ]
-    },
-    {
-      "id": "delegates",
-      "obligations": [
-        "S13"
-      ],
-      "operations": [
-        "DelegateCombine",
-        "DelegateRemove",
-        "DelegateEqual",
-        "DelegateNotEqual"
       ]
     },
     {

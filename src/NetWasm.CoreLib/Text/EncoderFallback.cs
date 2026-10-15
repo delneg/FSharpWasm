@@ -114,5 +114,5 @@ public sealed class EncoderFallbackException : ArgumentException
     public char CharUnknownHigh { get => _high; }
     public char CharUnknownLow { get => _low; }
     public int Index { get; }
-    public bool IsUnknownSurrogate() => _unknown >= 0xD800 && _unknown <= 0xDFFF || _high != '\0';
+    public bool IsUnknownSurrogate() => _high != '\0';
 }

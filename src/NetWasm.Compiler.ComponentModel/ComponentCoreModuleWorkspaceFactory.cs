@@ -22,6 +22,7 @@ public sealed class ComponentCoreModuleWorkspaceFactory(IFileDeleter deletions) 
             outputPath + ".netwasm-host.wasm",
             outputPath + ".managed-executable.wasm",
             outputPath + ".merged.wasm",
-            outputPath + ".sanitized.wasm");
+            outputPath + ".sanitized.wasm",
+            outputPath + ".runtime-sanitized.wasm");
     }
 }

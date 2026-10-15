@@ -18,10 +18,12 @@ public sealed record BrowserFileMove(string InputPath, string OutputPath);
 /// </summary>
 public sealed record BrowserRawCoreModuleLinkPlan(
     ImmutableArray<BrowserWasmTextModule> TextModules,
+    BrowserInlineAnnotationEdit ManagedInlining,
+    BrowserInlineAnnotationEdit RuntimeInlining,
     BrowserBinaryenInvocation Merge,
     BrowserRawExportPruning? ExportPruning,
     BrowserBinaryenInvocation? Optimization,
     BrowserCoreModuleValidation Validation,
-    BrowserFileCopy? Copy,
+    BrowserInlineAnnotationEdit InlineAnnotationCleanup,
     BrowserFileMove Publication,
     string CleanupDirectory);

@@ -3,6 +3,8 @@
 
 namespace System.Text;
 
+using System.Globalization;
+
 public readonly partial struct Rune
 {
     public bool Equals(Rune other, StringComparison comparisonType) => comparisonType switch
@@ -12,46 +14,49 @@ public readonly partial struct Rune
         _ => throw new ArgumentException(nameof(comparisonType)),
     };
 
-    public static double GetNumericValue(Rune value) =>
-        value._value is >= '0' and <= '9' ? value._value - '0' : -1;
+    public static double GetNumericValue(Rune value) => CharUnicodeInfo.GetNumericValue(value._value);
+
+    public static UnicodeCategory GetUnicodeCategory(Rune value) =>
+        CharUnicodeInfo.GetUnicodeCategory(value._value);
 
     public static bool IsControl(Rune value) =>
         value._value <= 0x1F || value._value is >= 0x7F and <= 0x9F;
 
-    public static bool IsDigit(Rune value) => value._value is >= '0' and <= '9';
+    public static bool IsDigit(Rune value) => GetUnicodeCategory(value) == UnicodeCategory.DecimalDigitNumber;
 
-    public static bool IsLetter(Rune value) =>
-        value._value is >= 'A' and <= 'Z' or >= 'a' and <= 'z';
+    public static bool IsLetter(Rune value) => IsCategoryInRange(
+        GetUnicodeCategory(value), UnicodeCategory.UppercaseLetter, UnicodeCategory.OtherLetter);
 
     public static bool IsLetterOrDigit(Rune value) => IsLetter(value) || IsDigit(value);
 
-    public static bool IsLower(Rune value) => value._value is >= 'a' and <= 'z';
+    public static bool IsLower(Rune value) => GetUnicodeCategory(value) == UnicodeCategory.LowercaseLetter;
 
-    public static bool IsNumber(Rune value) => IsDigit(value);
+    public static bool IsNumber(Rune value) => IsCategoryInRange(
+        GetUnicodeCategory(value), UnicodeCategory.DecimalDigitNumber, UnicodeCategory.OtherNumber);
 
-    public static bool IsPunctuation(Rune value) => value._value switch
-    {
-        >= 0x21 and <= 0x2F or >= 0x3A and <= 0x40 or >= 0x5B and <= 0x60 or >= 0x7B and <= 0x7E => true,
-        _ => false,
-    };
+    public static bool IsPunctuation(Rune value) => IsCategoryInRange(
+        GetUnicodeCategory(value), UnicodeCategory.ConnectorPunctuation, UnicodeCategory.OtherPunctuation);
 
-    public static bool IsSeparator(Rune value) => value._value is ' ' or '\t' or '\r' or '\n' or '\f' or '\v';
+    public static bool IsSeparator(Rune value) => IsCategoryInRange(
+        GetUnicodeCategory(value), UnicodeCategory.SpaceSeparator, UnicodeCategory.ParagraphSeparator);
 
-    public static bool IsSymbol(Rune value) => value._value is '$' or '+' or '<' or '=' or '>' or '^' or '`' or '|';
+    public static bool IsSymbol(Rune value) => IsCategoryInRange(
+        GetUnicodeCategory(value), UnicodeCategory.MathSymbol, UnicodeCategory.OtherSymbol);
 
-    public static bool IsUpper(Rune value) => value._value is >= 'A' and <= 'Z';
+    public static bool IsUpper(Rune value) => GetUnicodeCategory(value) == UnicodeCategory.UppercaseLetter;
 
-    public static bool IsWhiteSpace(Rune value) => IsSeparator(value);
+    public static bool IsWhiteSpace(Rune value) => value.IsBmp && CharUnicodeInfo.GetIsWhiteSpace((char)value._value);
 
     public static Rune ToLowerInvariant(Rune value) => ToLowerOrdinal(value);
 
-    public static Rune ToLowerOrdinal(Rune value) =>
-        IsUpper(value) ? new Rune(value._value + ('a' - 'A')) : value;
+    public static Rune ToLowerOrdinal(Rune value) => new(CharUnicodeInfo.ToLower((uint)value._value));
 
     public static Rune ToUpperInvariant(Rune value) => ToUpperOrdinal(value);
 
-    public static Rune ToUpperOrdinal(Rune value) =>
-        IsLower(value) ? new Rune(value._value - ('a' - 'A')) : value;
+    public static Rune ToUpperOrdinal(Rune value) => new(CharUnicodeInfo.ToUpper((uint)value._value));
+
+    private static bool IsCategoryInRange(UnicodeCategory value, UnicodeCategory first, UnicodeCategory last) =>
+        value >= first && value <= last;
 
     public string ToString(string? format, IFormatProvider? formatProvider) => ToString();
 

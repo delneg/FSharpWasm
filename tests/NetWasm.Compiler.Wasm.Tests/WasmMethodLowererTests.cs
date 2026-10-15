@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using NetWasm.Compiler.ComponentModel.Optimization;
 using NetWasm.Compiler.ControlFlow;
 using NetWasm.Compiler.ControlFlow.Structured;
 using NetWasm.Compiler.ControlFlow.Structuring;
@@ -20,11 +21,16 @@ public sealed class WasmMethodLowererTests
         var factory = new RecordingFactory(builder);
         var lowerer = new WasmMethodLowerer(factory);
 
-        var actual = ((IWasmMethodLowerer)lowerer).Lower(managed);
+        var actual = ((IWasmMethodLowerer)lowerer).Lower(
+            managed,
+            BranchPrefixDuplicationPolicy.Speed);
 
         Assert.Same(expected, actual);
         Assert.Same(managed.ControlFlow, builder.ControlFlow);
         Assert.Equal(1, factory.CreateCount);
+        Assert.Equal(
+            BranchPrefixDuplicationPolicy.Speed,
+            factory.BranchPrefixDuplication);
     }
 
     [Fact]
@@ -73,9 +79,18 @@ public sealed class WasmMethodLowererTests
     {
         public int CreateCount { get; private set; }
 
-        public IValidatedStructuredMethodBuilder Create()
+        public BranchPrefixDuplicationPolicy? BranchPrefixDuplication
+        {
+            get;
+            private set;
+        }
+
+        public IValidatedStructuredMethodBuilder Create(
+            BranchPrefixDuplicationPolicy branchPrefixDuplication =
+                BranchPrefixDuplicationPolicy.SizeAware)
         {
             CreateCount++;
+            BranchPrefixDuplication = branchPrefixDuplication;
             return builder;
         }
     }

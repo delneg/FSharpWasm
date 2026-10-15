@@ -3,11 +3,14 @@
 // Collection/enumeration members are adapted from dotnet/runtime
 // System.Private.CoreLib String at commit 811225a482702af7ecc35d817966bc70b88a3a23.
 // The upstream implementation is licensed under MIT.
+using System.Buffers;
 using System.Collections;
 using System.Collections.Generic;
-using System.Buffers;
+using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
+using System.Numerics;
 using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using System.Text;
 
 namespace System
@@ -26,6 +29,10 @@ namespace System
         public String(char value, int count)
         {
         }
+
+        // Runtime-private CoreLib allocation boundary. NetWasm's string
+        // constructor supplies the managed layout and zero-initialized payload.
+        internal static string FastAllocateString(int length) => new('\0', length);
 
         public static readonly string Empty = "";
 
@@ -101,19 +108,15 @@ namespace System
 
         public bool Equals(string? value)
         {
+            if (ReferenceEquals(this, value))
+            {
+                return true;
+            }
             if (value == null || Length != value.Length)
             {
                 return false;
             }
-            var equal = true;
-            for (var index = 0; index < Length; index++)
-            {
-                if (equal && this[index] != value[index])
-                {
-                    equal = false;
-                }
-            }
-            return equal;
+            return EqualsHelper(this, value);
         }
 
         public override bool Equals(object? value) =>
@@ -142,50 +145,231 @@ namespace System
                 return 1;
             }
             var length = left.Length < right.Length ? left.Length : right.Length;
-            var result = 0;
+            ref var leftData = ref left.GetRawStringData();
+            ref var rightData = ref right.GetRawStringData();
             for (var index = 0; index < length; index++)
             {
-                if (result == 0)
+                var result = Unsafe.Add(ref leftData, index) -
+                    Unsafe.Add(ref rightData, index);
+                if (result != 0)
                 {
-                    result = left[index] - right[index];
+                    return result;
                 }
             }
-            if (result == 0 && left.Length != right.Length)
+            return left.Length - right.Length;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public override int GetHashCode() => GetNonRandomizedHashCode();
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        internal unsafe int GetNonRandomizedHashCode()
+        {
+            fixed (char* source = this)
             {
-                result = left.Length - right.Length;
+                return GetNonRandomizedHashCode(source, Length);
             }
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        internal static unsafe int GetNonRandomizedHashCode(ReadOnlySpan<char> value)
+        {
+            fixed (char* source = &MemoryMarshal.GetReference(value))
+            {
+                return GetNonRandomizedHashCode(source, value.Length);
+            }
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static unsafe int GetNonRandomizedHashCode(char* source, int length)
+        {
+            var hash1 = (5381u << 16) + 5381u;
+            var hash2 = hash1;
+            var pointer = source;
+
+            while (length >= 4)
+            {
+                hash1 = (BitOperations.RotateLeft(hash1, 5) + hash1) ^ ReadPair(pointer);
+                hash2 = (BitOperations.RotateLeft(hash2, 5) + hash2) ^ ReadPair(pointer + 2);
+                pointer += 4;
+                length -= 4;
+            }
+
+            switch (length)
+            {
+                case 3:
+                    hash1 = (BitOperations.RotateLeft(hash1, 5) + hash1) ^ ReadPair(pointer);
+                    hash2 = (BitOperations.RotateLeft(hash2, 5) + hash2) ^ pointer[2];
+                    break;
+
+                case 2:
+                    hash2 = (BitOperations.RotateLeft(hash2, 5) + hash2) ^ ReadPair(pointer);
+                    break;
+
+                case 1:
+                    hash2 = (BitOperations.RotateLeft(hash2, 5) + hash2) ^ *pointer;
+                    break;
+            }
+
+            return (int)(hash1 + (hash2 * 1_566_083_941));
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static unsafe uint ReadPair(char* value) =>
+            value[0] | ((uint)value[1] << 16);
+
+        internal int GetNonRandomizedHashCodeOrdinalIgnoreCase() =>
+            GetNonRandomizedHashCodeOrdinalIgnoreCase((ReadOnlySpan<char>)this);
+
+        internal static int GetNonRandomizedHashCodeOrdinalIgnoreCase(ReadOnlySpan<char> value)
+        {
+            if (ContainsSurrogatePair(value))
+            {
+                return GetOrdinalIgnoreCaseHashCode(value);
+            }
+
+            uint hash1 = (5381u << 16) + 5381u;
+            uint hash2 = hash1;
+            int index = 0;
+            int length = value.Length;
+
+            while (length >= 4)
+            {
+                hash1 = (BitOperations.RotateLeft(hash1, 5) + hash1) ^
+                    ReadOrdinalIgnoreCasePair(value, index);
+                hash2 = (BitOperations.RotateLeft(hash2, 5) + hash2) ^
+                    ReadOrdinalIgnoreCasePair(value, index + 2);
+                index += 4;
+                length -= 4;
+            }
+
+            switch (length)
+            {
+                case 3:
+                    hash1 = (BitOperations.RotateLeft(hash1, 5) + hash1) ^
+                        ReadOrdinalIgnoreCasePair(value, index);
+                    hash2 = (BitOperations.RotateLeft(hash2, 5) + hash2) ^
+                        NormalizeOrdinalIgnoreCase(value[index + 2]);
+                    break;
+
+                case 2:
+                    hash2 = (BitOperations.RotateLeft(hash2, 5) + hash2) ^
+                        ReadOrdinalIgnoreCasePair(value, index);
+                    break;
+
+                case 1:
+                    hash2 = (BitOperations.RotateLeft(hash2, 5) + hash2) ^
+                        NormalizeOrdinalIgnoreCase(value[index]);
+                    break;
+            }
+
+            return (int)(hash1 + (hash2 * 1_566_083_941));
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static uint ReadOrdinalIgnoreCasePair(ReadOnlySpan<char> value, int index) =>
+            NormalizeOrdinalIgnoreCase(value[index]) |
+            (NormalizeOrdinalIgnoreCase(value[index + 1]) << 16);
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static uint NormalizeOrdinalIgnoreCase(char value) =>
+            (uint)(char.ToUpperInvariant(value) | 0x20);
+
+        public static bool IsNullOrEmpty([NotNullWhen(false)] string? value) =>
+            value == null || value.Length == 0;
+
+        public static string Concat(string? left, string? right)
+        {
+            if (IsNullOrEmpty(left))
+            {
+                return IsNullOrEmpty(right) ? Empty : right!;
+            }
+            if (IsNullOrEmpty(right))
+            {
+                return left!;
+            }
+
+            var leftLength = left!.Length;
+            var totalLength = leftLength + right!.Length;
+            if (totalLength < 0)
+            {
+                throw new OutOfMemoryException();
+            }
+
+            var result = new string('\0', totalLength);
+            CopyStringContent(result, 0, left);
+            CopyStringContent(result, leftLength, right);
             return result;
         }
 
-        public override int GetHashCode()
+        public static string Concat(string? first, string? second, string? third)
         {
-            var hash = 2_166_136_261;
-            for (var index = 0; index < Length; index++)
+            if (IsNullOrEmpty(first))
             {
-                hash = (hash ^ this[index]) * 16_777_619;
+                return Concat(second, third);
             }
-            hash ^= hash >> 16;
-            hash *= 2_246_822_519;
-            hash ^= hash >> 13;
-            hash *= 3_266_489_917;
-            hash ^= hash >> 16;
-            return (int)hash;
+            if (IsNullOrEmpty(second))
+            {
+                return Concat(first, third);
+            }
+            if (IsNullOrEmpty(third))
+            {
+                return Concat(first, second);
+            }
+
+            var totalLength = (long)first!.Length + second!.Length + third!.Length;
+            if (totalLength > int.MaxValue)
+            {
+                throw new OutOfMemoryException();
+            }
+
+            var result = new string('\0', (int)totalLength);
+            CopyStringContent(result, 0, first);
+            CopyStringContent(result, first.Length, second);
+            CopyStringContent(result, first.Length + second.Length, third);
+            return result;
         }
-
-        public static bool IsNullOrEmpty(string? value) =>
-            value == null || value.Length == 0;
-
-        public static string Concat(string? left, string? right) =>
-            Concat([left, right]);
-
-        public static string Concat(string? first, string? second, string? third) =>
-            Concat([first, second, third]);
 
         public static string Concat(
             string? first,
             string? second,
             string? third,
-            string? fourth) => Concat([first, second, third, fourth]);
+            string? fourth)
+        {
+            if (IsNullOrEmpty(first))
+            {
+                return Concat(second, third, fourth);
+            }
+            if (IsNullOrEmpty(second))
+            {
+                return Concat(first, third, fourth);
+            }
+            if (IsNullOrEmpty(third))
+            {
+                return Concat(first, second, fourth);
+            }
+            if (IsNullOrEmpty(fourth))
+            {
+                return Concat(first, second, third);
+            }
+
+            var totalLength = (long)first!.Length + second!.Length + third!.Length +
+                fourth!.Length;
+            if (totalLength > int.MaxValue)
+            {
+                throw new OutOfMemoryException();
+            }
+
+            var result = new string('\0', (int)totalLength);
+            CopyStringContent(result, 0, first);
+            CopyStringContent(result, first.Length, second);
+            CopyStringContent(result, first.Length + second.Length, third);
+            CopyStringContent(
+                result,
+                first.Length + second.Length + third.Length,
+                fourth);
+            return result;
+        }
 
         public static string Concat(params string?[] values)
         {
@@ -264,39 +448,11 @@ namespace System
 
         public static string Format(string format, params object?[] args)
         {
-            if (format == null || args == null)
-            {
-                throw new ArgumentNullException();
-            }
-
-            var builder = new Text.StringBuilder(format.Length + args.Length * 8);
-            for (var position = 0; position < format.Length; position++)
-            {
-                var current = format[position];
-                if (current == '{')
-                {
-                    if (position + 1 < format.Length && format[position + 1] == '{')
-                    {
-                        builder.Append('{');
-                        position++;
-                        continue;
-                    }
-                    position = AppendCompositeItem(builder, format, position + 1, args);
-                    continue;
-                }
-                if (current == '}')
-                {
-                    if (position + 1 < format.Length && format[position + 1] == '}')
-                    {
-                        builder.Append('}');
-                        position++;
-                        continue;
-                    }
-                    throw new FormatException();
-                }
-                builder.Append(current);
-            }
-            return builder.ToString();
+            ArgumentNullException.ThrowIfNull(format);
+            ArgumentNullException.ThrowIfNull(args);
+            return new Text.StringBuilder(format.Length + args.Length * 8)
+                .AppendFormat(null, format, args)
+                .ToString();
         }
 
         public string Substring(int startIndex) =>
@@ -482,15 +638,14 @@ namespace System
         public int IndexOf(char value, int startIndex, int count)
         {
             ValidateRange(startIndex, count, Length);
-            var result = -1;
             for (var index = startIndex; index < startIndex + count; index++)
             {
-                if (result < 0 && this[index] == value)
+                if (this[index] == value)
                 {
-                    result = index;
+                    return index;
                 }
             }
-            return result;
+            return -1;
         }
 
         public int LastIndexOf(char value)
@@ -583,36 +738,14 @@ namespace System
                 return startIndex;
             }
             var last = startIndex + count - value.Length;
-            var result = -1;
             for (var index = startIndex; index <= last; index++)
             {
-                if (result < 0)
+                if (MatchesAt(this, value, index, comparisonType))
                 {
-                    var matched = 0;
-                    while (matched < value.Length)
-                    {
-                        var current = comparisonType == StringComparison.OrdinalIgnoreCase
-                            ? char.ToLowerInvariant(this[index + matched])
-                            : this[index + matched];
-                        var expected = comparisonType == StringComparison.OrdinalIgnoreCase
-                            ? char.ToLowerInvariant(value[matched])
-                            : value[matched];
-                        if (current == expected)
-                        {
-                            matched++;
-                        }
-                        else
-                        {
-                            matched = value.Length + 1;
-                        }
-                    }
-                    if (matched == value.Length)
-                    {
-                        result = index;
-                    }
+                    return index;
                 }
             }
-            return result;
+            return -1;
         }
 
         public bool Contains(string value, StringComparison comparisonType) =>
@@ -744,111 +877,6 @@ namespace System
             return offset;
         }
 
-        private static int AppendCompositeItem(
-            Text.StringBuilder builder,
-            string format,
-            int position,
-            object?[] args)
-        {
-            SkipSpaces(format, ref position);
-            if (position >= format.Length || !IsAsciiDigit(format[position]))
-            {
-                throw new FormatException();
-            }
-            var argumentIndex = 0;
-            while (position < format.Length && IsAsciiDigit(format[position]))
-            {
-                var digit = format[position++] - '0';
-                if (argumentIndex > (int.MaxValue - digit) / 10)
-                {
-                    throw new FormatException();
-                }
-                argumentIndex = argumentIndex * 10 + digit;
-            }
-            if ((uint)argumentIndex >= (uint)args.Length)
-            {
-                throw new FormatException();
-            }
-
-            SkipSpaces(format, ref position);
-            var alignment = 0;
-            if (position < format.Length && format[position] == ',')
-            {
-                position++;
-                SkipSpaces(format, ref position);
-                var leftAligned = position < format.Length && format[position] == '-';
-                if (leftAligned)
-                {
-                    position++;
-                }
-                else if (position < format.Length && format[position] == '+')
-                {
-                    position++;
-                }
-                if (position >= format.Length || !IsAsciiDigit(format[position]))
-                {
-                    throw new FormatException();
-                }
-                while (position < format.Length && IsAsciiDigit(format[position]))
-                {
-                    var digit = format[position++] - '0';
-                    if (alignment > (int.MaxValue - digit) / 10)
-                    {
-                        throw new FormatException();
-                    }
-                    alignment = alignment * 10 + digit;
-                }
-                if (leftAligned)
-                {
-                    alignment = -alignment;
-                }
-                SkipSpaces(format, ref position);
-            }
-
-            if (position < format.Length && format[position] == ':')
-            {
-                position++;
-                if (position < format.Length &&
-                    format[position] != 'G' && format[position] != 'g' &&
-                    format[position] != '}')
-                {
-                    throw new FormatException();
-                }
-                if (position < format.Length && format[position] != '}')
-                {
-                    position++;
-                }
-            }
-            if (position >= format.Length || format[position] != '}')
-            {
-                throw new FormatException();
-            }
-
-            var text = args[argumentIndex]?.ToString() ?? Empty;
-            var width = alignment < 0 ? -alignment : alignment;
-            var padding = width > text.Length ? width - text.Length : 0;
-            if (alignment > 0)
-            {
-                builder.Append(' ', padding);
-            }
-            builder.Append(text);
-            if (alignment < 0)
-            {
-                builder.Append(' ', padding);
-            }
-            return position;
-        }
-
-        private static void SkipSpaces(string format, ref int position)
-        {
-            while (position < format.Length && format[position] == ' ')
-            {
-                position++;
-            }
-        }
-
-        private static bool IsAsciiDigit(char value) => value >= '0' && value <= '9';
-
         private string TrimWhiteSpace(bool trimStart, bool trimEnd)
         {
             var start = 0;
@@ -870,11 +898,20 @@ namespace System
             return Substring(start, end - start + 1);
         }
 
-        private static bool IsWhiteSpace(char value) => value is
-            '\u0009' or '\u000a' or '\u000b' or '\u000c' or '\u000d' or
-            '\u0020' or '\u0085' or '\u00a0' or '\u1680' or
-            >= '\u2000' and <= '\u200a' or
-            '\u2028' or '\u2029' or '\u202f' or '\u205f' or '\u3000';
+        private static bool IsWhiteSpace(char value)
+        {
+            if (value <= '\u0020')
+            {
+                return value == '\u0020' || (uint)(value - '\u0009') <= 4u;
+            }
+            if ((uint)(value - '\u2000') <= '\u000a')
+            {
+                return true;
+            }
+            return value == '\u0085' || value == '\u00a0' || value == '\u1680' ||
+                value == '\u2028' || value == '\u2029' || value == '\u202f' ||
+                value == '\u205f' || value == '\u3000';
+        }
 
         private static bool MatchesAt(string source, string value, int startIndex)
         {
@@ -912,6 +949,35 @@ namespace System
                 throw new OutOfMemoryException();
             }
             return current + additional;
+        }
+
+        private static bool EqualsHelper(string left, string right)
+        {
+            ref var leftData = ref left.GetRawStringData();
+            ref var rightData = ref right.GetRawStringData();
+            for (var index = 0; index < left.Length; index++)
+            {
+                if (Unsafe.Add(ref leftData, index) !=
+                    Unsafe.Add(ref rightData, index))
+                {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        private static void CopyStringContent(
+            string destination,
+            int destinationIndex,
+            string source)
+        {
+            ref var destinationData = ref destination.GetRawStringData();
+            ref var sourceData = ref source.GetRawStringData();
+            for (var index = 0; index < source.Length; index++)
+            {
+                Unsafe.Add(ref destinationData, destinationIndex + index) =
+                    Unsafe.Add(ref sourceData, index);
+            }
         }
 
         private static void SetCharUnchecked(string value, int index, char character)
@@ -1060,10 +1126,12 @@ namespace System
             return comparisonType == StringComparison.Ordinal ? GetHashCode() : GetOrdinalIgnoreCaseHashCode(this);
         }
 
-        private static char s_pinnableReference;
         private static List<string>? s_internedStrings;
 
-        public ref readonly char GetPinnableReference() => ref s_pinnableReference;
+        public ref readonly char GetPinnableReference() => ref GetRawStringData();
+
+        internal ref char GetRawStringData() =>
+            throw new PlatformNotSupportedException();
 
         public TypeCode GetTypeCode() => TypeCode.String;
 
@@ -1405,7 +1473,7 @@ namespace System
 
         public string Normalize() => throw new PlatformNotSupportedException();
 
-        public string ToLowerOrdinal() => MapInvariant(this, upper: false);
+        public string ToLowerOrdinal() => MapLowerInvariant(this);
 
         public string ToString(IFormatProvider? provider) => this;
 
@@ -1413,23 +1481,34 @@ namespace System
 
         public string ToUpperInvariant() => ToUpperOrdinal();
 
-        public string ToUpperOrdinal() => MapInvariant(this, upper: true);
+        public string ToUpperOrdinal() => MapUpperInvariant(this);
 
         public string Trim(Rune trimRune) => Trim(trimRune.ToString().ToCharArray());
 
-        public string Trim(params char[]? trimChars) => TrimCore(trimChars, trimStart: true, trimEnd: true);
+        public string Trim(params char[]? trimChars) =>
+            trimChars is null || trimChars.Length == 0
+                ? Trim()
+                : TrimCore(trimChars, trimStart: true, trimEnd: true);
 
-        public string TrimEnd(char trimChar) => TrimEnd(new[] { trimChar });
+        public string TrimEnd(char trimChar) =>
+            TrimCharCore(trimChar, trimStart: false, trimEnd: true);
 
         public string TrimEnd(Rune trimRune) => TrimEnd(trimRune.ToString().ToCharArray());
 
-        public string TrimEnd(params char[]? trimChars) => TrimCore(trimChars, trimStart: false, trimEnd: true);
+        public string TrimEnd(params char[]? trimChars) =>
+            trimChars is null || trimChars.Length == 0
+                ? TrimEnd()
+                : TrimCore(trimChars, trimStart: false, trimEnd: true);
 
-        public string TrimStart(char trimChar) => TrimStart(new[] { trimChar });
+        public string TrimStart(char trimChar) =>
+            TrimCharCore(trimChar, trimStart: true, trimEnd: false);
 
         public string TrimStart(Rune trimRune) => TrimStart(trimRune.ToString().ToCharArray());
 
-        public string TrimStart(params char[]? trimChars) => TrimCore(trimChars, trimStart: true, trimEnd: false);
+        public string TrimStart(params char[]? trimChars) =>
+            trimChars is null || trimChars.Length == 0
+                ? TrimStart()
+                : TrimCore(trimChars, trimStart: true, trimEnd: false);
 
         public static int Compare(string? strA, string? strB) =>
             Compare(strA, strB, StringComparison.Ordinal);
@@ -1576,37 +1655,48 @@ namespace System
         }
 
         public static string Format(IFormatProvider? provider, string format, object? arg0) =>
-            Format(format, arg0);
+            Format(provider, format, new object?[] { arg0 });
 
         public static string Format(IFormatProvider? provider, string format, object? arg0, object? arg1) =>
-            Format(format, arg0, arg1);
+            Format(provider, format, new object?[] { arg0, arg1 });
 
         public static string Format(IFormatProvider? provider, string format, object? arg0, object? arg1, object? arg2) =>
-            Format(format, arg0, arg1, arg2);
+            Format(provider, format, new object?[] { arg0, arg1, arg2 });
 
-        public static string Format(IFormatProvider? provider, string format, params object?[] args) =>
-            Format(format, args);
+        public static string Format(IFormatProvider? provider, string format, params object?[] args)
+        {
+            ArgumentNullException.ThrowIfNull(format);
+            ArgumentNullException.ThrowIfNull(args);
+            return new Text.StringBuilder(format.Length + args.Length * 8)
+                .AppendFormat(provider, format, args)
+                .ToString();
+        }
 
         public static string Format(IFormatProvider? provider, string format, params ReadOnlySpan<object?> args) =>
-            Format(format, args.ToArray());
+            Format(provider, format, args.ToArray());
 
         public static string Format(IFormatProvider? provider, CompositeFormat format, params object?[] args) =>
             Format(provider, format, new ReadOnlySpan<object?>(args));
 
-        public static string Format(IFormatProvider? provider, CompositeFormat format, params ReadOnlySpan<object?> args) =>
-            Format(provider, format.Format, args);
+        public static string Format(IFormatProvider? provider, CompositeFormat format, params ReadOnlySpan<object?> args)
+        {
+            ArgumentNullException.ThrowIfNull(format);
+            return new Text.StringBuilder(format.Format.Length + args.Length * 8)
+                .AppendFormat(provider, format, args)
+                .ToString();
+        }
 
         public static string Format(string format, params ReadOnlySpan<object?> args) =>
             Format(format, args.ToArray());
 
         public static string Format<TArg0>(IFormatProvider? provider, CompositeFormat format, TArg0 arg0) =>
-            Format(provider, format.Format, arg0);
+            Format(provider, format, new object?[] { arg0 });
 
         public static string Format<TArg0, TArg1>(IFormatProvider? provider, CompositeFormat format, TArg0 arg0, TArg1 arg1) =>
-            Format(provider, format.Format, arg0, arg1);
+            Format(provider, format, new object?[] { arg0, arg1 });
 
         public static string Format<TArg0, TArg1, TArg2>(IFormatProvider? provider, CompositeFormat format, TArg0 arg0, TArg1 arg1, TArg2 arg2) =>
-            Format(provider, format.Format, arg0, arg1, arg2);
+            Format(provider, format, new object?[] { arg0, arg1, arg2 });
 
         public static int GetHashCode(ReadOnlySpan<char> value) => Create(value.ToArray()).GetHashCode();
 
@@ -1656,7 +1746,7 @@ namespace System
             return null;
         }
 
-        public static bool IsNullOrWhiteSpace(string? value)
+        public static bool IsNullOrWhiteSpace([NotNullWhen(false)] string? value)
         {
             if (value is null)
             {
@@ -1775,15 +1865,26 @@ namespace System
             {
                 return 1;
             }
+            if (comparisonType == StringComparison.OrdinalIgnoreCase)
+            {
+                var leftIndex = 0;
+                var rightIndex = 0;
+                while (leftIndex < left.Length && rightIndex < right.Length)
+                {
+                    var leftScalar = ReadFoldedOrdinalIgnoreCaseScalar(left, ref leftIndex);
+                    var rightScalar = ReadFoldedOrdinalIgnoreCaseScalar(right, ref rightIndex);
+                    if (leftScalar != rightScalar)
+                    {
+                        return leftScalar < rightScalar ? -1 : 1;
+                    }
+                }
+                return (left.Length - leftIndex) - (right.Length - rightIndex);
+            }
+
             var length = left.Length < right.Length ? left.Length : right.Length;
             for (var index = 0; index < length; index++)
             {
-                var leftChar = comparisonType == StringComparison.OrdinalIgnoreCase ? FoldOrdinalIgnoreCase(left[index]) : left[index];
-                var rightChar = comparisonType == StringComparison.OrdinalIgnoreCase ? FoldOrdinalIgnoreCase(right[index]) : right[index];
-                if (leftChar != rightChar)
-                {
-                    return leftChar - rightChar;
-                }
+                if (left[index] != right[index]) return left[index] - right[index];
             }
             return left.Length - right.Length;
         }
@@ -1808,36 +1909,234 @@ namespace System
             {
                 return false;
             }
-            return CompareOrdinal(source.Substring(startIndex, value.Length), value, comparisonType) == 0;
+            if (comparisonType == StringComparison.Ordinal)
+            {
+                for (var index = 0; index < value.Length; index++)
+                {
+                    if (source[startIndex + index] != value[index]) return false;
+                }
+                return true;
+            }
+
+            var sourceIndex = startIndex;
+            var sourceEnd = startIndex + value.Length;
+            var valueIndex = 0;
+            while (sourceIndex < sourceEnd && valueIndex < value.Length)
+            {
+                if (ReadFoldedOrdinalIgnoreCaseScalar(source, ref sourceIndex, sourceEnd) !=
+                    ReadFoldedOrdinalIgnoreCaseScalar(value, ref valueIndex))
+                {
+                    return false;
+                }
+            }
+            return sourceIndex == sourceEnd && valueIndex == value.Length;
         }
 
         private static char FoldOrdinalIgnoreCase(char value) => char.ToUpperInvariant(value);
 
-        private static string MapInvariant(string value, bool upper)
+        private static string MapLowerInvariant(string value)
         {
-            var result = new char[value.Length];
-            for (var index = 0; index < value.Length; index++)
+            if (value.Length == 0) return Empty;
+
+            var changedAt = -1;
+            var readIndex = 0;
+            while (readIndex < value.Length)
             {
-                result[index] = upper
-                    ? char.ToUpperInvariant(value[index])
-                    : char.ToLowerInvariant(value[index]);
+                var scalarStart = readIndex;
+                uint scalar = value[readIndex];
+                uint mapped;
+                if (scalar <= 0x7F)
+                {
+                    readIndex++;
+                    mapped = scalar is >= 'A' and <= 'Z' ? scalar | 0x20u : scalar;
+                }
+                else
+                {
+                    scalar = ReadScalar(value, ref readIndex);
+                    mapped = Globalization.CharUnicodeInfo.ToLower(scalar);
+                }
+                if (mapped != scalar)
+                {
+                    changedAt = scalarStart;
+                    break;
+                }
             }
-            return Create(result);
+            if (changedAt < 0) return value;
+
+            var result = new string('\0', value.Length);
+            for (var index = 0; index < changedAt; index++)
+            {
+                SetCharUnchecked(result, index, value[index]);
+            }
+            for (var index = changedAt; index < value.Length;)
+            {
+                var current = value[index];
+                if (current <= 0x7F)
+                {
+                    SetCharUnchecked(result, index++, current is >= 'A' and <= 'Z'
+                        ? (char)(current | 0x20)
+                        : current);
+                    continue;
+                }
+
+                var scalarStart = index;
+                var scalar = ReadScalar(value, ref index);
+                var writeIndex = scalarStart;
+                WriteScalar(result, ref writeIndex, Globalization.CharUnicodeInfo.ToLower(scalar));
+            }
+            return result;
+        }
+
+        private static string MapUpperInvariant(string value)
+        {
+            if (value.Length == 0) return Empty;
+
+            var changedAt = -1;
+            var readIndex = 0;
+            while (readIndex < value.Length)
+            {
+                var scalarStart = readIndex;
+                uint scalar = value[readIndex];
+                uint mapped;
+                if (scalar <= 0x7F)
+                {
+                    readIndex++;
+                    mapped = scalar is >= 'a' and <= 'z' ? scalar & 0x5Fu : scalar;
+                }
+                else
+                {
+                    scalar = ReadScalar(value, ref readIndex);
+                    mapped = Globalization.CharUnicodeInfo.ToUpper(scalar);
+                }
+                if (mapped != scalar)
+                {
+                    changedAt = scalarStart;
+                    break;
+                }
+            }
+            if (changedAt < 0) return value;
+
+            var result = new string('\0', value.Length);
+            for (var index = 0; index < changedAt; index++)
+            {
+                SetCharUnchecked(result, index, value[index]);
+            }
+            for (var index = changedAt; index < value.Length;)
+            {
+                var current = value[index];
+                if (current <= 0x7F)
+                {
+                    SetCharUnchecked(result, index++, current is >= 'a' and <= 'z'
+                        ? (char)(current & 0x5F)
+                        : current);
+                    continue;
+                }
+
+                var scalarStart = index;
+                var scalar = ReadScalar(value, ref index);
+                var writeIndex = scalarStart;
+                WriteScalar(result, ref writeIndex, Globalization.CharUnicodeInfo.ToUpper(scalar));
+            }
+            return result;
         }
 
         private static int GetOrdinalIgnoreCaseHashCode(string value)
         {
-            var hash = 2_166_136_261;
-            for (var index = 0; index < value.Length; index++)
+            uint hash = 2_166_136_261;
+            var index = 0;
+            while (index < value.Length)
             {
-                hash = (hash ^ FoldOrdinalIgnoreCase(value[index])) * 16_777_619;
+                hash = AddFoldedScalarToHash(hash, ReadFoldedOrdinalIgnoreCaseScalar(value, ref index));
             }
+            return FinalizeOrdinalIgnoreCaseHash(hash);
+        }
+
+        private static int GetOrdinalIgnoreCaseHashCode(ReadOnlySpan<char> value)
+        {
+            uint hash = 2_166_136_261;
+            var index = 0;
+            while (index < value.Length)
+            {
+                hash = AddFoldedScalarToHash(hash, ReadFoldedOrdinalIgnoreCaseScalar(value, ref index, value.Length));
+            }
+            return FinalizeOrdinalIgnoreCaseHash(hash);
+        }
+
+        private static uint ReadScalar(string value, ref int index, int end = int.MaxValue)
+        {
+            var first = value[index++];
+            if (first is >= '\uD800' and <= '\uDBFF' && index < value.Length && index < end)
+            {
+                var second = value[index];
+                if (second is >= '\uDC00' and <= '\uDFFF')
+                {
+                    index++;
+                    return (uint)(((first - 0xD800) << 10) + second - 0xDC00 + 0x10000);
+                }
+            }
+            return first;
+        }
+
+        private static uint ReadFoldedOrdinalIgnoreCaseScalar(string value, ref int index, int end = int.MaxValue) =>
+            Globalization.CharUnicodeInfo.ToUpper(ReadScalar(value, ref index, end));
+
+        private static uint ReadFoldedOrdinalIgnoreCaseScalar(ReadOnlySpan<char> value, ref int index, int end)
+        {
+            var first = value[index++];
+            uint scalar = first;
+            if (first is >= '\uD800' and <= '\uDBFF' && index < end)
+            {
+                var second = value[index];
+                if (second is >= '\uDC00' and <= '\uDFFF')
+                {
+                    index++;
+                    scalar = (uint)(((first - 0xD800) << 10) + second - 0xDC00 + 0x10000);
+                }
+            }
+            return Globalization.CharUnicodeInfo.ToUpper(scalar);
+        }
+
+        private static void WriteScalar(string destination, ref int index, uint scalar)
+        {
+            if (scalar <= 0xFFFF)
+            {
+                SetCharUnchecked(destination, index++, (char)scalar);
+                return;
+            }
+            scalar -= 0x10000;
+            SetCharUnchecked(destination, index++, (char)(0xD800 + (scalar >> 10)));
+            SetCharUnchecked(destination, index++, (char)(0xDC00 + (scalar & 0x3FF)));
+        }
+
+        private static uint AddFoldedScalarToHash(uint hash, uint scalar)
+        {
+            if (scalar <= 0xFFFF)
+            {
+                return (hash ^ scalar) * 16_777_619u;
+            }
+            scalar -= 0x10000;
+            hash = (hash ^ (0xD800u + (scalar >> 10))) * 16_777_619u;
+            return (hash ^ (0xDC00u + (scalar & 0x3FF))) * 16_777_619u;
+        }
+
+        private static int FinalizeOrdinalIgnoreCaseHash(uint hash)
+        {
             hash ^= hash >> 16;
-            hash *= 2_246_822_519;
+            hash *= 2_246_822_519u;
             hash ^= hash >> 13;
-            hash *= 3_266_489_917;
+            hash *= 3_266_489_917u;
             hash ^= hash >> 16;
             return (int)hash;
+        }
+
+        private static bool ContainsSurrogatePair(ReadOnlySpan<char> value)
+        {
+            for (var index = 0; index + 1 < value.Length; index++)
+            {
+                if (value[index] is >= '\uD800' and <= '\uDBFF' &&
+                    value[index + 1] is >= '\uDC00' and <= '\uDFFF') return true;
+            }
+            return false;
         }
 
         private static string[]? ToStringSeparators(char[]? separators)
@@ -1875,7 +2174,7 @@ namespace System
                     ? Array.Empty<string>()
                     : new[] { only };
             }
-            separators ??= new[] { " ", "\t", "\r", "\n", "\f", "\v" };
+            var splitOnWhiteSpace = separators is null || separators.Length == 0;
             var result = new Collections.Generic.List<string>();
             var start = 0;
             var index = 0;
@@ -1884,14 +2183,21 @@ namespace System
                 var matchedLength = 0;
                 if (index < Length)
                 {
-                    for (var separatorIndex = 0; separatorIndex < separators.Length; separatorIndex++)
+                    if (splitOnWhiteSpace)
                     {
-                        var separator = separators[separatorIndex];
-                        if (separator is not null && separator.Length != 0 && index + separator.Length <= Length &&
-                            MatchesAt(this, separator, index, StringComparison.Ordinal))
+                        matchedLength = char.IsWhiteSpace(this[index]) ? 1 : 0;
+                    }
+                    else
+                    {
+                        for (var separatorIndex = 0; separatorIndex < separators!.Length; separatorIndex++)
                         {
-                            matchedLength = separator.Length;
-                            break;
+                            var separator = separators[separatorIndex];
+                            if (separator is not null && separator.Length != 0 && index + separator.Length <= Length &&
+                                MatchesAt(this, separator, index, StringComparison.Ordinal))
+                            {
+                                matchedLength = separator.Length;
+                                break;
+                            }
                         }
                     }
                 }
@@ -1949,9 +2255,24 @@ namespace System
             return Substring(start, end - start + 1);
         }
 
+        private string TrimCharCore(char trimChar, bool trimStart, bool trimEnd)
+        {
+            var start = 0;
+            var end = Length - 1;
+            while (trimStart && start <= end && this[start] == trimChar)
+            {
+                start++;
+            }
+            while (trimEnd && end >= start && this[end] == trimChar)
+            {
+                end--;
+            }
+            return Substring(start, end - start + 1);
+        }
+
         private static bool IsTrimChar(char value, char[]? trimChars)
         {
-            if (trimChars is null)
+            if (trimChars is null || trimChars.Length == 0)
             {
                 return IsWhiteSpace(value);
             }
@@ -2017,6 +2338,10 @@ namespace System
 
     public enum StringComparison
     {
+        CurrentCulture = 0,
+        CurrentCultureIgnoreCase = 1,
+        InvariantCulture = 2,
+        InvariantCultureIgnoreCase = 3,
         Ordinal = 4,
         OrdinalIgnoreCase = 5,
     }

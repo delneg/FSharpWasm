@@ -80,11 +80,12 @@ internal sealed class RootMapInvariantValidator(
                 "root map method identity does not match its body",
                 displayName);
         }
-        var slots = roots.Slots.Values.Order().ToArray();
-        if (!slots.SequenceEqual(Enumerable.Range(0, slots.Length)))
+        var slots = roots.Slots.Values.Distinct().Order().ToArray();
+        if (roots.Slots.Values.Any(slot => slot < 0) ||
+            !slots.SequenceEqual(Enumerable.Range(0, slots.Length)))
         {
             throw exceptions.Create(
-                "root slots are not unique and contiguous",
+                "occupied root slots are not nonnegative and contiguous",
                 displayName);
         }
         var instructions = body.Instructions.ToDictionary(
@@ -114,11 +115,25 @@ internal sealed class RootMapInvariantValidator(
                 IReadOnlyCollection<RootSource> sources,
                 string kind)
             {
-                if (sources.Count != sources.Distinct().Count() ||
-                    sources.Any(source => !roots.Slots.ContainsKey(source)))
+                if (sources.Count != sources.Distinct().Count())
                 {
                     throw exceptions.Create(
-                        $"{kind} safepoint roots are duplicated or have no assigned slot",
+                        $"{kind} safepoint roots are duplicated",
+                        displayName,
+                        safepoint.IlOffset);
+                }
+                if (sources.Any(source => !roots.Slots.ContainsKey(source)))
+                {
+                    throw exceptions.Create(
+                        $"{kind} safepoint root has no assigned slot",
+                        displayName,
+                        safepoint.IlOffset);
+                }
+                if (sources.Select(source => roots.Slots[source]).Distinct().Count() !=
+                    sources.Count)
+                {
+                    throw exceptions.Create(
+                        $"{kind} safepoint roots share an assigned slot",
                         displayName,
                         safepoint.IlOffset);
                 }
@@ -130,7 +145,8 @@ internal sealed class RootMapInvariantValidator(
             methods,
             program.DispatchCallSites,
             typeClassifier);
-        foreach (var block in method.ControlFlow.Graph.Blocks)
+        var graph = method.ControlFlow.Graph;
+        foreach (var block in graph.Blocks.Where(block => graph.ReachableBlocks.Contains(block.Index)))
         {
             foreach (var instruction in block.Instructions.Where(instruction =>
                          rootDecisions.Decide(new(

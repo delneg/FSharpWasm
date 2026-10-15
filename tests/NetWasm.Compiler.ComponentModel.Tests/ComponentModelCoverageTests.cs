@@ -1,4 +1,6 @@
 using NetWasm.Compiler.Core;
+using NetWasm.Compiler.ComponentModel.Inlining;
+using NetWasm.Compiler.ComponentModel.Optimization;
 using NetWasm.Compiler.ComponentModel.Functions;
 using NetWasm.Compiler.ComponentModel.ManagedExecutables;
 using NetWasm.Compiler.ComponentModel.Node;
@@ -136,7 +138,7 @@ public sealed class ComponentModelCoverageTests
         var optimizer = new ComponentCoreModuleOptimizer(
             new RecordingProcessRunner(), new SystemFileExistence(),
             new WasmCoreModuleValidator(new NoopPackageOperations()),
-            new SystemFileCopier());
+            new NoopInlineAnnotations());
         Assert.Throws<CompilerException>(() => optimizer.Optimize(
             files.PathFor("missing.wasm"), files.PathFor("output.wasm"),
             ComponentTarget.Wasm32Wasi02, FinalWasmOptimization.Oz));
@@ -220,26 +222,26 @@ public sealed class ComponentModelCoverageTests
         Assert.Throws<ArgumentNullException>(() => new ComponentCoreModuleLinker(
             coreValidator, coreFactory, null!));
         Assert.Throws<ArgumentNullException>(() => new ComponentCoreModuleLinkExecution(
-            null!, environment, host, managedExecutables, exports, optimizer));
+            null!, environment, host, managedExecutables, exports, optimizer, new WasmOptimizationSettingsResolver(), new NoopInlineAnnotations()));
         Assert.Throws<ArgumentNullException>(() => new ComponentCoreModuleLinkExecution(
-            merge, null!, host, managedExecutables, exports, optimizer));
+            merge, null!, host, managedExecutables, exports, optimizer, new WasmOptimizationSettingsResolver(), new NoopInlineAnnotations()));
         Assert.Throws<ArgumentNullException>(() => new ComponentCoreModuleLinkExecution(
-            merge, environment, null!, managedExecutables, exports, optimizer));
+            merge, environment, null!, managedExecutables, exports, optimizer, new WasmOptimizationSettingsResolver(), new NoopInlineAnnotations()));
         Assert.Throws<ArgumentNullException>(() => new ComponentCoreModuleLinkExecution(
-            merge, environment, host, null!, exports, optimizer));
+            merge, environment, host, null!, exports, optimizer, new WasmOptimizationSettingsResolver(), new NoopInlineAnnotations()));
         Assert.Throws<ArgumentNullException>(() => new ComponentCoreModuleLinkExecution(
-            merge, environment, host, managedExecutables, null!, optimizer));
+            merge, environment, host, managedExecutables, null!, optimizer, new WasmOptimizationSettingsResolver(), new NoopInlineAnnotations()));
         Assert.Throws<ArgumentNullException>(() => new ComponentCoreModuleLinkExecution(
-            merge, environment, host, managedExecutables, exports, null!));
+            merge, environment, host, managedExecutables, exports, null!, new WasmOptimizationSettingsResolver(), new NoopInlineAnnotations()));
         Assert.Throws<ArgumentNullException>(() => new ComponentCoreModuleMergeRunner(null!));
         Assert.Throws<ArgumentNullException>(() => new ComponentCoreModuleOptimizer(
             null!, new SystemFileExistence(),
             new WasmCoreModuleValidator(new NoopPackageOperations()),
-            new SystemFileCopier()));
+            new NoopInlineAnnotations()));
         Assert.Throws<ArgumentNullException>(() => new ComponentCoreModuleOptimizer(
             new RecordingProcessRunner(), null!,
             new WasmCoreModuleValidator(new NoopPackageOperations()),
-            new SystemFileCopier()));
+            new NoopInlineAnnotations()));
         Assert.Throws<ArgumentNullException>(() => new ComponentPackageExecution(
             null!, coreLinker, new SystemFileMover()));
         Assert.Throws<ArgumentNullException>(() => new ComponentPackageExecution(
@@ -377,17 +379,19 @@ public sealed class ComponentModelCoverageTests
             new WitDocument([], [], [], [], "{}"), null!));
 
         Assert.Throws<ArgumentNullException>(() => new ComponentCoreModuleWorkspace(
-            null!, "environment", "host", "adapter", "merged", "sanitized"));
+            null!, "environment", "host", "adapter", "merged", "sanitized", "runtime-sanitized"));
         Assert.Throws<ArgumentNullException>(() => new ComponentCoreModuleWorkspace(
-            new SystemFileDeleter(), null!, "host", "adapter", "merged", "sanitized"));
+            new SystemFileDeleter(), null!, "host", "adapter", "merged", "sanitized", "runtime-sanitized"));
         Assert.Throws<ArgumentNullException>(() => new ComponentCoreModuleWorkspace(
-            new SystemFileDeleter(), "environment", null!, "adapter", "merged", "sanitized"));
+            new SystemFileDeleter(), "environment", null!, "adapter", "merged", "sanitized", "runtime-sanitized"));
         Assert.Throws<ArgumentNullException>(() => new ComponentCoreModuleWorkspace(
-            new SystemFileDeleter(), "environment", "host", null!, "merged", "sanitized"));
+            new SystemFileDeleter(), "environment", "host", null!, "merged", "sanitized", "runtime-sanitized"));
         Assert.Throws<ArgumentNullException>(() => new ComponentCoreModuleWorkspace(
-            new SystemFileDeleter(), "environment", "host", "adapter", null!, "sanitized"));
+            new SystemFileDeleter(), "environment", "host", "adapter", null!, "sanitized", "runtime-sanitized"));
         Assert.Throws<ArgumentNullException>(() => new ComponentCoreModuleWorkspace(
-            new SystemFileDeleter(), "environment", "host", "adapter", "merged", null!));
+            new SystemFileDeleter(), "environment", "host", "adapter", "merged", null!, "runtime-sanitized"));
+        Assert.Throws<ArgumentNullException>(() => new ComponentCoreModuleWorkspace(
+            new SystemFileDeleter(), "environment", "host", "adapter", "merged", "sanitized", null!));
         Assert.Throws<ArgumentNullException>(() => new ComponentPackageWorkspace(
             null!, "temporary", "linked", "embedded", "unstripped", "component"));
         Assert.Throws<ArgumentNullException>(() => new ComponentPackageWorkspace(
@@ -412,7 +416,7 @@ public sealed class ComponentModelCoverageTests
         var workspace = new ComponentCoreModuleWorkspace(
             new SystemFileDeleter(), environment,
             files.PathFor("host.wasm"), files.PathFor("adapter.wasm"),
-            merged, sanitized);
+            merged, sanitized, files.PathFor("runtime-sanitized.wasm"));
         var request = new ComponentCoreModuleLinkRequest(
             "application.wasm", "runtime.wasm", "output.wasm",
             ComponentTarget.Wasm64Wasi02);
@@ -423,7 +427,7 @@ public sealed class ComponentModelCoverageTests
                 new NoopHost(),
                 new NoopManagedExecutables(),
                 new NoopExports(),
-                new NoopOptimizer())
+                new NoopOptimizer(), new WasmOptimizationSettingsResolver(), new NoopInlineAnnotations())
             .Run(request, workspace);
 
         Assert.False(File.Exists(environment));
@@ -451,6 +455,11 @@ public sealed class ComponentModelCoverageTests
     {
         public ToolResult Run(params IEnumerable<string> arguments) =>
             new(0, "{}", string.Empty);
+    }
+
+    private sealed class NoopInlineAnnotations : IWasmCoreModuleInlineAnnotationEditor
+    {
+        public void Rewrite(string inputPath, string outputPath, WasmInlineAnnotationSelection selection) { }
     }
 
     private sealed class NoopMerge : IComponentCoreModuleMergeRunner

@@ -1,145 +1,230 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// Adapted from dotnet/runtime System.Collections.Immutable at commit
-// 811225a482702af7ecc35d817966bc70b88a3a23.
 
 using System.Collections.Generic;
 using System.ComponentModel;
 
-namespace System.Collections.Immutable;
-
-public sealed partial class ImmutableQueue<T>
+namespace System.Collections.Immutable
 {
-    /// <summary>Enumerates a queue with no memory allocations.</summary>
-    [EditorBrowsable(EditorBrowsableState.Advanced)]
-    public struct Enumerator
+    public sealed partial class ImmutableQueue<T>
     {
-        private readonly ImmutableQueue<T> _originalQueue;
-        private ImmutableStack<T>? _remainingForwardsStack;
-        private ImmutableStack<T>? _remainingBackwardsStack;
-
-        internal Enumerator(ImmutableQueue<T> queue)
+        /// <summary>
+        /// A memory allocation-free enumerator of <see cref="ImmutableQueue{T}"/>.
+        /// </summary>
+        [EditorBrowsable(EditorBrowsableState.Advanced)]
+        public struct Enumerator
         {
-            _originalQueue = queue;
-            _remainingForwardsStack = null;
-            _remainingBackwardsStack = null;
-        }
+            /// <summary>
+            /// The original queue being enumerated.
+            /// </summary>
+            private readonly ImmutableQueue<T> _originalQueue;
 
-        public T Current
-        {
-            get
+            /// <summary>
+            /// The remaining forwards stack of the queue being enumerated.
+            /// </summary>
+            private ImmutableStack<T>? _remainingForwardsStack;
+
+            /// <summary>
+            /// The remaining backwards stack of the queue being enumerated.
+            /// Its order is reversed when the field is first initialized.
+            /// </summary>
+            private ImmutableStack<T>? _remainingBackwardsStack;
+
+            /// <summary>
+            /// Initializes a new instance of the <see cref="Enumerator"/> struct.
+            /// </summary>
+            /// <param name="queue">The queue to enumerate.</param>
+            internal Enumerator(ImmutableQueue<T> queue)
             {
-                if (_remainingForwardsStack is null)
+                _originalQueue = queue;
+
+                // The first call to MoveNext will initialize these.
+                _remainingForwardsStack = null;
+                _remainingBackwardsStack = null;
+            }
+
+            /// <summary>
+            /// The current element.
+            /// </summary>
+            public T Current
+            {
+                get
                 {
-                    throw new InvalidOperationException();
+                    if (_remainingForwardsStack == null)
+                    {
+                        // The initial call to MoveNext has not yet been made.
+                        throw new InvalidOperationException();
+                    }
+
+                    if (!_remainingForwardsStack.IsEmpty)
+                    {
+                        return _remainingForwardsStack.Peek();
+                    }
+                    else if (!_remainingBackwardsStack!.IsEmpty)
+                    {
+                        return _remainingBackwardsStack.Peek();
+                    }
+                    else
+                    {
+                        // We've advanced beyond the end of the queue.
+                        throw new InvalidOperationException();
+                    }
+                }
+            }
+
+            /// <summary>
+            /// Advances enumeration to the next element.
+            /// </summary>
+            /// <returns>A value indicating whether there is another element in the enumeration.</returns>
+            public bool MoveNext()
+            {
+                if (_remainingForwardsStack == null)
+                {
+                    // This is the initial step.
+                    // Empty queues have no forwards or backwards
+                    _remainingForwardsStack = _originalQueue._forwards;
+                    _remainingBackwardsStack = _originalQueue.BackwardsReversed;
+                }
+                else if (!_remainingForwardsStack.IsEmpty)
+                {
+                    _remainingForwardsStack = _remainingForwardsStack.Pop();
+                }
+                else if (!_remainingBackwardsStack!.IsEmpty)
+                {
+                    _remainingBackwardsStack = _remainingBackwardsStack.Pop();
                 }
 
-                if (!_remainingForwardsStack.IsEmpty)
+                return !_remainingForwardsStack.IsEmpty || !_remainingBackwardsStack!.IsEmpty;
+            }
+        }
+
+        /// <summary>
+        /// A memory allocation-free enumerator of <see cref="ImmutableQueue{T}"/>.
+        /// </summary>
+        private sealed class EnumeratorObject : IEnumerator<T>
+        {
+            /// <summary>
+            /// The original queue being enumerated.
+            /// </summary>
+            private readonly ImmutableQueue<T> _originalQueue;
+
+            /// <summary>
+            /// The remaining forwards stack of the queue being enumerated.
+            /// </summary>
+            private ImmutableStack<T>? _remainingForwardsStack;
+
+            /// <summary>
+            /// The remaining backwards stack of the queue being enumerated.
+            /// Its order is reversed when the field is first initialized.
+            /// </summary>
+            private ImmutableStack<T>? _remainingBackwardsStack;
+
+            /// <summary>
+            /// A value indicating whether this enumerator has been disposed.
+            /// </summary>
+            private bool _disposed;
+
+            /// <summary>
+            /// Initializes a new instance of the <see cref="Enumerator"/> struct.
+            /// </summary>
+            /// <param name="queue">The queue to enumerate.</param>
+            internal EnumeratorObject(ImmutableQueue<T> queue)
+            {
+                _originalQueue = queue;
+            }
+
+            /// <summary>
+            /// The current element.
+            /// </summary>
+            public T Current
+            {
+                get
                 {
-                    return _remainingForwardsStack.Peek();
+                    this.ThrowIfDisposed();
+                    if (_remainingForwardsStack == null)
+                    {
+                        // The initial call to MoveNext has not yet been made.
+                        throw new InvalidOperationException();
+                    }
+
+                    if (!_remainingForwardsStack.IsEmpty)
+                    {
+                        return _remainingForwardsStack.Peek();
+                    }
+                    else if (!_remainingBackwardsStack!.IsEmpty)
+                    {
+                        return _remainingBackwardsStack.Peek();
+                    }
+                    else
+                    {
+                        // We've advanced beyond the end of the queue.
+                        throw new InvalidOperationException();
+                    }
+                }
+            }
+
+            /// <summary>
+            /// The current element.
+            /// </summary>
+            object IEnumerator.Current
+            {
+                get { return this.Current!; }
+            }
+
+            /// <summary>
+            /// Advances enumeration to the next element.
+            /// </summary>
+            /// <returns>A value indicating whether there is another element in the enumeration.</returns>
+            public bool MoveNext()
+            {
+                this.ThrowIfDisposed();
+                if (_remainingForwardsStack == null)
+                {
+                    // This is the initial step.
+                    // Empty queues have no forwards or backwards
+                    _remainingForwardsStack = _originalQueue._forwards;
+                    _remainingBackwardsStack = _originalQueue.BackwardsReversed;
+                }
+                else if (!_remainingForwardsStack.IsEmpty)
+                {
+                    _remainingForwardsStack = _remainingForwardsStack.Pop();
+                }
+                else if (!_remainingBackwardsStack!.IsEmpty)
+                {
+                    _remainingBackwardsStack = _remainingBackwardsStack.Pop();
                 }
 
-                if (!_remainingBackwardsStack!.IsEmpty)
+                return !_remainingForwardsStack.IsEmpty || !_remainingBackwardsStack!.IsEmpty;
+            }
+
+            /// <summary>
+            /// Restarts enumeration.
+            /// </summary>
+            public void Reset()
+            {
+                this.ThrowIfDisposed();
+                _remainingBackwardsStack = null;
+                _remainingForwardsStack = null;
+            }
+
+            /// <summary>
+            /// Disposes this instance.
+            /// </summary>
+            public void Dispose()
+            {
+                _disposed = true;
+            }
+
+            /// <summary>
+            /// Throws an <see cref="ObjectDisposedException"/> if this
+            /// enumerator has already been disposed.
+            /// </summary>
+            private void ThrowIfDisposed()
+            {
+                if (_disposed)
                 {
-                    return _remainingBackwardsStack.Peek();
+                    Requires.FailObjectDisposed(this);
                 }
-
-                throw new InvalidOperationException();
-            }
-        }
-
-        public bool MoveNext()
-        {
-            if (_remainingForwardsStack is null)
-            {
-                _remainingForwardsStack = _originalQueue._forwards;
-                _remainingBackwardsStack = _originalQueue.BackwardsReversed;
-            }
-            else if (!_remainingForwardsStack.IsEmpty)
-            {
-                _remainingForwardsStack = _remainingForwardsStack.Pop();
-            }
-            else if (!_remainingBackwardsStack!.IsEmpty)
-            {
-                _remainingBackwardsStack = _remainingBackwardsStack.Pop();
-            }
-
-            return !_remainingForwardsStack.IsEmpty || !_remainingBackwardsStack!.IsEmpty;
-        }
-    }
-
-    private sealed class EnumeratorObject : IEnumerator<T>
-    {
-        private readonly ImmutableQueue<T> _originalQueue;
-        private ImmutableStack<T>? _remainingForwardsStack;
-        private ImmutableStack<T>? _remainingBackwardsStack;
-        private bool _disposed;
-
-        internal EnumeratorObject(ImmutableQueue<T> queue)
-        {
-            _originalQueue = queue;
-        }
-
-        public T Current
-        {
-            get
-            {
-                ThrowIfDisposed();
-                if (_remainingForwardsStack is null)
-                {
-                    throw new InvalidOperationException();
-                }
-
-                if (!_remainingForwardsStack.IsEmpty)
-                {
-                    return _remainingForwardsStack.Peek();
-                }
-
-                if (!_remainingBackwardsStack!.IsEmpty)
-                {
-                    return _remainingBackwardsStack.Peek();
-                }
-
-                throw new InvalidOperationException();
-            }
-        }
-
-        object? System.Collections.IEnumerator.Current => Current;
-
-        public bool MoveNext()
-        {
-            ThrowIfDisposed();
-            if (_remainingForwardsStack is null)
-            {
-                _remainingForwardsStack = _originalQueue._forwards;
-                _remainingBackwardsStack = _originalQueue.BackwardsReversed;
-            }
-            else if (!_remainingForwardsStack.IsEmpty)
-            {
-                _remainingForwardsStack = _remainingForwardsStack.Pop();
-            }
-            else if (!_remainingBackwardsStack!.IsEmpty)
-            {
-                _remainingBackwardsStack = _remainingBackwardsStack.Pop();
-            }
-
-            return !_remainingForwardsStack.IsEmpty || !_remainingBackwardsStack!.IsEmpty;
-        }
-
-        public void Reset()
-        {
-            ThrowIfDisposed();
-            _remainingBackwardsStack = null;
-            _remainingForwardsStack = null;
-        }
-
-        public void Dispose() => _disposed = true;
-
-        private void ThrowIfDisposed()
-        {
-            if (_disposed)
-            {
-                Requires.FailObjectDisposed(this);
             }
         }
     }

@@ -65,6 +65,10 @@ public sealed class EphemeronHandleIntrinsicEmitterTests
             [WasmOpcodes.LocalGet, WasmOpcodes.Call, WasmOpcodes.LocalSet]
         },
         {
+            RuntimeIntrinsic.EphemeronHandleSetTargetToNull,
+            [WasmOpcodes.LocalGet, WasmOpcodes.Call]
+        },
+        {
             RuntimeIntrinsic.EphemeronHandleRelease,
             [WasmOpcodes.LocalGet, WasmOpcodes.Call]
         },
@@ -83,6 +87,8 @@ public sealed class EphemeronHandleIntrinsicEmitterTests
                 new EphemeronHandleGetKeyIntrinsicEmitter(imports),
             RuntimeIntrinsic.EphemeronHandleGetValue =>
                 new EphemeronHandleGetValueIntrinsicEmitter(imports),
+            RuntimeIntrinsic.EphemeronHandleSetTargetToNull =>
+                new EphemeronHandleSetTargetToNullIntrinsicEmitter(imports),
             RuntimeIntrinsic.EphemeronHandleRelease =>
                 new EphemeronHandleReleaseIntrinsicEmitter(imports),
             _ => throw new ArgumentOutOfRangeException(nameof(intrinsic)),
@@ -104,6 +110,8 @@ public sealed class EphemeronHandleIntrinsicEmitterTests
                 RuntimeImportSymbol.EphemeronHandleGetKey,
             RuntimeIntrinsic.EphemeronHandleGetValue =>
                 RuntimeImportSymbol.EphemeronHandleGetValue,
+            RuntimeIntrinsic.EphemeronHandleSetTargetToNull =>
+                RuntimeImportSymbol.EphemeronHandleSetTargetToNull,
             RuntimeIntrinsic.EphemeronHandleRelease =>
                 RuntimeImportSymbol.EphemeronHandleRelease,
             _ => throw new ArgumentOutOfRangeException(nameof(intrinsic)),
@@ -111,6 +119,34 @@ public sealed class EphemeronHandleIntrinsicEmitterTests
         Assert.Equal(
             (uint)imports.Resolve(symbol, request.Instruction.Target.RuntimeImportSelection),
             call.Operand.UnsignedValue);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void SetValuePreservesHandleAndManagedReference(bool memory64)
+    {
+        var imports = WasmRuntimeImports.CreateCatalog();
+        var emitter = new EphemeronHandleSetValueIntrinsicEmitter(imports);
+        var request = EmitterTestSupport.CreateRuntimeIntrinsicRequest(
+            RuntimeIntrinsic.EphemeronHandleSetValue,
+            [CliValueKind.I4, CliValueKind.ManagedReference]);
+        request = request with
+        {
+            Target = memory64 ? WasmTargetLayout.Wasm64 : WasmTargetLayout.Wasm32,
+        };
+        var writer = new RecordingWriter();
+
+        emitter.Emit(request, writer);
+
+        Assert.Equal(
+            [WasmOpcodes.LocalGet, WasmOpcodes.LocalGet, WasmOpcodes.Call],
+            writer.Instructions.Select(instruction => instruction.Opcode));
+        Assert.Equal(
+            (uint)imports.Resolve(
+                RuntimeImportSymbol.EphemeronHandleSetValue,
+                request.Instruction.Target.RuntimeImportSelection),
+            writer.Instructions[2].Operand.UnsignedValue);
     }
 
     private sealed class RecordingWriter : IWasmInstructionWriter

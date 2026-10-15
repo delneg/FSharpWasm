@@ -3,6 +3,9 @@
 // licensed under MIT.
 // Copyright (c) .NET Foundation and Contributors.
 
+using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
+
 namespace System
 {
     public static class BitConverter
@@ -468,163 +471,203 @@ namespace System.Buffers
         InvalidData,
     }
 
+    /// <summary>
+    /// Represents a standard formatting string without using an actual String. A StandardFormat consists of a character (such as 'G', 'D' or 'X')
+    /// and an optional precision ranging from 0..99, or the special value NoPrecision.
+    /// </summary>
     public readonly struct StandardFormat : IEquatable<StandardFormat>
     {
-        public const byte NoPrecision = (System.Byte)255;
-        public const byte MaxPrecision = (System.Byte)99;
+        /// <summary>
+        /// Precision values for format that don't use a precision, or for when the precision is to be unspecified.
+        /// </summary>
+        public const byte NoPrecision = byte.MaxValue;
+
+        /// <summary>
+        /// The maximum valid precision value.
+        /// </summary>
+        public const byte MaxPrecision = 99;
 
         private readonly byte _format;
         private readonly byte _precision;
 
-        public StandardFormat(char symbol, byte precision = (System.Byte)255)
+        /// <summary>
+        /// The character component of the format.
+        /// </summary>
+        public char Symbol => (char)_format;
+
+        /// <summary>
+        /// The precision component of the format. Ranges from 0..9 or the special value NoPrecision.
+        /// </summary>
+        public byte Precision => _precision;
+
+        /// <summary>
+        /// true if Precision is a value other than NoPrecision
+        /// </summary>
+        public bool HasPrecision => _precision != NoPrecision;
+
+        /// <summary>Gets the precision if one was specified; otherwise, 0.</summary>
+        internal byte PrecisionOrZero => _precision != NoPrecision ? _precision : (byte)0;
+
+        /// <summary>
+        /// true if the StandardFormat == default(StandardFormat)
+        /// </summary>
+        public bool IsDefault => (_format | _precision) == 0;
+
+        /// <summary>
+        /// Create a StandardFormat.
+        /// </summary>
+        /// <param name="symbol">A type-specific formatting character such as 'G', 'D' or 'X'</param>
+        /// <param name="precision">An optional precision ranging from 0..9 or the special value NoPrecision (the default)</param>
+        public StandardFormat(char symbol, byte precision = NoPrecision)
         {
             if (precision != NoPrecision && precision > MaxPrecision)
-            {
-                throw new ArgumentOutOfRangeException();
-            }
-            if (symbol > byte.MaxValue)
-            {
-                throw new ArgumentOutOfRangeException();
-            }
+                ThrowHelper.ThrowArgumentOutOfRangeException_PrecisionTooLarge();
+            if (symbol != (byte)symbol)
+                ThrowHelper.ThrowArgumentOutOfRangeException_SymbolDoesNotFit();
+
             _format = (byte)symbol;
             _precision = precision;
         }
 
-        public static implicit operator StandardFormat(char symbol) => new(symbol);
-        public char Symbol
+        /// <summary>
+        /// Converts a character to a StandardFormat using the NoPrecision precision.
+        /// </summary>
+        public static implicit operator StandardFormat(char symbol) => new StandardFormat(symbol);
+
+        /// <summary>
+        /// Converts a <see cref="ReadOnlySpan{Char}"/> into a StandardFormat
+        /// </summary>
+        public static StandardFormat Parse([StringSyntax(StringSyntaxAttribute.NumericFormat)] ReadOnlySpan<char> format)
         {
-            get => (char)_format;
-        }
-        public byte Precision
-        {
-            get => _precision;
-        }
-        public bool HasPrecision
-        {
-            get => _precision != NoPrecision;
-        }
-        public bool IsDefault
-        {
-            get => (_format | _precision) == 0;
+            ParseHelper(format, out StandardFormat standardFormat, throws: true);
+
+            return standardFormat;
         }
 
-        public static StandardFormat Parse(ReadOnlySpan<char> format)
+        /// <summary>
+        /// Converts a classic .NET format string into a StandardFormat
+        /// </summary>
+        public static StandardFormat Parse([StringSyntax(StringSyntaxAttribute.NumericFormat)] string? format) => format == null ? default : Parse(format.AsSpan());
+
+        /// <summary>
+        /// Tries to convert a <see cref="ReadOnlySpan{Char}"/> into a StandardFormat. A return value indicates whether the conversion succeeded or failed.
+        /// </summary>
+        public static bool TryParse([StringSyntax(StringSyntaxAttribute.NumericFormat)] ReadOnlySpan<char> format, out StandardFormat result)
         {
-            if (!TryParseCore(format, out var result))
-            {
-                throw new FormatException();
-            }
-            return result;
+            return ParseHelper(format, out result);
         }
 
-        public static StandardFormat Parse(string? format)
+        private static bool ParseHelper(ReadOnlySpan<char> format, out StandardFormat standardFormat, bool throws = false)
         {
-            if (format == null)
-            {
-                return default;
-            }
+            standardFormat = default;
+
             if (format.Length == 0)
-            {
-                return default;
-            }
-            var symbol = format[0];
-            var precision = ParsePrecision(format, 1, throws: true);
-            return new StandardFormat(symbol, precision);
-        }
-
-        public static bool TryParse(ReadOnlySpan<char> format, out StandardFormat result) =>
-            TryParseCore(format, out result);
-
-        private static bool TryParseCore(ReadOnlySpan<char> format, out StandardFormat result)
-        {
-            result = default;
-            if (format.Length == 0)
-            {
                 return true;
-            }
-            var precision = ParsePrecision(format, 1, throws: false);
-            if (precision == byte.MaxValue && format.Length > 1)
+
+            char symbol = format[0];
+            byte precision;
+            if (format.Length == 1)
             {
-                return false;
+                precision = NoPrecision;
             }
-            result = new StandardFormat(format[0], precision);
+            else
+            {
+                uint parsedPrecision = 0;
+                for (int srcIndex = 1; srcIndex < format.Length; srcIndex++)
+                {
+                    uint digit = format[srcIndex] - 48u; // '0'
+                    if (digit > 9)
+                    {
+                        return throws ? throw new FormatException(SR.Format(SR.Argument_CannotParsePrecision, MaxPrecision)) : false;
+                    }
+                    parsedPrecision = parsedPrecision * 10 + digit;
+                    if (parsedPrecision > MaxPrecision)
+                    {
+                        return throws ? throw new FormatException(SR.Format(SR.Argument_PrecisionTooLarge, MaxPrecision)) : false;
+                    }
+                }
+
+                precision = (byte)parsedPrecision;
+            }
+
+            standardFormat = new StandardFormat(symbol, precision);
             return true;
         }
 
-        private static byte ParsePrecision(ReadOnlySpan<char> format, int start, bool throws)
+        /// <summary>
+        /// Returns true if both the Symbol and Precision are equal.
+        /// </summary>
+        public override bool Equals([NotNullWhen(true)] object? obj) => obj is StandardFormat other && Equals(other);
+
+        /// <summary>
+        /// Compute a hash code.
+        /// </summary>
+        public override int GetHashCode() => _format.GetHashCode() ^ _precision.GetHashCode();
+
+        /// <summary>
+        /// Returns true if both the Symbol and Precision are equal.
+        /// </summary>
+        public bool Equals(StandardFormat other) => _format == other._format && _precision == other._precision;
+
+        /// <summary>
+        /// Returns the format in classic .NET format.
+        /// </summary>
+        public override string ToString() => new string(Format(stackalloc char[FormatStringLength]));
+
+        /// <summary>The exact buffer length required by <see cref="Format"/>.</summary>
+        internal const int FormatStringLength = 3;
+
+        /// <summary>
+        /// Formats the format in classic .NET format.
+        /// </summary>
+        internal Span<char> Format(Span<char> destination)
         {
-            if (format.Length == start)
+            Debug.Assert(destination.Length == FormatStringLength);
+
+            char symbol = Symbol;
+
+            if (symbol != default && destination.Length == FormatStringLength)
             {
-                return NoPrecision;
-            }
-            uint parsed = 0;
-            for (var index = start; index < format.Length; index++)
-            {
-                var digit = format[index] - '0';
-                if (digit > 9)
+                destination[0] = symbol;
+
+                uint precision = Precision;
+                if (precision != NoPrecision)
                 {
-                    if (throws) throw new FormatException();
-                    return NoPrecision;
+                    // Note that Precision is stored as a byte, so in theory it could contain
+                    // values > MaxPrecision (99).  But all supported mechanisms for creating a
+                    // StandardFormat limit values to being <= MaxPrecision, so the only way a value
+                    // could be larger than that is if unsafe code or the equivalent were used
+                    // to force a larger invalid value in, in which case we don't need to
+                    // guarantee such an invalid value is properly roundtripped through here;
+                    // we just need to make sure things aren't corrupted further.
+
+                    if (precision >= 10)
+                    {
+                        uint div;
+                        (div, precision) = Math.DivRem(precision, 10);
+                        destination[1] = (char)('0' + div % 10);
+                        destination[2] = (char)('0' + precision);
+                        return destination;
+                    }
+
+                    destination[1] = (char)('0' + precision);
+                    return destination.Slice(0, 2);
                 }
-                parsed = parsed * 10 + (uint)digit;
-                if (parsed > MaxPrecision)
-                {
-                    if (throws) throw new FormatException();
-                    return NoPrecision;
-                }
+
+                return destination.Slice(0, 1);
             }
-            return (byte)parsed;
+
+            return default;
         }
 
-        private static byte ParsePrecision(string format, int start, bool throws)
-        {
-            if (format.Length == start)
-            {
-                return NoPrecision;
-            }
-            uint parsed = 0;
-            for (var index = start; index < format.Length; index++)
-            {
-                var digit = format[index] - '0';
-                if (digit > 9 || (parsed = parsed * 10 + (uint)digit) > MaxPrecision)
-                {
-                    throw new FormatException();
-                }
-            }
-            return (byte)parsed;
-        }
-
-        public bool Equals(StandardFormat other) =>
-            _format == other._format && _precision == other._precision;
-
-        public override bool Equals(object? value) => value is StandardFormat other && Equals(other);
-        public override int GetHashCode() => _format ^ _precision;
-
-        public override string ToString()
-        {
-            if (_format == 0)
-            {
-                return string.Empty;
-            }
-            var length = !HasPrecision ? 1 : _precision < 10 ? 2 : 3;
-            var result = new char[length];
-            result[0] = Symbol;
-            if (HasPrecision)
-            {
-                if (length == 2)
-                {
-                    result[1] = (char)('0' + _precision);
-                }
-                else
-                {
-                    result[1] = (char)('0' + _precision / 10);
-                    result[2] = (char)('0' + _precision % 10);
-                }
-            }
-            return string.Create(result);
-        }
-
+        /// <summary>
+        /// Returns true if both the Symbol and Precision are equal.
+        /// </summary>
         public static bool operator ==(StandardFormat left, StandardFormat right) => left.Equals(right);
+
+        /// <summary>
+        /// Returns false if both the Symbol and Precision are equal.
+        /// </summary>
         public static bool operator !=(StandardFormat left, StandardFormat right) => !left.Equals(right);
     }
 }
@@ -905,6 +948,7 @@ namespace System.Buffers.Binary
         public static byte ReverseEndianness(byte value) => value;
         public static sbyte ReverseEndianness(sbyte value) => value;
         public static ushort ReverseEndianness(ushort value) => unchecked((ushort)(value >> 8 | value << 8));
+        internal static char ReverseEndianness(char value) => (char)ReverseEndianness((ushort)value);
         public static short ReverseEndianness(short value) => unchecked((short)ReverseEndianness((ushort)value));
         public static uint ReverseEndianness(uint value) => value >> 24 | (value >> 8 & 0xff00) | (value << 8 & 0xff0000) | value << 24;
         public static int ReverseEndianness(int value) => unchecked((int)ReverseEndianness((uint)value));
@@ -917,31 +961,111 @@ namespace System.Buffers.Binary
         public static UInt128 ReverseEndianness(UInt128 value) =>
             new(ReverseEndianness(value.Lower), ReverseEndianness(value.Upper));
 
-        public static void ReverseEndianness(ReadOnlySpan<short> source, Span<short> destination) => Reverse(source, destination);
-        public static void ReverseEndianness(ReadOnlySpan<ushort> source, Span<ushort> destination) => Reverse(source, destination);
-        public static void ReverseEndianness(ReadOnlySpan<int> source, Span<int> destination) => Reverse(source, destination);
-        public static void ReverseEndianness(ReadOnlySpan<uint> source, Span<uint> destination) => Reverse(source, destination);
-        public static void ReverseEndianness(ReadOnlySpan<long> source, Span<long> destination) => Reverse(source, destination);
-        public static void ReverseEndianness(ReadOnlySpan<ulong> source, Span<ulong> destination) => Reverse(source, destination);
-        public static void ReverseEndianness(ReadOnlySpan<nint> source, Span<nint> destination) => Reverse(source, destination);
-        public static void ReverseEndianness(ReadOnlySpan<nuint> source, Span<nuint> destination) => Reverse(source, destination);
-        public static void ReverseEndianness(ReadOnlySpan<Int128> source, Span<Int128> destination) => Reverse(source, destination);
-        public static void ReverseEndianness(ReadOnlySpan<UInt128> source, Span<UInt128> destination) => Reverse(source, destination);
+        public static void ReverseEndianness(ReadOnlySpan<short> source, Span<short> destination) =>
+            ReverseEndianness<short, Int16EndiannessReverser>(source, destination);
+        public static void ReverseEndianness(ReadOnlySpan<ushort> source, Span<ushort> destination) =>
+            ReverseEndianness<ushort, UInt16EndiannessReverser>(source, destination);
+        public static void ReverseEndianness(ReadOnlySpan<int> source, Span<int> destination) =>
+            ReverseEndianness<int, Int32EndiannessReverser>(source, destination);
+        public static void ReverseEndianness(ReadOnlySpan<uint> source, Span<uint> destination) =>
+            ReverseEndianness<uint, UInt32EndiannessReverser>(source, destination);
+        public static void ReverseEndianness(ReadOnlySpan<long> source, Span<long> destination) =>
+            ReverseEndianness<long, Int64EndiannessReverser>(source, destination);
+        public static void ReverseEndianness(ReadOnlySpan<ulong> source, Span<ulong> destination) =>
+            ReverseEndianness<ulong, UInt64EndiannessReverser>(source, destination);
+        public static void ReverseEndianness(ReadOnlySpan<nint> source, Span<nint> destination) =>
+            ReverseEndianness<nint, IntPtrEndiannessReverser>(source, destination);
+        public static void ReverseEndianness(ReadOnlySpan<nuint> source, Span<nuint> destination) =>
+            ReverseEndianness<nuint, UIntPtrEndiannessReverser>(source, destination);
+        public static void ReverseEndianness(ReadOnlySpan<Int128> source, Span<Int128> destination) =>
+            ReverseEndianness<Int128, Int128EndiannessReverser>(source, destination);
+        public static void ReverseEndianness(ReadOnlySpan<UInt128> source, Span<UInt128> destination) =>
+            ReverseEndianness<UInt128, UInt128EndiannessReverser>(source, destination);
 
-        private static void Reverse(ReadOnlySpan<short> source, Span<short> destination) { var copy = source.ToArray(); EnsureDestination(copy.Length, destination.Length); for (var i = 0; i < copy.Length; i++) destination[i] = ReverseEndianness(copy[i]); }
-        private static void Reverse(ReadOnlySpan<ushort> source, Span<ushort> destination) { var copy = source.ToArray(); EnsureDestination(copy.Length, destination.Length); for (var i = 0; i < copy.Length; i++) destination[i] = ReverseEndianness(copy[i]); }
-        private static void Reverse(ReadOnlySpan<int> source, Span<int> destination) { var copy = source.ToArray(); EnsureDestination(copy.Length, destination.Length); for (var i = 0; i < copy.Length; i++) destination[i] = ReverseEndianness(copy[i]); }
-        private static void Reverse(ReadOnlySpan<uint> source, Span<uint> destination) { var copy = source.ToArray(); EnsureDestination(copy.Length, destination.Length); for (var i = 0; i < copy.Length; i++) destination[i] = ReverseEndianness(copy[i]); }
-        private static void Reverse(ReadOnlySpan<long> source, Span<long> destination) { var copy = source.ToArray(); EnsureDestination(copy.Length, destination.Length); for (var i = 0; i < copy.Length; i++) destination[i] = ReverseEndianness(copy[i]); }
-        private static void Reverse(ReadOnlySpan<ulong> source, Span<ulong> destination) { var copy = source.ToArray(); EnsureDestination(copy.Length, destination.Length); for (var i = 0; i < copy.Length; i++) destination[i] = ReverseEndianness(copy[i]); }
-        private static void Reverse(ReadOnlySpan<nint> source, Span<nint> destination) { var copy = source.ToArray(); EnsureDestination(copy.Length, destination.Length); for (var i = 0; i < copy.Length; i++) destination[i] = ReverseEndianness(copy[i]); }
-        private static void Reverse(ReadOnlySpan<nuint> source, Span<nuint> destination) { var copy = source.ToArray(); EnsureDestination(copy.Length, destination.Length); for (var i = 0; i < copy.Length; i++) destination[i] = ReverseEndianness(copy[i]); }
-        private static void Reverse(ReadOnlySpan<Int128> source, Span<Int128> destination) { var copy = source.ToArray(); EnsureDestination(copy.Length, destination.Length); for (var i = 0; i < copy.Length; i++) destination[i] = ReverseEndianness(copy[i]); }
-        private static void Reverse(ReadOnlySpan<UInt128> source, Span<UInt128> destination) { var copy = source.ToArray(); EnsureDestination(copy.Length, destination.Length); for (var i = 0; i < copy.Length; i++) destination[i] = ReverseEndianness(copy[i]); }
+        // TODO(netwasm-simd)
+        private static void ReverseEndianness<T, TReverser>(ReadOnlySpan<T> source, Span<T> destination)
+            where T : struct
+            where TReverser : IEndiannessReverser<T>
+        {
+            if (destination.Length < source.Length)
+            {
+                ThrowDestinationTooSmall();
+            }
+
+            if (!source.Overlaps(destination, out var elementOffset) || elementOffset <= 0)
+            {
+                for (var index = 0; index < source.Length; index++)
+                {
+                    destination[index] = TReverser.Reverse(source[index]);
+                }
+            }
+            else
+            {
+                for (var index = source.Length - 1; index >= 0; index--)
+                {
+                    destination[index] = TReverser.Reverse(source[index]);
+                }
+            }
+        }
+
+        private interface IEndiannessReverser<T> where T : struct
+        {
+            static abstract T Reverse(T value);
+        }
+
+        private readonly struct Int16EndiannessReverser : IEndiannessReverser<short>
+        {
+            public static short Reverse(short value) => ReverseEndianness(value);
+        }
+
+        private readonly struct UInt16EndiannessReverser : IEndiannessReverser<ushort>
+        {
+            public static ushort Reverse(ushort value) => ReverseEndianness(value);
+        }
+
+        private readonly struct Int32EndiannessReverser : IEndiannessReverser<int>
+        {
+            public static int Reverse(int value) => ReverseEndianness(value);
+        }
+
+        private readonly struct UInt32EndiannessReverser : IEndiannessReverser<uint>
+        {
+            public static uint Reverse(uint value) => ReverseEndianness(value);
+        }
+
+        private readonly struct Int64EndiannessReverser : IEndiannessReverser<long>
+        {
+            public static long Reverse(long value) => ReverseEndianness(value);
+        }
+
+        private readonly struct UInt64EndiannessReverser : IEndiannessReverser<ulong>
+        {
+            public static ulong Reverse(ulong value) => ReverseEndianness(value);
+        }
+
+        private readonly struct IntPtrEndiannessReverser : IEndiannessReverser<nint>
+        {
+            public static nint Reverse(nint value) => ReverseEndianness(value);
+        }
+
+        private readonly struct UIntPtrEndiannessReverser : IEndiannessReverser<nuint>
+        {
+            public static nuint Reverse(nuint value) => ReverseEndianness(value);
+        }
+
+        private readonly struct Int128EndiannessReverser : IEndiannessReverser<Int128>
+        {
+            public static Int128 Reverse(Int128 value) => ReverseEndianness(value);
+        }
+
+        private readonly struct UInt128EndiannessReverser : IEndiannessReverser<UInt128>
+        {
+            public static UInt128 Reverse(UInt128 value) => ReverseEndianness(value);
+        }
 
         private static void Require(ReadOnlySpan<byte> span, int size) { if (span.Length < size) throw new ArgumentOutOfRangeException(); }
         private static void Require(Span<byte> span, int size) { if (span.Length < size) throw new ArgumentOutOfRangeException(); }
-        private static void EnsureDestination(int sourceLength, int destinationLength) { if (destinationLength < sourceLength) throw new ArgumentException(); }
+        private static void ThrowDestinationTooSmall() => throw new ArgumentException("Destination is too short.", "destination");
 
     }
 }

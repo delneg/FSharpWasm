@@ -7,6 +7,7 @@
 
 using System.Globalization;
 using System.Numerics;
+using System.Runtime.InteropServices;
 
 namespace System;
 
@@ -101,7 +102,14 @@ internal static class PrimitiveGenericMathSmall
         }
     }
 
-    internal static bool TryParseUnsigned(ReadOnlySpan<char> text, NumberStyles style, ulong maximum, out ulong value)
+    internal static bool TryParseUnsigned(ReadOnlySpan<char> text, NumberStyles style, ulong maximum, out ulong value) =>
+        TryParseUnsigned(MemoryMarshal.Cast<char, Utf16Char>(text), style, maximum, out value);
+
+    internal static bool TryParseUnsigned(ReadOnlySpan<byte> text, NumberStyles style, ulong maximum, out ulong value) =>
+        TryParseUnsigned(MemoryMarshal.Cast<byte, Utf8Char>(text), style, maximum, out value);
+
+    private static bool TryParseUnsigned<TChar>(ReadOnlySpan<TChar> text, NumberStyles style, ulong maximum, out ulong value)
+        where TChar : unmanaged, IUtfChar<TChar>
     {
         ValidateIntegerStyle(style);
         value = 0;
@@ -119,25 +127,25 @@ internal static class PrimitiveGenericMathSmall
         var allowSign = radixFlags == 0 && (style & NumberStyles.AllowLeadingSign) != 0;
         var negative = false;
 
-        if ((style & NumberStyles.AllowCurrencySymbol) != 0 && start < end && text[start] == '$')
+        if ((style & NumberStyles.AllowCurrencySymbol) != 0 && start < end && TChar.CastToUInt32(text[start]) == '$')
         {
             start++;
         }
 
-        if (allowSign && start < end && (text[start] == '+' || text[start] == '-'))
+        if (allowSign && start < end && TChar.CastToUInt32(text[start]) is '+' or '-')
         {
-            negative = text[start] == '-';
+            negative = TChar.CastToUInt32(text[start]) == '-';
             start++;
         }
 
-        if ((style & NumberStyles.AllowCurrencySymbol) != 0 && start < end && text[start] == '$')
+        if ((style & NumberStyles.AllowCurrencySymbol) != 0 && start < end && TChar.CastToUInt32(text[start]) == '$')
         {
             start++;
         }
 
-        if ((style & NumberStyles.AllowParentheses) != 0 && start < end && text[start] == '(')
+        if ((style & NumberStyles.AllowParentheses) != 0 && start < end && TChar.CastToUInt32(text[start]) == '(')
         {
-            if (end <= start + 1 || text[end - 1] != ')')
+            if (end <= start + 1 || TChar.CastToUInt32(text[end - 1]) != ')')
             {
                 return false;
             }
@@ -152,9 +160,9 @@ internal static class PrimitiveGenericMathSmall
             end--;
         }
 
-        if ((style & NumberStyles.AllowTrailingSign) != 0 && start < end && (text[end - 1] == '+' || text[end - 1] == '-'))
+        if ((style & NumberStyles.AllowTrailingSign) != 0 && start < end && TChar.CastToUInt32(text[end - 1]) is '+' or '-')
         {
-            if (text[end - 1] == '-')
+            if (TChar.CastToUInt32(text[end - 1]) == '-')
             {
                 return false;
             }
@@ -162,7 +170,7 @@ internal static class PrimitiveGenericMathSmall
             end--;
         }
 
-        if ((style & NumberStyles.AllowCurrencySymbol) != 0 && end > start && text[end - 1] == '$')
+        if ((style & NumberStyles.AllowCurrencySymbol) != 0 && end > start && TChar.CastToUInt32(text[end - 1]) == '$')
         {
             end--;
         }
@@ -182,11 +190,13 @@ internal static class PrimitiveGenericMathSmall
 
         for (; index < end; index++)
         {
-            var current = text[index];
+            var current = TChar.CastToUInt32(text[index]);
             if ((style & NumberStyles.AllowThousands) != 0 && current == ',')
             {
                 if (radix != 10 || decimalPoint || index == start ||
-                    !IsDecimalDigit(text[index - 1]) || index + 1 >= end || !IsDecimalDigit(text[index + 1]))
+                    !IsDecimalDigit(TChar.CastToUInt32(text[index - 1])) ||
+                    index + 1 >= end ||
+                    !IsDecimalDigit(TChar.CastToUInt32(text[index + 1])))
                 {
                     return false;
                 }
@@ -203,16 +213,18 @@ internal static class PrimitiveGenericMathSmall
             if (radix == 10 && (style & NumberStyles.AllowExponent) != 0 && (current == 'e' || current == 'E'))
             {
                 index++;
-                if (index < end && (text[index] == '+' || text[index] == '-'))
+                if (index < end && TChar.CastToUInt32(text[index]) is '+' or '-')
                 {
-                    exponentSign = text[index] == '-' ? -1 : 1;
+                    exponentSign = TChar.CastToUInt32(text[index]) == '-' ? -1 : 1;
                     index++;
                 }
 
                 var exponentDigits = 0;
-                while (index < end && text[index] >= '0' && text[index] <= '9')
+                while (index < end && IsDecimalDigit(TChar.CastToUInt32(text[index])))
                 {
-                    exponent = exponent > 1_000_000 ? 1_000_001 : exponent * 10 + text[index] - '0';
+                    exponent = exponent > 1_000_000
+                        ? 1_000_001
+                        : exponent * 10 + (int)(TChar.CastToUInt32(text[index]) - '0');
                     exponentDigits++;
                     index++;
                 }
@@ -296,10 +308,23 @@ internal static class PrimitiveGenericMathSmall
             }
         }
 
+        if (value > maximum)
+        {
+            value = 0;
+            return false;
+        }
+
         return true;
     }
 
-    internal static bool TryParseSigned(ReadOnlySpan<char> text, NumberStyles style, int bits, out long value)
+    internal static bool TryParseSigned(ReadOnlySpan<char> text, NumberStyles style, int bits, out long value) =>
+        TryParseSigned(MemoryMarshal.Cast<char, Utf16Char>(text), style, bits, out value);
+
+    internal static bool TryParseSigned(ReadOnlySpan<byte> text, NumberStyles style, int bits, out long value) =>
+        TryParseSigned(MemoryMarshal.Cast<byte, Utf8Char>(text), style, bits, out value);
+
+    private static bool TryParseSigned<TChar>(ReadOnlySpan<TChar> text, NumberStyles style, int bits, out long value)
+        where TChar : unmanaged, IUtfChar<TChar>
     {
         ValidateIntegerStyle(style);
         value = 0;
@@ -334,9 +359,9 @@ internal static class PrimitiveGenericMathSmall
         }
 
         var parenthesized = false;
-        if ((style & NumberStyles.AllowParentheses) != 0 && start < end && text[start] == '(')
+        if ((style & NumberStyles.AllowParentheses) != 0 && start < end && TChar.CastToUInt32(text[start]) == '(')
         {
-            if (end <= start + 1 || text[end - 1] != ')')
+            if (end <= start + 1 || TChar.CastToUInt32(text[end - 1]) != ')')
             {
                 return false;
             }
@@ -346,31 +371,31 @@ internal static class PrimitiveGenericMathSmall
             end--;
         }
 
-        if ((style & NumberStyles.AllowCurrencySymbol) != 0 && start < end && text[start] == '$')
+        if ((style & NumberStyles.AllowCurrencySymbol) != 0 && start < end && TChar.CastToUInt32(text[start]) == '$')
         {
             start++;
         }
 
         var negative = false;
-        if (start < end && (text[start] == '+' || text[start] == '-'))
+        if (start < end && TChar.CastToUInt32(text[start]) is '+' or '-')
         {
             if (parenthesized || (style & NumberStyles.AllowLeadingSign) == 0)
             {
                 return false;
             }
 
-            negative = text[start] == '-';
+            negative = TChar.CastToUInt32(text[start]) == '-';
             start++;
         }
 
-        if ((style & NumberStyles.AllowCurrencySymbol) != 0 && start < end && text[start] == '$')
+        if ((style & NumberStyles.AllowCurrencySymbol) != 0 && start < end && TChar.CastToUInt32(text[start]) == '$')
         {
             start++;
         }
 
-        if ((style & NumberStyles.AllowTrailingSign) != 0 && start < end && (text[end - 1] == '+' || text[end - 1] == '-'))
+        if ((style & NumberStyles.AllowTrailingSign) != 0 && start < end && TChar.CastToUInt32(text[end - 1]) is '+' or '-')
         {
-            var trailingNegative = text[end - 1] == '-';
+            var trailingNegative = TChar.CastToUInt32(text[end - 1]) == '-';
             if (parenthesized || negative)
             {
                 return false;
@@ -380,7 +405,7 @@ internal static class PrimitiveGenericMathSmall
             end--;
         }
 
-        if ((style & NumberStyles.AllowCurrencySymbol) != 0 && end > start && text[end - 1] == '$')
+        if ((style & NumberStyles.AllowCurrencySymbol) != 0 && end > start && TChar.CastToUInt32(text[end - 1]) == '$')
         {
             end--;
         }
@@ -409,22 +434,7 @@ internal static class PrimitiveGenericMathSmall
     }
 
     internal static bool TryParseUtf8(ReadOnlySpan<byte> text, NumberStyles style, out ulong value, ulong maximum)
-    {
-        ValidateIntegerStyle(style);
-        var chars = new char[text.Length];
-        for (var index = 0; index < text.Length; index++)
-        {
-            if (text[index] > 0x7F)
-            {
-                value = 0;
-                return false;
-            }
-
-            chars[index] = (char)text[index];
-        }
-
-        return TryParseUnsigned(chars, style, maximum, out value);
-    }
+        => TryParseUnsigned(text, style, maximum, out value);
 
     internal static byte ParseByte(ReadOnlySpan<char> text, NumberStyles style)
     {
@@ -462,60 +472,59 @@ internal static class PrimitiveGenericMathSmall
 
     internal static byte ParseByteUtf8(ReadOnlySpan<byte> text, NumberStyles style)
     {
-        ValidateIntegerStyle(style);
-        var chars = new char[text.Length];
-        for (var index = 0; index < text.Length; index++)
+        if (TryParseUnsigned(text, style, byte.MaxValue, out var value))
         {
-            if (text[index] > 0x7F)
-            {
-                throw new FormatException();
-            }
-
-            chars[index] = (char)text[index];
+            return (byte)value;
         }
 
-        return ParseByte(chars, style);
+        if (TryParseUnsigned(text, style, ulong.MaxValue, out _) ||
+            TryParseSigned(text, style, 64, out _))
+        {
+            throw new OverflowException();
+        }
+
+        throw new FormatException();
     }
 
     internal static sbyte ParseSByteUtf8(ReadOnlySpan<byte> text, NumberStyles style)
     {
-        ValidateIntegerStyle(style);
-        var chars = new char[text.Length];
-        for (var index = 0; index < text.Length; index++)
+        if (TryParseSigned(text, style, 8, out var value))
         {
-            if (text[index] > 0x7F)
-            {
-                throw new FormatException();
-            }
-
-            chars[index] = (char)text[index];
+            return (sbyte)value;
         }
 
-        return ParseSByte(chars, style);
+        if (TryParseUnsigned(text, style, ulong.MaxValue, out _) ||
+            TryParseSigned(text, style, 64, out _))
+        {
+            throw new OverflowException();
+        }
+
+        throw new FormatException();
     }
 
-    private static bool Trim(ReadOnlySpan<char> text, NumberStyles style, ref int start, ref int end)
+    private static bool Trim<TChar>(ReadOnlySpan<TChar> text, NumberStyles style, ref int start, ref int end)
+        where TChar : unmanaged, IUtfChar<TChar>
     {
         if ((style & NumberStyles.AllowLeadingWhite) != 0)
         {
-            while (start < end && IsWhiteSpace(text[start]))
+            while (start < end && IsWhiteSpace(TChar.CastToUInt32(text[start])))
             {
                 start++;
             }
         }
-        else if (start < end && IsWhiteSpace(text[start]))
+        else if (start < end && IsWhiteSpace(TChar.CastToUInt32(text[start])))
         {
             return false;
         }
 
         if ((style & NumberStyles.AllowTrailingWhite) != 0)
         {
-            while (end > start && IsWhiteSpace(text[end - 1]))
+            while (end > start && IsWhiteSpace(TChar.CastToUInt32(text[end - 1])))
             {
                 end--;
             }
         }
-        else if (end > start && IsWhiteSpace(text[end - 1]))
+        else if (end > start && IsWhiteSpace(TChar.CastToUInt32(text[end - 1])))
         {
             return false;
         }
@@ -523,17 +532,17 @@ internal static class PrimitiveGenericMathSmall
         return start != end;
     }
 
-    private static int Digit(char value, int radix)
+    private static int Digit(uint value, int radix)
     {
-        var digit = value is >= '0' and <= '9' ? value - '0' :
-            value is >= 'a' and <= 'f' ? value - 'a' + 10 :
-            value is >= 'A' and <= 'F' ? value - 'A' + 10 : -1;
+        var digit = value is >= '0' and <= '9' ? (int)(value - '0') :
+            value is >= 'a' and <= 'f' ? (int)(value - 'a') + 10 :
+            value is >= 'A' and <= 'F' ? (int)(value - 'A') + 10 : -1;
         return digit < radix ? digit : -1;
     }
 
-    private static bool IsDecimalDigit(char value) => value is >= '0' and <= '9';
+    private static bool IsDecimalDigit(uint value) => value is >= '0' and <= '9';
 
-    private static bool IsWhiteSpace(char value) => value is
+    private static bool IsWhiteSpace(uint value) => value is
         '\u0009' or '\u000A' or '\u000B' or '\u000C' or '\u000D' or
         '\u0020' or '\u0085' or '\u00A0' or '\u1680' or '\u2000' or
         '\u2001' or '\u2002' or '\u2003' or '\u2004' or '\u2005' or
@@ -543,194 +552,154 @@ internal static class PrimitiveGenericMathSmall
 
 public partial struct Byte
 {
-    public string ToString(IFormatProvider? provider) => Number.FormatUnsigned(this, 8, null);
+    public string ToString(IFormatProvider? provider) => Number.UInt32ToDecStr(this);
 
-    public string ToString(string? format, IFormatProvider? provider) => Number.FormatUnsigned(this, 8, format);
+    public string ToString(string? format, IFormatProvider? provider) => Number.FormatUInt32(this, format, provider);
 
     public bool TryFormat(Span<char> destination, out int charsWritten, ReadOnlySpan<char> format = default(System.ReadOnlySpan<char>), IFormatProvider? provider = null) =>
-        PrimitiveGenericMathSmall.TryCopy(Number.FormatUnsigned(this, 8, format.ToString()), destination, out charsWritten);
+        Number.TryFormatUInt32(this, format, provider, destination, out charsWritten);
 
     public bool TryFormat(Span<byte> destination, out int bytesWritten, ReadOnlySpan<char> format = default(System.ReadOnlySpan<char>), IFormatProvider? provider = null) =>
-        PrimitiveGenericMathSmall.TryCopyUtf8(Number.FormatUnsigned(this, 8, format.ToString()), destination, out bytesWritten);
+        Number.TryFormatUInt32(this, format, provider, destination, out bytesWritten);
 
-    public static byte Parse(string value, NumberStyles style, IFormatProvider? provider)
-    {
-        PrimitiveGenericMathSmall.ValidateIntegerStyle(style);
-        if (value is null)
-        {
-            throw new ArgumentNullException();
-        }
-
-        return PrimitiveGenericMathSmall.ParseByte(new ReadOnlySpan<char>(value.ToCharArray()), style);
-    }
+    public static byte Parse(string value, NumberStyles style, IFormatProvider? provider) =>
+        (byte)Number.ParseUnsignedInteger(value, 8, style);
 
     public static byte Parse(string value, IFormatProvider? provider) => Parse(value, NumberStyles.Integer, provider);
 
     public static bool TryParse(string? value, NumberStyles style, IFormatProvider? provider, out byte result)
     {
-        if (value is null)
-        {
-            result = 0;
-            PrimitiveGenericMathSmall.ValidateIntegerStyle(style);
-            return false;
-        }
-
-        var valid = PrimitiveGenericMathSmall.TryParseUnsigned(new ReadOnlySpan<char>(value.ToCharArray()), style, MaxValue, out var parsed);
+        var valid = Number.TryParseUnsignedInteger(value, 8, style, out var parsed);
         result = (byte)parsed;
         return valid;
     }
 
     public static bool TryParse(string? value, IFormatProvider? provider, out byte result) => TryParse(value, NumberStyles.Integer, provider, out result);
 
-    public static byte Parse(ReadOnlySpan<char> value, IFormatProvider? provider) => PrimitiveGenericMathSmall.ParseByte(value, NumberStyles.Integer);
+    public static byte Parse(ReadOnlySpan<char> value, IFormatProvider? provider) =>
+        (byte)Number.ParseUnsignedInteger(value, 8, NumberStyles.Integer);
 
     public static bool TryParse(ReadOnlySpan<char> value, IFormatProvider? provider, out byte result)
     {
-        var valid = PrimitiveGenericMathSmall.TryParseUnsigned(value, NumberStyles.Integer, byte.MaxValue, out var parsed);
+        var valid = Number.TryParseUnsignedInteger(value, 8, NumberStyles.Integer, out var parsed);
         result = (byte)parsed;
         return valid;
     }
 
-    public static byte Parse(ReadOnlySpan<byte> value, IFormatProvider? provider) => PrimitiveGenericMathSmall.ParseByteUtf8(value, NumberStyles.Integer);
+    public static byte Parse(ReadOnlySpan<byte> value, IFormatProvider? provider) =>
+        (byte)Number.ParseUnsignedInteger(value, 8, NumberStyles.Integer);
 
     public static bool TryParse(ReadOnlySpan<byte> value, IFormatProvider? provider, out byte result)
     {
-        var valid = PrimitiveGenericMathSmall.TryParseUtf8(value, NumberStyles.Integer, out var parsed, byte.MaxValue);
+        var valid = Number.TryParseUnsignedInteger(value, 8, NumberStyles.Integer, out var parsed);
         result = (byte)parsed;
         return valid;
     }
 
-    static byte IAdditionOperators<byte, byte, byte>.operator +(byte left, byte right) => unchecked((byte)(left + right));
+    static byte IAdditionOperators<byte, byte, byte>.operator +(byte left, byte right) => (byte)(left + right);
     static byte IAdditionOperators<byte, byte, byte>.operator checked +(byte left, byte right) => checked((byte)(left + right));
     static byte IBitwiseOperators<byte, byte, byte>.operator &(byte left, byte right) => (byte)(left & right);
     static byte IBitwiseOperators<byte, byte, byte>.operator |(byte left, byte right) => (byte)(left | right);
     static byte IBitwiseOperators<byte, byte, byte>.operator ^(byte left, byte right) => (byte)(left ^ right);
-    static byte IBitwiseOperators<byte, byte, byte>.operator ~(byte value) => (byte)~value;
+    static byte IBitwiseOperators<byte, byte, byte>.operator ~(byte value) => (byte)(~value);
     static bool IComparisonOperators<byte, byte, bool>.operator <(byte left, byte right) => left < right;
     static bool IComparisonOperators<byte, byte, bool>.operator <=(byte left, byte right) => left <= right;
     static bool IComparisonOperators<byte, byte, bool>.operator >(byte left, byte right) => left > right;
     static bool IComparisonOperators<byte, byte, bool>.operator >=(byte left, byte right) => left >= right;
-    static byte IDecrementOperators<byte>.operator --(byte value) => unchecked((byte)(value - 1));
-    static byte IDecrementOperators<byte>.operator checked --(byte value) => checked((byte)(value - 1));
+    static byte IDecrementOperators<byte>.operator --(byte value) => --value;
+    static byte IDecrementOperators<byte>.operator checked --(byte value) => checked(--value);
     static byte IDivisionOperators<byte, byte, byte>.operator /(byte left, byte right) => (byte)(left / right);
     static bool IEqualityOperators<byte, byte, bool>.operator ==(byte left, byte right) => left == right;
     static bool IEqualityOperators<byte, byte, bool>.operator !=(byte left, byte right) => left != right;
-    static byte IIncrementOperators<byte>.operator ++(byte value) => unchecked((byte)(value + 1));
-    static byte IIncrementOperators<byte>.operator checked ++(byte value) => checked((byte)(value + 1));
+    static byte IIncrementOperators<byte>.operator ++(byte value) => ++value;
+    static byte IIncrementOperators<byte>.operator checked ++(byte value) => checked(++value);
     static byte IModulusOperators<byte, byte, byte>.operator %(byte left, byte right) => (byte)(left % right);
-    static byte IMultiplyOperators<byte, byte, byte>.operator *(byte left, byte right) => unchecked((byte)(left * right));
+    static byte IMultiplyOperators<byte, byte, byte>.operator *(byte left, byte right) => (byte)(left * right);
     static byte IMultiplyOperators<byte, byte, byte>.operator checked *(byte left, byte right) => checked((byte)(left * right));
     static byte IShiftOperators<byte, int, byte>.operator <<(byte value, int amount) => (byte)(value << (amount & 7));
     static byte IShiftOperators<byte, int, byte>.operator >>(byte value, int amount) => (byte)(value >> (amount & 7));
     static byte IShiftOperators<byte, int, byte>.operator >>>(byte value, int amount) => (byte)(value >>> (amount & 7));
-    static byte ISubtractionOperators<byte, byte, byte>.operator -(byte left, byte right) => unchecked((byte)(left - right));
+    static byte ISubtractionOperators<byte, byte, byte>.operator -(byte left, byte right) => (byte)(left - right);
     static byte ISubtractionOperators<byte, byte, byte>.operator checked -(byte left, byte right) => checked((byte)(left - right));
-    static byte IUnaryNegationOperators<byte, byte>.operator -(byte value) => unchecked((byte)-value);
+    static byte IUnaryNegationOperators<byte, byte>.operator -(byte value) => (byte)(-value);
     static byte IUnaryNegationOperators<byte, byte>.operator checked -(byte value) => checked((byte)-value);
-    static byte IUnaryPlusOperators<byte, byte>.operator +(byte value) => value;
+    static byte IUnaryPlusOperators<byte, byte>.operator +(byte value) => (byte)(+value);
 }
 
 public partial struct SByte
 {
-    public string ToString(IFormatProvider? provider) => Number.FormatSigned(this, 8, null);
+    public string ToString(IFormatProvider? provider) => Number.FormatInt32(this, 0, null, provider);
 
-    public string ToString(string? format, IFormatProvider? provider) => Number.FormatSigned(this, 8, format);
+    public string ToString(string? format, IFormatProvider? provider) => Number.FormatInt32(this, 0x000000FF, format, provider);
 
     public bool TryFormat(Span<char> destination, out int charsWritten, ReadOnlySpan<char> format = default(System.ReadOnlySpan<char>), IFormatProvider? provider = null) =>
-        PrimitiveGenericMathSmall.TryCopy(Number.FormatSigned(this, 8, format.ToString()), destination, out charsWritten);
+        Number.TryFormatInt32(this, 0x000000FF, format, provider, destination, out charsWritten);
 
     public bool TryFormat(Span<byte> destination, out int bytesWritten, ReadOnlySpan<char> format = default(System.ReadOnlySpan<char>), IFormatProvider? provider = null) =>
-        PrimitiveGenericMathSmall.TryCopyUtf8(Number.FormatSigned(this, 8, format.ToString()), destination, out bytesWritten);
+        Number.TryFormatInt32(this, 0x000000FF, format, provider, destination, out bytesWritten);
 
-    public static sbyte Parse(string value, NumberStyles style, IFormatProvider? provider)
-    {
-        PrimitiveGenericMathSmall.ValidateIntegerStyle(style);
-        if (value is null)
-        {
-            throw new ArgumentNullException();
-        }
-
-        return PrimitiveGenericMathSmall.ParseSByte(new ReadOnlySpan<char>(value.ToCharArray()), style);
-    }
+    public static sbyte Parse(string value, NumberStyles style, IFormatProvider? provider) =>
+        (sbyte)Number.ParseSignedInteger(value, 8, style);
 
     public static sbyte Parse(string value, IFormatProvider? provider) => Parse(value, NumberStyles.Integer, provider);
 
     public static bool TryParse(string? value, NumberStyles style, IFormatProvider? provider, out sbyte result)
     {
-        if (value is null)
-        {
-            result = 0;
-            PrimitiveGenericMathSmall.ValidateIntegerStyle(style);
-            return false;
-        }
-
-        var valid = PrimitiveGenericMathSmall.TryParseSigned(new ReadOnlySpan<char>(value.ToCharArray()), style, 8, out var parsed);
+        var valid = Number.TryParseSignedInteger(value, 8, style, out var parsed);
         result = (sbyte)parsed;
         return valid;
     }
 
     public static bool TryParse(string? value, IFormatProvider? provider, out sbyte result) => TryParse(value, NumberStyles.Integer, provider, out result);
 
-    public static sbyte Parse(ReadOnlySpan<char> value, IFormatProvider? provider) => PrimitiveGenericMathSmall.ParseSByte(value, NumberStyles.Integer);
+    public static sbyte Parse(ReadOnlySpan<char> value, IFormatProvider? provider) =>
+        (sbyte)Number.ParseSignedInteger(value, 8, NumberStyles.Integer);
 
     public static bool TryParse(ReadOnlySpan<char> value, IFormatProvider? provider, out sbyte result)
     {
-        var valid = PrimitiveGenericMathSmall.TryParseSigned(value, NumberStyles.Integer, 8, out var parsed);
+        var valid = Number.TryParseSignedInteger(value, 8, NumberStyles.Integer, out var parsed);
         result = (sbyte)parsed;
         return valid;
     }
 
-    public static sbyte Parse(ReadOnlySpan<byte> value, IFormatProvider? provider) => PrimitiveGenericMathSmall.ParseSByteUtf8(value, NumberStyles.Integer);
+    public static sbyte Parse(ReadOnlySpan<byte> value, IFormatProvider? provider) =>
+        (sbyte)Number.ParseSignedInteger(value, 8, NumberStyles.Integer);
 
     public static bool TryParse(ReadOnlySpan<byte> value, IFormatProvider? provider, out sbyte result)
     {
-        var chars = new char[value.Length];
-        var valid = true;
-        for (var index = 0; index < value.Length; index++)
-        {
-            if (value[index] > 0x7F)
-            {
-                valid = false;
-                break;
-            }
-
-            chars[index] = (char)value[index];
-        }
-
-        var parsed = 0L;
-        valid = valid && PrimitiveGenericMathSmall.TryParseSigned(chars, NumberStyles.Integer, 8, out parsed);
+        var valid = Number.TryParseSignedInteger(value, 8, NumberStyles.Integer, out var parsed);
         result = (sbyte)parsed;
         return valid;
     }
 
-    static sbyte IAdditionOperators<sbyte, sbyte, sbyte>.operator +(sbyte left, sbyte right) => unchecked((sbyte)(left + right));
+    static sbyte IAdditionOperators<sbyte, sbyte, sbyte>.operator +(sbyte left, sbyte right) => (sbyte)(left + right);
     static sbyte IAdditionOperators<sbyte, sbyte, sbyte>.operator checked +(sbyte left, sbyte right) => checked((sbyte)(left + right));
     static sbyte IBitwiseOperators<sbyte, sbyte, sbyte>.operator &(sbyte left, sbyte right) => (sbyte)(left & right);
     static sbyte IBitwiseOperators<sbyte, sbyte, sbyte>.operator |(sbyte left, sbyte right) => (sbyte)(left | right);
     static sbyte IBitwiseOperators<sbyte, sbyte, sbyte>.operator ^(sbyte left, sbyte right) => (sbyte)(left ^ right);
-    static sbyte IBitwiseOperators<sbyte, sbyte, sbyte>.operator ~(sbyte value) => (sbyte)~value;
+    static sbyte IBitwiseOperators<sbyte, sbyte, sbyte>.operator ~(sbyte value) => (sbyte)(~value);
     static bool IComparisonOperators<sbyte, sbyte, bool>.operator <(sbyte left, sbyte right) => left < right;
     static bool IComparisonOperators<sbyte, sbyte, bool>.operator <=(sbyte left, sbyte right) => left <= right;
     static bool IComparisonOperators<sbyte, sbyte, bool>.operator >(sbyte left, sbyte right) => left > right;
     static bool IComparisonOperators<sbyte, sbyte, bool>.operator >=(sbyte left, sbyte right) => left >= right;
-    static sbyte IDecrementOperators<sbyte>.operator --(sbyte value) => unchecked((sbyte)(value - 1));
-    static sbyte IDecrementOperators<sbyte>.operator checked --(sbyte value) => checked((sbyte)(value - 1));
+    static sbyte IDecrementOperators<sbyte>.operator --(sbyte value) => --value;
+    static sbyte IDecrementOperators<sbyte>.operator checked --(sbyte value) => checked(--value);
     static sbyte IDivisionOperators<sbyte, sbyte, sbyte>.operator /(sbyte left, sbyte right) => (sbyte)(left / right);
     static bool IEqualityOperators<sbyte, sbyte, bool>.operator ==(sbyte left, sbyte right) => left == right;
     static bool IEqualityOperators<sbyte, sbyte, bool>.operator !=(sbyte left, sbyte right) => left != right;
-    static sbyte IIncrementOperators<sbyte>.operator ++(sbyte value) => unchecked((sbyte)(value + 1));
-    static sbyte IIncrementOperators<sbyte>.operator checked ++(sbyte value) => checked((sbyte)(value + 1));
+    static sbyte IIncrementOperators<sbyte>.operator ++(sbyte value) => ++value;
+    static sbyte IIncrementOperators<sbyte>.operator checked ++(sbyte value) => checked(++value);
     static sbyte IModulusOperators<sbyte, sbyte, sbyte>.operator %(sbyte left, sbyte right) => (sbyte)(left % right);
-    static sbyte IMultiplyOperators<sbyte, sbyte, sbyte>.operator *(sbyte left, sbyte right) => unchecked((sbyte)(left * right));
+    static sbyte IMultiplyOperators<sbyte, sbyte, sbyte>.operator *(sbyte left, sbyte right) => (sbyte)(left * right);
     static sbyte IMultiplyOperators<sbyte, sbyte, sbyte>.operator checked *(sbyte left, sbyte right) => checked((sbyte)(left * right));
     static sbyte IShiftOperators<sbyte, int, sbyte>.operator <<(sbyte value, int amount) => (sbyte)(value << (amount & 7));
     static sbyte IShiftOperators<sbyte, int, sbyte>.operator >>(sbyte value, int amount) => (sbyte)(value >> (amount & 7));
     static sbyte IShiftOperators<sbyte, int, sbyte>.operator >>>(sbyte value, int amount) => (sbyte)((byte)value >>> (amount & 7));
-    static sbyte ISubtractionOperators<sbyte, sbyte, sbyte>.operator -(sbyte left, sbyte right) => unchecked((sbyte)(left - right));
+    static sbyte ISubtractionOperators<sbyte, sbyte, sbyte>.operator -(sbyte left, sbyte right) => (sbyte)(left - right);
     static sbyte ISubtractionOperators<sbyte, sbyte, sbyte>.operator checked -(sbyte left, sbyte right) => checked((sbyte)(left - right));
-    static sbyte IUnaryNegationOperators<sbyte, sbyte>.operator -(sbyte value) => unchecked((sbyte)-value);
+    static sbyte IUnaryNegationOperators<sbyte, sbyte>.operator -(sbyte value) => (sbyte)(-value);
     static sbyte IUnaryNegationOperators<sbyte, sbyte>.operator checked -(sbyte value) => checked((sbyte)-value);
-    static sbyte IUnaryPlusOperators<sbyte, sbyte>.operator +(sbyte value) => value;
+    static sbyte IUnaryPlusOperators<sbyte, sbyte>.operator +(sbyte value) => (sbyte)(+value);
 }
 
 public partial struct Char
@@ -812,14 +781,17 @@ public partial struct Char
         }
 
         var value = s[index];
-        return IsHighSurrogate(value) && index + 1 < s.Length && IsLowSurrogate(s[index + 1])
-            ? ConvertToUtf32(value, s[index + 1])
-            : value;
+        if (IsHighSurrogate(value) && index + 1 < s.Length && IsLowSurrogate(s[index + 1]))
+        {
+            return ConvertToUtf32(value, s[index + 1]);
+        }
+        if (IsSurrogate(value)) throw new ArgumentException(nameof(s));
+        return value;
     }
 
-    public static double GetNumericValue(char c) => IsAsciiDigit(c) ? c - '0' : -1;
+    public static double GetNumericValue(char c) => Globalization.CharUnicodeInfo.GetNumericValue(c);
 
-    public static double GetNumericValue(string s, int index) => GetNumericValue(GetIndexedChar(s, index));
+    public static double GetNumericValue(string s, int index) => Globalization.CharUnicodeInfo.GetNumericValue(s, index);
 
     public static bool IsAscii(char c) => c <= '\u007F';
     public static bool IsAsciiDigit(char c) => IsBetween(c, '0', '9');
@@ -866,9 +838,10 @@ public partial struct Char
         Globalization.UnicodeCategory.FinalQuotePunctuation or
         Globalization.UnicodeCategory.OtherPunctuation;
     public static bool IsPunctuation(string s, int index) => IsPunctuation(GetIndexedChar(s, index));
-    public static bool IsSeparator(char c) => c is ' ' or '\t' or '\n' or '\v' or '\f' or '\r' or
-        '\u0085' or '\u00A0' or '\u1680' or '\u2028' or '\u2029' or '\u202F' or '\u205F' or '\u3000' ||
-        IsBetween(c, '\u2000', '\u200A');
+    public static bool IsSeparator(char c) => GetUnicodeCategory(c) is
+        Globalization.UnicodeCategory.SpaceSeparator or
+        Globalization.UnicodeCategory.LineSeparator or
+        Globalization.UnicodeCategory.ParagraphSeparator;
     public static bool IsSeparator(string s, int index) => IsSeparator(GetIndexedChar(s, index));
     public static bool IsSurrogate(char c) => IsHighSurrogate(c) || IsLowSurrogate(c);
     public static bool IsSurrogate(string s, int index) => IsSurrogate(GetIndexedChar(s, index));
@@ -892,15 +865,29 @@ public partial struct Char
     public static bool IsSymbol(string s, int index) => IsSymbol(GetIndexedChar(s, index));
     public static bool IsUpper(char c) => GetUnicodeCategory(c) is Globalization.UnicodeCategory.UppercaseLetter;
     public static bool IsUpper(string s, int index) => IsUpper(GetIndexedChar(s, index));
-    public static bool IsWhiteSpace(char c) => IsSeparator(c);
+    public static bool IsWhiteSpace(char c) => Globalization.CharUnicodeInfo.GetIsWhiteSpace(c);
     public static bool IsWhiteSpace(string s, int index) => IsWhiteSpace(GetIndexedChar(s, index));
 
     public static char ToLower(char c) => ToLowerInvariant(c);
-    public static char ToLowerInvariant(char c) => Globalization.CharUnicodeInfo.ToLower(c);
+    public static char ToLowerInvariant(char c)
+    {
+        if (c <= '\u007F')
+        {
+            return c is >= 'A' and <= 'Z' ? (char)(c | 0x20) : c;
+        }
+        return Globalization.CharUnicodeInfo.ToLower(c);
+    }
     public static char ToLowerOrdinal(char c) => ToLowerInvariant(c);
     public static string ToString(char c) => new(c, 1);
     public static char ToUpper(char c) => ToUpperInvariant(c);
-    public static char ToUpperInvariant(char c) => Globalization.CharUnicodeInfo.ToUpper(c);
+    public static char ToUpperInvariant(char c)
+    {
+        if (c <= '\u007F')
+        {
+            return c is >= 'a' and <= 'z' ? (char)(c & 0x5F) : c;
+        }
+        return Globalization.CharUnicodeInfo.ToUpper(c);
+    }
     public static char ToUpperOrdinal(char c) => ToUpperInvariant(c);
 
     public static Globalization.UnicodeCategory GetUnicodeCategory(char c) =>

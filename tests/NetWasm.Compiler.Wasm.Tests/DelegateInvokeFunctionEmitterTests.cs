@@ -1,8 +1,11 @@
 using System.Collections.Immutable;
 using NetWasm.Compiler.Core;
+using NetWasm.Compiler.Core.Types;
 using NetWasm.Compiler.Core.IntermediateRepresentation.Delegates;
 using NetWasm.Compiler.Core.IntermediateRepresentation.Identity;
 using NetWasm.Compiler.Wasm.Emission;
+using NetWasm.Compiler.Wasm.Emission.Instructions;
+using NetWasm.Compiler.Wasm.Emission.Support;
 using NetWasm.Compiler.Wasm.Emission.GeneratedFunctions;
 using NetWasm.Compiler.Wasm.Emission.Planning;
 using NetWasm.Compiler.Wasm.Encoding;
@@ -13,6 +16,46 @@ using static EmitterTestSupport;
 
 public sealed class DelegateInvokeFunctionEmitterTests
 {
+    [Theory]
+    [InlineData(WasmTarget.Wasm32, false)]
+    [InlineData(WasmTarget.Wasm32, true)]
+    [InlineData(WasmTarget.Wasm64, false)]
+    [InlineData(WasmTarget.Wasm64, true)]
+    public void InitializesRequiredTargetsInsideTheirBranchAfterPublishingRoots(WasmTarget target, bool required)
+    {
+        var layouts = new RecordingLayoutProvider(WasmTargetLayout.For(target));
+        var callbackType = CallbackType();
+        var signature = MethodSignatureModel.Create(CliValueKind.I4);
+        var invoke = CreateInvoke(callbackType, signature);
+        var method = CreateTarget(signature, "Target", true, Key(0x06000025), false);
+        var writers = new RecordingWriterFactory();
+        var initialization = new RecordingInitialization(required);
+        var resolver = CreateResolver(callbackType, method);
+        var targetProgram = CreateTargetProgram(invoke, method);
+
+        ((IDelegateInvokeFunctionEmitter)CreateEmitter(layouts, writers: writers,
+            initialization: initialization, triggers: initialization)).Emit(invoke, targetProgram, resolver);
+
+        Assert.Same(method.Definition, initialization.Classified);
+        if (required)
+        {
+            var request = Assert.Single(initialization.Requests);
+            Assert.Equal(method.DeclaringType, request.DeclaringType);
+            Assert.Equal(method.Definition.DeclaringType, request.TypeDefinition);
+            Assert.Same(targetProgram.ModuleData, request.ModuleData);
+            Assert.True(request.IsMethodInvocation);
+            Assert.Same(resolver, initialization.FunctionIndices);
+            Assert.Equal(WasmOpcodes.If, initialization.Preceding[^1].Opcode);
+            Assert.Contains(initialization.Preceding, instruction =>
+                instruction.Opcode == WasmOpcodes.Call && instruction.Operand.UnsignedValue ==
+                (uint)WasmRuntimeImports.CreateCatalog().Resolve(RuntimeImportSymbol.RootFrameEnter));
+            Assert.Contains(initialization.Preceding, instruction =>
+                instruction.Opcode == (target == WasmTarget.Wasm32 ? WasmOpcodes.I32Store : WasmOpcodes.I64Store));
+        }
+        else
+            Assert.Empty(initialization.Requests);
+    }
+
     [Theory]
     [InlineData(WasmTarget.Wasm32, false, false, 4)]
     [InlineData(WasmTarget.Wasm64, false, false, 4)]
@@ -37,7 +80,7 @@ public sealed class DelegateInvokeFunctionEmitterTests
         var resolver = CreateResolver(callbackType, targetMethod);
 
         ((IDelegateInvokeFunctionEmitter)emitter).Emit(invoke,
-            CreateTargetProgram(callbackType, invoke, targetMethod), resolver);
+            CreateTargetProgram(invoke, targetMethod), resolver);
 
         var instructions = writers.Instructions.ToInstructions();
         var targetCall = WasmInstruction.WithOperand(WasmOpcodes.Call,
@@ -54,7 +97,8 @@ public sealed class DelegateInvokeFunctionEmitterTests
         var expected = new List<WasmInstruction>
         {
             WasmInstruction.WithOperand(WasmOpcodes.LocalGet,
-                WasmInstructionOperand.Unsigned(0)),
+                WasmInstructionOperand.Unsigned((uint)(
+                    new ManagedMethodFunctionTypeResolver().Resolve(invoke).Parameters.Length + 6))),
             WasmInstruction.WithOperand(layouts.Target.UsesMemory64
                     ? WasmOpcodes.I64Load : WasmOpcodes.I32Load,
                 WasmInstructionOperand.Memory(layouts.Target.UsesMemory64 ? 3u : 2u,
@@ -121,13 +165,14 @@ public sealed class DelegateInvokeFunctionEmitterTests
             new ExceptionPayloadBlockEmitter(layouts),
             new ManagedMethodFunctionTypeResolver(),
             new DelegateInvocationTargetSelector(),
-            new GeneratedFunctionWriterFactory());
+            new GeneratedFunctionWriterFactory(),
+            new StaticInitializationEmitter(program, program, new AddressInstructionEmitter(layouts)),
+            new MethodInitializationTriggerClassifier(program));
 
         var function = ((IDelegateInvokeFunctionEmitter)emitter).Emit(
             invoke,
             new DelegateInvokeTarget(
-                indices,
-                [CreateBinding(invoke, target)]),
+                [CreateBinding(invoke, target)], ModuleDataPlan.Empty),
             new FunctionIndexResolver(program, program, indices));
 
         Assert.NotEmpty(function);
@@ -168,7 +213,7 @@ public sealed class DelegateInvokeFunctionEmitterTests
 
         var function = ((IDelegateInvokeFunctionEmitter)emitter).Emit(
             invoke,
-            CreateTargetProgram(callbackType, invoke, valueTarget),
+            CreateTargetProgram(invoke, valueTarget),
             CreateResolver(callbackType, valueTarget));
 
         Assert.NotEmpty(function);
@@ -203,7 +248,8 @@ public sealed class DelegateInvokeFunctionEmitterTests
             "IncompatibleTarget",
             isStatic: true,
             Key(0x06000024));
-        var emitter = CreateEmitter(layouts);
+        var writers = new RecordingWriterFactory();
+        var emitter = CreateEmitter(layouts, writers: writers);
         var indices = CreateResolver(
             callbackType,
             staticTarget,
@@ -213,22 +259,57 @@ public sealed class DelegateInvokeFunctionEmitterTests
         var function = ((IDelegateInvokeFunctionEmitter)emitter).Emit(
             invoke,
             CreateTargetProgram(
-                callbackType,
                 invoke,
                 staticTarget,
                 instanceTarget),
             indices);
 
         Assert.NotEmpty(function);
-        Assert.Contains(WasmOpcodes.I32Load, function);
-        Assert.Contains(WasmOpcodes.I32Store, function);
-        Assert.Contains(WasmOpcodes.I32Add, function);
+        var instructions = writers.Instructions.ToInstructions();
+        Assert.Contains(instructions, instruction => instruction.Opcode == WasmOpcodes.I32Load);
+        Assert.Contains(instructions, instruction => instruction.Opcode == WasmOpcodes.I32Store);
+        Assert.Contains(instructions, instruction => instruction.Opcode == WasmOpcodes.I32Add);
+
+        var parameterCount = new ManagedMethodFunctionTypeResolver()
+            .Resolve(invoke)
+            .Parameters
+            .Length;
+        var invocationListLocal = checked((uint)(parameterCount + 3));
+        var currentDelegateLocal = checked((uint)(parameterCount + 6));
+        var selectionIf = Assert.Single(Enumerable.Range(2, instructions.Length - 2), index =>
+            instructions[index].Opcode == WasmOpcodes.If &&
+            instructions[index - 1].Opcode == WasmOpcodes.I32EqualZero &&
+            instructions[index - 2] == WasmInstruction.WithOperand(
+                WasmOpcodes.LocalGet,
+                WasmInstructionOperand.Unsigned(invocationListLocal)));
+        var selectionElse = Enumerable.Range(
+                selectionIf + 1,
+                instructions.Length - selectionIf - 1)
+            .First(index => instructions[index].Opcode == WasmOpcodes.Else);
+        var selectionEnd = Enumerable.Range(
+                selectionElse + 1,
+                instructions.Length - selectionElse - 1)
+            .First(index => instructions[index].Opcode == WasmOpcodes.End);
+        var storeCurrentDelegate = WasmInstruction.WithOperand(
+            WasmOpcodes.LocalSet,
+            WasmInstructionOperand.Unsigned(currentDelegateLocal));
+        var loadCurrentDelegate = WasmInstruction.WithOperand(
+            WasmOpcodes.LocalGet,
+            WasmInstructionOperand.Unsigned(currentDelegateLocal));
+
+        Assert.True(selectionElse > selectionIf);
+        Assert.True(selectionEnd > selectionElse);
+        Assert.Equal(storeCurrentDelegate, instructions[selectionElse - 1]);
+        Assert.Equal(storeCurrentDelegate, instructions[selectionEnd - 1]);
+        Assert.Equal(loadCurrentDelegate, instructions[selectionEnd + 1]);
     }
 
     private static DelegateInvokeFunctionEmitter CreateEmitter(
         RecordingLayoutProvider layouts,
         IValueLayoutProvider? values = null,
-        IGeneratedFunctionWriterFactory? writers = null) =>
+        IGeneratedFunctionWriterFactory? writers = null,
+        IStaticInitializationEmitter? initialization = null,
+        IMethodInitializationTriggerClassifier? triggers = null) =>
         new DelegateInvokeFunctionEmitter(
             layouts,
             values ?? layouts,
@@ -238,7 +319,32 @@ public sealed class DelegateInvokeFunctionEmitterTests
             new ExceptionPayloadBlockEmitter(layouts),
             new ManagedMethodFunctionTypeResolver(),
             new DelegateInvocationTargetSelector(),
-            writers ?? new GeneratedFunctionWriterFactory());
+            writers ?? new GeneratedFunctionWriterFactory(),
+            initialization ?? new StaticInitializationEmitter(new FakeProgram(), new FakeProgram(), new AddressInstructionEmitter(layouts)),
+            triggers ?? new MethodInitializationTriggerClassifier(new FakeProgram()));
+
+    private sealed class RecordingInitialization(bool required) : IStaticInitializationEmitter,
+        IMethodInitializationTriggerClassifier
+    {
+        public MethodDefinitionModel? Classified { get; private set; }
+        public List<StaticInitializationEmissionRequest> Requests { get; } = [];
+        public ImmutableArray<WasmInstruction> Preceding { get; private set; } = [];
+        public IFunctionIndexResolver? FunctionIndices { get; private set; }
+
+        public bool Classify(MethodDefinitionModel method)
+        {
+            Classified = method;
+            return required;
+        }
+
+        public void Emit(StaticInitializationEmissionRequest request, IWasmInstructionWriter code,
+            IFunctionIndexResolver functionIndices)
+        {
+            Requests.Add(request);
+            FunctionIndices = functionIndices;
+            Preceding = ((RecordingInstructionWriter)code).ToInstructions();
+        }
+    }
 
     private static CliTypeIdentity CallbackType() =>
         CliTypeIdentity.Named(Assembly, "Test", "Callback", isValueType: false);
@@ -286,12 +392,10 @@ public sealed class DelegateInvokeFunctionEmitterTests
     }
 
     private static DelegateInvokeTarget CreateTargetProgram(
-        CliTypeIdentity callbackType,
         MethodInstanceModel invoke,
         params MethodInstanceModel[] targets) =>
         new(
-            CreateIndices(callbackType, targets),
-            [.. targets.Select(target => CreateBinding(invoke, target))]);
+            [.. targets.Select(target => CreateBinding(invoke, target))], ModuleDataPlan.Empty);
 
     private static FunctionIndexResolver CreateResolver(
         CliTypeIdentity callbackType,

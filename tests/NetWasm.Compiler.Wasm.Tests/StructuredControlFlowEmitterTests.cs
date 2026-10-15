@@ -4,6 +4,7 @@ using NetWasm.Compiler.Core;
 using NetWasm.Compiler.Wasm.Encoding;
 using NetWasm.Compiler.Wasm.Emission;
 using NetWasm.Compiler.Wasm.Emission.Methods;
+using NetWasm.Compiler.Wasm.Emission.Arrays;
 
 namespace NetWasm.Compiler.Wasm.Tests;
 
@@ -11,6 +12,29 @@ using static EmitterTestSupport;
 
 public sealed class StructuredControlFlowEmitterTests
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void RefreshesMetadataBeforeLoopNotOnBackedge(bool postTest)
+    {
+        var snapshots = new RecordingSnapshots(true);
+        IStructuredControlFlowEmitter emitter = new StructuredControlFlowEmitter(
+            new StructuredConditionValueEmitter(new RecordingLayoutProvider()),
+            new ControlFlowDispatcherEmitter(new DispatcherBranchTablePlanner()), snapshots);
+        var body = new StructuredSequence([new StructuredCode(Block(1))]);
+        StructuredRegion loop = postTest
+            ? new StructuredPostTestLoop(body, Block(0), true, StructuredSequence.Empty, StructuredSequence.Empty)
+            : new StructuredLoop(Block(0), true, body, StructuredSequence.Empty, StructuredSequence.Empty);
+        var code = new RecordingInstructionWriter();
+
+        emitter.Emit(code, new StructuredSequence([loop]), CreateContext(),
+            (_, _, _) => new ConditionValue(0, CliValueKind.I4), (_, _, _, _, _, _) => { });
+
+        Assert.Equal([new StructuredBlockId(0)], snapshots.Entries);
+        Assert.Equal(WasmOpcodes.I32Constant, code.ToArray()[0]);
+        Assert.Single(code.ToInstructions(), value => value.Opcode == WasmOpcodes.Loop);
+    }
+
     [Fact]
     public void RejectsMissingCollaborators()
     {
@@ -54,8 +78,9 @@ public sealed class StructuredControlFlowEmitterTests
         var target = memory64 ? WasmTargetLayout.Wasm64 : WasmTargetLayout.Wasm32;
         IStructuredControlFlowEmitter emitter =
             new[] { new StructuredControlFlowEmitter(
-                new RecordingLayoutProvider(target),
-                new ControlFlowDispatcherEmitter()) }
+                new StructuredConditionValueEmitter(new RecordingLayoutProvider(target)),
+                new ControlFlowDispatcherEmitter(
+                    new DispatcherBranchTablePlanner()), new RecordingSnapshots()) }
                 .Cast<IStructuredControlFlowEmitter>()
                 .Single();
 
@@ -435,6 +460,68 @@ public sealed class StructuredControlFlowEmitterTests
     }
 
     [Fact]
+    public void DispatcherExitBodyAdjustsEverySurroundingDepthFromItsActualCase()
+    {
+        var exception = new StructuredExceptionRegion(new(7), null);
+        var dispatcher = new StructuredDispatcher(
+            null,
+            [],
+            [new StructuredDispatcherExit(
+                new StructuredBlockId(3),
+                new StructuredSequence([
+                    new StructuredLoopBreak(),
+                    new StructuredLoopContinue(),
+                    new StructuredDispatcherContinue(new StructuredBlockId(7)),
+                    exception,
+                ]))]);
+        var code = new RecordingInstructionWriter();
+        int? capturedBreakDepth = null;
+        int? capturedContinueDepth = null;
+        int? capturedDispatcherDepth = null;
+
+        CreateEmitter(new FixedDepthDispatcherEmitter(4)).Emit(
+            code,
+            new StructuredSequence([dispatcher]),
+            CreateContext(Group()),
+            (_, _, _) => new ConditionValue(0, CliValueKind.I4),
+            (region, _, _, breakDepth, continueDepth, dispatcherDepth) =>
+            {
+                Assert.Same(exception, region);
+                capturedBreakDepth = breakDepth;
+                capturedContinueDepth = continueDepth;
+                capturedDispatcherDepth = dispatcherDepth;
+            },
+            loopBreakDepth: 2,
+            loopContinueDepth: 3,
+            exceptionLeaveDepth: 4);
+
+        var instructions = code.ToInstructions();
+        Assert.Contains(
+            WasmInstruction.WithOperand(
+                WasmOpcodes.Branch,
+                WasmInstructionOperand.Unsigned(8)),
+            instructions);
+        Assert.Contains(
+            WasmInstruction.WithOperand(
+                WasmOpcodes.Branch,
+                WasmInstructionOperand.Unsigned(9)),
+            instructions);
+        Assert.Contains(
+            WasmInstruction.WithOperand(
+                WasmOpcodes.Branch,
+                WasmInstructionOperand.Unsigned(4)),
+            instructions);
+        Assert.Contains(
+            WasmInstruction.WithOperand(
+                WasmOpcodes.BranchIf,
+                WasmInstructionOperand.Unsigned(10)),
+            instructions);
+        Assert.Equal(8, capturedBreakDepth);
+        Assert.Equal(9, capturedContinueDepth);
+        Assert.Equal(4, capturedDispatcherDepth);
+    }
+
+    [Fact]
     public void DispatcherContinuationOutsideDispatcherFailsDeterministically()
     {
         var exception = Assert.Throws<InvalidOperationException>(() =>
@@ -760,11 +847,31 @@ public sealed class StructuredControlFlowEmitterTests
     }
 
     private static IStructuredControlFlowEmitter CreateEmitter() =>
+        CreateEmitter(new ControlFlowDispatcherEmitter(
+            new DispatcherBranchTablePlanner()));
+
+    private static IStructuredControlFlowEmitter CreateEmitter(
+        IControlFlowDispatcherEmitter dispatchers) =>
         new[] { new StructuredControlFlowEmitter(
-            new RecordingLayoutProvider(),
-            new ControlFlowDispatcherEmitter()) }
+            new StructuredConditionValueEmitter(new RecordingLayoutProvider()),
+            dispatchers, new RecordingSnapshots()) }
             .Cast<IStructuredControlFlowEmitter>()
             .Single();
+
+    private sealed class RecordingSnapshots(bool emitMarker = false) : IArrayMetadataSnapshotEmitter
+    {
+        public List<StructuredBlockId> Entries { get; } = [];
+        public void Emit(IWasmInstructionWriter code, MethodEmissionContext context) =>
+            throw new InvalidOperationException("Unexpected argument snapshot.");
+        public void Emit(IWasmInstructionWriter code, MethodEmissionContext context, ArrayReferenceSlot slot) =>
+            throw new InvalidOperationException("Unexpected assignment snapshot.");
+        public void Emit(IWasmInstructionWriter code, MethodEmissionContext context, StructuredBlockId loopCondition)
+        {
+            Entries.Add(loopCondition);
+            if (emitMarker) code.Write(WasmInstruction.WithOperand(
+                WasmOpcodes.I32Constant, WasmInstructionOperand.Signed(123)));
+        }
+    }
 
     private static StructuredBlockOccurrence Block(
         int index,
@@ -840,6 +947,18 @@ public sealed class StructuredControlFlowEmitterTests
     }
 
     private sealed record UnknownRegion : StructuredRegion;
+
+    private sealed class FixedDepthDispatcherEmitter(int depth) :
+        IControlFlowDispatcherEmitter
+    {
+        public void Emit(
+            IWasmInstructionWriter code,
+            ControlFlowDispatcherEmissionRequest request,
+            Action<StructuredDispatcherBlock> emitBlock,
+            Action<StructuredDispatcherBlock> emitCondition,
+            Action<StructuredSequence, int> emitSequence) =>
+            emitSequence(Assert.Single(request.Dispatcher.Exits).Body, depth);
+    }
 }
 
 internal static class StructuredControlFlowEmitterTestExtensions

@@ -161,15 +161,32 @@ namespace System.IO
         }
 
         public virtual Task<string?> ReadLineAsync() =>
-            ReadLineAsync(CancellationToken.None).AsTask();
+            ReadLineCoreAsync(default);
 
         public virtual ValueTask<string?> ReadLineAsync(CancellationToken cancellationToken) =>
-            new(ScheduleAsync(static reader => reader.ReadLine(), this, cancellationToken));
+            new(ReadLineCoreAsync(cancellationToken));
+
+        private Task<string?> ReadLineCoreAsync(CancellationToken cancellationToken) =>
+            ScheduleAsync(static reader => reader.ReadLine(), this, cancellationToken);
 
         public virtual Task<string> ReadToEndAsync() => ReadToEndAsync(CancellationToken.None);
 
-        public virtual Task<string> ReadToEndAsync(CancellationToken cancellationToken) =>
-            ScheduleAsync(static reader => reader.ReadToEnd(), this, cancellationToken);
+        public virtual async Task<string> ReadToEndAsync(CancellationToken cancellationToken)
+        {
+            var builder = new StringBuilder(4096);
+            var chars = ArrayPool<char>.Shared.Rent(4096);
+            try
+            {
+                int read;
+                while ((read = await ReadAsyncInternal(chars, cancellationToken).ConfigureAwait(false)) != 0)
+                    builder.Append(chars, 0, read);
+            }
+            finally
+            {
+                ArrayPool<char>.Shared.Return(chars);
+            }
+            return builder.ToString();
+        }
 
         public virtual Task<int> ReadAsync(char[] buffer, int index, int count)
         {
@@ -181,10 +198,7 @@ namespace System.IO
                 throw new ArgumentException("Offset and length were out of bounds for the array.");
             }
 
-            return ScheduleAsync(
-                static state => state.Reader.Read(state.Buffer, state.Index, state.Count),
-                new ReadOperation(this, buffer, index, count),
-                CancellationToken.None);
+            return ReadAsyncInternal(new Memory<char>(buffer, index, count), default).AsTask();
         }
 
         public virtual ValueTask<int> ReadAsync(
@@ -193,10 +207,7 @@ namespace System.IO
         {
             if (MemoryMarshal.TryGetArray(buffer, out ArraySegment<char> array))
             {
-                return new ValueTask<int>(ScheduleAsync(
-                    static state => state.Reader.Read(state.Buffer, state.Index, state.Count),
-                    new ReadOperation(this, array.Array!, array.Offset, array.Count),
-                    cancellationToken));
+                return new ValueTask<int>(ReadAsync(array.Array!, array.Offset, array.Count));
             }
 
             return new ValueTask<int>(ScheduleAsync(
@@ -204,6 +215,12 @@ namespace System.IO
                 new MemoryReadOperation(this, buffer),
                 cancellationToken));
         }
+
+        internal virtual ValueTask<int> ReadAsyncInternal(Memory<char> buffer, CancellationToken cancellationToken) =>
+            new(ScheduleAsync(
+                static state => state.Reader.Read(state.Memory.Span),
+                new MemoryReadOperation(this, buffer),
+                cancellationToken));
 
         public virtual Task<int> ReadBlockAsync(char[] buffer, int index, int count)
         {
@@ -215,10 +232,7 @@ namespace System.IO
                 throw new ArgumentException("Offset and length were out of bounds for the array.");
             }
 
-            return ScheduleAsync(
-                static state => state.Reader.ReadBlock(state.Buffer, state.Index, state.Count),
-                new ReadOperation(this, buffer, index, count),
-                CancellationToken.None);
+            return ReadBlockAsyncInternal(new Memory<char>(buffer, index, count), default).AsTask();
         }
 
         public virtual ValueTask<int> ReadBlockAsync(
@@ -227,16 +241,26 @@ namespace System.IO
         {
             if (MemoryMarshal.TryGetArray(buffer, out ArraySegment<char> array))
             {
-                return new ValueTask<int>(ScheduleAsync(
-                    static state => state.Reader.ReadBlock(state.Buffer, state.Index, state.Count),
-                    new ReadOperation(this, array.Array!, array.Offset, array.Count),
-                    cancellationToken));
+                return new ValueTask<int>(ReadBlockAsync(array.Array!, array.Offset, array.Count));
             }
 
             return new ValueTask<int>(ScheduleAsync(
                 static state => state.Reader.ReadBlock(state.Memory.Span),
                 new MemoryReadOperation(this, buffer),
                 cancellationToken));
+        }
+
+        internal async ValueTask<int> ReadBlockAsyncInternal(Memory<char> buffer, CancellationToken cancellationToken)
+        {
+            var total = 0;
+            int read;
+            do
+            {
+                read = await ReadAsyncInternal(buffer.Slice(total), cancellationToken).ConfigureAwait(false);
+                total += read;
+            }
+            while (read > 0 && total < buffer.Length);
+            return total;
         }
 
         public static TextReader Synchronized(TextReader reader)
@@ -250,52 +274,10 @@ namespace System.IO
             TState state,
             CancellationToken cancellationToken)
         {
-            if (cancellationToken.IsCancellationRequested)
-            {
-                return Task.FromCanceled<TResult>(cancellationToken);
-            }
-
-            var task = new Task<TResult>();
-            Runtime.InteropServices.PlatformServices.Scheduler.Schedule(
-                () =>
-                {
-                    if (cancellationToken.IsCancellationRequested)
-                    {
-                        task.TrySetCanceled(new TaskCanceledException());
-                        return;
-                    }
-
-                    try
-                    {
-                        task.TrySetResult(operation(state));
-                    }
-                    catch (OperationCanceledException)
-                    {
-                        task.TrySetCanceled(new TaskCanceledException());
-                    }
-                    catch (Exception exception)
-                    {
-                        task.TrySetException(exception);
-                    }
-                },
-                0);
+            var task = new Task<TResult>(() => operation(state), cancellationToken, TaskCreationOptions.DenyChildAttach);
+            if (!task.IsCompleted)
+                task.Start(TaskScheduler.Default);
             return task;
-        }
-
-        private sealed class ReadOperation
-        {
-            internal ReadOperation(TextReader reader, char[] buffer, int index, int count)
-            {
-                Reader = reader;
-                Buffer = buffer;
-                Index = index;
-                Count = count;
-            }
-
-            internal TextReader Reader { get; }
-            internal char[] Buffer { get; }
-            internal int Index { get; }
-            internal int Count { get; }
         }
 
         private sealed class MemoryReadOperation

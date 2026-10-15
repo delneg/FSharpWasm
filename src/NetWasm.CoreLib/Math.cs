@@ -2,6 +2,8 @@
 // The upstream implementation is licensed under MIT.
 // Copyright (c) .NET Foundation and Contributors.
 // Source reference: dotnet/runtime commit 811225a482702af7ecc35d817966bc70b88a3a23.
+using System.Numerics;
+
 namespace System
 {
     /// <summary>Common mathematical constants and scalar operations.</summary>
@@ -220,6 +222,21 @@ namespace System
             if (IsNaN(value)) return value;
             if (IsInfinity(value)) return double.PositiveInfinity;
             var absolute = value < 0 ? -value : value;
+
+            // For large finite values, form exp(x) / 2 without first
+            // overflowing exp(x). This is the scalar libm shape used near the
+            // upper finite boundary.
+            if (absolute >= 22)
+            {
+                if (absolute <= 709.782712893384)
+                {
+                    return 0.5 * Exp(absolute);
+                }
+
+                var halfExponential = Exp(0.5 * absolute);
+                return (0.5 * halfExponential) * halfExponential;
+            }
+
             var exponential = Exp(absolute);
             return 0.5 * (exponential + 1 / exponential);
         }
@@ -302,26 +319,106 @@ namespace System
 
         public static double FusedMultiplyAdd(double left, double right, double addend)
         {
-            var product = left * right;
-            if (IsInfinity(product) || IsInfinity(addend) || IsNaN(product) || IsNaN(addend) ||
-                Abs(left) > 1e300 || Abs(right) > 1e300)
+            if (!double.IsFinite(left) || !double.IsFinite(right) || !double.IsFinite(addend))
             {
-                return product + addend;
+                return left * right + addend;
             }
 
-            const double split = 134217729;
-            var leftHigh = split * left;
-            var leftLow = left - leftHigh;
-            leftHigh -= leftLow;
-            var rightHigh = split * right;
-            var rightLow = right - rightHigh;
-            rightHigh -= rightLow;
-            var productError = ((leftHigh * rightHigh - product) + leftHigh * rightLow + leftLow * rightHigh) +
-                leftLow * rightLow;
-            var sum = product + addend;
-            var addendPart = sum - product;
-            var error = (product - (sum - addendPart)) + (addend - addendPart) + productError;
-            return sum + error;
+            // Upstream delegates to a native fused instruction. WebAssembly has
+            // no scalar FMA, so retain the exact integer value and round once.
+            DecomposeFiniteDouble(left, out var leftSignificand, out var leftExponent, out var leftNegative);
+            DecomposeFiniteDouble(right, out var rightSignificand, out var rightExponent, out var rightNegative);
+            DecomposeFiniteDouble(addend, out var addendSignificand, out var addendExponent, out var addendNegative);
+
+            var product = new BigInteger(leftSignificand) * new BigInteger(rightSignificand);
+            var productNegative = leftNegative != rightNegative;
+            if (productNegative) product = -product;
+
+            var addendValue = new BigInteger(addendSignificand);
+            if (addendNegative) addendValue = -addendValue;
+
+            var productExponent = leftExponent + rightExponent;
+            var commonExponent = Min(productExponent, addendExponent);
+            var exact = (product << (productExponent - commonExponent)) +
+                (addendValue << (addendExponent - commonExponent));
+
+            if (exact.IsZero)
+            {
+                var bothTermsAreNegativeZero = product.IsZero && addendValue.IsZero &&
+                    productNegative && addendNegative;
+                return bothTermsAreNegativeZero ? double.NegativeZero : 0;
+            }
+
+            return RoundExactBinaryToDouble(exact, commonExponent);
+        }
+
+        private static void DecomposeFiniteDouble(
+            double value,
+            out ulong significand,
+            out int exponent,
+            out bool negative)
+        {
+            var bits = BitConverter.DoubleToUInt64Bits(value);
+            negative = (bits & 0x8000000000000000UL) != 0;
+            var exponentBits = (int)((bits >> 52) & 0x7FF);
+            significand = bits & 0x000FFFFFFFFFFFFFUL;
+            if (exponentBits == 0)
+            {
+                exponent = -1074;
+                return;
+            }
+
+            significand |= 0x0010000000000000UL;
+            exponent = exponentBits - 1023 - 52;
+        }
+
+        private static double RoundExactBinaryToDouble(BigInteger exact, int exponent)
+        {
+            var negative = exact.Sign < 0;
+            var magnitude = BigInteger.Abs(exact);
+            var bitLength = checked((int)magnitude.GetBitLength());
+            var highestExponent = exponent + bitLength - 1;
+
+            ulong bits;
+            if (highestExponent >= -1022)
+            {
+                var significand = RoundRightToEven(magnitude, bitLength - 53);
+                if (significand.GetBitLength() == 54)
+                {
+                    significand >>= 1;
+                    highestExponent++;
+                }
+
+                if (highestExponent > 1023)
+                {
+                    bits = 0x7FF0000000000000UL;
+                }
+                else
+                {
+                    var significandBits = (ulong)significand;
+                    bits = ((ulong)(highestExponent + 1023) << 52) |
+                        (significandBits & 0x000FFFFFFFFFFFFFUL);
+                }
+            }
+            else
+            {
+                var subnormal = RoundRightToEven(magnitude, -(exponent + 1074));
+                bits = (ulong)subnormal;
+            }
+
+            if (negative) bits |= 0x8000000000000000UL;
+            return BitConverter.UInt64BitsToDouble(bits);
+        }
+
+        private static BigInteger RoundRightToEven(BigInteger value, int shift)
+        {
+            if (shift <= 0) return value << -shift;
+
+            var rounded = value >> shift;
+            var remainder = value - (rounded << shift);
+            var halfway = BigInteger.One << (shift - 1);
+            if (remainder > halfway || (remainder == halfway && !rounded.IsEven)) rounded++;
+            return rounded;
         }
 
         public static double IEEERemainder(double x, double y)
@@ -481,11 +578,16 @@ namespace System
         public static double Round(double value, MidpointRounding mode) => RoundMode(value, mode);
         public static double Round(double value, int digits, MidpointRounding mode)
         {
-            if (digits < 0 || digits > 15) throw new ArgumentOutOfRangeException();
+            if (digits < 0) throw new ArgumentOutOfRangeException();
             if ((uint)mode > (uint)MidpointRounding.ToPositiveInfinity) throw new ArgumentException();
             if (digits == 0) return RoundMode(value, mode);
-            var power = Pow10(digits);
-            return Abs(value) < 1e16 ? RoundMode(value * power, mode) / power : value;
+            if (Abs(value) >= 1e16 || IsNaN(value) || IsInfinity(value)) return value;
+            if (digits <= 15)
+            {
+                var power = Pow10(digits);
+                return RoundMode(value * power, mode) / power;
+            }
+            return Number.RoundToDecimalDigits(value, digits, mode);
         }
 
         public static double ScaleB(double value, int n)
@@ -817,19 +919,22 @@ namespace System
         public static float ReciprocalSqrtEstimate(float value) => 1 / Sqrt(value);
         public static float Round(float value, int digits)
         {
-            if (digits < 0 || digits > 6) throw new ArgumentOutOfRangeException();
             return Round(value, digits, MidpointRounding.ToEven);
         }
         public static float Round(float value, MidpointRounding mode) => (float)Math.Round(value, mode);
         public static float Round(float value, int digits, MidpointRounding mode)
         {
-            if (digits < 0 || digits > 6) throw new ArgumentOutOfRangeException();
+            if (digits < 0) throw new ArgumentOutOfRangeException();
             if ((uint)mode > (uint)MidpointRounding.ToPositiveInfinity) throw new ArgumentException();
             if (digits == 0) return Round(value, mode);
             if (Abs(value) >= 8388608 || float.IsNaN(value) || float.IsInfinity(value)) return value;
-            var power = 1.0f;
-            for (var index = 0; index < digits; index++) power *= 10;
-            return (float)(Math.Round((double)value * power, mode) / power);
+            if (digits <= 6)
+            {
+                var power = 1.0f;
+                for (var index = 0; index < digits; index++) power *= 10;
+                return (float)(Math.Round((double)value * power, mode) / power);
+            }
+            return Number.RoundToDecimalDigits(value, digits, mode);
         }
         public static float ScaleB(float value, int n) => (float)Math.ScaleB(value, n);
 

@@ -142,8 +142,16 @@ namespace System
         public static sbyte ToSByte(decimal value) => checked((sbyte)decimal.Round(value));
         public static sbyte ToSByte(DateTime value) => throw new InvalidCastException();
         public static sbyte ToSByte(string? value) => value is null ? (sbyte)0 : sbyte.Parse(value);
-        public static sbyte ToSByte(string? value, IFormatProvider? provider) => ToSByte(value);
-        public static sbyte ToSByte(string? value, int fromBase) => value is null ? (sbyte)0 : (sbyte)ParseSignedBase(value, fromBase, 8);
+        public static sbyte ToSByte(string value, IFormatProvider? provider)
+        {
+            ArgumentNullException.ThrowIfNull(value);
+            return sbyte.Parse(value);
+        }
+        public static sbyte ToSByte(string? value, int fromBase)
+        {
+            ValidateBase(fromBase);
+            return value is null ? (sbyte)0 : (sbyte)ParseSignedBase(value, fromBase, 8);
+        }
         public static sbyte ToSByte(object? value) => ToSByte(value, null);
         public static sbyte ToSByte(object? value, IFormatProvider? provider) => value switch
         {
@@ -182,7 +190,11 @@ namespace System
         public static byte ToByte(DateTime value) => throw new InvalidCastException();
         public static byte ToByte(string? value) => value is null ? (byte)0 : byte.Parse(value);
         public static byte ToByte(string? value, IFormatProvider? provider) => ToByte(value);
-        public static byte ToByte(string? value, int fromBase) => value is null ? (byte)0 : ParseUnsignedBase(value, fromBase, 8) is var parsed && parsed <= byte.MaxValue ? (byte)parsed : throw new OverflowException();
+        public static byte ToByte(string? value, int fromBase)
+        {
+            ValidateBase(fromBase);
+            return value is null ? (byte)0 : (byte)ParseUnsignedBase(value, fromBase, 8);
+        }
         public static byte ToByte(object? value) => ToByte(value, null);
         public static byte ToByte(object? value, IFormatProvider? provider) => value switch
         {
@@ -221,7 +233,11 @@ namespace System
         public static short ToInt16(DateTime value) => throw new InvalidCastException();
         public static short ToInt16(string? value) => value is null ? (short)0 : short.Parse(value);
         public static short ToInt16(string? value, IFormatProvider? provider) => ToInt16(value);
-        public static short ToInt16(string? value, int fromBase) => value is null ? (short)0 : (short)ParseSignedBase(value, fromBase, 16);
+        public static short ToInt16(string? value, int fromBase)
+        {
+            ValidateBase(fromBase);
+            return value is null ? (short)0 : (short)ParseSignedBase(value, fromBase, 16);
+        }
         public static short ToInt16(object? value) => ToInt16(value, null);
         public static short ToInt16(object? value, IFormatProvider? provider) => value switch
         {
@@ -260,7 +276,11 @@ namespace System
         public static ushort ToUInt16(DateTime value) => throw new InvalidCastException();
         public static ushort ToUInt16(string? value) => value is null ? (ushort)0 : ushort.Parse(value);
         public static ushort ToUInt16(string? value, IFormatProvider? provider) => ToUInt16(value);
-        public static ushort ToUInt16(string? value, int fromBase) => value is null ? (ushort)0 : ParseUnsignedBase(value, fromBase, 16) is var parsed && parsed <= ushort.MaxValue ? (ushort)parsed : throw new OverflowException();
+        public static ushort ToUInt16(string? value, int fromBase)
+        {
+            ValidateBase(fromBase);
+            return value is null ? (ushort)0 : (ushort)ParseUnsignedBase(value, fromBase, 16);
+        }
         public static ushort ToUInt16(object? value) => ToUInt16(value, null);
         public static ushort ToUInt16(object? value, IFormatProvider? provider) => value switch
         {
@@ -303,7 +323,11 @@ namespace System
         public static int ToInt32(DateTime value) => throw new InvalidCastException();
         public static int ToInt32(string? value) => value is null ? 0 : int.Parse(value);
         public static int ToInt32(string? value, IFormatProvider? provider) => ToInt32(value);
-        public static int ToInt32(string? value, int fromBase) => value is null ? 0 : (int)ParseSignedBase(value, fromBase, 32);
+        public static int ToInt32(string? value, int fromBase)
+        {
+            ValidateBase(fromBase);
+            return value is null ? 0 : (int)ParseSignedBase(value, fromBase, 32);
+        }
         public static int ToInt32(object? value) => ToInt32(value, null);
         public static int ToInt32(object? value, IFormatProvider? provider) => value switch
         {
@@ -346,7 +370,11 @@ namespace System
         public static uint ToUInt32(DateTime value) => throw new InvalidCastException();
         public static uint ToUInt32(string? value) => value is null ? 0U : uint.Parse(value);
         public static uint ToUInt32(string? value, IFormatProvider? provider) => ToUInt32(value);
-        public static uint ToUInt32(string? value, int fromBase) => value is null ? 0U : ParseUnsignedBase(value, fromBase, 32) is var parsed && parsed <= uint.MaxValue ? (uint)parsed : throw new OverflowException();
+        public static uint ToUInt32(string? value, int fromBase)
+        {
+            ValidateBase(fromBase);
+            return value is null ? 0U : (uint)ParseUnsignedBase(value, fromBase, 32);
+        }
         public static uint ToUInt32(object? value) => ToUInt32(value, null);
         public static uint ToUInt32(object? value, IFormatProvider? provider) => value switch
         {
@@ -388,7 +416,11 @@ namespace System
         public static long ToInt64(DateTime value) => throw new InvalidCastException();
         public static long ToInt64(string? value) => value is null ? 0L : long.Parse(value);
         public static long ToInt64(string? value, IFormatProvider? provider) => ToInt64(value);
-        public static long ToInt64(string? value, int fromBase) => value is null ? 0L : ParseSignedBase(value, fromBase, 64);
+        public static long ToInt64(string? value, int fromBase)
+        {
+            ValidateBase(fromBase);
+            return value is null ? 0L : ParseSignedBase(value, fromBase, 64);
+        }
         public static long ToInt64(object? value) => ToInt64(value, null);
         public static long ToInt64(object? value, IFormatProvider? provider) => value switch
         {
@@ -430,7 +462,11 @@ namespace System
         public static ulong ToUInt64(DateTime value) => throw new InvalidCastException();
         public static ulong ToUInt64(string? value) => value is null ? 0UL : ulong.Parse(value);
         public static ulong ToUInt64(string? value, IFormatProvider? provider) => ToUInt64(value);
-        public static ulong ToUInt64(string? value, int fromBase) => value is null ? 0UL : ParseUnsignedBase(value, fromBase, 64);
+        public static ulong ToUInt64(string? value, int fromBase)
+        {
+            ValidateBase(fromBase);
+            return value is null ? 0UL : ParseUnsignedBase(value, fromBase, 64);
+        }
         public static ulong ToUInt64(object? value) => ToUInt64(value, null);
         public static ulong ToUInt64(object? value, IFormatProvider? provider) => value switch
         {
@@ -659,64 +695,129 @@ namespace System
             _ => value.ToString(),
         };
 
-        public static string ToString(byte value, int toBase) => ToString((int)value, toBase);
-        public static string ToString(short value, int toBase) => FormatBaseSigned(value, 16, toBase);
-        public static string ToString(int value, int toBase) => FormatBaseSigned(value, 32, toBase);
-        public static string ToString(long value, int toBase) => FormatBaseSigned(value, 64, toBase);
+        // Convert the byte value to a string in base toBase
+        public static string ToString(byte value, int toBase) =>
+            ToString((int)value, toBase);
 
-        private static string FormatBaseSigned(long value, int bits, int toBase)
+        // Convert the Int16 value to a string in base toBase
+        public static string ToString(short value, int toBase)
         {
-            return toBase switch
+            string format = "d";
+
+            switch (toBase)
             {
-                2 => Number.FormatSigned(value, bits, "b"),
-                8 => FormatBaseUnsigned(bits == 64 ? unchecked((ulong)value) : unchecked((ulong)value) & ((1UL << bits) - 1), bits, 8),
-                10 => Number.FormatSigned(value, bits, "d"),
-                16 => Number.FormatSigned(value, bits, "x"),
-                _ => throw new ArgumentException(),
-            };
+                case 2:
+                    format = "b";
+                    break;
+
+                case 8:
+                    return ToOctalString((ushort)value);
+
+                case 10:
+                    break;
+
+                case 16:
+                    format = "x";
+                    break;
+
+                default:
+                    ThrowInvalidBase();
+                    break;
+            }
+            ;
+
+            return value.ToString(format, CultureInfo.InvariantCulture);
         }
 
-        private static string FormatBaseUnsigned(ulong value, int bits, int radix)
+        // Convert the Int32 value to a string in base toBase
+        public static string ToString(int value, int toBase)
         {
-            var buffer = new char[bits == 64 ? 22 : bits / 3 + 2];
-            var index = buffer.Length;
+            string format = "d";
+
+            switch (toBase)
+            {
+                case 2:
+                    format = "b";
+                    break;
+
+                case 8:
+                    return ToOctalString((uint)value);
+
+                case 10:
+                    break;
+
+                case 16:
+                    format = "x";
+                    break;
+
+                default:
+                    ThrowInvalidBase();
+                    break;
+            }
+            ;
+
+            return value.ToString(format, CultureInfo.InvariantCulture);
+        }
+
+        // Convert the Int64 value to a string in base toBase
+        public static string ToString(long value, int toBase)
+        {
+            string format = "d";
+
+            switch (toBase)
+            {
+                case 2:
+                    format = "b";
+                    break;
+
+                case 8:
+                    return ToOctalString((ulong)value);
+
+                case 10:
+                    break;
+
+                case 16:
+                    format = "x";
+                    break;
+
+                default:
+                    ThrowInvalidBase();
+                    break;
+            }
+            ;
+
+            return value.ToString(format, CultureInfo.InvariantCulture);
+        }
+
+        private static void ThrowInvalidBase() => throw new ArgumentException(SR.Arg_InvalidBase);
+
+        private static unsafe string ToOctalString(ulong value)
+        {
+            Span<char> chars = stackalloc char[22]; // max length of a ulong in octal
+
+            int i = chars.Length;
             do
             {
-                buffer[--index] = (char)('0' + value % (ulong)radix);
-                value /= (ulong)radix;
+                chars[--i] = (char)('0' + (value & 7));
+                value >>= 3;
             }
             while (value != 0);
-            return string.Create(buffer).Substring(index);
+
+            return chars.Slice(i).ToString();
         }
 
         private static ulong ParseUnsignedBase(string value, int fromBase, int bits)
         {
-            ValidateBase(fromBase);
-            if (value.Length == 0) throw new FormatException();
-            var index = 0;
-            if (fromBase == 16 && value.Length >= 2 && value[0] == '0' && (value[1] == 'x' || value[1] == 'X')) index = 2;
-            if (index == value.Length) throw new FormatException();
+            var index = ParseBasePrefix(value, fromBase, unsigned: true, out _);
             var maximum = bits == 64 ? ulong.MaxValue : (1UL << bits) - 1;
-            var result = 0UL;
-            for (; index < value.Length; index++)
-            {
-                var digit = BaseDigit(value[index]);
-                if (digit < 0 || digit >= fromBase) throw new FormatException();
-                if (result > (maximum - (uint)digit) / (uint)fromBase) throw new OverflowException();
-                result = result * (uint)fromBase + (uint)digit;
-            }
-            return result;
+            return ParseMagnitude(value, index, fromBase, maximum);
         }
 
         private static long ParseSignedBase(string value, int fromBase, int bits)
         {
-            ValidateBase(fromBase);
-            if (value.Length == 0) throw new FormatException();
+            var start = ParseBasePrefix(value, fromBase, unsigned: false, out var negative);
             if (fromBase == 10)
             {
-                var negative = value[0] == '-';
-                var start = negative || value[0] == '+' ? 1 : 0;
-                if (start == value.Length) throw new FormatException();
                 var magnitude = ParseMagnitude(value, start, fromBase, negative ? (bits == 64 ? 1UL << 63 : (1UL << (bits - 1))) : (bits == 64 ? (ulong)long.MaxValue : (1UL << (bits - 1)) - 1));
                 if (negative)
                 {
@@ -726,10 +827,57 @@ namespace System
                 return (long)magnitude;
             }
 
-            var raw = ParseUnsignedBase(value, fromBase, bits);
+            var maximum = bits == 64 ? ulong.MaxValue : (1UL << bits) - 1;
+            var raw = ParseMagnitude(value, start, fromBase, maximum);
             if (bits == 64) return unchecked((long)raw);
             var sign = 1UL << (bits - 1);
             return (raw & sign) == 0 ? (long)raw : (long)(raw | ~((1UL << bits) - 1));
+        }
+
+        private static int ParseBasePrefix(
+            string value,
+            int fromBase,
+            bool unsigned,
+            out bool negative)
+        {
+            if (value.Length == 0)
+            {
+                throw new ArgumentOutOfRangeException();
+            }
+
+            var index = 0;
+            negative = false;
+            if (value[0] == '-')
+            {
+                if (fromBase != 10)
+                {
+                    throw new ArgumentException();
+                }
+                if (unsigned)
+                {
+                    throw new OverflowException();
+                }
+                negative = true;
+                index++;
+            }
+            else if (value[0] == '+')
+            {
+                index++;
+            }
+
+            if (fromBase == 16 && index + 1 < value.Length &&
+                value[index] == '0' &&
+                (value[index + 1] == 'x' || value[index + 1] == 'X'))
+            {
+                index += 2;
+            }
+
+            if (index == value.Length)
+            {
+                throw new FormatException();
+            }
+
+            return index;
         }
 
         private static ulong ParseMagnitude(string value, int start, int radix, ulong maximum)
@@ -738,7 +886,14 @@ namespace System
             for (var index = start; index < value.Length; index++)
             {
                 var digit = BaseDigit(value[index]);
-                if (digit < 0 || digit >= radix || result > (maximum - (uint)digit) / (uint)radix) throw new OverflowException();
+                if (digit < 0 || digit >= radix)
+                {
+                    throw new FormatException();
+                }
+                if (result > (maximum - (uint)digit) / (uint)radix)
+                {
+                    throw new OverflowException();
+                }
                 result = result * (uint)radix + (uint)digit;
             }
             return result;

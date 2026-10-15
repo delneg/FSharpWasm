@@ -1,5 +1,6 @@
 using System;
 using System.Text.Json;
+using NetWasm.Compiler.ComponentModel.Optimization;
 
 namespace NetWasm.Compiler.Cli;
 
@@ -8,7 +9,9 @@ internal sealed class CompileCliCommand(
     ICompileCliArtifactPlanner artifacts,
     IBinaryFileWriter binaryFiles,
     ITextFileWriter textFiles,
-    IFileDeleter files) : ICompilerCliCommand
+    IFileDeleter files,
+    IManagedCompilerOptimizationOverridesParser optimizationOverrides) :
+    ICompilerCliCommand
 {
     internal const string CommandName = "";
 
@@ -22,12 +25,26 @@ internal sealed class CompileCliCommand(
         throw new ArgumentNullException(nameof(textFiles));
     private readonly IFileDeleter _files = files ??
         throw new ArgumentNullException(nameof(files));
+    private readonly IManagedCompilerOptimizationOverridesParser _optimizationOverrides =
+        optimizationOverrides ??
+        throw new ArgumentNullException(nameof(optimizationOverrides));
 
     public string Name => CommandName;
 
     public int Run(string[] arguments)
     {
         var options = CompileCliOptions.Parse(arguments);
+        var overrides = _optimizationOverrides.Parse(
+            options.ManagedLoopInvariantFieldHoisting,
+            options.ManagedStaticDataViewElimination,
+            options.ManagedAddressTakenValuePromotion,
+            options.ManagedMethodInlining,
+            options.ManagedBranchPrefixDuplication,
+            options.ManagedScalarCallPreservation,
+            options.ManagedArrayBoundsCheckElimination,
+            options.ManagedLoopUnrolling,
+            options.ManagedConstantArgumentPropagation,
+            options.ManagedStaticArrayPopulationElimination);
         var result = _compiler.Compile(new CompilerOptions(
             options.Input,
             options.References,
@@ -42,7 +59,9 @@ internal sealed class CompileCliCommand(
             options.Sources,
             EmitStackTrace: options.StackTraceSymbols is not null,
             EntryPointKind: options.EntryPointKind,
-            UseJavaScriptExportBoundary: options.UseJavaScriptExportBoundary));
+            UseJavaScriptExportBoundary: options.UseJavaScriptExportBoundary,
+            Optimization: options.Optimization,
+            OptimizationOverrides: overrides));
         var artifacts = _artifacts.Plan(options, result);
         if (artifacts.DeleteNativeCallbackObject)
         {

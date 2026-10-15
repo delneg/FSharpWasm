@@ -295,10 +295,9 @@
   </Target>
 
   <!--
-    Runtime/component inputs are an item contract rather than hard-coded SDK
-    knowledge.  A runtime-tier package or component task can replace the
-    default runtime item, add additional inputs, or consume these items in its
-    own target without changing this SDK.
+    Runtime modules are supplied by runtime-pack materialization. Modified
+    runtimes use versioned packages from a local NuGet feed, not file overrides.
+    Non-runtime component inputs retain their existing item contracts.
   -->
   <ItemGroup Condition="'$(TargetFramework)' == 'netwasm0.1'">
     <NetWasmComponentWitVariant Include="$(NetWasmToolchainAsyncCommandWitPackagePath)"
@@ -306,11 +305,6 @@
       <World>netwasm:component@1.0.0/async-http-command</World>
       <ActivationInterfacePrefix>wasi:http@0.2.11/</ActivationInterfacePrefix>
     </NetWasmComponentWitVariant>
-    <NetWasmComponentRuntime Include="$(NetWasmRuntimeModulePath)"
-                             Condition="'$(NetWasmRuntimeModulePath)' != '' AND '@(NetWasmComponentRuntime)' == ''">
-      <Kind>RuntimeModule</Kind>
-      <WasmTarget>$(NetWasmTarget)</WasmTarget>
-    </NetWasmComponentRuntime>
     <NetWasmComponentInput Include="$(NetWasmCoreModuleOutputPath)"
                             Condition="'$(NetWasmCoreModuleOutputPath)' != ''">
       <Kind>CoreModule</Kind>
@@ -330,10 +324,6 @@
                             Condition="'$(NetWasmInteropManifestPath)' != ''">
       <Kind>InteropManifest</Kind>
       <WasmTarget>$(NetWasmTarget)</WasmTarget>
-    </NetWasmComponentInput>
-    <NetWasmComponentInput Include="@(NetWasmComponentRuntime)">
-      <Kind Condition="'%(NetWasmComponentRuntime.Kind)' != ''">%(NetWasmComponentRuntime.Kind)</Kind>
-      <WasmTarget Condition="'%(NetWasmComponentRuntime.WasmTarget)' != ''">%(NetWasmComponentRuntime.WasmTarget)</WasmTarget>
     </NetWasmComponentInput>
   </ItemGroup>
 
@@ -401,10 +391,21 @@
            Text="The central componentization target completed without producing the component manifest." />
   </Target>
 
+  <!-- WASI exposes the complete command line. Main(string[]) removes argv[0],
+       while Environment.GetCommandLineArgs retains it. Keep that program slot
+       separate from configured and subsequently appended invocation arguments. -->
+  <Target Name="NetWasmSdkResolveExecutionArguments">
+    <ItemGroup>
+      <_NetWasmExecutionArgument Remove="@(_NetWasmExecutionArgument)" />
+      <_NetWasmExecutionArgument Include="$([MSBuild]::Escape('$(AssemblyName)'))" />
+      <_NetWasmExecutionArgument Include="@(NetWasmArgument)" />
+    </ItemGroup>
+  </Target>
+
   <Target Name="NetWasmSdkPrepareLocalDeployment"
           AfterTargets="NetWasmSdkComponentize"
           BeforeTargets="Run"
-          DependsOnTargets="NetWasmSdkComponentize;NetWasmValidateCompilerArtifacts"
+          DependsOnTargets="NetWasmSdkComponentize;NetWasmValidateCompilerArtifacts;NetWasmSdkResolveExecutionArguments"
           Condition="'$(TargetFramework)' == 'netwasm0.1' AND '$(OutputType)' == 'Exe' AND '$(NoBuild)' != 'true' AND '$(DesignTimeBuild)' != 'true'">
     <NetWasmReadCompilerBuildMetadataTask MetadataPath="$(NetWasmCompilerMetadataPath)">
       <Output TaskParameter="Target" PropertyName="_NetWasmCompilerMetadataTarget" />
@@ -542,7 +543,7 @@
     <NetWasmWriteExecutionRequestTask OutputPath="$(NetWasmExecutionRequestPath)"
                                       BuildFingerprint="$(NetWasmBuildFingerprint)"
                                       DeploymentManifestSha256="$(NetWasmDeploymentManifestSha256)"
-                                      Arguments="@(NetWasmArgument)"
+                                      Arguments="@(_NetWasmExecutionArgument)"
                                       EnvironmentVariables="@(NetWasmEnvironmentVariable)"
                                       Preopens="@(NetWasmPreopen)"
                                       Clocks="@(NetWasmClockGrant)"
@@ -679,7 +680,7 @@
 
   <Target Name="NetWasmSdkPublishJsWorker"
           BeforeTargets="Publish"
-          DependsOnTargets="NetWasmSdkComponentize;NetWasmValidateCompilerArtifacts;NetWasmSdkValidateFinalArtifactForNoBuild"
+          DependsOnTargets="NetWasmSdkComponentize;NetWasmValidateCompilerArtifacts;NetWasmSdkValidateFinalArtifactForNoBuild;NetWasmSdkResolveExecutionArguments"
           Condition="'$(TargetFramework)' == 'netwasm0.1' AND '$(_NetWasmWorkerKind)' == 'jsexport' AND '$(DesignTimeBuild)' != 'true'">
     <Error Code="NWSDK048"
            Condition="'$(NetWasmWorkerPublishDir)' == '' OR !$([System.IO.Path]::IsPathFullyQualified('$(NetWasmWorkerPublishDir)'))"
@@ -731,7 +732,7 @@
                                      OutputPath="$(_NetWasmWorkerHostEntryPath)"
                                      Imports="@(_NetWasmWorkerJavaScriptImport)"
                                      Modules="@(NetWasmWorkerJavaScriptModule)"
-                                     Arguments="@(NetWasmArgument)"
+                                     Arguments="@(_NetWasmExecutionArgument)"
                                      EnvironmentVariables="@(NetWasmEnvironmentVariable)"
                                      Clocks="@(NetWasmClockGrant)"
                                      Network="$(NetWasmNetworkPolicy)"
@@ -823,7 +824,7 @@
 
   <Target Name="NetWasmSdkPublishWitWorker"
           BeforeTargets="Publish"
-          DependsOnTargets="NetWasmSdkGetWitWorkerContract;NetWasmSdkComponentize;NetWasmValidateCompilerArtifacts;NetWasmSdkValidateFinalArtifactForNoBuild"
+          DependsOnTargets="NetWasmSdkGetWitWorkerContract;NetWasmSdkComponentize;NetWasmValidateCompilerArtifacts;NetWasmSdkValidateFinalArtifactForNoBuild;NetWasmSdkResolveExecutionArguments"
           Condition="'$(TargetFramework)' == 'netwasm0.1' AND '$(_NetWasmWorkerKind)' == 'wit' AND '$(DesignTimeBuild)' != 'true'">
     <Error Code="NWSDK067"
            Condition="'$(NetWasmWorkerPublishDir)' == '' OR !$([System.IO.Path]::IsPathFullyQualified('$(NetWasmWorkerPublishDir)'))"
@@ -891,7 +892,7 @@
                                         Preview2ShimRoot="$(NetWasmPreview2ShimRoot)"
                                         OutputPath="$(_NetWasmWitWorkerHostEntryPath)"
                                        ApplicationImports="@(_NetWasmWitWorkerVerifiedApplicationImport)"
-                                        Arguments="@(NetWasmArgument)"
+                                        Arguments="@(_NetWasmExecutionArgument)"
                                         EnvironmentVariables="@(NetWasmEnvironmentVariable)"
                                         Clocks="@(NetWasmClockGrant)"
                                         Network="$(NetWasmNetworkPolicy)"

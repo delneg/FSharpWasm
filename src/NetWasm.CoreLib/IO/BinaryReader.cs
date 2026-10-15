@@ -3,7 +3,8 @@
 //
 // Adapted from dotnet/runtime System.Private.CoreLib (commit
 // 811225a482702af7ecc35d817966bc70b88a3a23). Async members and runtime-private
-// MemoryStream fast paths are intentionally omitted for the NetWasm profile.
+// MemoryStream fast paths are retained; asynchronous members remain outside the
+// current NetWasm profile.
 
 using System.Buffers;
 using System.Buffers.Binary;
@@ -21,6 +22,7 @@ public class BinaryReader : IDisposable
     private char[]? _charBuffer;
     private readonly int _maxCharsSize;
     private readonly bool _twoBytesPerChar;
+    private readonly bool _isMemoryStream;
     private readonly bool _leaveOpen;
     private bool _disposed;
 
@@ -41,6 +43,7 @@ public class BinaryReader : IDisposable
         _encoding = encoding;
         _maxCharsSize = encoding.GetMaxCharCount(MaxCharBytesSize);
         _twoBytesPerChar = encoding is UnicodeEncoding;
+        _isMemoryStream = _stream.GetType() == typeof(MemoryStream);
         _leaveOpen = leaveOpen;
     }
 
@@ -284,14 +287,30 @@ public class BinaryReader : IDisposable
                 bytesToRead--;
             }
 
-            bytesToRead = Math.Min(bytesToRead, MaxCharBytesSize);
-            var read = _stream.Read(characterBytes[..bytesToRead]);
-            if (read == 0)
+            scoped ReadOnlySpan<byte> byteBuffer;
+            if (_isMemoryStream)
+            {
+                var memoryStream = (MemoryStream)_stream;
+                var position = memoryStream.InternalGetPosition();
+                bytesToRead = memoryStream.InternalEmulateRead(bytesToRead);
+                byteBuffer = new ReadOnlySpan<byte>(
+                    memoryStream.InternalGetBuffer(),
+                    position,
+                    bytesToRead);
+            }
+            else
+            {
+                bytesToRead = Math.Min(bytesToRead, MaxCharBytesSize);
+                var read = _stream.Read(characterBytes[..bytesToRead]);
+                byteBuffer = characterBytes[..read];
+            }
+
+            if (byteBuffer.IsEmpty)
             {
                 break;
             }
 
-            var charsRead = _decoder.GetChars(characterBytes[..read], buffer, flush: false);
+            var charsRead = _decoder.GetChars(byteBuffer, buffer, flush: false);
             buffer = buffer.Slice(charsRead);
             totalCharsRead += charsRead;
         }
@@ -413,7 +432,11 @@ public class BinaryReader : IDisposable
 
     private ReadOnlySpan<byte> InternalRead(Span<byte> buffer)
     {
-        ReadExactly(buffer);
+        if (_isMemoryStream)
+            return ((MemoryStream)_stream).InternalReadSpan(buffer.Length);
+
+        ThrowIfDisposed();
+        _stream.ReadExactly(buffer);
         return buffer;
     }
 

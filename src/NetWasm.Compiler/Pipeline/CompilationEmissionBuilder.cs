@@ -2,6 +2,7 @@ using System;
 using System.Collections.Immutable;
 using System.Linq;
 using NetWasm.Compiler.Analysis;
+using NetWasm.Compiler.ComponentModel.Optimization;
 using NetWasm.Compiler.Core;
 using NetWasm.Compiler.Emission;
 using NetWasm.Compiler.Layout;
@@ -111,7 +112,8 @@ internal sealed class CompilationEmissionBuilder(
         var runtimeIntrinsics = _intrinsics.Create(symbols, metadata.Methods);
         var lowering = _methodProgram.Build(
             analysis.Program.Methods,
-            analysis.Program.ConstructedMethods);
+            analysis.Program.ConstructedMethods,
+            preparation.OptimizationSettings.BranchPrefixDuplication);
         _structuredInvariants.Validate(symbols, lowering);
 
         var emitter = _emitters.Create(
@@ -177,6 +179,7 @@ internal sealed class CompilationEmissionBuilder(
             ModuleInitializers = analysis.Program.ModuleInitializers,
             ManagedCallSites = analysis.Program.ManagedCallSites,
             DelegateBindings = analysis.Program.DelegateBindings,
+            ManagedByRefEffects = analysis.Program.ManagedByRefEffects,
             ObjectArrayDelegateAdapters = analysis.Program.ObjectArrayDelegateAdapters,
             MemberExecution = analysis.Program.MemberExecution,
             NativeCallbacks = nativeCallbacks,
@@ -186,6 +189,18 @@ internal sealed class CompilationEmissionBuilder(
             UseJavaScriptExportBoundary =
                 options.UseJavaScriptExportBoundary || options.WitPath is null,
             StructuredDiagnostics = options.StructuredDiagnostics,
+            EnableAddressTakenAggregatePromotion =
+                preparation.OptimizationSettings.AddressTakenValuePromotion ==
+                AddressTakenValuePromotionPolicy.Conservative,
+            EnableBranchValueFramePlacement =
+                preparation.OptimizationSettings.BranchPrefixDuplication ==
+                BranchPrefixDuplicationPolicy.Speed,
+            EnableArrayMetadataCaching =
+                preparation.OptimizationSettings.LoopInvariantFieldHoisting ==
+                LoopInvariantFieldHoistingPolicy.Conservative,
+            EnableScalarCallPreservation =
+                preparation.OptimizationSettings.ScalarCallPreservation ==
+                ScalarCallPreservationPolicy.Conservative,
             SourceLocations = _stackTraceSourceLocations.Read(metadata, options),
         };
         var emission = emitter.Emit(request);

@@ -1,4 +1,5 @@
 using System;
+using NetWasm.Compiler.ComponentModel.Optimization;
 
 namespace NetWasm.Compiler.ComponentModel;
 
@@ -19,6 +20,10 @@ public sealed class ComponentPackageInputValidator(
     public void Validate(ComponentPackageRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);
+        if (request.RuntimeModulePath is null &&
+            request.OptimizationOverrides is { ManagedInliningHints: not ManagedInliningHints.Auto })
+            throw ComponentException.Invalid(
+                "Managed inlining hint overrides require core-module linking with a runtime module.");
         RequireFile(request.CoreModulePath, "core module");
         if (!_files.Exists(request.WitPath) && !_directories.Exists(request.WitPath))
         {

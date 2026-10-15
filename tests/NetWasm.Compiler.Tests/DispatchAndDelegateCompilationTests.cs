@@ -338,12 +338,6 @@ public sealed class DispatchAndDelegateCompilationTests
             "Run",
             []));
 
-        var operations = result.Program.Methods.Values
-            .SelectMany(method => method.Body.Instructions)
-            .Select(instruction => instruction.Operation)
-            .ToArray();
-        Assert.Contains(CilOperation.DelegateCombine, operations);
-        Assert.Contains(CilOperation.DelegateRemove, operations);
         Assert.Equal(2, result.Program.DelegateTypes.Length);
         Assert.Equal(2, result.Program.DelegateTypes
             .Select(type => result.Layouts.ObjectIdentityLayouts[type].TypeId)

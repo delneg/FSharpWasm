@@ -1,9 +1,12 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 // Adapted from dotnet/runtime System.Private.CoreLib (commit
-// 811225a482702af7ecc35d817966bc70b88a3a23); asynchronous members omitted.
+// 811225a482702af7ecc35d817966bc70b88a3a23).
 
 using System.Text;
+using System.Globalization;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace System.IO
 {
@@ -13,9 +16,9 @@ namespace System.IO
         private bool _isOpen;
         private Encoding? _encoding;
 
-        public StringWriter() : this(new StringBuilder(), null) { }
+        public StringWriter() : this(new StringBuilder(), CultureInfo.CurrentCulture) { }
         public StringWriter(IFormatProvider? formatProvider) : this(new StringBuilder(), formatProvider) { }
-        public StringWriter(StringBuilder builder) : this(builder, null) { }
+        public StringWriter(StringBuilder builder) : this(builder, CultureInfo.CurrentCulture) { }
 
         public StringWriter(StringBuilder builder, IFormatProvider? formatProvider) : base(formatProvider)
         {
@@ -113,6 +116,89 @@ namespace System.IO
         }
 
         public override string ToString() => _builder.ToString();
+
+        public override Task WriteAsync(char value)
+        {
+            Write(value);
+            return Task.CompletedTask;
+        }
+
+        public override Task WriteAsync(string? value)
+        {
+            Write(value);
+            return Task.CompletedTask;
+        }
+
+        public override Task WriteAsync(char[] buffer, int index, int count)
+        {
+            Write(buffer, index, count);
+            return Task.CompletedTask;
+        }
+
+        public override Task WriteAsync(ReadOnlyMemory<char> buffer, CancellationToken cancellationToken = default)
+        {
+            if (cancellationToken.IsCancellationRequested)
+                return Task.FromCanceled(cancellationToken);
+
+            Write(buffer.Span);
+            return Task.CompletedTask;
+        }
+
+        public override Task WriteAsync(StringBuilder? value, CancellationToken cancellationToken = default)
+        {
+            if (GetType() != typeof(StringWriter))
+                return base.WriteAsync(value, cancellationToken);
+
+            if (cancellationToken.IsCancellationRequested)
+                return Task.FromCanceled(cancellationToken);
+
+            ThrowIfClosed();
+            _builder.Append(value);
+            return Task.CompletedTask;
+        }
+
+        public override Task WriteLineAsync(char value)
+        {
+            WriteLine(value);
+            return Task.CompletedTask;
+        }
+
+        public override Task WriteLineAsync(string? value)
+        {
+            WriteLine(value);
+            return Task.CompletedTask;
+        }
+
+        public override Task WriteLineAsync(StringBuilder? value, CancellationToken cancellationToken = default)
+        {
+            if (GetType() != typeof(StringWriter))
+                return base.WriteLineAsync(value, cancellationToken);
+
+            if (cancellationToken.IsCancellationRequested)
+                return Task.FromCanceled(cancellationToken);
+
+            ThrowIfClosed();
+            _builder.Append(value);
+            WriteLine();
+            return Task.CompletedTask;
+        }
+
+        public override Task WriteLineAsync(char[] buffer, int index, int count)
+        {
+            WriteLine(buffer, index, count);
+            return Task.CompletedTask;
+        }
+
+        public override Task WriteLineAsync(ReadOnlyMemory<char> buffer, CancellationToken cancellationToken = default)
+        {
+            if (cancellationToken.IsCancellationRequested)
+                return Task.FromCanceled(cancellationToken);
+
+            WriteLine(buffer.Span);
+            return Task.CompletedTask;
+        }
+
+        public override Task FlushAsync() => Task.CompletedTask;
 
         private void ThrowIfClosed()
         {

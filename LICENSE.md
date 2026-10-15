@@ -5,7 +5,8 @@ build, debugger, IDE, and other developer tooling is covered by the [NetWasm
 Community License 1.0](LICENSES/LicenseRef-NetWasm-Community-1.0.txt). CoreLib,
 runtime libraries, WIT/WASI libraries, templates, generated support code, and
 other code intended to enter user applications are MIT licensed unless a
-separate upstream notice applies.
+separate component or upstream notice applies. NetWasmGC and CompactGC are
+licensed under Apache-2.0 and carry their own licence texts and notices.
 
 The published licensor is the pseudonym **Zion Sati**. Commercial licensing
 questions and agreements: <zionsatidev@gmail.com>. Project repository:
@@ -15,6 +16,7 @@ questions and agreements: <zionsatidev@gmail.com>. Project repository:
 | --- | --- |
 | Compiler projects, CLI, SDK/pack, build scripts, debugger, IDE/browser tooling, developer tools, and tests/test infrastructure | NetWasm Community License 1.0 |
 | `NetWasm.CoreLib`, runtime libraries, templates, and generated support code | MIT |
+| NetWasmGC and CompactGC collector implementations | Apache-2.0 |
 | Vendored WASI description files | Upstream WASI license |
 | Other third-party material | Its preserved source notice and applicable upstream license |
 

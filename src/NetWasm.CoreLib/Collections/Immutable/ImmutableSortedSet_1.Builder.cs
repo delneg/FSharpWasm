@@ -53,11 +53,6 @@ namespace System.Collections.Immutable
             private int _version;
 
             /// <summary>
-            /// The synchronization root exposed by the legacy non-generic collection interface.
-            /// </summary>
-            private object? _syncRoot;
-
-            /// <summary>
             /// Initializes a new instance of the <see cref="Builder"/> class.
             /// </summary>
             /// <param name="set">A set to act as the basis for a new set.</param>
@@ -507,7 +502,7 @@ namespace System.Collections.Immutable
             /// <returns>An object that can be used to synchronize access to the <see cref="ICollection"/>.</returns>
             [DebuggerBrowsable(DebuggerBrowsableState.Never)]
             object ICollection.SyncRoot =>
-                 _syncRoot ??= new object();
+                 field ??= new object();
             #endregion
         }
     }

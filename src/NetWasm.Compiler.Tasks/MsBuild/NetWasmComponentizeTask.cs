@@ -2,6 +2,7 @@ using Microsoft.Build.Framework;
 using Microsoft.Build.Utilities;
 using NetWasm.Compiler.ComponentModel;
 using NetWasm.Compiler.ComponentModel.Node;
+using NetWasm.Compiler.ComponentModel.Optimization;
 using NetWasm.Compiler.Core;
 using NetWasm.Compiler.Tasks.ComponentModel;
 using NetWasm.Compiler.Tasks.Compilation;
@@ -16,6 +17,7 @@ public sealed class NetWasmComponentizeTask : Microsoft.Build.Utilities.Task
     private readonly IComponentWitWorldSelector _witWorlds;
     private readonly IComponentManifestWriter _manifests;
     private readonly IManagedEntryPointReader _entryPoints;
+    private readonly IManagedInliningHintsParser _inlineHints;
 
     public NetWasmComponentizeTask()
         : this(
@@ -23,7 +25,7 @@ public sealed class NetWasmComponentizeTask : Microsoft.Build.Utilities.Task
             CompilerTaskComposition.CreateComponentManifestInputsReader(),
             CompilerTaskComposition.CreateComponentWitWorldSelector(),
             CompilerTaskComposition.CreateComponentManifestWriter(),
-            new ManagedEntryPointReader())
+            new ManagedEntryPointReader(), new ManagedInliningHintsParser())
     {
     }
 
@@ -32,7 +34,8 @@ public sealed class NetWasmComponentizeTask : Microsoft.Build.Utilities.Task
         IComponentManifestInputsReader manifestInputs,
         IComponentWitWorldSelector witWorlds,
         IComponentManifestWriter manifests,
-        IManagedEntryPointReader entryPoints)
+        IManagedEntryPointReader entryPoints,
+        IManagedInliningHintsParser inlineHints)
     {
         _sessions = sessions ?? throw new ArgumentNullException(nameof(sessions));
         _manifestInputs = manifestInputs ??
@@ -40,6 +43,7 @@ public sealed class NetWasmComponentizeTask : Microsoft.Build.Utilities.Task
         _witWorlds = witWorlds ?? throw new ArgumentNullException(nameof(witWorlds));
         _manifests = manifests ?? throw new ArgumentNullException(nameof(manifests));
         _entryPoints = entryPoints ?? throw new ArgumentNullException(nameof(entryPoints));
+        _inlineHints = inlineHints ?? throw new ArgumentNullException(nameof(inlineHints));
     }
 
     [Required]
@@ -96,6 +100,7 @@ public sealed class NetWasmComponentizeTask : Microsoft.Build.Utilities.Task
     public string Preview2ShimVersion { get; set; } = string.Empty;
 
     public string Optimization { get; set; } = "Oz";
+    public string ManagedInliningHints { get; set; } = "Auto";
 
     public bool StructuredDiagnostics { get; set; }
 
@@ -123,6 +128,7 @@ public sealed class NetWasmComponentizeTask : Microsoft.Build.Utilities.Task
                     "The NetWasm component target must be wasm32 or wasm64."),
             };
             var optimization = ParseOptimization();
+            var optimizationOverrides = _inlineHints.Parse(ManagedInliningHints);
             var inputs = _manifestInputs.Read(new(
                 InteropManifestPath,
                 Target,
@@ -149,7 +155,8 @@ public sealed class NetWasmComponentizeTask : Microsoft.Build.Utilities.Task
                 inputs,
                 entryPoint?.Abi,
                 optimization,
-                StructuredDiagnostics));
+                StructuredDiagnostics)
+            { OptimizationOverrides = optimizationOverrides });
             _manifests.Write(new(ComponentManifestPath, manifest));
             Components = [CreateComponentItem(manifest)];
             return true;

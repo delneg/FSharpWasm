@@ -7,3 +7,10 @@ The required Emscripten, musl and compiler-rt archives are restored with this
 package; an application build does not need a local emsdk cache. The package
 manifest hashes the archives, and `runtime/LICENSE.txt` carries their notices.
 Maintainers use the pinned Emscripten SDK when regenerating the package.
+
+`NetWasmOptimization` also selects the prebuilt native runtime and collector
+archives: `O1`, `O2` and `O3` use speed-oriented archives; `Os`, `Oz`, `O0` and
+`None` use size-oriented archives. `O0` and `None` apply to application/final
+Wasm optimization, not to how the packaged native archives were compiled.
+Both archive profiles implement the same runtime and collector behavior.
+Changing application code does not rebuild the collector from C source.

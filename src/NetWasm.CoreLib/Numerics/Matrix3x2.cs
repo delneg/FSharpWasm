@@ -5,6 +5,7 @@
 
 namespace System.Numerics;
 
+// TODO(netwasm-simd)
 public struct Matrix3x2 : IEquatable<Matrix3x2>
 {
     private const float InverseEpsilon = 2.938737E-39f;

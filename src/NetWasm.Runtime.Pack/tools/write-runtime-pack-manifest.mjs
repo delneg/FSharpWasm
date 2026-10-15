@@ -10,13 +10,22 @@ if (!packageRoot) {
 const toolchainPath = toolchainArgument ?? join(packageRoot, "..", "..", "eng", "toolchain.json");
 const runtimeRoot = join(packageRoot, "runtime");
 const policy = JSON.parse(await readFile(join(runtimeRoot, "runtime-policy.json"), "utf8"));
-if (!['Compact', 'Boehm'].includes(policy.defaultGarbageCollector)) {
+if (!['Compact', 'NetWasm', 'Boehm', 'Bump'].includes(policy.defaultGarbageCollector)) {
   throw new Error('The runtime policy default garbage collector is invalid.');
 }
 const toolchain = JSON.parse(await readFile(toolchainPath, "utf8"));
 const exports = (await readFile(join(runtimeRoot, "runtime-exports.txt"), "utf8"))
   .split(/\r?\n/u)
   .filter(Boolean);
+const inlineIntents = policy.inlineIntents;
+if (!Array.isArray(inlineIntents) || inlineIntents.some(intent =>
+  intent === null || typeof intent !== "object" ||
+  typeof intent.export !== "string" || intent.export.trim().length === 0 ||
+  !["Never", "Aggressive"].includes(intent.preference) ||
+  !exports.includes(intent.export)) ||
+  new Set(inlineIntents.map(intent => intent.export)).size !== inlineIntents.length) {
+  throw new Error("The runtime policy inline-intent contract is invalid.");
+}
 
 const fingerprintInput = {
   dotnetSdk: toolchain.dotnetSdk,
@@ -49,11 +58,18 @@ for (const [target, targetPolicy] of Object.entries(policy.targets)) {
   });
   const allowedUndefinedSymbols = await describeAsset(
     `${target}/allowed-undefined-symbols.txt`);
-  for (const garbageCollector of ['Compact', 'Boehm']) {
+  for (const garbageCollector of ['Compact', 'NetWasm', 'Boehm', 'Bump']) {
   const collectorDirectory = garbageCollector.toLowerCase();
   const measured = JSON.parse(await readFile(join(runtimeRoot, target, collectorDirectory, "layout.json"), "utf8"));
   const runtimeArchive = await describeAsset(`${target}/${collectorDirectory}/libnetwasm-runtime.a`);
   const collectorArchive = await describeAsset(`${target}/${collectorDirectory}/libgc.a`);
+  const speedMeasured = JSON.parse(await readFile(
+    join(runtimeRoot, target, collectorDirectory, "speed", "layout.json"), "utf8"));
+  const speed = {
+    runtimeFootprintBytes: speedMeasured.runtimeFootprintBytes,
+    runtimeArchive: await describeAsset(`${target}/${collectorDirectory}/speed/libnetwasm-runtime.a`),
+    collectorArchive: await describeAsset(`${target}/${collectorDirectory}/speed/libgc.a`),
+  };
   targets.push({
     target,
     garbageCollector,
@@ -66,6 +82,7 @@ for (const [target, targetPolicy] of Object.entries(policy.targets)) {
     maximumMemorySizeBytes: targetPolicy.maximumMemorySizeBytes,
     runtimeArchive,
     collectorArchive,
+    speed,
     allowedUndefinedSymbols,
     nativeValidation: {
       version: policy.staticNative.version,
@@ -73,7 +90,8 @@ for (const [target, targetPolicy] of Object.entries(policy.targets)) {
       imports: policy.staticNative.imports.map(imported => ({
         module: imported.module.replace('{prefix}', prefix), name: imported.name,
         parameters: physicalTypes(imported.parameters), results: physicalTypes(imported.results),
-        required: imported.required,
+        required: imported.required && !(garbageCollector === 'Bump' &&
+          imported.module === 'netwasm.application.v1' && imported.name === 'netwasm.finalize'),
       })),
     },
     systemLibraries: {
@@ -86,12 +104,13 @@ for (const [target, targetPolicy] of Object.entries(policy.targets)) {
 }
 
 const manifest = {
-  schemaVersion: 5,
+  schemaVersion: 6,
   defaultGarbageCollector: policy.defaultGarbageCollector,
   runtimeAbi: toolchain.runtimeAbi,
   emscriptenVersion: toolchain.emscripten,
   wasmPageSize: policy.wasmPageSize,
   exports,
+  inlineIntents,
   provenance: {
     buildSeam: "eng/build-netwasm-runtime.sh",
     configuration: "release",

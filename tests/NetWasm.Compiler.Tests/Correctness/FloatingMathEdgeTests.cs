@@ -52,8 +52,8 @@ public sealed class FloatingMathEdgeTests(CorrectnessTestRunner runner) : CSharp
 
     [Theory]
     [MemberData(nameof(ArgumentCells))]
-    public void RoundingArgumentsRespectNet10LimitsAndExceptionPrecedence(string caseId, string cell) =>
-        Run(CorpusCaseTestData.Active(caseId, cell), cell);
+    public void RoundingArgumentsRespectSelectedNet11Contract(string caseId, string cell) =>
+        Run(CorpusCaseTestData.Get(caseId), cell);
 
     [Fact(Skip = KnownNonBugSkipReasons.SpecialValueRoundingValidationOrder)]
     public void SpecialValueRoundingInvalidModePrecedenceIsNotRequired() =>

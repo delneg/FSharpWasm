@@ -76,6 +76,7 @@ var weakHandles = [];
 var ephemeronHandles = [null];
 var strongHandles = [];
 var gcHandles = [null];
+var runtimeRandomState = 0n;
 var zero = () => 0;
 var zeroAddress = () => memory64 ? 0n : 0;
 var asAddress = value => memory64 ? BigInt(value) : value;
@@ -435,18 +436,23 @@ var copyArray = (source, sourceIndex, destination, destinationIndex, length) => 
   const destinationIsValue = destinationValueSize !== undefined;
   const sourceType = view.getInt32(sourceAddress, true);
   const destinationType = view.getInt32(destinationAddress, true);
-  if (!isTypeAssignable(sourceType, destinationType) &&
-      !isTypeAssignable(destinationType, sourceType) &&
-      !typeInterfaces.has(sourceElement) &&
-      !typeInterfaces.has(destinationElement)) return 1;
-  if (sourceIsValue !== destinationIsValue) return 1;
+  if (sourceIsValue === destinationIsValue) {
+    if (!isTypeAssignable(sourceType, destinationType) &&
+        !isTypeAssignable(destinationType, sourceType) &&
+        !typeInterfaces.has(sourceElement) &&
+        !typeInterfaces.has(destinationElement)) return 1;
+  } else if (sourceIsValue) {
+    if (!isTypeAssignable(sourceElement, destinationElement)) return 1;
+  } else if (!isTypeAssignable(destinationElement, sourceElement)) {
+    return 1;
+  }
   const sourceData = memory64
     ? view.getBigUint64(sourceAddress + dataOffset, true)
     : view.getUint32(sourceAddress + dataOffset, true);
   const destinationData = memory64
     ? view.getBigUint64(destinationAddress + dataOffset, true)
     : view.getUint32(destinationAddress + dataOffset, true);
-  if (sourceIsValue) {
+  if (sourceIsValue && destinationIsValue) {
     if (sourceValueSize !== destinationValueSize) return 1;
     const byteCount = length * sourceValueSize;
     const sourceStart = asNumber(plus(sourceData, sourceIndex * sourceValueSize));
@@ -463,6 +469,40 @@ var copyArray = (source, sourceIndex, destination, destinationIndex, length) => 
   const write = (address, value) => memory64
     ? view.setBigUint64(address, value, true)
     : view.setUint32(address, value, true);
+  if (sourceIsValue) {
+    const payloadOffset = valueTypePayloadOffsets.get(sourceElement);
+    const objectSize = typeSizes.get(sourceElement);
+    for (let offset = 0; offset < length; offset++) {
+      const boxed = allocate(objectSize, sourceElement);
+      const sourceStart = asNumber(plus(
+        sourceData,
+        (sourceIndex + offset) * sourceValueSize));
+      new Uint8Array(memory.buffer, asNumber(plus(boxed, payloadOffset)), sourceValueSize).set(
+        new Uint8Array(memory.buffer, sourceStart, sourceValueSize));
+      write(
+        asNumber(plus(destinationData, (destinationIndex + offset) * referenceSize)),
+        boxed);
+    }
+    return 0;
+  }
+  if (destinationIsValue) {
+    for (let offset = 0; offset < length; offset++) {
+      const boxed = read(asNumber(plus(sourceData, (sourceIndex + offset) * referenceSize)));
+      if (!boxed) return 2;
+      const boxedType = createRefreshableDataView(memory).getInt32(asNumber(boxed), true);
+      if (boxedType !== destinationElement) return 2;
+      const payloadOffset = valueTypePayloadOffsets.get(destinationElement);
+      const destinationStart = asNumber(plus(
+        destinationData,
+        (destinationIndex + offset) * destinationValueSize));
+      new Uint8Array(memory.buffer, destinationStart, destinationValueSize).set(
+        new Uint8Array(
+          memory.buffer,
+          asNumber(plus(boxed, payloadOffset)),
+          destinationValueSize));
+    }
+    return 0;
+  }
   const copyBackward = source === destination &&
     destinationIndex > sourceIndex && destinationIndex < sourceIndex + length;
   for (let step = 0; step < length; step++) {
@@ -477,15 +517,22 @@ var copyArray = (source, sourceIndex, destination, destinationIndex, length) => 
   }
   return 0;
 };
-var cloneArray = source => {
+var cloneArray = (source, sourceIndex, requestedLength) => {
   const view = createRefreshableDataView(memory);
   const address = asNumber(source);
   const type = view.getInt32(address, true);
-  const length = view.getInt32(address + (memory64 ? 8 : 4), true);
+  const sourceLength = view.getInt32(address + (memory64 ? 8 : 4), true);
+  const fullClone = requestedLength < 0;
+  const length = fullClone ? sourceLength : requestedLength;
+  if (sourceIndex < 0 || length < 0 || sourceIndex > sourceLength ||
+      length > sourceLength - sourceIndex) {
+    throw new Error("array clone range out of bounds");
+  }
   const element = view.getInt32(address + (memory64 ? 24 : 12), true);
   const valueSize = valueTypeSizes.get(element);
   let clone;
   if (typeSizes.get(type) === (memory64 ? 40 : 24)) {
+    if (!fullClone) throw new Error("rectangular array range clone is unsupported");
     const rankFlags = view.getInt32(address + (memory64 ? 28 : 16), true);
     const rank = rankFlags & 0x7fffffff;
     const shape = memory64
@@ -516,7 +563,7 @@ var cloneArray = source => {
       element,
       valueSize ?? (memory64 ? 8 : 4));
   }
-  return copyArray(source, 0, clone, 0, length) === 0
+  return copyArray(source, sourceIndex, clone, 0, length) === 0
     ? clone
     : zeroAddress();
 };
@@ -753,6 +800,8 @@ var runtimeValues = {
   allocate_string: allocateString,
   get_type_object: getTypeObject,
   suppress_finalize: zero,
+  initialize_finalization: zero,
+  allocate_finalizable: allocate,
   weak_handle_new(target) {
     weakHandles.push(target);
     return weakHandles.length - 1;
@@ -768,7 +817,19 @@ var runtimeValues = {
     return ephemeronHandles[handle]?.key ?? zeroAddress();
   },
   ephemeron_handle_get_value(handle) {
-    return ephemeronHandles[handle]?.value ?? zeroAddress();
+    const entry = ephemeronHandles[handle];
+    return entry && entry.key !== zeroAddress() ? entry.value : zeroAddress();
+  },
+  ephemeron_handle_set_target_to_null(handle) {
+    const entry = ephemeronHandles[handle];
+    if (entry) {
+      entry.key = zeroAddress();
+      entry.value = zeroAddress();
+    }
+  },
+  ephemeron_handle_set_value(handle, value) {
+    const entry = ephemeronHandles[handle];
+    if (entry && entry.key !== zeroAddress()) entry.value = value;
   },
   ephemeron_handle_release(handle) { ephemeronHandles[handle] = null; },
   gc_handle_new(target, kind) {
@@ -789,6 +850,42 @@ var runtimeValues = {
   gc_metric_is_supported(metric) { return metric !== 4; },
   gc_wait_for_pending_finalizers: zero,
   object_identity_hash(value) { return Number(value) | 0; },
+  boxed_value_clone(source) {
+    const view = createRefreshableDataView(memory);
+    const type = view.getInt32(asNumber(source), true);
+    const objectSize = typeSizes.get(type);
+    const valueSize = valueTypeSizes.get(type);
+    const payloadOffset = valueTypePayloadOffsets.get(type);
+    if (objectSize === undefined || valueSize === undefined || payloadOffset === undefined) {
+      throw new Error("boxed value layout is missing");
+    }
+    const clone = allocate(objectSize, type);
+    new Uint8Array(memory.buffer, asNumber(plus(clone, payloadOffset)), valueSize).set(
+      new Uint8Array(memory.buffer, asNumber(plus(source, payloadOffset)), valueSize));
+    return clone;
+  },
+  runtime_helpers_equals(left, right) {
+    if (left === right) return 1;
+    if (left === zeroAddress() || right === zeroAddress()) return 0;
+    const view = createRefreshableDataView(memory);
+    const leftType = view.getInt32(asNumber(left), true);
+    const rightType = view.getInt32(asNumber(right), true);
+    if (leftType !== rightType) return 0;
+    const valueSize = valueTypeSizes.get(leftType);
+    const payloadOffset = valueTypePayloadOffsets.get(leftType);
+    if (valueSize === undefined || payloadOffset === undefined) return 0;
+    const leftBytes = new Uint8Array(
+      memory.buffer, asNumber(plus(left, payloadOffset)), valueSize);
+    const rightBytes = new Uint8Array(
+      memory.buffer, asNumber(plus(right, payloadOffset)), valueSize);
+    return leftBytes.every((value, index) => value === rightBytes[index]) ? 1 : 0;
+  },
+  random_seed() {
+    runtimeRandomState = BigInt.asUintN(
+      64,
+      runtimeRandomState + 0x9e3779b97f4a7c15n);
+    return runtimeRandomState;
+  },
   report_unobserved_task_exception: zero,
   is_assignable: isAssignable,
   end_catch() { lastException = 0; },

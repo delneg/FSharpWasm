@@ -273,7 +273,8 @@ public sealed class CoreModelTests
                 RootSourceKind.ManagedAddressArgument,
                 RootSourceKind.ManagedAddressLocal,
                 RootSourceKind.ManagedAddressEvaluationStack,
-                RootSourceKind.AllocationTemporary],
+                RootSourceKind.AllocationTemporary,
+                RootSourceKind.StackStorageAnchor],
             Enum.GetValues<RootSourceKind>());
     }
 
@@ -753,8 +754,8 @@ public sealed class CoreModelTests
         Assert.Equal(3, layout.TypeTypeId);
         Assert.Equal(-1, layout.DelegateTargetOffset);
         Assert.Equal(-1, layout.DelegateMethodIdOffset);
-        Assert.Equal(-1, layout.DelegateLeftOffset);
-        Assert.Equal(-1, layout.DelegateRightOffset);
+        Assert.Equal(-1, layout.DelegateInvocationListOffset);
+        Assert.Equal(-1, layout.DelegateInvocationCountOffset);
         var staticDataLayout = (IStaticDataLayout)layout;
         Assert.Equal(0, staticDataLayout.TypeFactsTableAddress);
         Assert.Equal(0, staticDataLayout.TypeFactsTableCount);
@@ -967,8 +968,8 @@ public sealed class CoreModelTests
         public int TypeTypeId => 3;
         public int DelegateTargetOffset => -1;
         public int DelegateMethodIdOffset => -1;
-        public int DelegateLeftOffset => -1;
-        public int DelegateRightOffset => -1;
+        public int DelegateInvocationListOffset => -1;
+        public int DelegateInvocationCountOffset => -1;
         public int GetExceptionObject(ManagedExceptionKind kind) => 0;
         public int StringLengthOffset => 4;
         public int StringDataOffset => 8;

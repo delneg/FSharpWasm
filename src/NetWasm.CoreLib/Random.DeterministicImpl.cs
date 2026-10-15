@@ -33,20 +33,14 @@ namespace System
 
             public XoshiroImpl()
             {
-                var seed = 0x9E3779B97F4A7C15UL;
-                _s0 = SplitMix64(ref seed);
-                _s1 = SplitMix64(ref seed);
-                _s2 = SplitMix64(ref seed);
-                _s3 = SplitMix64(ref seed);
-            }
-
-            private static ulong SplitMix64(ref ulong state)
-            {
-                state += 0x9E3779B97F4A7C15UL;
-                var value = state;
-                value = (value ^ (value >> 30)) * 0xBF58476D1CE4E5B9UL;
-                value = (value ^ (value >> 27)) * 0x94D049BB133111EBUL;
-                return value ^ (value >> 31);
+                do
+                {
+                    _s0 = MarvinSeedRuntime.Get();
+                    _s1 = MarvinSeedRuntime.Get();
+                    _s2 = MarvinSeedRuntime.Get();
+                    _s3 = MarvinSeedRuntime.Get();
+                }
+                while ((_s0 | _s1 | _s2 | _s3) == 0);
             }
 
             /// <summary>Produces a value in the range [0, uint.MaxValue].</summary>

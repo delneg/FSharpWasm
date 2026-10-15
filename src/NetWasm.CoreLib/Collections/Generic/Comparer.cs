@@ -3,120 +3,139 @@
 // Adapted from dotnet/runtime System.Private.CoreLib Comparer.cs at commit
 // 811225a482702af7ecc35d817966bc70b88a3a23.
 
+using System.Diagnostics.CodeAnalysis;
+using System.Runtime.CompilerServices;
+
 namespace System.Collections.Generic
 {
     public abstract class Comparer<T> : IComparer<T>, System.Collections.IComparer
     {
-        private static readonly Comparer<T> s_default = new ObjectComparer<T>();
+        private static readonly Comparer<T> s_default = CreateDefaultComparer();
 
         public static Comparer<T> Default
         {
+            [Intrinsic]
             get => s_default;
         }
 
-        public static Comparer<T> Create(System.Comparison<T> comparison)
+        // The AOT compiler replaces this call for closed types. Reflection-free
+        // open generic code retains the object-comparer fallback.
+        [Intrinsic]
+        private static Comparer<T> CreateDefaultComparer() => new ObjectComparer<T>();
+
+        public static Comparer<T> Create(Comparison<T> comparison)
         {
-            if (comparison == null)
-            {
-                throw new System.ArgumentNullException();
-            }
+            ArgumentNullException.ThrowIfNull(comparison);
             return new ComparisonComparer<T>(comparison);
         }
 
-        public abstract int Compare(T? left, T? right);
+        public abstract int Compare(T? x, T? y);
 
-        int System.Collections.IComparer.Compare(object? left, object? right)
+        int System.Collections.IComparer.Compare(object? x, object? y)
         {
-            if (ReferenceEquals(left, right))
+            if (x == null)
             {
-                return 0;
+                return y == null ? 0 : -1;
             }
-            if (left is null)
-            {
-                return -1;
-            }
-            if (right is null)
+            if (y == null)
             {
                 return 1;
             }
-            if (left is T typedLeft && right is T typedRight)
+            if (x is T typedX && y is T typedY)
             {
-                return Compare(typedLeft, typedRight);
+                return Compare(typedX, typedY);
             }
-            throw new System.ArgumentException();
-        }
-
-        private sealed class ComparisonComparer<TValue> : Comparer<TValue>
-        {
-            private readonly System.Comparison<TValue> _comparison;
-
-            internal ComparisonComparer(System.Comparison<TValue> comparison) => _comparison = comparison;
-
-            public override int Compare(TValue? left, TValue? right) => _comparison(left!, right!);
+            throw new ArgumentException();
         }
     }
 
-    public sealed class GenericComparer<T> : Comparer<T>
-        where T : System.IComparable<T>
+    internal sealed class ComparisonComparer<T> : Comparer<T>
     {
-        public GenericComparer()
-        {
-        }
+        private readonly Comparison<T> _comparison;
 
-        public override int Compare(T? left, T? right)
+        public ComparisonComparer(Comparison<T> comparison) => _comparison = comparison;
+
+        public override int Compare(T? x, T? y) => _comparison(x!, y!);
+    }
+
+    public sealed class GenericComparer<T> : Comparer<T> where T : IComparable<T>
+    {
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public override int Compare(T? x, T? y)
         {
-            if (left is null)
+            if (x != null)
             {
-                return right is null ? 0 : -1;
-            }
-            if (right is null)
-            {
+                if (y != null)
+                {
+                    return x.CompareTo(y);
+                }
                 return 1;
             }
-            if (left is System.IComparable<T> comparable)
-            {
-                return comparable.CompareTo(right);
-            }
-            if (left is System.IComparable nonGeneric)
-            {
-                return nonGeneric.CompareTo(right);
-            }
-            throw new System.ArgumentException();
+            return y != null ? -1 : 0;
         }
 
-        public override bool Equals(object? value) => value is GenericComparer<T>;
+        public override bool Equals([NotNullWhen(true)] object? obj) =>
+            obj is GenericComparer<T>;
+
+        public override int GetHashCode() => 0;
+    }
+
+    public sealed class NullableComparer<T> : Comparer<T?> where T : struct
+    {
+        public override int Compare(T? x, T? y)
+        {
+            if (x.HasValue)
+            {
+                if (y.HasValue)
+                {
+                    return Comparer<T>.Default.Compare(x.value, y.value);
+                }
+                return 1;
+            }
+            return y.HasValue ? -1 : 0;
+        }
+
+        public override bool Equals([NotNullWhen(true)] object? obj) =>
+            obj is NullableComparer<T>;
 
         public override int GetHashCode() => 0;
     }
 
     public sealed class ObjectComparer<T> : Comparer<T>
     {
-        public ObjectComparer()
+        public override int Compare(T? x, T? y)
         {
-        }
-
-        public override int Compare(T? left, T? right)
-        {
-            if (left is null)
+            if (x == null)
             {
-                return right is null ? 0 : -1;
+                return y == null ? 0 : -1;
             }
-            if (right is null)
+            if (y == null)
             {
                 return 1;
             }
-            if (left is System.IComparable<T> comparable)
+            if (x is IComparable<T> genericComparable)
             {
-                return comparable.CompareTo(right);
+                return genericComparable.CompareTo(y);
             }
-            if (left is System.IComparable nonGeneric)
+            if (x is IComparable comparable)
             {
-                return nonGeneric.CompareTo(right);
+                return comparable.CompareTo(y);
             }
-            throw new System.ArgumentException();
+            throw new ArgumentException();
         }
 
-        public override bool Equals(object? value) => value is ObjectComparer<T>;
+        public override bool Equals([NotNullWhen(true)] object? obj) =>
+            obj is ObjectComparer<T>;
+
+        public override int GetHashCode() => 0;
+    }
+
+    internal sealed class EnumComparer<T> : Comparer<T> where T : struct, Enum
+    {
+        public override int Compare(T x, T y) => x.CompareTo(y);
+
+        public override bool Equals([NotNullWhen(true)] object? obj) =>
+            obj is EnumComparer<T>;
 
         public override int GetHashCode() => 0;
     }

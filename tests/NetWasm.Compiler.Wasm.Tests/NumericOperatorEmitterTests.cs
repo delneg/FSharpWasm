@@ -34,18 +34,27 @@ public sealed class NumericOperatorEmitterTests
     }
 
     [Theory]
-    [InlineData(CliValueKind.I8, WasmOpcodes.I64Add)]
-    [InlineData(CliValueKind.F4, WasmOpcodes.F32Add)]
-    [InlineData(CliValueKind.F8, WasmOpcodes.F64Add)]
+    [InlineData(CilOperation.Add, CliValueKind.I8, WasmOpcodes.I64Add)]
+    [InlineData(CilOperation.Add, CliValueKind.F4, WasmOpcodes.F32Add)]
+    [InlineData(CilOperation.Add, CliValueKind.F8, WasmOpcodes.F64Add)]
+    [InlineData(CilOperation.Subtract, CliValueKind.I8, WasmOpcodes.I64Subtract)]
+    [InlineData(CilOperation.Subtract, CliValueKind.F4, WasmOpcodes.F32Subtract)]
+    [InlineData(CilOperation.Subtract, CliValueKind.F8, WasmOpcodes.F64Subtract)]
+    [InlineData(CilOperation.Multiply, CliValueKind.I8, WasmOpcodes.I64Multiply)]
+    [InlineData(CilOperation.Multiply, CliValueKind.F4, WasmOpcodes.F32Multiply)]
+    [InlineData(CilOperation.Multiply, CliValueKind.F8, WasmOpcodes.F64Multiply)]
     public void NumericBinaryOperationSupportsAllNonNativeNumericTypes(
+        CilOperation operation,
         CliValueKind type,
         byte expectedOpcode)
     {
-        var request = CreateRequest(CilOperation.Add, type, type);
+        var request = CreateRequest(operation, type, type);
 
         CreateEmitter(new RecordingLayoutProvider()).Emit(request);
 
-        Assert.Contains(expectedOpcode, GetCodeBytes(request));
+        var instructions = ((RecordingInstructionWriter)GetCodeWriter(request)).ToInstructions();
+        Assert.Equal([WasmOpcodes.LocalGet, WasmOpcodes.LocalGet, expectedOpcode, WasmOpcodes.LocalSet],
+            instructions.Select(instruction => instruction.Opcode));
         Assert.Equal([type], request.Stack);
     }
 

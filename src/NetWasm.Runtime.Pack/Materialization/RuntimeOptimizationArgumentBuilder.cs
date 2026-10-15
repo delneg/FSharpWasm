@@ -1,34 +1,19 @@
 using System;
-using System.Collections.Frozen;
-using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.IO;
-using NetWasm.Runtime.Pack.Planning;
 
 namespace NetWasm.Runtime.Pack.Materialization;
 
-internal sealed class RuntimeOptimizationArgumentBuilder :
+internal sealed class RuntimeOptimizationArgumentBuilder(IRuntimeOptimizationPolicyResolver policies) :
     IRuntimeOptimizationArgumentBuilder
 {
-    private static readonly FrozenDictionary<RuntimeWasmOptimization, string>
-        OptimizationFlags = new Dictionary<RuntimeWasmOptimization, string>
-        {
-            [RuntimeWasmOptimization.O0] = "-O0",
-            [RuntimeWasmOptimization.O1] = "-O1",
-            [RuntimeWasmOptimization.O2] = "-O2",
-            [RuntimeWasmOptimization.O3] = "-O3",
-            [RuntimeWasmOptimization.Os] = "-Os",
-            [RuntimeWasmOptimization.Oz] = "-Oz",
-        }.ToFrozenDictionary();
+    private readonly IRuntimeOptimizationPolicyResolver _policies = policies ?? throw new ArgumentNullException(nameof(policies));
 
     public ImmutableArray<string> Build(RuntimeOptimizationRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);
-        if (!Enum.IsDefined(request.Optimization))
-        {
-            throw new ArgumentOutOfRangeException(nameof(request));
-        }
-        if (request.Optimization == RuntimeWasmOptimization.None)
+        var policy = _policies.Resolve(request.Optimization);
+        if (policy.BinaryenFlag is null)
         {
             return [];
         }
@@ -36,7 +21,7 @@ internal sealed class RuntimeOptimizationArgumentBuilder :
         var arguments = ImmutableArray.CreateBuilder<string>();
         arguments.Add("--strip-target-features");
         arguments.Add("--post-emscripten");
-        arguments.Add(OptimizationFlags[request.Optimization]);
+        arguments.Add(policy.BinaryenFlag);
         // Match Emscripten's optimized non-stack-first link. Binaryen may
         // treat the first KiB as unreachable only when static data starts at
         // or above the boundary enforced by that pass.

@@ -1,7 +1,10 @@
 using NetWasm.Compiler.Wasm.Encoding;
 using System;
 using System.Collections.Generic;
+using System.Collections.Immutable;
+using System.Linq;
 using NetWasm.Compiler.Core;
+using NetWasm.Compiler.Core.Types;
 using NetWasm.Compiler.Wasm.Emission.Methods;
 using NetWasm.Compiler.Wasm.Emission.Planning;
 using NetWasm.Compiler.Wasm.Emission.Instructions.Runtime;
@@ -12,6 +15,7 @@ internal sealed class VirtualDispatchCallEmitter(
     ITargetLayout layouts,
     ITypeLayoutProvider typeLayouts,
     IValueLayoutProvider values,
+    IVirtualDispatchEmissionPlanBuilder plans,
     IRuntimeIntrinsicRegistry intrinsics,
     IImplicitExceptionEmitter exceptions,
     IEnumEqualsEmitter enumEquals,
@@ -24,14 +28,19 @@ internal sealed class VirtualDispatchCallEmitter(
     IEnumConvertEmitter enumConvert,
     IValueTypeEqualsEmitter valueTypeEquals,
     IValueTypeHashCodeEmitter valueTypeHashCode,
-    IConstrainedReferenceReceiverEmitter constrainedReceivers) :
+    IConstrainedReferenceReceiverEmitter constrainedReceivers,
+    IStaticInitializationEmitter initialization,
+    IMethodInitializationTriggerClassifier initializationTriggers) :
     ICallEmitter
 {
+    private const int MinimumBalancedTargetCount = 4;
+
     public void Emit(
         CallEmissionRequest request, IWasmInstructionWriter code,
         IFunctionIndexResolver functionIndices)
     {
         var dispatch = ResolveDispatchSite(request);
+        var plan = plans.Build(request.Method, dispatch.Targets);
         var instruction = request.Instruction;
         var signature = request.Method.Signature;
         var receiverLocal = constrainedReceivers.Emit(
@@ -49,113 +58,14 @@ internal sealed class VirtualDispatchCallEmitter(
             ? instruction.Context.ValueLayout.TemporaryOffsets[
                 instruction.Instruction.Offset]
             : 0;
-        foreach (var target in dispatch.Targets)
-        {
-            code.Write(WasmInstruction.WithOperand(WasmOpcodes.LocalGet, WasmInstructionOperand.Unsigned((uint)(receiverLocal))));
-            code.Write(WasmInstruction.WithOperand(WasmOpcodes.I32Load, WasmInstructionOperand.Memory(2, (uint)(0))));
-            code.Write(WasmInstruction.WithOperand(WasmOpcodes.I32Constant, WasmInstructionOperand.Signed(typeLayouts.GetObjectLayout(target.ReceiverType).TypeId)));
-            code.Write(WasmInstruction.NoOperand(WasmOpcodes.I32Equal));
-            code.Write(WasmInstruction.WithOperand(WasmOpcodes.If, WasmInstructionOperand.BlockType(WasmOpcodes.EmptyBlockType)));
-            var intrinsic = intrinsics.TryGetIntrinsic(
-                target.Method.Definition.Key,
-                out var value)
-                ? value
-                : (RuntimeIntrinsic?)null;
-            if (intrinsic == RuntimeIntrinsic.EnumEquals)
-            {
-                EmitEnumEquals(instruction, code, request.ArgumentBase, enumEquals);
-            }
-            else if (intrinsic == RuntimeIntrinsic.ValueTypeEquals)
-            {
-                valueTypeEquals.Emit(
-                    new RuntimeIntrinsicEmissionRequest(
-                        request,
-                        intrinsic.Value,
-                        target.ReceiverType,
-                        layouts.Target,
-                        functionIndices),
-                    code,
-                    target.ReceiverType,
-                    CliValueKind.ManagedReference);
-            }
-            else if (intrinsic == RuntimeIntrinsic.ValueTypeGetHashCode)
-            {
-                valueTypeHashCode.Emit(
-                    new RuntimeIntrinsicEmissionRequest(
-                        request,
-                        intrinsic.Value,
-                        target.ReceiverType,
-                        layouts.Target,
-                        functionIndices),
-                    code,
-                    target.ReceiverType,
-                    CliValueKind.ManagedReference);
-            }
-            else if (intrinsic == RuntimeIntrinsic.EnumGetHashCode)
-            {
-                EmitEnumHashCode(instruction, code, request.ArgumentBase, enumHashCode);
-            }
-            else if (intrinsic == RuntimeIntrinsic.EnumCompareTo)
-            {
-                EmitEnumCompareTo(instruction, code, request.ArgumentBase, enumCompareTo);
-            }
-            else if (intrinsic == RuntimeIntrinsic.EnumGetTypeCode)
-            {
-                EmitEnumTypeCode(
-                    instruction,
-                    code,
-                    target,
-                    request.ArgumentBase,
-                    request.Consumed,
-                    enumTypeCode,
-                    enumValueReturn,
-                    functionIndices);
-            }
-            else if (intrinsic == RuntimeIntrinsic.EnumHasFlag)
-            {
-                EmitEnumHasFlag(instruction, code, request.ArgumentBase, enumHasFlag);
-            }
-            else if (intrinsic == RuntimeIntrinsic.EnumToString)
-            {
-                EmitEnumToString(
-                    instruction,
-                    code,
-                    target,
-                    request.ArgumentBase,
-                    request.Consumed,
-                    enumToString,
-                    functionIndices);
-            }
-            else if (intrinsic == RuntimeIntrinsic.EnumConvert)
-            {
-                EmitEnumConvert(
-                    instruction,
-                    code,
-                    target,
-                    request.ArgumentBase,
-                    request.Consumed,
-                    enumConvert,
-                    functionIndices);
-            }
-            else
-            {
-                EmitTargetCall(
-                    instruction, code, target,
-                    receiverLocal,
-                    request.ArgumentBase,
-                    request.Consumed,
-                    returnsValue,
-                    returnOffset,
-                    signature.ReturnType,
-                    functionIndices);
-            }
-            code.Write(WasmInstruction.NoOperand(WasmOpcodes.Else));
-        }
-        exceptions.Emit(code, ManagedExceptionKind.InvalidCast);
-        for (var index = 0; index < dispatch.Targets.Length; index++)
-        {
-            code.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
-        }
+        EmitDispatch(
+            request,
+            code,
+            plan,
+            receiverLocal,
+            returnsValue,
+            returnOffset,
+            functionIndices);
         instruction.Stack.RemoveRange(request.ArgumentBase, request.Consumed);
         if (returnsValue)
         {
@@ -172,6 +82,368 @@ internal sealed class VirtualDispatchCallEmitter(
         else if (signature.ReturnType != CliValueKind.Void)
         {
             instruction.Stack.Add(signature.ReturnType);
+        }
+    }
+
+    private void EmitDispatch(
+        CallEmissionRequest request,
+        IWasmInstructionWriter code,
+        VirtualDispatchEmissionPlan plan,
+        int receiverLocal,
+        bool returnsValue,
+        int returnOffset,
+        IFunctionIndexResolver functionIndices)
+    {
+        if (plan.CheckedTargets.IsEmpty)
+        {
+            EmitFallback(
+                request,
+                code,
+                plan.FallbackTarget,
+                receiverLocal,
+                returnsValue,
+                returnOffset,
+                functionIndices);
+            return;
+        }
+
+        var typeIdLocal = request.Instruction.Context.NumericTemporaryI4;
+        code.Write(WasmInstruction.WithOperand(
+            WasmOpcodes.LocalGet,
+            WasmInstructionOperand.Unsigned((uint)receiverLocal)));
+        code.Write(WasmInstruction.WithOperand(
+            WasmOpcodes.I32Load,
+            WasmInstructionOperand.Memory(2, 0)));
+        code.Write(WasmInstruction.WithOperand(
+            WasmOpcodes.LocalSet,
+            WasmInstructionOperand.Unsigned((uint)typeIdLocal)));
+
+        if (plan.CheckedTargets.Length < MinimumBalancedTargetCount)
+        {
+            EmitLinearDispatch(
+                request,
+                code,
+                plan,
+                receiverLocal,
+                typeIdLocal,
+                returnsValue,
+                returnOffset,
+                functionIndices);
+            return;
+        }
+
+        var orderedTargets = plan.CheckedTargets
+            .OrderBy(target =>
+                typeLayouts.GetObjectLayout(target.ReceiverType).TypeId)
+            .ToImmutableArray();
+        code.Write(WasmInstruction.WithOperand(
+            WasmOpcodes.Block,
+            WasmInstructionOperand.BlockType(WasmOpcodes.EmptyBlockType)));
+        code.Write(WasmInstruction.WithOperand(
+            WasmOpcodes.Block,
+            WasmInstructionOperand.BlockType(WasmOpcodes.EmptyBlockType)));
+        EmitBalancedDispatch(
+            request,
+            code,
+            orderedTargets,
+            0,
+            orderedTargets.Length,
+            0,
+            receiverLocal,
+            typeIdLocal,
+            returnsValue,
+            returnOffset,
+            functionIndices);
+        code.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
+        EmitFallback(
+            request,
+            code,
+            plan.FallbackTarget,
+            receiverLocal,
+            returnsValue,
+            returnOffset,
+            functionIndices);
+        code.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
+    }
+
+    private void EmitLinearDispatch(
+        CallEmissionRequest request,
+        IWasmInstructionWriter code,
+        VirtualDispatchEmissionPlan plan,
+        int receiverLocal,
+        int typeIdLocal,
+        bool returnsValue,
+        int returnOffset,
+        IFunctionIndexResolver functionIndices)
+    {
+        foreach (var target in plan.CheckedTargets)
+        {
+            EmitTypeIdComparison(
+                code,
+                typeIdLocal,
+                typeLayouts.GetObjectLayout(target.ReceiverType).TypeId,
+                WasmOpcodes.I32Equal);
+            code.Write(WasmInstruction.WithOperand(
+                WasmOpcodes.If,
+                WasmInstructionOperand.BlockType(WasmOpcodes.EmptyBlockType)));
+            EmitTarget(
+                request,
+                code,
+                target,
+                receiverLocal,
+                returnsValue,
+                returnOffset,
+                functionIndices);
+            code.Write(WasmInstruction.NoOperand(WasmOpcodes.Else));
+        }
+
+        EmitFallback(
+            request,
+            code,
+            plan.FallbackTarget,
+            receiverLocal,
+            returnsValue,
+            returnOffset,
+            functionIndices);
+        for (var index = 0; index < plan.CheckedTargets.Length; index++)
+        {
+            code.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
+        }
+    }
+
+    private void EmitBalancedDispatch(
+        CallEmissionRequest request,
+        IWasmInstructionWriter code,
+        ImmutableArray<DispatchTargetModel> targets,
+        int start,
+        int count,
+        int enclosingIfDepth,
+        int receiverLocal,
+        int typeIdLocal,
+        bool returnsValue,
+        int returnOffset,
+        IFunctionIndexResolver functionIndices)
+    {
+        if (count == 1)
+        {
+            var target = targets[start];
+            EmitTypeIdComparison(
+                code,
+                typeIdLocal,
+                typeLayouts.GetObjectLayout(target.ReceiverType).TypeId,
+                WasmOpcodes.I32Equal);
+            code.Write(WasmInstruction.WithOperand(
+                WasmOpcodes.If,
+                WasmInstructionOperand.BlockType(WasmOpcodes.EmptyBlockType)));
+            EmitTarget(
+                request,
+                code,
+                target,
+                receiverLocal,
+                returnsValue,
+                returnOffset,
+                functionIndices);
+            code.Write(WasmInstruction.WithOperand(
+                WasmOpcodes.Branch,
+                WasmInstructionOperand.Unsigned(
+                    checked((uint)(enclosingIfDepth + 2)))));
+            code.Write(WasmInstruction.NoOperand(WasmOpcodes.Else));
+            code.Write(WasmInstruction.WithOperand(
+                WasmOpcodes.Branch,
+                WasmInstructionOperand.Unsigned(
+                    checked((uint)(enclosingIfDepth + 1)))));
+            code.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
+            return;
+        }
+
+        var leftCount = count / 2;
+        var pivot = start + leftCount;
+        EmitTypeIdComparison(
+            code,
+            typeIdLocal,
+            typeLayouts.GetObjectLayout(targets[pivot].ReceiverType).TypeId,
+            WasmOpcodes.I32LessThanUnsigned);
+        code.Write(WasmInstruction.WithOperand(
+            WasmOpcodes.If,
+            WasmInstructionOperand.BlockType(WasmOpcodes.EmptyBlockType)));
+        EmitBalancedDispatch(
+            request,
+            code,
+            targets,
+            start,
+            leftCount,
+            enclosingIfDepth + 1,
+            receiverLocal,
+            typeIdLocal,
+            returnsValue,
+            returnOffset,
+            functionIndices);
+        code.Write(WasmInstruction.NoOperand(WasmOpcodes.Else));
+        EmitBalancedDispatch(
+            request,
+            code,
+            targets,
+            pivot,
+            count - leftCount,
+            enclosingIfDepth + 1,
+            receiverLocal,
+            typeIdLocal,
+            returnsValue,
+            returnOffset,
+            functionIndices);
+        code.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
+    }
+
+    private static void EmitTypeIdComparison(
+        IWasmInstructionWriter code,
+        int typeIdLocal,
+        int expectedTypeId,
+        byte comparison)
+    {
+        code.Write(WasmInstruction.WithOperand(
+            WasmOpcodes.LocalGet,
+            WasmInstructionOperand.Unsigned((uint)typeIdLocal)));
+        code.Write(WasmInstruction.WithOperand(
+            WasmOpcodes.I32Constant,
+            WasmInstructionOperand.Signed(expectedTypeId)));
+        code.Write(WasmInstruction.NoOperand(comparison));
+    }
+
+    private void EmitFallback(
+        CallEmissionRequest request,
+        IWasmInstructionWriter code,
+        DispatchTargetModel? fallback,
+        int receiverLocal,
+        bool returnsValue,
+        int returnOffset,
+        IFunctionIndexResolver functionIndices)
+    {
+        if (fallback is null)
+        {
+            exceptions.Emit(code, ManagedExceptionKind.InvalidCast);
+            return;
+        }
+
+        EmitTarget(
+            request,
+            code,
+            fallback,
+            receiverLocal,
+            returnsValue,
+            returnOffset,
+            functionIndices);
+    }
+
+    private void EmitTarget(
+        CallEmissionRequest request,
+        IWasmInstructionWriter code,
+        DispatchTargetModel target,
+        int receiverLocal,
+        bool returnsValue,
+        int returnOffset,
+        IFunctionIndexResolver functionIndices)
+    {
+        var instruction = request.Instruction;
+        if (initializationTriggers.Classify(target.Method.Definition))
+        {
+            initialization.Emit(new(target.Method.Definition.DeclaringType,
+                target.Method.DeclaringType, instruction.Target.ModuleData,
+                IsMethodInvocation: true), code, functionIndices);
+        }
+        var intrinsic = intrinsics.TryGetIntrinsic(
+            target.Method.Definition.Key,
+            out var value)
+            ? value
+            : (RuntimeIntrinsic?)null;
+        if (intrinsic == RuntimeIntrinsic.EnumEquals)
+        {
+            EmitEnumEquals(instruction, code, request.ArgumentBase, enumEquals);
+        }
+        else if (intrinsic == RuntimeIntrinsic.ValueTypeEquals)
+        {
+            valueTypeEquals.Emit(
+                new RuntimeIntrinsicEmissionRequest(
+                    request,
+                    intrinsic.Value,
+                    target.ReceiverType,
+                    layouts.Target,
+                    functionIndices),
+                code,
+                target.ReceiverType,
+                CliValueKind.ManagedReference);
+        }
+        else if (intrinsic == RuntimeIntrinsic.ValueTypeGetHashCode)
+        {
+            valueTypeHashCode.Emit(
+                new RuntimeIntrinsicEmissionRequest(
+                    request,
+                    intrinsic.Value,
+                    target.ReceiverType,
+                    layouts.Target,
+                    functionIndices),
+                code,
+                target.ReceiverType,
+                CliValueKind.ManagedReference);
+        }
+        else if (intrinsic == RuntimeIntrinsic.EnumGetHashCode)
+        {
+            EmitEnumHashCode(instruction, code, request.ArgumentBase, enumHashCode);
+        }
+        else if (intrinsic == RuntimeIntrinsic.EnumCompareTo)
+        {
+            EmitEnumCompareTo(instruction, code, request.ArgumentBase, enumCompareTo);
+        }
+        else if (intrinsic == RuntimeIntrinsic.EnumGetTypeCode)
+        {
+            EmitEnumTypeCode(
+                instruction,
+                code,
+                target,
+                request.ArgumentBase,
+                request.Consumed,
+                enumTypeCode,
+                enumValueReturn,
+                functionIndices);
+        }
+        else if (intrinsic == RuntimeIntrinsic.EnumHasFlag)
+        {
+            EmitEnumHasFlag(instruction, code, request.ArgumentBase, enumHasFlag);
+        }
+        else if (intrinsic == RuntimeIntrinsic.EnumToString)
+        {
+            EmitEnumToString(
+                instruction,
+                code,
+                target,
+                request.ArgumentBase,
+                request.Consumed,
+                enumToString,
+                functionIndices);
+        }
+        else if (intrinsic == RuntimeIntrinsic.EnumConvert)
+        {
+            EmitEnumConvert(
+                instruction,
+                code,
+                target,
+                request.ArgumentBase,
+                request.Consumed,
+                enumConvert,
+                functionIndices);
+        }
+        else
+        {
+            EmitTargetCall(
+                instruction,
+                code,
+                target,
+                receiverLocal,
+                request.ArgumentBase,
+                request.Consumed,
+                returnsValue,
+                returnOffset,
+                request.Method.Signature.ReturnType,
+                functionIndices);
         }
     }
 

@@ -9,6 +9,8 @@ using NetWasm.Compiler.Wasm.Emission.GeneratedFunctions;
 using NetWasm.Compiler.Wasm.Emission.Methods;
 using NetWasm.Compiler.Wasm.Emission.Planning;
 using NetWasm.Compiler.Wasm.Encoding;
+using NetWasm.Compiler.Wasm.Emission.Arrays;
+using NetWasm.Compiler.Wasm.Emission.CallLifetimes;
 
 namespace NetWasm.Compiler.Wasm.Tests;
 
@@ -16,6 +18,58 @@ using static EmitterTestSupport;
 
 public sealed class ManagedMethodEmitterTests
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void BranchPlacementReservesScalarShadowsButDefersTheValueFrame(bool enabled)
+    {
+        var program = new FakeProgram();
+        var method = program.GetMethod(EntryKey);
+        var structured = Structure(program, method, I(0, CilOperation.LoadInt32, new CilOperand.ConstantI4(0)), I(1, CilOperation.Return));
+        structured = structured with
+        {
+            Header = structured.Header with
+            {
+                Locals = [CliValueKind.I8],
+                LocalSignatureTypes = [CliTypeIdentity.FromStackKind(CliValueKind.I8)],
+            }
+        };
+        var layout = new ValueFrameLayout(16, ImmutableDictionary<int, int>.Empty.Add(0, 0), [], [], [0]);
+        var plan = new TerminalBranchValueFramePlan(new(new(0), StructuredBlockRole.Owner),
+            StructuredSequence.Empty, StructuredSequence.Empty, true, [0]);
+        var placement = new RecordingBranchPlacement(plan);
+        var frameEntry = new RecordingFrameEntry();
+        var emitter = ThroughContract(CreateEmitter(program, new RecordingValueFramePlanner(layout), placement, frameEntry));
+        MethodEmissionContext? bodyContext = null;
+
+        emitter.Emit(method, new("Tests.Caller"), structured, new(EntryKey, [], []), null, 0, default,
+            (code, _, context) =>
+            {
+                bodyContext = context;
+                code.Write(WasmInstruction.NoOperand(WasmOpcodes.Unreachable));
+            }, enableBranchValueFramePlacement: enabled);
+
+        Assert.NotNull(bodyContext);
+        Assert.Equal(enabled ? 1 : 0, placement.Calls);
+        Assert.Equal(enabled ? 0 : layout.Size, frameEntry.Context!.ValueLayout.Size);
+        Assert.Equal(enabled ? 0 : layout.Size, bodyContext.ValueLayout.Size);
+        if (enabled)
+        {
+            Assert.NotNull(bodyContext.TerminalBranchValueFramePlacement);
+            Assert.Same(plan, bodyContext.TerminalBranchValueFramePlacement.Plan);
+            Assert.Equal(layout, bodyContext.TerminalBranchValueFramePlacement.FramedLayout);
+            Assert.Contains(0, bodyContext.AddressTakenScalarPromotions.ShadowLocals.Keys);
+            Assert.NotEqual(bodyContext.LocalBase, bodyContext.AddressTakenScalarPromotions.ShadowLocals[0]);
+            Assert.Empty(bodyContext.ValueLayout.SpilledScalarLocals);
+        }
+        else
+        {
+            Assert.Null(bodyContext.TerminalBranchValueFramePlacement);
+            Assert.Empty(bodyContext.AddressTakenScalarPromotions.ShadowLocals);
+            Assert.Contains(0, bodyContext.ValueLayout.SpilledScalarLocals);
+        }
+    }
+
     [Fact]
     public void MemberExecutionPlanReachesFramePlanningAndPreservesItsResultOffsets()
     {
@@ -50,7 +104,7 @@ public sealed class ManagedMethodEmitterTests
             memberExecution: plan);
 
         Assert.Same(plan, valueFrames.MemberExecution);
-        Assert.Equal(structured.Header, valueFrames.Header);
+        Assert.Equal(structured, valueFrames.Method);
         Assert.NotNull(emittedContext);
         Assert.Equal(expectedLayout, emittedContext.ValueLayout);
         Assert.Equal(8, emittedContext.ValueLayout.MemberResultOffsets[7]);
@@ -205,12 +259,14 @@ public sealed class ManagedMethodEmitterTests
 
     private static ManagedMethodEmitter CreateEmitter(
         FakeProgram program,
-        IValueFrameLayoutPlanner? valueFrames = null)
+        IValueFrameLayoutPlanner? valueFrames = null,
+        ITerminalBranchValueFramePlanner? branchFrames = null,
+        IMethodFrameEntryEmitter? frames = null)
     {
         var layouts = new RecordingLayoutProvider();
         var imports = WasmRuntimeImports.CreateCatalog();
         var types = CreateArgumentSignatureTypes(program);
-        var frameEntry = CreateMethodFrameEntry(program, layouts, imports);
+        var frameEntry = frames ?? CreateMethodFrameEntry(program, layouts, imports);
         var frameExit = CreateMethodFrameExit(imports);
         return new ManagedMethodEmitter(
             layouts,
@@ -228,20 +284,54 @@ public sealed class ManagedMethodEmitterTests
                 new ExceptionPayloadBlockEmitter(layouts),
                 frameExit),
             new GeneratedFunctionWriterFactory(),
-            new InstructionCountingWriterFactory());
+            new InstructionCountingWriterFactory(), branchFrames ?? new TerminalBranchValueFramePlanner(),
+            new ArrayMetadataCachingPlanner(types),
+            new ArrayMetadataSnapshotEmitter(layouts, layouts, CreateAddressInstructions(layouts)),
+            new EmptyFloatingCallPlanner(), new AuthoritativeRootSourceSelector(), new AuthoritativeRootLayoutPlanner(),
+            new RootClearElisionPlanner(), new RootValueElisionPlanner());
+    }
+
+    private sealed class EmptyFloatingCallPlanner : IScalarCallLifetimePlanner
+    {
+        public ScalarCallLifetimePlan Plan(StructuredMethod method, bool enabled) => ScalarCallLifetimePlan.Empty;
+    }
+
+    private sealed class RecordingBranchPlacement(TerminalBranchValueFramePlan plan) : ITerminalBranchValueFramePlanner
+    {
+        public int Calls { get; private set; }
+
+        public TerminalBranchValueFramePlan? Plan(StructuredMethod method, ValueFrameLayout layout, MethodRootMap roots)
+        {
+            Calls++;
+            return plan;
+        }
+    }
+
+    private sealed class RecordingFrameEntry : IMethodFrameEntryEmitter
+    {
+        public MethodEmissionContext? Context { get; private set; }
+
+        public void Emit(IWasmInstructionWriter code, StructuredMethodHeader header, MethodEmissionContext context) => Context = context;
     }
 
     private sealed class RecordingValueFramePlanner(ValueFrameLayout result) : IValueFrameLayoutPlanner
     {
         public MemberExecutionPlan? MemberExecution { get; private set; }
-        public StructuredMethodHeader? Header { get; private set; }
+        public StructuredMethod? Method { get; private set; }
 
         public ValueFrameLayout Create(
-            StructuredMethodHeader header,
+            StructuredMethod method,
             NativeImportPlan? nativeImports = null,
-            MemberExecutionPlan? memberExecution = null)
+            MemberExecutionPlan? memberExecution = null,
+            ManagedByRefMethodEffects? byRefEffects = null,
+            NetWasm.Compiler.Wasm.Emission.AddressTakenValues.AddressTakenScalarPromotionPlan?
+                addressTakenScalarPromotions = null,
+            NetWasm.Compiler.Wasm.Emission.AddressTakenValues.AddressTakenAggregatePromotionPlan?
+                addressTakenAggregatePromotions = null,
+            NetWasm.Compiler.Wasm.Emission.CallLifetimes.ScalarCallLifetimePlan?
+                scalarCallLifetimes = null)
         {
-            Header = header;
+            Method = method;
             MemberExecution = memberExecution;
             return result;
         }

@@ -10,6 +10,8 @@ internal sealed class ControlFlowStructuringState(ValidatedControlFlowGraph vali
 
     internal ControlFlowGraph Graph => Validated.Graph;
 
+    internal ControlFlowGraph ContinuationGraph { get; init; } = validated.Graph;
+
     internal Dictionary<int, LoopRegion> LoopsByHeader { get; } = [];
 
     internal HashSet<int> SuppressedLoopHeaders { get; } = [];

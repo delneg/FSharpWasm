@@ -1,4 +1,6 @@
 using System;
+using NetWasm.Compiler.ComponentModel.Inlining;
+using NetWasm.Compiler.ComponentModel.Optimization;
 using NetWasm.Compiler.Core;
 using NetWasm.Compiler.ComponentModel.ManagedExecutables;
 
@@ -17,7 +19,9 @@ public sealed class ComponentCoreModuleLinkExecution(
     INetWasmHostComponentShimWriter hostShim,
     IManagedExecutableComponentAdapterWriter managedExecutables,
     IWasmCoreModuleExportEditor exports,
-    IComponentCoreModuleOptimizer optimizer) : IComponentCoreModuleLinkExecution
+    IComponentCoreModuleOptimizer optimizer,
+    IWasmOptimizationSettingsResolver optimizationSettings,
+    IWasmCoreModuleInlineAnnotationEditor inlineAnnotations) : IComponentCoreModuleLinkExecution
 {
     private readonly IComponentCoreModuleMergeRunner _merge = merge ??
         throw new ArgumentNullException(nameof(merge));
@@ -31,6 +35,10 @@ public sealed class ComponentCoreModuleLinkExecution(
         throw new ArgumentNullException(nameof(exports));
     private readonly IComponentCoreModuleOptimizer _optimizer = optimizer ??
         throw new ArgumentNullException(nameof(optimizer));
+    private readonly IWasmOptimizationSettingsResolver _optimizationSettings = optimizationSettings ??
+        throw new ArgumentNullException(nameof(optimizationSettings));
+    private readonly IWasmCoreModuleInlineAnnotationEditor _inlineAnnotations = inlineAnnotations ??
+        throw new ArgumentNullException(nameof(inlineAnnotations));
 
     public void Run(
         ComponentCoreModuleLinkRequest request,
@@ -40,6 +48,7 @@ public sealed class ComponentCoreModuleLinkExecution(
         ArgumentNullException.ThrowIfNull(workspace);
         try
         {
+            var settings = _optimizationSettings.Resolve(request.Optimization, request.OptimizationOverrides);
             _environmentShim.Write(workspace.EnvironmentModulePath, request.Target);
             string? hostModulePath = null;
             string? managedExecutableAdapterModulePath = null;
@@ -59,9 +68,13 @@ public sealed class ComponentCoreModuleLinkExecution(
                 managedExecutableAdapterModulePath =
                     workspace.ManagedExecutableAdapterModulePath;
             }
+            _inlineAnnotations.Rewrite(request.ApplicationModulePath,
+                workspace.SanitizedModulePath, settings.ManagedInlineAnnotations);
+            _inlineAnnotations.Rewrite(request.RuntimeModulePath,
+                workspace.SanitizedRuntimeModulePath, settings.RuntimeInlineAnnotations);
             _merge.Run(new ComponentCoreModuleMergeRequest(
-                request.ApplicationModulePath,
-                request.RuntimeModulePath,
+                workspace.SanitizedModulePath,
+                workspace.SanitizedRuntimeModulePath,
                 workspace.EnvironmentModulePath,
                 workspace.MergedModulePath,
                 request.Target,
@@ -78,7 +91,7 @@ public sealed class ComponentCoreModuleLinkExecution(
                 workspace.SanitizedModulePath,
                 request.OutputPath,
                 request.Target,
-                request.Optimization);
+                settings.BackendPreset);
         }
         finally
         {

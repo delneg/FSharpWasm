@@ -21,6 +21,9 @@ public sealed class CorrectnessTestRunner : IDisposable
     internal void Run(CorpusFixture fixture) =>
         _services.GetRequiredService<IDifferentialCorpusRunner>().Run(fixture);
 
+    internal void Run(CorpusFixture fixture, IEmittedAssemblyBuilder builder) =>
+        _services.GetRequiredService<IEmittedCorpusRunner>().Run(fixture, builder);
+
     internal void RunRejection(CompilerRejectionCase testCase) =>
         _services.GetRequiredService<ICompilerRejectionRunner>().Run(testCase);
 

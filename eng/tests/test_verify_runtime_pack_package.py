@@ -32,29 +32,41 @@ class RuntimePackPackageTests(unittest.TestCase):
         self.entries = {}
         targets = []
         for target in ("wasm32", "wasm64"):
-            for collector in ("Compact", "Boehm"):
+            for collector in ("Compact", "NetWasm", "Boehm", "Bump"):
                 prefix = f"{target}/{collector.lower()}"
                 self.entries[f"runtime/{prefix}/layout.json"] = json.dumps({
                     "schemaVersion": 1, "target": target, "runtimeFootprintBytes": 70_000,
+                }).encode()
+                self.entries[f"runtime/{prefix}/speed/layout.json"] = json.dumps({
+                    "schemaVersion": 1, "target": target, "runtimeFootprintBytes": 74_096,
                 }).encode()
                 targets.append({
                     "target": target,
                     "garbageCollector": collector,
                     "runtimeFootprintBytes": 70_000,
+                    "nativeStackSizeBytes": 65_536,
                     "runtimeArchive": self.asset(f"{prefix}/libnetwasm-runtime.a", b"runtime"),
                     "collectorArchive": self.asset(f"{prefix}/libgc.a", b"collector"),
+                    "speed": {
+                        "runtimeFootprintBytes": 74_096,
+                        "runtimeArchive": self.asset(f"{prefix}/speed/libnetwasm-runtime.a", b"speed-runtime"),
+                        "collectorArchive": self.asset(f"{prefix}/speed/libgc.a", b"speed-collector"),
+                    },
                     "allowedUndefinedSymbols": self.asset(f"{target}/allowed-undefined-symbols.txt",
                                                           b"emscripten_notify_memory_growth\n"),
                     "systemLibraries": {"names": ["libc.a"], "assets": [
                         self.asset(f"{target}/system-libraries/libc.a", b"system")]},
                 })
-        self.manifest = {"schemaVersion": 5, "emscriptenVersion": "6.0.7",
-                         "defaultGarbageCollector": "Boehm", "targets": targets}
+        self.manifest = {"schemaVersion": 6, "emscriptenVersion": "6.0.7",
+                         "defaultGarbageCollector": "Boehm", "exports": ["allocate"],
+                         "targets": targets}
+        self.entries["runtime/runtime-exports.txt"] = b"allocate\n"
         self.entries["LICENSE.txt"] = "\n".join([
-            "=== NetWasm code: MIT ===", "=== Emscripten notice ===",
+            "=== NetWasm runtime support: MIT, except separately identified collectors ===", "=== Emscripten notice ===",
             "=== musl libc notice ===", "=== LLVM compiler-rt notice ===",
             "=== Compact collector LICENSE ===", "=== Compact collector NOTICE ===",
             "=== Compact collector UPSTREAM-NOTICE ===",
+            "=== NetWasmGC LICENSE ===", "=== NetWasmGC NOTICE ===",
         ]).encode()
         self.entries["NetWasm.Runtime.Pack.nuspec"] = b'<package><metadata><license type="file">LICENSE.txt</license></metadata></package>'
 
@@ -73,11 +85,11 @@ class RuntimePackPackageTests(unittest.TestCase):
             archive.writestr("runtime/runtime-pack.json", json.dumps(manifest or self.manifest))
         return path
 
-    def test_accepts_four_pairs_with_shared_closure(self) -> None:
+    def test_accepts_eight_pairs_with_shared_closure(self) -> None:
         MODULE.inspect(self.package(), self.root, self.version)
 
     def test_rejects_old_schema(self) -> None:
-        manifest = self.manifest | {"schemaVersion": 4}
+        manifest = self.manifest | {"schemaVersion": 5}
         with self.assertRaisesRegex(ValueError, "source version"):
             MODULE.inspect(self.package(manifest), self.root, self.version)
 
@@ -94,10 +106,46 @@ class RuntimePackPackageTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "inventory"):
                     MODULE.inspect(self.package(manifest), self.root, self.version)
 
+    def test_rejects_missing_or_invalid_speed_contract(self) -> None:
+        for speed in (None, {}, {"runtimeFootprintBytes": 65_535}, {"runtimeFootprintBytes": "74096"}):
+            with self.subTest(speed=speed):
+                manifest = copy.deepcopy(self.manifest)
+                manifest["targets"][0]["speed"] = speed
+                with self.assertRaisesRegex(ValueError, "speed profile"):
+                    MODULE.inspect(self.package(manifest), self.root, self.version)
+
+    def test_rejects_speed_layout_mismatch(self) -> None:
+        self.entries["runtime/wasm32/compact/speed/layout.json"] = json.dumps({
+            "schemaVersion": 1, "target": "wasm32", "runtimeFootprintBytes": 74_097,
+        }).encode()
+        with self.assertRaisesRegex(ValueError, "speed layout"):
+            MODULE.inspect(self.package(), self.root, self.version)
+
+    def test_rejects_cross_profile_archive(self) -> None:
+        manifest = copy.deepcopy(self.manifest)
+        manifest["targets"][0]["speed"]["collectorArchive"] = manifest["targets"][0]["collectorArchive"]
+        with self.assertRaisesRegex(ValueError, "archive paths"):
+            MODULE.inspect(self.package(manifest), self.root, self.version)
+
+    def test_rejects_speed_archive_digest_mismatch(self) -> None:
+        self.entries["runtime/wasm64/bump/speed/libgc.a"] = b"changed-speed-collector"
+        with self.assertRaisesRegex(ValueError, "digest mismatch"):
+            MODULE.inspect(self.package(), self.root, self.version)
+
     def test_rejects_policy_default_mismatch(self) -> None:
         manifest = self.manifest | {"defaultGarbageCollector": "Compact"}
         with self.assertRaisesRegex(ValueError, "default collector"):
             MODULE.inspect(self.package(manifest), self.root, self.version)
+
+    def test_rejects_test_only_export(self) -> None:
+        manifest = self.manifest | {"exports": ["allocate", "test_allocation_count"]}
+        with self.assertRaisesRegex(ValueError, "test-only export"):
+            MODULE.inspect(self.package(manifest), self.root, self.version)
+
+    def test_rejects_export_file_mismatch(self) -> None:
+        self.entries["runtime/runtime-exports.txt"] = b"allocate\ncollect\n"
+        with self.assertRaisesRegex(ValueError, "does not match"):
+            MODULE.inspect(self.package(), self.root, self.version)
 
     def test_rejects_cross_collector_archive(self) -> None:
         manifest = copy.deepcopy(self.manifest)
@@ -110,6 +158,14 @@ class RuntimePackPackageTests(unittest.TestCase):
             b"=== Compact collector NOTICE ===", b"")
         with self.assertRaisesRegex(ValueError, "upstream notice"):
             MODULE.inspect(self.package(), self.root, self.version)
+
+    def test_rejects_missing_netwasmgc_license_or_notice(self) -> None:
+        complete = self.entries["LICENSE.txt"]
+        for section in (b"=== NetWasmGC LICENSE ===", b"=== NetWasmGC NOTICE ==="):
+            with self.subTest(section=section):
+                self.entries["LICENSE.txt"] = complete.replace(section, b"")
+                with self.assertRaisesRegex(ValueError, "upstream notice"):
+                    MODULE.inspect(self.package(), self.root, self.version)
 
     def test_rejects_mismatched_collector_layout(self) -> None:
         self.entries["runtime/wasm32/compact/layout.json"] = json.dumps({

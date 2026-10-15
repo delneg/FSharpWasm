@@ -1,4 +1,5 @@
 using NetWasm.Compiler.Core;
+using NetWasm.Compiler.ComponentModel.Optimization;
 using NetWasm.Compiler.Metadata;
 
 namespace NetWasm.Compiler.Analysis;
@@ -13,5 +14,9 @@ internal interface IMethodSpecializerFactory
         IFieldRepository fields,
         ITypeFinder types,
         ICalledMethodResolver calledMethods,
-        IMethodImplementationResolver methodImplementations);
+        IMethodImplementationResolver methodImplementations,
+        ITypeRelationshipClassifier relationships,
+        IMethodBodyReader methodBodies,
+        WasmOptimizationSettings optimizationSettings,
+        IRuntimeIntrinsicRegistry intrinsics);
 }

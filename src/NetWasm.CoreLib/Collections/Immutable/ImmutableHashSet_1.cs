@@ -566,7 +566,9 @@ namespace System.Collections.Immutable
         /// </summary>
         IEnumerator<T> IEnumerable<T>.GetEnumerator()
         {
-            return this.GetEnumerator();
+            return this.IsEmpty ?
+                GenericEmptyEnumerator<T>.Instance :
+                this.GetEnumerator();
         }
 
         #endregion
@@ -595,7 +597,7 @@ namespace System.Collections.Immutable
         {
             Requires.NotNull(other, nameof(other));
 
-            foreach (T item in other)
+            foreach (T item in other.GetEnumerableDisposable<T, Enumerator>())
             {
                 if (!Contains(item, origin))
                 {
@@ -672,7 +674,7 @@ namespace System.Collections.Immutable
 
             int count = 0;
             SortedInt32KeyNode<ImmutableHashSet<T>.HashBucket> newRoot = origin.Root;
-            foreach (T item in other)
+            foreach (T item in other.GetEnumerableDisposable<T, Enumerator>())
             {
                 int hashCode = item != null ? origin.EqualityComparer.GetHashCode(item) : 0;
                 HashBucket bucket = newRoot.GetValueOrDefault(hashCode);
@@ -723,7 +725,7 @@ namespace System.Collections.Immutable
                 return false;
             }
 
-            foreach (T item in other)
+            foreach (T item in other.GetEnumerableDisposable<T, Enumerator>())
             {
                 if (Contains(item, origin))
                 {
@@ -846,7 +848,7 @@ namespace System.Collections.Immutable
 
             SortedInt32KeyNode<ImmutableHashSet<T>.HashBucket> newSet = SortedInt32KeyNode<HashBucket>.EmptyNode;
             int count = 0;
-            foreach (T item in other)
+            foreach (T item in other.GetEnumerableDisposable<T, Enumerator>())
             {
                 if (Contains(item, origin))
                 {
@@ -870,7 +872,7 @@ namespace System.Collections.Immutable
 
             int count = 0;
             SortedInt32KeyNode<ImmutableHashSet<T>.HashBucket> newRoot = root;
-            foreach (T item in other)
+            foreach (T item in other.GetEnumerableDisposable<T, Enumerator>())
             {
                 int hashCode = item != null ? equalityComparer.GetHashCode(item) : 0;
                 HashBucket bucket;
@@ -985,7 +987,7 @@ namespace System.Collections.Immutable
             }
 
             int matchCount = 0;
-            foreach (T item in other)
+            foreach (T item in other.GetEnumerableDisposable<T, Enumerator>())
             {
                 matchCount++;
                 if (!Contains(item, origin))
@@ -1054,7 +1056,7 @@ namespace System.Collections.Immutable
         /// <returns>The equality comparer to use.</returns>
         private static IEqualityComparer<HashBucket> GetHashBucketEqualityComparer(IEqualityComparer<T> valueComparer)
         {
-            if (!IsValueTypeForHashBucket())
+            if (!ImmutableExtensions.IsValueType<T>())
             {
                 return HashBucketByRefEqualityComparer.DefaultInstance;
             }
@@ -1067,11 +1069,6 @@ namespace System.Collections.Immutable
                 return new HashBucketByValueEqualityComparer(valueComparer);
             }
         }
-
-        // NetWasm deliberately omits runtime type metadata, so the upstream
-        // Type.IsValueType probe is not available. A non-null default is the
-        // metadata-free distinction needed by the common value/reference cases.
-        private static bool IsValueTypeForHashBucket() => default(T) is not null;
 
         /// <summary>
         /// Wraps the specified data structure with an immutable collection wrapper.

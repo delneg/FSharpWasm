@@ -1,4 +1,4 @@
-# NetWasm: compile C# to WebAssembly at native Wasm size.
+# NetWasm: C# just beat Rust at Wasm size.
 
 NetWasm is an independent .NET compiler, CoreLib, runtime, and SDK that compiles
 C# and .NET CIL into small, standalone WebAssembly modules and WASI Preview 2
@@ -6,10 +6,18 @@ components.
 
 Write C#. Deploy like C++. Target WebAssembly and WASI.
 
-A clean NetWasm 0.7.0 Release build of `Console.WriteLine(42)` produces a
-**55,825-byte final Wasm artifact, runtime and precise Compact garbage
-collection included.** Boehm remains selectable when its allocation paths suit
-your workload better.
+**C# with precise garbage collection: 47,798 bytes. Rust's size-oriented
+profile: 53,635 bytes.**
+
+For the same print-`42` workload, the measured NetWasm 0.8.0 candidate is
+**10.9% smaller**, with its runtime and precise Compact GC included.
+Both outputs are standalone WASI Preview 2 components. The Rust reference uses
+Rust 1.95.0 with `opt-level = "z"`, LTO and the size settings documented in
+[the methodology](docs/size-and-methodology.md#rust-a-footprint-reference-not-a-gc-comparison).
+This is a measured workload/profile result, not a language-wide size guarantee.
+The 0.8.0 release is being qualified; these are candidate-package measurements.
+
+![C# with precise GC beats Rust's size-oriented profile for printing 42: NetWasm 47,798 bytes, Rust 53,635 bytes. Both are WASI Preview 2 components.](docs/images/csharp-rust-console42-size.svg)
 
 [![Star NetWasm on GitHub](https://img.shields.io/github/stars/zion-sati/NetWasm?style=for-the-badge&logo=github&label=Star%20NetWasm)](https://github.com/zion-sati/NetWasm)
 
@@ -32,10 +40,10 @@ memory. Deploy the compiled program to a compatible WASI host.
 
 ## AOT vs AOT: printing `42`
 
-**54.5 KiB with NetWasm. 14.58 MiB with .NET 11 Blazor WebAssembly AOT.**
-Using the exact byte counts, NetWasm is about **274× smaller**.
+**46.7 KiB with NetWasm. 14.58 MiB with .NET 11 Blazor WebAssembly AOT.**
+Using the exact byte counts, NetWasm is about **320× smaller**.
 
-![AOT Wasm size comparison, lower is better: NetWasm with Compact GC 54.5 KiB, Blazor .NET 10 11.71 MiB, Blazor .NET 11 RC1 14.58 MiB. NetWasm is about 274 times smaller than the .NET 11 build by exact bytes.](docs/images/aot-console42-size.svg)
+![AOT Wasm size comparison, lower is better: NetWasm with Compact GC 46.7 KiB, Blazor .NET 10 11.71 MiB, Blazor .NET 11 RC1 14.58 MiB. NetWasm is about 320 times smaller than the .NET 11 build by exact bytes.](docs/images/aot-console42-size.svg)
 
 We published an empty-UI Blazor WebAssembly app that calls
 `Console.WriteLine(42)`, with AOT, full managed trimming, IL stripping, invariant
@@ -44,9 +52,9 @@ globalization and size-focused native compilation/linking enabled. Both the
 
 | AOT build | Uncompressed Wasm | Size relative to NetWasm |
 | --- | ---: | ---: |
-| **NetWasm 0.7.0, Compact GC** | **55,825 bytes (54.5 KiB)** | **1x** |
-| Blazor WebAssembly, .NET 10 | 12,276,684 bytes (11.71 MiB) | 220x |
-| Blazor WebAssembly, .NET 11 RC1 | 15,289,241 bytes (14.58 MiB) | 274x |
+| **NetWasm 0.8.0 candidate, Compact GC** | **47,798 bytes (46.7 KiB)** | **1x** |
+| Blazor WebAssembly, .NET 10 | 12,276,684 bytes (11.71 MiB) | 257x |
+| Blazor WebAssembly, .NET 11 RC1 | 15,289,241 bytes (14.58 MiB) | 320x |
 
 These are measured Wasm payloads, with no compression and no JavaScript counted.
 Blazor's total includes its native runtime and required Webcil assemblies; the
@@ -100,7 +108,7 @@ For Windows host support, browser publishing and dual-target libraries, follow t
 
 ## More than Hello World
 
-The 54.5 KiB program is the baseline, not the boundary. NetWasm already covers a practical .NET development loop:
+The 46.7 KiB program is the baseline, not the boundary. NetWasm already covers a practical .NET development loop:
 
 - C# 15 when the project selects the .NET 11 SDK, while the default template remains on .NET 10;
 - `dotnet build`, `dotnet run`, `dotnet publish` and `dotnet test`;
@@ -113,12 +121,12 @@ The supported surface is deliberately smaller than desktop .NET, but it is alrea
 
 ## .NET designed around Wasm
 
-I started NetWasm with a simple challenge: **“Kotlin has it—why can’t we?!”**
+I started NetWasm with a simple challenge: **“Kotlin has it, why can’t we?!”**
 
 “It” is [Kotlin Multiplatform (KMP)'s common API surface](https://kotlinlang.org/docs/multiplatform/multiplatform-discover-project.html):
 shared code uses portable APIs instead of the whole JVM/Java library surface,
 with [Wasm among its targets](https://kotlinlang.org/docs/wasm-overview.html).
-Think of a smaller platform contract, in the spirit of .NET Standard—not a
+Think of a smaller platform contract, in the spirit of .NET Standard, not a
 desktop runtime squeezed into every deployment.
 
 C# does not require the desktop .NET runtime's entire compatibility surface.
@@ -152,12 +160,12 @@ possible.
 - **Only the selected collector is linked.** Compact is the default from 0.7.0;
   choosing Boehm does not make libraries collector-specific or link both backends.
 
-The 55,825-byte figure is the uncompressed final component, not a compressed
+The 47,798-byte figure is the uncompressed final component, not a compressed
 download or the size of a complete JavaScript-host deployment. A WASI host is
 still required. [The measurement notes](docs/size-and-methodology.md) make that
 boundary explicit.
 
-## Compact by default, Boehm when you need it
+## Small by default. Choose your allocation strategy.
 
 Compact is a size-first, precise, non-moving mark-and-sweep collector. It traces
 compiler-published roots and reference layouts without conservative scanning.
@@ -165,34 +173,37 @@ It supports NetWasm's managed lifetime features, including finalizers,
 resurrection, weak references, dependent handles and pinning. Its name refers
 to implementation size, not moving heap compaction.
 
-Boehm's allocation paths can be faster for allocation-heavy workloads,
-particularly many small objects, at the cost of a typically larger module.
-Benchmark your actual application before choosing it for performance.
+NetWasmGC is the throughput-oriented precise, non-moving collector. Select
+`NetWasm` for faster allocation and collection paths at the cost of more memory
+and a larger module. Bump is a non-collecting option for bounded, one-shot jobs.
+Boehm remains available. Benchmark your application before choosing a collector.
 
-For the same qualified Release `Console.WriteLine(42)` component:
+For the same 0.8.0 candidate Release/Oz `Console.WriteLine(42)` component:
 
-| Collector | Uncompressed final component |
-| --- | ---: |
-| Compact (default) | 55,825 bytes |
-| Boehm | 84,653 bytes |
+| Collector | Uncompressed final component | Brotli quality 11 |
+| --- | ---: | ---: |
+| Compact (default) | 47,798 bytes | 13,501 bytes |
+| NetWasmGC | 51,300 bytes | 15,157 bytes |
+| Bump | 43,794 bytes | 11,929 bytes |
+| Boehm | 74,142 bytes | 25,023 bytes |
 
-To select Boehm, put this in the executable project's `.csproj`:
+To select NetWasmGC, put this in the executable project's `.csproj`:
 
 ```xml
 <PropertyGroup>
-  <NetWasmGarbageCollector>Boehm</NetWasmGarbageCollector>
+  <NetWasmGarbageCollector>NetWasm</NetWasmGarbageCollector>
 </PropertyGroup>
 ```
 
 Leaving the property unset selects Compact. This is a build-time application
-choice; class libraries remain collector-neutral. Both backends are packaged
+choice; class libraries remain collector-neutral. All four backends are packaged
 for wasm32 and wasm64. See [Choosing a garbage collector](docs/runtime-garbage-collection.md)
 for the tradeoffs, selection rules and diagnostics.
 
 ## Libraries should travel upward
 
 A library written for the smaller NetWasm profile should also be useful on
-desktop .NET—not trapped in a Wasm-only ecosystem.
+desktop .NET, not trapped in a Wasm-only ecosystem.
 
 ```sh
 dotnet new netwasm-lib -n MyLibrary
@@ -284,7 +295,7 @@ Runtime reflection, `dynamic`, runtime assembly loading and managed threading
 are outside the profile. General `System.IO.File`/`Directory`/`FileStream`,
 raw sockets and subprocess APIs are not implemented. Existing NuGet packages
 work only when their reachable code and API dependencies fit the supported
-profile—not merely because they target .NET.
+profile, not merely because they target .NET.
 
 Read the [support inventory](docs/support-status.md) before porting an app.
 The [documentation index](docs/index.md) covers hosting, diagnostics, runtime
@@ -314,5 +325,5 @@ Commercial licensing: <zionsatidev@gmail.com>.
 
 Start with `Console.WriteLine(42)`, then try the smallest real workload where
 deployment size, sandboxing, or portability matters. If something is missing,
-open an [issue](https://github.com/zion-sati/NetWasm/issues)—concrete workloads
+open an [issue](https://github.com/zion-sati/NetWasm/issues), concrete workloads
 are how the 1.0 support boundary gets decided.

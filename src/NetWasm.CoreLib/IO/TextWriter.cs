@@ -6,6 +6,8 @@
 // intentionally omitted; Task/ValueTask writes use the platform scheduler.
 
 using System.Buffers;
+using System.Diagnostics.CodeAnalysis;
+using System.Globalization;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -14,7 +16,7 @@ using System.Threading.Tasks;
 
 namespace System.IO
 {
-    public abstract class TextWriter : IDisposable, IAsyncDisposable
+    public abstract partial class TextWriter : IDisposable, IAsyncDisposable
     {
         public static readonly TextWriter Null = new NullTextWriter();
 
@@ -29,7 +31,8 @@ namespace System.IO
         protected TextWriter() { }
         protected TextWriter(IFormatProvider? formatProvider) => _internalFormatProvider = formatProvider;
 
-        public virtual IFormatProvider FormatProvider => _internalFormatProvider!;
+        public virtual IFormatProvider FormatProvider =>
+            _internalFormatProvider ?? CultureInfo.CurrentCulture;
 
         public virtual void Close()
         {
@@ -62,6 +65,7 @@ namespace System.IO
 
         public abstract Encoding Encoding { get; }
 
+        [AllowNull]
         public virtual string NewLine
         {
             get => _coreNewLineStr;
@@ -251,17 +255,36 @@ namespace System.IO
         public virtual Task WriteAsync(char value) =>
             ScheduleAsync(static state => state.Writer.Write(state.Value), new WriteValue(this, value), CancellationToken.None);
 
-        public virtual Task WriteAsync(Text.Rune value) =>
-            ScheduleAsync(static state => state.Writer.Write(state.Value), new WriteRune(this, value), CancellationToken.None);
+        public virtual Task WriteAsync(Text.Rune value)
+        {
+            Span<char> chars = stackalloc char[2];
+            if (value.EncodeToUtf16(chars) == 1)
+                return WriteAsync(chars[0]);
+
+            return ScheduleAsync(static state =>
+            {
+                state.Writer.Write(state.First);
+                state.Writer.Write(state.Second);
+            }, new WriteSurrogatePair(this, chars[0], chars[1]), CancellationToken.None);
+        }
 
         public virtual Task WriteAsync(string? value) =>
             ScheduleAsync(static state => state.Writer.Write(state.Value), new WriteString(this, value), CancellationToken.None);
 
         public Task WriteAsync(string? value, CancellationToken cancellationToken) =>
-            ScheduleAsync(static state => state.Writer.Write(state.Value), new WriteString(this, value), cancellationToken);
+            WriteAsync(value.AsMemory(), cancellationToken);
 
-        public virtual Task WriteAsync(Text.StringBuilder? value, CancellationToken cancellationToken = default) =>
-            ScheduleAsync(static state => state.Writer.Write(state.Value), new WriteStringBuilder(this, value), cancellationToken);
+        public virtual Task WriteAsync(Text.StringBuilder? value, CancellationToken cancellationToken = default)
+        {
+            return cancellationToken.IsCancellationRequested ? Task.FromCanceled(cancellationToken) :
+                value is null ? Task.CompletedTask : WriteAsyncCore(value, cancellationToken);
+
+            async Task WriteAsyncCore(Text.StringBuilder builder, CancellationToken token)
+            {
+                foreach (var chunk in builder.GetChunks())
+                    await WriteAsync(chunk, token).ConfigureAwait(false);
+            }
+        }
 
         public Task WriteAsync(char[]? buffer) =>
             buffer is null
@@ -276,12 +299,12 @@ namespace System.IO
 
         public virtual Task WriteAsync(ReadOnlyMemory<char> buffer, CancellationToken cancellationToken = default)
         {
+            if (cancellationToken.IsCancellationRequested)
+                return Task.FromCanceled(cancellationToken);
+
             if (MemoryMarshal.TryGetArray(buffer, out ArraySegment<char> array))
             {
-                return ScheduleAsync(
-                    static state => state.Writer.Write(state.Buffer, state.Index, state.Count),
-                    new WriteArray(this, array.Array!, array.Offset, array.Count),
-                    cancellationToken);
+                return WriteAsync(array.Array!, array.Offset, array.Count);
             }
 
             return ScheduleAsync(
@@ -293,17 +316,37 @@ namespace System.IO
         public virtual Task WriteLineAsync(char value) =>
             ScheduleAsync(static state => state.Writer.WriteLine(state.Value), new WriteValue(this, value), CancellationToken.None);
 
-        public virtual Task WriteLineAsync(Text.Rune value) =>
-            ScheduleAsync(static state => state.Writer.WriteLine(state.Value), new WriteRune(this, value), CancellationToken.None);
+        public virtual Task WriteLineAsync(Text.Rune value)
+        {
+            Span<char> chars = stackalloc char[2];
+            if (value.EncodeToUtf16(chars) == 1)
+                return WriteLineAsync(chars[0]);
+
+            return ScheduleAsync(static state =>
+            {
+                state.Writer.Write(state.First);
+                state.Writer.WriteLine(state.Second);
+            }, new WriteSurrogatePair(this, chars[0], chars[1]), CancellationToken.None);
+        }
 
         public virtual Task WriteLineAsync(string? value) =>
             ScheduleAsync(static state => state.Writer.WriteLine(state.Value), new WriteString(this, value), CancellationToken.None);
 
         public Task WriteLineAsync(string? value, CancellationToken cancellationToken) =>
-            ScheduleAsync(static state => state.Writer.WriteLine(state.Value), new WriteString(this, value), cancellationToken);
+            WriteLineAsync(value.AsMemory(), cancellationToken);
 
-        public virtual Task WriteLineAsync(Text.StringBuilder? value, CancellationToken cancellationToken = default) =>
-            ScheduleAsync(static state => state.Writer.WriteLine(state.Value), new WriteStringBuilder(this, value), cancellationToken);
+        public virtual Task WriteLineAsync(Text.StringBuilder? value, CancellationToken cancellationToken = default)
+        {
+            return cancellationToken.IsCancellationRequested ? Task.FromCanceled(cancellationToken) :
+                value is null ? WriteAsync(CoreNewLine, cancellationToken) : WriteLineAsyncCore(value, cancellationToken);
+
+            async Task WriteLineAsyncCore(Text.StringBuilder builder, CancellationToken token)
+            {
+                foreach (var chunk in builder.GetChunks())
+                    await WriteAsync(chunk, token).ConfigureAwait(false);
+                await WriteAsync(CoreNewLine, token).ConfigureAwait(false);
+            }
+        }
 
         public Task WriteLineAsync(char[]? buffer)
         {
@@ -323,12 +366,12 @@ namespace System.IO
 
         public virtual Task WriteLineAsync(ReadOnlyMemory<char> buffer, CancellationToken cancellationToken = default)
         {
+            if (cancellationToken.IsCancellationRequested)
+                return Task.FromCanceled(cancellationToken);
+
             if (MemoryMarshal.TryGetArray(buffer, out ArraySegment<char> array))
             {
-                return ScheduleAsync(
-                    static state => state.Writer.WriteLine(state.Buffer, state.Index, state.Count),
-                    new WriteArray(this, array.Array!, array.Offset, array.Count),
-                    cancellationToken);
+                return WriteLineAsync(array.Array!, array.Offset, array.Count);
             }
 
             return ScheduleAsync(
@@ -338,16 +381,16 @@ namespace System.IO
         }
 
         public virtual Task WriteLineAsync() =>
-            ScheduleAsync(static writer => writer.WriteLine(), this, CancellationToken.None);
+            WriteAsync(CoreNewLine);
 
         public Task WriteLineAsync(CancellationToken cancellationToken) =>
-            ScheduleAsync(static writer => writer.WriteLine(), this, cancellationToken);
+            WriteAsync(CoreNewLine, cancellationToken);
 
         public virtual Task FlushAsync() =>
             ScheduleAsync(static writer => writer.Flush(), this, CancellationToken.None);
 
         public virtual Task FlushAsync(CancellationToken cancellationToken) =>
-            ScheduleAsync(static writer => writer.Flush(), this, cancellationToken);
+            cancellationToken.IsCancellationRequested ? Task.FromCanceled(cancellationToken) : FlushAsync();
 
         public static TextWriter Synchronized(TextWriter writer)
         {
@@ -362,36 +405,9 @@ namespace System.IO
             TState state,
             CancellationToken cancellationToken)
         {
-            if (cancellationToken.IsCancellationRequested)
-            {
-                return Task.FromCanceled(cancellationToken);
-            }
-
-            var task = new Task();
-            Runtime.InteropServices.PlatformServices.Scheduler.Schedule(
-                () =>
-                {
-                    if (cancellationToken.IsCancellationRequested)
-                    {
-                        task.TrySetCanceled(new TaskCanceledException());
-                        return;
-                    }
-
-                    try
-                    {
-                        operation(state);
-                        task.TrySetResult();
-                    }
-                    catch (OperationCanceledException)
-                    {
-                        task.TrySetCanceled(new TaskCanceledException());
-                    }
-                    catch (Exception exception)
-                    {
-                        task.TrySetException(exception);
-                    }
-                },
-                0);
+            var task = new Task(() => operation(state), cancellationToken, TaskCreationOptions.DenyChildAttach);
+            if (!task.IsCompleted)
+                task.Start(TaskScheduler.Default);
             return task;
         }
 
@@ -402,11 +418,17 @@ namespace System.IO
             internal char Value { get; }
         }
 
-        private sealed class WriteRune
+        private sealed class WriteSurrogatePair
         {
-            internal WriteRune(TextWriter writer, Text.Rune value) { Writer = writer; Value = value; }
+            internal WriteSurrogatePair(TextWriter writer, char first, char second)
+            {
+                Writer = writer;
+                First = first;
+                Second = second;
+            }
             internal TextWriter Writer { get; }
-            internal Text.Rune Value { get; }
+            internal char First { get; }
+            internal char Second { get; }
         }
 
         private sealed class WriteString
@@ -414,13 +436,6 @@ namespace System.IO
             internal WriteString(TextWriter writer, string? value) { Writer = writer; Value = value; }
             internal TextWriter Writer { get; }
             internal string? Value { get; }
-        }
-
-        private sealed class WriteStringBuilder
-        {
-            internal WriteStringBuilder(TextWriter writer, Text.StringBuilder? value) { Writer = writer; Value = value; }
-            internal TextWriter Writer { get; }
-            internal Text.StringBuilder? Value { get; }
         }
 
         private sealed class WriteArray
@@ -450,6 +465,7 @@ namespace System.IO
         {
             public override IFormatProvider FormatProvider => null!;
             public override Encoding Encoding => Encoding.Unicode;
+            [AllowNull]
             public override string NewLine { get => base.NewLine; set { } }
             public override void Flush() { }
             public override void Write(char value) { }
@@ -520,6 +536,7 @@ namespace System.IO
             internal SyncTextWriter(TextWriter writer) => _writer = writer;
             public override Encoding Encoding => _writer.Encoding;
             public override IFormatProvider FormatProvider => _writer.FormatProvider;
+            [AllowNull]
             public override string NewLine { [MethodImpl(MethodImplOptions.Synchronized)] get => _writer.NewLine; [MethodImpl(MethodImplOptions.Synchronized)] set => _writer.NewLine = value; }
             [MethodImpl(MethodImplOptions.Synchronized)] public override void Close() => _writer.Close();
             [MethodImpl(MethodImplOptions.Synchronized)] protected override void Dispose(bool disposing) { if (disposing) ((IDisposable)_writer).Dispose(); }

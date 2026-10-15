@@ -5,6 +5,7 @@
 // runtime-private helpers are omitted for the NetWasm CoreLib profile.
 
 using System.Collections;
+using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
 
@@ -51,6 +52,13 @@ namespace System.Collections.Generic
         /// The binary logarithm of <see cref="Arity" />.
         /// </summary>
         private const int Log2Arity = 2;
+
+#if DEBUG
+        static PriorityQueue()
+        {
+            Debug.Assert(Log2Arity > 0 && Math.Pow(2, Log2Arity) == Arity);
+        }
+#endif
 
         /// <summary>
         ///  Initializes a new instance of the <see cref="PriorityQueue{TElement, TPriority}"/> class.
@@ -146,7 +154,7 @@ namespace System.Collections.Generic
         {
             ArgumentNullException.ThrowIfNull(items);
 
-            _nodes = ToArray(items, out _size);
+            _nodes = EnumerableHelpers.ToArray(items, out _size);
             _comparer = InitializeComparer(comparer);
 
             if (_size > 1)
@@ -219,7 +227,7 @@ namespace System.Collections.Generic
         {
             if (_size == 0)
             {
-                throw new InvalidOperationException();
+                throw new InvalidOperationException(SR.InvalidOperation_EmptyQueue);
             }
 
             return _nodes[0].Element;
@@ -234,7 +242,7 @@ namespace System.Collections.Generic
         {
             if (_size == 0)
             {
-                throw new InvalidOperationException();
+                throw new InvalidOperationException(SR.InvalidOperation_EmptyQueue);
             }
 
             TElement element = _nodes[0].Element;
@@ -258,7 +266,7 @@ namespace System.Collections.Generic
         {
             if (_size == 0)
             {
-                throw new InvalidOperationException();
+                throw new InvalidOperationException(SR.InvalidOperation_EmptyQueue);
             }
 
             (TElement Element, TPriority Priority) root = _nodes[0];
@@ -617,6 +625,8 @@ namespace System.Collections.Generic
         /// </summary>
         private void Grow(int minCapacity)
         {
+            Debug.Assert(_nodes.Length < minCapacity);
+
             const int GrowFactor = 2;
             const int MinimumGrow = 4;
 
@@ -710,6 +720,9 @@ namespace System.Collections.Generic
             // Instead of swapping items all the way to the root, we will perform
             // a similar optimization as in the insertion sort.
 
+            Debug.Assert(_comparer is null);
+            Debug.Assert(0 <= nodeIndex && nodeIndex < _size);
+
             (TElement Element, TPriority Priority)[] nodes = _nodes;
 
             while (nodeIndex > 0)
@@ -739,7 +752,10 @@ namespace System.Collections.Generic
             // Instead of swapping items all the way to the root, we will perform
             // a similar optimization as in the insertion sort.
 
-            IComparer<TPriority> comparer = _comparer!;
+            Debug.Assert(_comparer is not null);
+            Debug.Assert(0 <= nodeIndex && nodeIndex < _size);
+
+            IComparer<TPriority> comparer = _comparer;
             (TElement Element, TPriority Priority)[] nodes = _nodes;
 
             while (nodeIndex > 0)
@@ -769,6 +785,9 @@ namespace System.Collections.Generic
             // The node to move down will not actually be swapped every time.
             // Rather, values on the affected path will be moved up, thus leaving a free spot
             // for this value to drop in. Similar optimization as in the insertion sort.
+
+            Debug.Assert(_comparer is null);
+            Debug.Assert(0 <= nodeIndex && nodeIndex < _size);
 
             (TElement Element, TPriority Priority)[] nodes = _nodes;
             int size = _size;
@@ -815,7 +834,10 @@ namespace System.Collections.Generic
             // Rather, values on the affected path will be moved up, thus leaving a free spot
             // for this value to drop in. Similar optimization as in the insertion sort.
 
-            IComparer<TPriority> comparer = _comparer!;
+            Debug.Assert(_comparer is not null);
+            Debug.Assert(0 <= nodeIndex && nodeIndex < _size);
+
+            IComparer<TPriority> comparer = _comparer;
             (TElement Element, TPriority Priority)[] nodes = _nodes;
             int size = _size;
 
@@ -859,11 +881,27 @@ namespace System.Collections.Generic
             equalityComparer ??= EqualityComparer<TElement>.Default;
             ReadOnlySpan<(TElement Element, TPriority Priority)> nodes = _nodes.AsSpan(0, _size);
 
-            for (int i = 0; i < nodes.Length; i++)
+            // Currently the JIT doesn't optimize direct EqualityComparer<T>.Default.Equals
+            // calls for reference types, so we want to cache the comparer instance instead.
+            // TODO https://github.com/dotnet/runtime/issues/10050: Update if this changes in the future.
+            if (typeof(TElement).IsValueType && equalityComparer == EqualityComparer<TElement>.Default)
             {
-                if (equalityComparer.Equals(element, nodes[i].Element))
+                for (int i = 0; i < nodes.Length; i++)
                 {
-                    return i;
+                    if (EqualityComparer<TElement>.Default.Equals(element, nodes[i].Element))
+                    {
+                        return i;
+                    }
+                }
+            }
+            else
+            {
+                for (int i = 0; i < nodes.Length; i++)
+                {
+                    if (equalityComparer.Equals(element, nodes[i].Element))
+                    {
+                        return i;
+                    }
                 }
             }
 
@@ -873,28 +911,26 @@ namespace System.Collections.Generic
         /// <summary>
         /// Initializes the custom comparer to be used internally by the heap.
         /// </summary>
-        private static IComparer<TPriority>? InitializeComparer(IComparer<TPriority>? comparer) => comparer;
-
-        private static (TElement Element, TPriority Priority)[] ToArray(
-            IEnumerable<(TElement Element, TPriority Priority)> items,
-            out int size)
+        private static IComparer<TPriority>? InitializeComparer(IComparer<TPriority>? comparer)
         {
-            if (items is ICollection<(TElement Element, TPriority Priority)> collection)
+            if (typeof(TPriority).IsValueType)
             {
-                size = collection.Count;
-                var nodes = new (TElement Element, TPriority Priority)[size];
-                collection.CopyTo(nodes, 0);
-                return nodes;
-            }
+                if (comparer == Comparer<TPriority>.Default)
+                {
+                    // if the user manually specifies the default comparer,
+                    // revert to using the optimized path.
+                    return null;
+                }
 
-            var list = new List<(TElement Element, TPriority Priority)>();
-            foreach (var item in items)
+                return comparer;
+            }
+            else
             {
-                list.Add(item);
+                // Currently the JIT doesn't optimize direct Comparer<T>.Default.Compare
+                // calls for reference types, so we want to cache the comparer instance instead.
+                // TODO https://github.com/dotnet/runtime/issues/10050: Update if this changes in the future.
+                return comparer ?? Comparer<TPriority>.Default;
             }
-
-            size = list.Count;
-            return list.ToArray();
         }
 
         /// <summary>
@@ -916,22 +952,22 @@ namespace System.Collections.Generic
 
                 if (array.Rank != 1)
                 {
-                    throw new ArgumentException("Multidimensional arrays are not supported.", nameof(array));
+                    throw new ArgumentException(SR.Arg_RankMultiDimNotSupported, nameof(array));
                 }
 
                 if (array.GetLowerBound(0) != 0)
                 {
-                    throw new ArgumentException("Non-zero lower bounds are not supported.", nameof(array));
+                    throw new ArgumentException(SR.Arg_NonZeroLowerBound, nameof(array));
                 }
 
                 if (index < 0 || index > array.Length)
                 {
-                    throw new ArgumentOutOfRangeException(nameof(index), index, "The index must be within the array.");
+                    throw new ArgumentOutOfRangeException(nameof(index), index, SR.ArgumentOutOfRange_IndexMustBeLessOrEqual);
                 }
 
                 if (array.Length - index < _queue._size)
                 {
-                    throw new ArgumentException("The destination array is too small.");
+                    throw new ArgumentException(SR.Argument_InvalidOffLen);
                 }
 
                 try
@@ -940,7 +976,7 @@ namespace System.Collections.Generic
                 }
                 catch (ArrayTypeMismatchException)
                 {
-                    throw new ArgumentException("The destination array type is incompatible.", nameof(array));
+                    throw new ArgumentException(SR.Argument_IncompatibleArrayType, nameof(array));
                 }
             }
 
@@ -978,7 +1014,7 @@ namespace System.Collections.Generic
 
                     if (_version != localQueue._version)
                     {
-                        throw new InvalidOperationException();
+                        ThrowHelper.ThrowVersionCheckFailed();
                     }
 
                     if ((uint)_index < (uint)localQueue._size)
@@ -1003,7 +1039,7 @@ namespace System.Collections.Generic
                 {
                     if (_version != _queue._version)
                     {
-                        throw new InvalidOperationException();
+                        ThrowHelper.ThrowVersionCheckFailed();
                     }
 
                     _index = 0;
@@ -1018,6 +1054,7 @@ namespace System.Collections.Generic
             public Enumerator GetEnumerator() => new Enumerator(_queue);
 
             IEnumerator<(TElement Element, TPriority Priority)> IEnumerable<(TElement Element, TPriority Priority)>.GetEnumerator() =>
+                _queue.Count == 0 ? EnumerableHelpers.GetEmptyEnumerator<(TElement Element, TPriority Priority)>() :
                 GetEnumerator();
 
             IEnumerator IEnumerable.GetEnumerator() => ((IEnumerable<(TElement Element, TPriority Priority)>)this).GetEnumerator();

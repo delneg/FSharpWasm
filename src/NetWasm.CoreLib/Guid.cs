@@ -8,6 +8,7 @@
 
 using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 
 namespace System;
 
@@ -81,8 +82,8 @@ public readonly partial struct Guid : IComparable,
         if (bigEndian)
         {
             _a = (int)((uint)b[3] | ((uint)b[2] << 8) | ((uint)b[1] << 16) | ((uint)b[0] << 24));
-            _b = (short)((b[5] << 8) | b[4]);
-            _c = (short)((b[7] << 8) | b[6]);
+            _b = (short)((b[4] << 8) | b[5]);
+            _c = (short)((b[6] << 8) | b[7]);
         }
         else
         {
@@ -301,7 +302,14 @@ public readonly partial struct Guid : IComparable,
         return TryParseExact(Trim(input), Lower(format[0]), out result, false);
     }
 
-    private static bool TryParseCore(ReadOnlySpan<char> input, out Guid result, bool throwOnOverflow)
+    private static bool TryParseCore(ReadOnlySpan<char> input, out Guid result, bool throwOnOverflow) =>
+        TryParseCore(MemoryMarshal.Cast<char, Utf16Char>(input), out result, throwOnOverflow);
+
+    private static bool TryParseCore(ReadOnlySpan<byte> input, out Guid result, bool throwOnOverflow) =>
+        TryParseCore(MemoryMarshal.Cast<byte, Utf8Char>(input), out result, throwOnOverflow);
+
+    private static bool TryParseCore<TChar>(ReadOnlySpan<TChar> input, out Guid result, bool throwOnOverflow)
+        where TChar : unmanaged, IUtfChar<TChar>
     {
         input = Trim(input);
         if (input.Length < 32)
@@ -310,38 +318,22 @@ public readonly partial struct Guid : IComparable,
             return false;
         }
 
-        var kind = input[0] switch
+        var kind = TChar.CastToUInt32(input[0]) switch
         {
             '(' => 'p',
-            '{' when input.Length > 9 && input[9] == '-' => 'b',
+            '{' when input.Length > 9 && TChar.CastToUInt32(input[9]) == '-' => 'b',
             '{' => 'x',
-            _ when input.Length > 8 && input[8] == '-' => 'd',
+            _ when input.Length > 8 && TChar.CastToUInt32(input[8]) == '-' => 'd',
             _ => 'n'
         };
         return TryParseExact(input, kind, out result, throwOnOverflow);
     }
 
-    private static bool TryParseCore(ReadOnlySpan<byte> input, out Guid result, bool throwOnOverflow)
-    {
-        input = Trim(input);
-        if (input.Length < 32)
-        {
-            result = default;
-            return false;
-        }
+    private static bool TryParseExact(ReadOnlySpan<char> input, char kind, out Guid result, bool throwOnOverflow) =>
+        TryParseExact(MemoryMarshal.Cast<char, Utf16Char>(input), kind, out result, throwOnOverflow);
 
-        var kind = input[0] switch
-        {
-            (byte)'(' => 'p',
-            (byte)'{' when input.Length > 9 && input[9] == (byte)'-' => 'b',
-            (byte)'{' => 'x',
-            _ when input.Length > 8 && input[8] == (byte)'-' => 'd',
-            _ => 'n'
-        };
-        return TryParseExact(input, kind, out result, throwOnOverflow);
-    }
-
-    private static bool TryParseExact(ReadOnlySpan<char> input, char kind, out Guid result, bool throwOnOverflow)
+    private static bool TryParseExact<TChar>(ReadOnlySpan<TChar> input, char kind, out Guid result, bool throwOnOverflow)
+        where TChar : unmanaged, IUtfChar<TChar>
     {
         if (kind is 'd' or 'b' or 'p' or 'n')
         {
@@ -349,7 +341,9 @@ public readonly partial struct Guid : IComparable,
             var length = kind is 'b' or 'p' ? 38 : kind == 'd' ? 36 : 32;
             var open = kind == 'b' ? '{' : kind == 'p' ? '(' : '\0';
             var close = kind == 'b' ? '}' : kind == 'p' ? ')' : '\0';
-            if (input.Length != length || (open != '\0' && (input[0] != open || input[^1] != close)))
+            if (input.Length != length ||
+                (open != '\0' &&
+                    (TChar.CastToUInt32(input[0]) != open || TChar.CastToUInt32(input[^1]) != close)))
             {
                 result = default;
                 return false;
@@ -358,36 +352,56 @@ public readonly partial struct Guid : IComparable,
             Span<byte> bytes = stackalloc byte[16];
             if (kind == 'd' || kind == 'b' || kind == 'p')
             {
-                if (input[offset + 8] != '-' || input[offset + 13] != '-' || input[offset + 18] != '-' || input[offset + 23] != '-')
+                if (TChar.CastToUInt32(input[offset + 8]) != '-' ||
+                    TChar.CastToUInt32(input[offset + 13]) != '-' ||
+                    TChar.CastToUInt32(input[offset + 18]) != '-' ||
+                    TChar.CastToUInt32(input[offset + 23]) != '-')
                 {
                     result = default;
                     return false;
                 }
-                var positions = new int[16, 2]
+                if (!TryDecodeByte(input[offset + 6], input[offset + 7], out bytes[0]) ||
+                    !TryDecodeByte(input[offset + 4], input[offset + 5], out bytes[1]) ||
+                    !TryDecodeByte(input[offset + 2], input[offset + 3], out bytes[2]) ||
+                    !TryDecodeByte(input[offset], input[offset + 1], out bytes[3]) ||
+                    !TryDecodeByte(input[offset + 11], input[offset + 12], out bytes[4]) ||
+                    !TryDecodeByte(input[offset + 9], input[offset + 10], out bytes[5]) ||
+                    !TryDecodeByte(input[offset + 16], input[offset + 17], out bytes[6]) ||
+                    !TryDecodeByte(input[offset + 14], input[offset + 15], out bytes[7]) ||
+                    !TryDecodeByte(input[offset + 19], input[offset + 20], out bytes[8]) ||
+                    !TryDecodeByte(input[offset + 21], input[offset + 22], out bytes[9]) ||
+                    !TryDecodeByte(input[offset + 24], input[offset + 25], out bytes[10]) ||
+                    !TryDecodeByte(input[offset + 26], input[offset + 27], out bytes[11]) ||
+                    !TryDecodeByte(input[offset + 28], input[offset + 29], out bytes[12]) ||
+                    !TryDecodeByte(input[offset + 30], input[offset + 31], out bytes[13]) ||
+                    !TryDecodeByte(input[offset + 32], input[offset + 33], out bytes[14]) ||
+                    !TryDecodeByte(input[offset + 34], input[offset + 35], out bytes[15]))
                 {
-                    { 6, 7 }, { 4, 5 }, { 2, 3 }, { 0, 1 },
-                    { 11, 12 }, { 9, 10 }, { 16, 17 }, { 14, 15 },
-                    { 19, 20 }, { 21, 22 }, { 24, 25 }, { 26, 27 },
-                    { 28, 29 }, { 30, 31 }, { 32, 33 }, { 34, 35 }
-                };
-                for (var i = 0; i < bytes.Length; i++)
-                {
-                    if (!TryDecodeByte(input[offset + positions[i, 0]], input[offset + positions[i, 1]], out bytes[i]))
-                    {
-                        result = default;
-                        return false;
-                    }
+                    result = default;
+                    return false;
                 }
             }
             else
             {
-                for (var i = 0; i < 16; i++)
+                if (!TryDecodeByte(input[6], input[7], out bytes[0]) ||
+                    !TryDecodeByte(input[4], input[5], out bytes[1]) ||
+                    !TryDecodeByte(input[2], input[3], out bytes[2]) ||
+                    !TryDecodeByte(input[0], input[1], out bytes[3]) ||
+                    !TryDecodeByte(input[10], input[11], out bytes[4]) ||
+                    !TryDecodeByte(input[8], input[9], out bytes[5]) ||
+                    !TryDecodeByte(input[14], input[15], out bytes[6]) ||
+                    !TryDecodeByte(input[12], input[13], out bytes[7]) ||
+                    !TryDecodeByte(input[16], input[17], out bytes[8]) ||
+                    !TryDecodeByte(input[18], input[19], out bytes[9]) ||
+                    !TryDecodeByte(input[20], input[21], out bytes[10]) ||
+                    !TryDecodeByte(input[22], input[23], out bytes[11]) ||
+                    !TryDecodeByte(input[24], input[25], out bytes[12]) ||
+                    !TryDecodeByte(input[26], input[27], out bytes[13]) ||
+                    !TryDecodeByte(input[28], input[29], out bytes[14]) ||
+                    !TryDecodeByte(input[30], input[31], out bytes[15]))
                 {
-                    if (!TryDecodeByte(input[i * 2], input[i * 2 + 1], out bytes[i]))
-                    {
-                        result = default;
-                        return false;
-                    }
+                    result = default;
+                    return false;
                 }
             }
 
@@ -404,22 +418,11 @@ public readonly partial struct Guid : IComparable,
         return false;
     }
 
-    private static bool TryParseExact(ReadOnlySpan<byte> input, char kind, out Guid result, bool throwOnOverflow)
-    {
-        Span<char> chars = stackalloc char[input.Length];
-        for (var i = 0; i < input.Length; i++)
-        {
-            if (input[i] > 0x7f)
-            {
-                result = default;
-                return false;
-            }
-            chars[i] = (char)input[i];
-        }
-        return TryParseExact(chars, kind, out result, throwOnOverflow);
-    }
+    private static bool TryParseExact(ReadOnlySpan<byte> input, char kind, out Guid result, bool throwOnOverflow) =>
+        TryParseExact(MemoryMarshal.Cast<byte, Utf8Char>(input), kind, out result, throwOnOverflow);
 
-    private static bool TryParseX(ReadOnlySpan<char> input, out Guid result, bool throwOnOverflow)
+    private static bool TryParseX<TChar>(ReadOnlySpan<TChar> input, out Guid result, bool throwOnOverflow)
+        where TChar : unmanaged, IUtfChar<TChar>
     {
         var index = 0;
         SkipWhitespace(input, ref index);
@@ -464,31 +467,32 @@ public readonly partial struct Guid : IComparable,
         return true;
     }
 
-    private static bool TryReadHexComponent(ReadOnlySpan<char> input, ref int index, out uint value, int expectedDigits, bool throwOnOverflow)
+    private static bool TryReadHexComponent<TChar>(ReadOnlySpan<TChar> input, ref int index, out uint value, int expectedDigits, bool throwOnOverflow)
+        where TChar : unmanaged, IUtfChar<TChar>
     {
         SkipWhitespace(input, ref index);
-        if (index < input.Length && input[index] == '+') index++;
-        if (index + 1 >= input.Length || input[index] != '0' || Lower(input[index + 1]) != 'x')
+        if (index < input.Length && TChar.CastToUInt32(input[index]) == '+') index++;
+        if (index + 1 >= input.Length || TChar.CastToUInt32(input[index]) != '0' || Lower(TChar.CastToUInt32(input[index + 1])) != 'x')
         {
             value = 0;
             return false;
         }
         index += 2;
         // The desktop parser accepts the historical 0x+, 0x+0x forms.
-        if (index < input.Length && input[index] == '+') index++;
-        if (index + 1 < input.Length && input[index] == '0' && Lower(input[index + 1]) == 'x') index += 2;
+        if (index < input.Length && TChar.CastToUInt32(input[index]) == '+') index++;
+        if (index + 1 < input.Length && TChar.CastToUInt32(input[index]) == '0' && Lower(TChar.CastToUInt32(input[index + 1])) == 'x') index += 2;
         SkipWhitespace(input, ref index);
         var start = index;
         var digitCount = 0;
         value = 0;
         while (index < input.Length)
         {
-            if (char.IsWhiteSpace(input[index]))
+            if (IsWhiteSpace(TChar.CastToUInt32(input[index])))
             {
                 index++;
                 continue;
             }
-            var digit = HexValue(input[index]);
+            var digit = HexValue(TChar.CastToUInt32(input[index]));
             if (digit < 0) break;
             if (value > (uint.MaxValue - (uint)digit) / 16)
             {
@@ -503,43 +507,41 @@ public readonly partial struct Guid : IComparable,
         return digitCount != 0;
     }
 
-    private static bool Take(ReadOnlySpan<char> input, ref int index, char value)
+    private static bool Take<TChar>(ReadOnlySpan<TChar> input, ref int index, char value)
+        where TChar : unmanaged, IUtfChar<TChar>
     {
         SkipWhitespace(input, ref index);
-        if (index >= input.Length || input[index] != value) return false;
+        if (index >= input.Length || TChar.CastToUInt32(input[index]) != value) return false;
         index++;
         return true;
     }
 
-    private static void SkipWhitespace(ReadOnlySpan<char> input, ref int index)
+    private static void SkipWhitespace<TChar>(ReadOnlySpan<TChar> input, ref int index)
+        where TChar : unmanaged, IUtfChar<TChar>
     {
-        while (index < input.Length && char.IsWhiteSpace(input[index])) index++;
+        while (index < input.Length && IsWhiteSpace(TChar.CastToUInt32(input[index]))) index++;
     }
 
-    private static ReadOnlySpan<char> Trim(ReadOnlySpan<char> input)
+    private static ReadOnlySpan<char> Trim(ReadOnlySpan<char> input) =>
+        MemoryMarshal.Cast<Utf16Char, char>(Trim(MemoryMarshal.Cast<char, Utf16Char>(input)));
+
+    private static ReadOnlySpan<TChar> Trim<TChar>(ReadOnlySpan<TChar> input)
+        where TChar : unmanaged, IUtfChar<TChar>
     {
         var start = 0;
         var end = input.Length;
-        while (start < end && char.IsWhiteSpace(input[start])) start++;
-        while (end > start && char.IsWhiteSpace(input[end - 1])) end--;
+        while (start < end && IsWhiteSpace(TChar.CastToUInt32(input[start]))) start++;
+        while (end > start && IsWhiteSpace(TChar.CastToUInt32(input[end - 1]))) end--;
         return input.Slice(start, end - start);
     }
 
-    private static ReadOnlySpan<byte> Trim(ReadOnlySpan<byte> input)
-    {
-        var start = 0;
-        var end = input.Length;
-        while (start < end && IsAsciiWhitespace(input[start])) start++;
-        while (end > start && IsAsciiWhitespace(input[end - 1])) end--;
-        return input.Slice(start, end - start);
-    }
+    private static bool IsWhiteSpace(uint value) => value is 9 or 10 or 11 or 12 or 13 or 32;
 
-    private static bool IsAsciiWhitespace(byte value) => value is 9 or 10 or 11 or 12 or 13 or 32;
-
-    private static bool TryDecodeByte(char high, char low, out byte value)
+    private static bool TryDecodeByte<TChar>(TChar high, TChar low, out byte value)
+        where TChar : unmanaged, IUtfChar<TChar>
     {
-        var h = HexValue(high);
-        var l = HexValue(low);
+        var h = HexValue(TChar.CastToUInt32(high));
+        var l = HexValue(TChar.CastToUInt32(low));
         if (h < 0 || l < 0)
         {
             value = 0;
@@ -549,12 +551,14 @@ public readonly partial struct Guid : IComparable,
         return true;
     }
 
-    private static int HexValue(char value) =>
-        value is >= '0' and <= '9' ? value - '0' :
-        value is >= 'a' and <= 'f' ? value - 'a' + 10 :
-        value is >= 'A' and <= 'F' ? value - 'A' + 10 : -1;
+    private static int HexValue(uint value) =>
+        value is >= '0' and <= '9' ? (int)(value - '0') :
+        value is >= 'a' and <= 'f' ? (int)(value - 'a' + 10) :
+        value is >= 'A' and <= 'F' ? (int)(value - 'A' + 10) : -1;
 
     private static char Lower(char value) => value is >= 'A' and <= 'Z' ? (char)(value + ('a' - 'A')) : value;
+
+    private static uint Lower(uint value) => value is >= 'A' and <= 'Z' ? value + ('a' - 'A') : value;
 
     public byte[] ToByteArray()
     {
@@ -686,9 +690,12 @@ public readonly partial struct Guid : IComparable,
         if (!string.IsNullOrEmpty(format) && format!.Length != 1) throw new FormatException("Guid format specification must be one character.");
         var length = kind is 'b' or 'p' ? 38 : kind == 'n' ? 32 : kind == 'x' ? 68 : kind == 'd' ? 36 : 0;
         if (length == 0) throw new FormatException("Guid format specification is invalid.");
-        var chars = new char[length];
-        if (!TryFormatCore(chars, out var written, kind, true)) throw new FormatException("Guid formatting failed.");
-        return string.Create(chars, 0, written);
+        var result = new string('\0', length);
+        if (!TryFormatCore(new Span<char>(ref result.GetRawStringData(), length), out var written, kind, true) || written != length)
+        {
+            throw new FormatException("Guid formatting failed.");
+        }
+        return result;
     }
 
     public bool TryFormat(Span<char> destination, out int charsWritten, [StringSyntax(StringSyntaxAttribute.GuidFormat)] ReadOnlySpan<char> format = default(System.ReadOnlySpan<char>)) =>
@@ -700,7 +707,11 @@ public readonly partial struct Guid : IComparable,
     bool ISpanFormattable.TryFormat(Span<char> destination, out int charsWritten, ReadOnlySpan<char> format, IFormatProvider? provider) => TryFormat(destination, out charsWritten, format);
     bool IUtf8SpanFormattable.TryFormat(Span<byte> destination, out int bytesWritten, ReadOnlySpan<char> format, IFormatProvider? provider) => TryFormat(destination, out bytesWritten, format);
 
-    internal bool TryFormatCore(Span<char> destination, out int written, char kind, bool validFormat)
+    internal bool TryFormatCore(Span<char> destination, out int written, char kind, bool validFormat) =>
+        TryFormatCore(MemoryMarshal.Cast<char, Utf16Char>(destination), out written, kind, validFormat);
+
+    private bool TryFormatCore<TChar>(Span<TChar> destination, out int written, char kind, bool validFormat)
+        where TChar : unmanaged, IUtfChar<TChar>
     {
         var required = kind is 'b' or 'p' ? 38 : kind == 'n' ? 32 : kind == 'x' ? 68 : kind == 'd' ? 36 : 0;
         if (!validFormat || required == 0) throw new FormatException("Guid format specification is invalid.");
@@ -716,41 +727,31 @@ public readonly partial struct Guid : IComparable,
             return true;
         }
 
+        // TODO(netwasm-simd)
         var index = 0;
-        if (kind == 'b' || kind == 'p') destination[index++] = kind == 'b' ? '{' : '(';
+        if (kind == 'b' || kind == 'p') destination[index++] = TChar.CastFrom(kind == 'b' ? '{' : '(');
         WriteHex(destination, ref index, (uint)_a, 8);
-        if (kind != 'n') destination[index++] = '-';
+        if (kind != 'n') destination[index++] = TChar.CastFrom('-');
         WriteHex(destination, ref index, (ushort)_b, 4);
-        if (kind != 'n') destination[index++] = '-';
+        if (kind != 'n') destination[index++] = TChar.CastFrom('-');
         WriteHex(destination, ref index, (ushort)_c, 4);
-        if (kind != 'n') destination[index++] = '-';
+        if (kind != 'n') destination[index++] = TChar.CastFrom('-');
         WriteHex(destination, ref index, _d, 2);
         WriteHex(destination, ref index, _e, 2);
-        if (kind != 'n') destination[index++] = '-';
+        if (kind != 'n') destination[index++] = TChar.CastFrom('-');
         WriteHex(destination, ref index, _f, 2);
         WriteHex(destination, ref index, _g, 2);
         WriteHex(destination, ref index, _h, 2);
         WriteHex(destination, ref index, _i, 2);
         WriteHex(destination, ref index, _j, 2);
         WriteHex(destination, ref index, _k, 2);
-        if (kind == 'b' || kind == 'p') destination[index++] = kind == 'b' ? '}' : ')';
+        if (kind == 'b' || kind == 'p') destination[index++] = TChar.CastFrom(kind == 'b' ? '}' : ')');
         written = index;
         return true;
     }
 
-    private bool TryFormatCore(Span<byte> destination, out int written, char kind, bool validFormat)
-    {
-        var chars = new char[kind is 'b' or 'p' ? 38 : kind == 'n' ? 32 : kind == 'x' ? 68 : 36];
-        var ok = TryFormatCore(chars, out var count, kind, validFormat);
-        if (!ok || destination.Length < count)
-        {
-            written = 0;
-            return false;
-        }
-        for (var i = 0; i < count; i++) destination[i] = (byte)chars[i];
-        written = count;
-        return true;
-    }
+    private bool TryFormatCore(Span<byte> destination, out int written, char kind, bool validFormat) =>
+        TryFormatCore(MemoryMarshal.Cast<byte, Utf8Char>(destination), out written, kind, validFormat);
 
     // Compatibility entry point used by the Microsoft Utf8Formatter.Guid port.
     internal bool TryFormatCore(Span<byte> destination, out int written, int flags)
@@ -768,30 +769,33 @@ public readonly partial struct Guid : IComparable,
         return TryFormatCore(destination, out written, kind, required != 0 && (flags < 0 || required == 32 || required == 36 || required == 38));
     }
 
-    private static void WriteHex(Span<char> destination, ref int index, uint value, int digits)
+    private static void WriteHex<TChar>(Span<TChar> destination, ref int index, uint value, int digits)
+        where TChar : unmanaged, IUtfChar<TChar>
     {
         for (var shift = (digits - 1) * 4; shift >= 0; shift -= 4)
         {
-            destination[index++] = Hex((byte)(value >> shift & 0xf));
+            destination[index++] = TChar.CastFrom(Hex((byte)(value >> shift & 0xf)));
         }
     }
 
-    private void WriteX(Span<char> destination)
+    private void WriteX<TChar>(Span<TChar> destination)
+        where TChar : unmanaged, IUtfChar<TChar>
     {
         var index = 0;
-        destination[index++] = '{'; destination[index++] = '0'; destination[index++] = 'x'; WriteHex(destination, ref index, (uint)_a, 8);
-        destination[index++] = ','; destination[index++] = '0'; destination[index++] = 'x'; WriteHex(destination, ref index, (ushort)_b, 4);
-        destination[index++] = ','; destination[index++] = '0'; destination[index++] = 'x'; WriteHex(destination, ref index, (ushort)_c, 4);
-        destination[index++] = ','; destination[index++] = '{';
+        destination[index++] = TChar.CastFrom('{'); destination[index++] = TChar.CastFrom('0'); destination[index++] = TChar.CastFrom('x'); WriteHex(destination, ref index, (uint)_a, 8);
+        destination[index++] = TChar.CastFrom(','); destination[index++] = TChar.CastFrom('0'); destination[index++] = TChar.CastFrom('x'); WriteHex(destination, ref index, (ushort)_b, 4);
+        destination[index++] = TChar.CastFrom(','); destination[index++] = TChar.CastFrom('0'); destination[index++] = TChar.CastFrom('x'); WriteHex(destination, ref index, (ushort)_c, 4);
+        destination[index++] = TChar.CastFrom(','); destination[index++] = TChar.CastFrom('{');
         WriteXByte(destination, ref index, _d, true); WriteXByte(destination, ref index, _e, true); WriteXByte(destination, ref index, _f, true); WriteXByte(destination, ref index, _g, true);
         WriteXByte(destination, ref index, _h, true); WriteXByte(destination, ref index, _i, true); WriteXByte(destination, ref index, _j, true); WriteXByte(destination, ref index, _k, false);
-        destination[index++] = '}'; destination[index] = '}';
+        destination[index++] = TChar.CastFrom('}'); destination[index] = TChar.CastFrom('}');
     }
 
-    private static void WriteXByte(Span<char> destination, ref int index, byte value, bool comma)
+    private static void WriteXByte<TChar>(Span<TChar> destination, ref int index, byte value, bool comma)
+        where TChar : unmanaged, IUtfChar<TChar>
     {
-        destination[index++] = '0'; destination[index++] = 'x'; destination[index++] = Hex((byte)(value >> 4)); destination[index++] = Hex((byte)(value & 0xf));
-        if (comma) destination[index++] = ',';
+        destination[index++] = TChar.CastFrom('0'); destination[index++] = TChar.CastFrom('x'); destination[index++] = TChar.CastFrom(Hex((byte)(value >> 4))); destination[index++] = TChar.CastFrom(Hex((byte)(value & 0xf)));
+        if (comma) destination[index++] = TChar.CastFrom(',');
     }
 
     private static char Hex(byte value) => value < 10 ? (char)('0' + value) : (char)('a' + value - 10);

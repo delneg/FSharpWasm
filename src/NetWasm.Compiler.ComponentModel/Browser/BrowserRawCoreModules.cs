@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.IO;
+using NetWasm.Compiler.ComponentModel.Inlining;
+using NetWasm.Compiler.ComponentModel.Optimization;
 using NetWasm.Compiler.ComponentModel.Node;
 using NetWasm.Compiler.ComponentModel.Raw;
 
@@ -32,9 +34,10 @@ public static class BrowserRawCoreModules
                 tools,
                 new BrowserRawFileExistence(capture),
                 new WasmCoreModuleValidator(new BrowserRawValidationCapture(capture)),
-                new BrowserRawFileCopyCapture(capture)),
+                new BrowserRawInlineAnnotationCapture(capture)),
             new BrowserRawFileMoveCapture(capture),
-            new BrowserRawExportCapture(capture));
+            new BrowserRawExportCapture(capture),
+            new WasmOptimizationSettingsResolver(), new BrowserRawInlineAnnotationCapture(capture));
         execution.Run(request, new ComponentPackageWorkspace(
             new BrowserRawDirectoryCleanupCapture(capture),
             workspace.TemporaryDirectory,
@@ -59,6 +62,7 @@ public static class BrowserRawCoreModules
             Path.Combine(workspace.TemporaryDirectory, "environment.wasm"),
             Path.Combine(workspace.TemporaryDirectory, "merged.wasm"),
             Path.Combine(workspace.TemporaryDirectory, "sanitized.wasm"),
+            Path.Combine(workspace.TemporaryDirectory, "runtime-sanitized.wasm"),
         };
         var unique = new HashSet<string>(StringComparer.Ordinal);
         foreach (var path in paths)
@@ -78,18 +82,22 @@ internal sealed class BrowserRawLinkPlanCapture(
     RawModuleLinkRequest request,
     BrowserRawCoreModuleWorkspace workspace)
 {
-    private enum Phase { Initial, Environment, Merged, Pruned, Optimized, Validated, Copied, Published, Cleanup }
+    private enum Phase { Initial, Environment, ManagedSelected, RuntimeSelected, Merged, Pruned, Optimized, AnnotationsRemoved, Validated, Finalized, Published, Cleanup }
 
     private readonly RawModuleLinkRequest _request = request;
     private readonly BrowserRawCoreModuleWorkspace _workspace = workspace;
     private Phase _phase;
     private BrowserWasmTextModule? _environment;
     private BrowserBinaryenInvocation? _merge;
+    private BrowserInlineAnnotationEdit? _managedInlining;
+    private BrowserInlineAnnotationEdit? _runtimeInlining;
     private BrowserRawExportPruning? _pruning;
     private BrowserBinaryenInvocation? _optimization;
     private BrowserCoreModuleValidation? _validation;
-    private BrowserFileCopy? _copy;
+    private BrowserInlineAnnotationEdit? _annotationCleanup;
     private BrowserFileMove? _publication;
+
+    public string ApplicationModulePath => _request.ApplicationModulePath;
 
     public void AddEnvironment(string outputPath, string text)
     {
@@ -103,7 +111,7 @@ internal sealed class BrowserRawLinkPlanCapture(
     {
         if (toolId == BinaryenToolIds.WasmMerge)
         {
-            Require(Phase.Environment);
+            Require(Phase.RuntimeSelected);
             _merge = new(toolId, [.. arguments]);
             _phase = Phase.Merged;
             return;
@@ -130,6 +138,28 @@ internal sealed class BrowserRawLinkPlanCapture(
         _phase = Phase.Pruned;
     }
 
+    public void AddManagedInlining(string inputPath, string outputPath, WasmInlineAnnotationSelection selection)
+    {
+        Require(Phase.Environment);
+        RequirePath(inputPath, _request.ApplicationModulePath);
+        RequirePath(outputPath, Path.Combine(_workspace.TemporaryDirectory, "sanitized.wasm"));
+        if (selection is not (WasmInlineAnnotationSelection.Preserve or WasmInlineAnnotationSelection.SizeAware))
+            throw new ArgumentOutOfRangeException(nameof(selection));
+        _managedInlining = new(inputPath, outputPath, selection);
+        _phase = Phase.ManagedSelected;
+    }
+
+    public void AddRuntimeInlining(string inputPath, string outputPath, WasmInlineAnnotationSelection selection)
+    {
+        Require(Phase.ManagedSelected);
+        RequirePath(inputPath, _request.RuntimeModulePath);
+        RequirePath(outputPath, Path.Combine(_workspace.TemporaryDirectory, "runtime-sanitized.wasm"));
+        if (selection is not (WasmInlineAnnotationSelection.Preserve or WasmInlineAnnotationSelection.SizeAware))
+            throw new ArgumentOutOfRangeException(nameof(selection));
+        _runtimeInlining = new(inputPath, outputPath, selection);
+        _phase = Phase.RuntimeSelected;
+    }
+
     public bool Exists(string path) => _phase switch
     {
         Phase.Merged => path == Path.Combine(_workspace.TemporaryDirectory, "merged.wasm"),
@@ -139,23 +169,30 @@ internal sealed class BrowserRawLinkPlanCapture(
 
     public void AddValidation(BrowserCoreModuleValidation validation)
     {
-        if (_phase is not (Phase.Merged or Phase.Pruned or Phase.Optimized))
+        ArgumentNullException.ThrowIfNull(validation);
+        if (_phase is not (Phase.Merged or Phase.Pruned or Phase.AnnotationsRemoved))
             throw new InvalidOperationException("Raw validation was planned out of order.");
+        var expected = _phase == Phase.AnnotationsRemoved
+            ? _workspace.LinkedModulePath
+            : _pruning?.OutputPath ?? Path.Combine(_workspace.TemporaryDirectory, "merged.wasm");
+        RequirePath(validation.Path, expected);
         _validation = validation;
         _phase = Phase.Validated;
     }
 
-    public void AddCopy(string inputPath, string outputPath)
+    public void AddInlineAnnotationCleanup(string inputPath, string outputPath)
     {
-        Require(Phase.Validated);
+        var optimized = _phase == Phase.Optimized;
+        if (!optimized) Require(Phase.Validated);
+        RequirePath(inputPath, optimized ? _workspace.LinkedModulePath : _validation!.Path);
         RequirePath(outputPath, _workspace.LinkedModulePath);
-        _copy = new(inputPath, outputPath);
-        _phase = Phase.Copied;
+        _annotationCleanup = new(inputPath, outputPath, WasmInlineAnnotationSelection.Remove);
+        _phase = optimized ? Phase.AnnotationsRemoved : Phase.Finalized;
     }
 
     public void AddPublication(string inputPath, string outputPath)
     {
-        if (_phase != Phase.Copied && !(_phase == Phase.Validated && _optimization is not null))
+        if (_phase != Phase.Finalized && !(_phase == Phase.Validated && _optimization is not null))
             throw new InvalidOperationException("Raw publication was planned out of order.");
         RequirePath(inputPath, _workspace.LinkedModulePath);
         RequirePath(outputPath, _request.OutputPath);
@@ -165,16 +202,19 @@ internal sealed class BrowserRawLinkPlanCapture(
 
     public void AddCleanup(string directory)
     {
-        Require(Phase.Published);
         RequirePath(directory, _workspace.TemporaryDirectory);
+        // Disposal also runs after a producer failure. Preserve that failure;
+        // Snapshot still rejects a plan that did not publish successfully.
         _phase = Phase.Cleanup;
     }
 
     public BrowserRawCoreModuleLinkPlan Snapshot()
     {
         Require(Phase.Cleanup);
-        return new([_environment!], _merge!, _pruning, _optimization,
-            _validation!, _copy, _publication!, _workspace.TemporaryDirectory);
+        if (_publication is null)
+            throw new InvalidOperationException("The raw link producer did not capture a complete plan.");
+        return new([_environment!], _managedInlining!, _runtimeInlining!, _merge!, _pruning, _optimization,
+            _validation!, _annotationCleanup!, _publication!, _workspace.TemporaryDirectory);
     }
 
     private void Require(Phase phase)
@@ -226,6 +266,20 @@ internal sealed class BrowserRawFileExistence(BrowserRawLinkPlanCapture capture)
     public bool Exists(string path) => capture.Exists(path);
 }
 
+internal sealed class BrowserRawInlineAnnotationCapture(BrowserRawLinkPlanCapture capture)
+    : IWasmCoreModuleInlineAnnotationEditor
+{
+    public void Rewrite(string inputPath, string outputPath, WasmInlineAnnotationSelection selection)
+    {
+        if (selection == WasmInlineAnnotationSelection.Remove)
+            capture.AddInlineAnnotationCleanup(inputPath, outputPath);
+        else if (inputPath == capture.ApplicationModulePath)
+            capture.AddManagedInlining(inputPath, outputPath, selection);
+        else
+            capture.AddRuntimeInlining(inputPath, outputPath, selection);
+    }
+}
+
 internal sealed class BrowserRawValidationCapture(BrowserRawLinkPlanCapture capture) : IComponentPackageOperationRunner
 {
     public void Run(IEnumerable<string> arguments, string operation)
@@ -236,11 +290,6 @@ internal sealed class BrowserRawValidationCapture(BrowserRawLinkPlanCapture capt
             throw new InvalidOperationException("The raw link producer requested invalid validation.");
         capture.AddValidation(new(command[1], command));
     }
-}
-
-internal sealed class BrowserRawFileCopyCapture(BrowserRawLinkPlanCapture capture) : IFileCopier
-{
-    public void Copy(string sourcePath, string destinationPath) => capture.AddCopy(sourcePath, destinationPath);
 }
 
 internal sealed class BrowserRawFileMoveCapture(BrowserRawLinkPlanCapture capture) : IFileMover

@@ -46,7 +46,8 @@ public sealed class ComponentBuilder(
             request.RuntimeModulePath,
             request.ManagedExecutableEntryPoint,
             request.Optimization,
-            request.StructuredDiagnostics));
+            request.StructuredDiagnostics)
+        { OptimizationOverrides = request.OptimizationOverrides });
         return manifest;
     }
 }

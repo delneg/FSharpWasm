@@ -1,8 +1,7 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// Adapted for NetWasm.CoreLib from dotnet/runtime at commit
-// 811225a482702af7ecc35d817966bc70b88a3a23.
 
+using System.Collections;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
@@ -55,40 +54,6 @@ namespace System.Collections.Generic
     public class SortedList<TKey, TValue> :
         IDictionary<TKey, TValue>, IDictionary, IReadOnlyDictionary<TKey, TValue> where TKey : notnull
     {
-        private static class SortedListCompat
-        {
-            internal static IEnumerator<T> GetEmptyEnumerator<T>() => new EmptyEnumerator<T>();
-
-            private sealed class EmptyEnumerator<T> : IEnumerator<T>
-            {
-                public T Current => default!;
-                object? IEnumerator.Current => null;
-                public bool MoveNext() => false;
-                public void Reset() { }
-                public void Dispose() { }
-            }
-        }
-
-        private static class SR
-        {
-            internal const string Arg_ArrayPlusOffTooSmall = "The array is too small.";
-            internal const string Arg_KeyNotFoundWithKey = "The key was not found.";
-            internal const string Arg_NonZeroLowerBound = "Non-zero lower bound arrays are not supported.";
-            internal const string Arg_RankMultiDimNotSupported = "Only single dimensional arrays are supported.";
-            internal const string Arg_WrongType = "The value is of the wrong type.";
-            internal const string ArgumentOutOfRange_IndexMustBeLess = "The index must be less than the size.";
-            internal const string ArgumentOutOfRange_IndexMustBeLessOrEqual = "The index must be less than or equal to the size.";
-            internal const string ArgumentOutOfRange_SmallCapacity = "The capacity is too small.";
-            internal const string Argument_AddingDuplicate = "An item with the same key has already been added.";
-            internal const string Argument_IncompatibleArrayType = "The array type is incompatible.";
-            internal const string InvalidOperation_EnumFailedVersion = "Collection was modified; enumeration operation may not execute.";
-            internal const string InvalidOperation_EnumOpCantHappen = "Enumeration has either not started or has already finished.";
-            internal const string NotSupported_KeyCollectionSet = "Mutating a key collection is not supported.";
-            internal const string NotSupported_SortedListNestedWrite = "Mutating a sorted-list view is not supported.";
-            internal static string Format(string format, object? value) => format;
-            internal static string Format(string format, object? value, object? type) => format;
-        }
-
         private TKey[] keys; // Do not rename (binary serialization)
         private TValue[] values; // Do not rename (binary serialization)
         private int _size; // Do not rename (binary serialization)
@@ -580,7 +545,7 @@ namespace System.Collections.Generic
         public IEnumerator<KeyValuePair<TKey, TValue>> GetEnumerator() => new Enumerator(this, Enumerator.KeyValuePair);
 
         IEnumerator<KeyValuePair<TKey, TValue>> IEnumerable<KeyValuePair<TKey, TValue>>.GetEnumerator() =>
-            Count == 0 ? SortedListCompat.GetEmptyEnumerator<KeyValuePair<TKey, TValue>>() :
+            Count == 0 ? EnumerableHelpers.GetEmptyEnumerator<KeyValuePair<TKey, TValue>>() :
             GetEnumerator();
 
         IDictionaryEnumerator IDictionary.GetEnumerator() => new Enumerator(this, Enumerator.DictEntry);
@@ -703,7 +668,7 @@ namespace System.Collections.Generic
             version++;
         }
 
-        public bool TryGetValue(TKey key, out TValue value)
+        public bool TryGetValue(TKey key, [MaybeNullWhen(false)] out TValue value)
         {
             int i = IndexOfKey(key);
             if (i >= 0)
@@ -712,7 +677,7 @@ namespace System.Collections.Generic
                 return true;
             }
 
-            value = default!;
+            value = default;
             return false;
         }
 
@@ -1117,7 +1082,7 @@ namespace System.Collections.Generic
             }
 
             public IEnumerator<TKey> GetEnumerator() =>
-                Count == 0 ? SortedListCompat.GetEmptyEnumerator<TKey>() :
+                Count == 0 ? EnumerableHelpers.GetEmptyEnumerator<TKey>() :
                 new SortedListKeyEnumerator(_dict);
 
             IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
@@ -1230,7 +1195,7 @@ namespace System.Collections.Generic
             }
 
             public IEnumerator<TValue> GetEnumerator() =>
-                Count == 0 ? SortedListCompat.GetEmptyEnumerator<TValue>() :
+                Count == 0 ? EnumerableHelpers.GetEmptyEnumerator<TValue>() :
                 new SortedListValueEnumerator(_dict);
 
             IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();

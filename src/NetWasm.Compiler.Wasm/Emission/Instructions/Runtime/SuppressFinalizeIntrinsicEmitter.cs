@@ -9,7 +9,14 @@ internal sealed class SuppressFinalizeIntrinsicEmitter(
 {
     public void Emit(RuntimeIntrinsicEmissionRequest request, IWasmInstructionWriter code)
     {
+        if (!request.Instruction.Target.RuntimeImportSelection.IncludeFinalization)
+        {
+            return;
+        }
+
         code.Write(WasmInstruction.WithOperand(WasmOpcodes.LocalGet, WasmInstructionOperand.Unsigned((uint)(request.Local(0, CliValueKind.ManagedReference)))));
-        code.Write(WasmInstruction.WithOperand(WasmOpcodes.Call, WasmInstructionOperand.Unsigned((uint)(runtimeImports.Resolve(RuntimeImportSymbol.SuppressFinalize)))));
+        code.Write(WasmInstruction.WithOperand(WasmOpcodes.Call, WasmInstructionOperand.Unsigned((uint)(runtimeImports.Resolve(
+            RuntimeImportSymbol.SuppressFinalize,
+            request.Instruction.Target.RuntimeImportSelection)))));
     }
 }

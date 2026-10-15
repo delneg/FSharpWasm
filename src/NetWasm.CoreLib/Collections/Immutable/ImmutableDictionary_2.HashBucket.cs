@@ -161,15 +161,13 @@ namespace System.Collections.Immutable
                         case KeyCollisionBehavior.ThrowIfValueDifferent:
                             if (!valueComparer.Equals(_firstValue.Value, value))
                             {
-                                ImmutableDictionaryThrowHelper.ThrowDuplicateKey(key);
+                                throw new ArgumentException(SR.Format(SR.DuplicateKey, key));
                             }
 
                             result = OperationResult.NoChangeRequired;
                             return this;
                         case KeyCollisionBehavior.ThrowAlways:
-                            ImmutableDictionaryThrowHelper.ThrowDuplicateKey(key);
-                            result = OperationResult.NoChangeRequired;
-                            return this;
+                            throw new ArgumentException(SR.Format(SR.DuplicateKey, key));
                         default:
                             throw new InvalidOperationException(); // unreachable
                     }
@@ -195,15 +193,13 @@ namespace System.Collections.Immutable
                             ref readonly KeyValuePair<TKey, TValue> existingEntry = ref _additionalElements.ItemRef(keyCollisionIndex);
                             if (!valueComparer.Equals(existingEntry.Value, value))
                             {
-                                ImmutableDictionaryThrowHelper.ThrowDuplicateKey(key);
+                                throw new ArgumentException(SR.Format(SR.DuplicateKey, key));
                             }
 
                             result = OperationResult.NoChangeRequired;
                             return this;
                         case KeyCollisionBehavior.ThrowAlways:
-                            ImmutableDictionaryThrowHelper.ThrowDuplicateKey(key);
-                            result = OperationResult.NoChangeRequired;
-                            return this;
+                            throw new ArgumentException(SR.Format(SR.DuplicateKey, key));
                         default:
                             throw new InvalidOperationException(); // unreachable
                     }

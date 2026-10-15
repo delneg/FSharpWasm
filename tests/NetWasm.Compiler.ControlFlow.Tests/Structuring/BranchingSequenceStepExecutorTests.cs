@@ -14,15 +14,15 @@ public sealed class BranchingSequenceStepExecutorTests
     {
         var joins = new FixedJoinFinder(3, 3);
         var reachable = new FixedReachableBlockFinder();
-        var distances = new FixedDistanceFinder();
+        var branchJoins = new FixedBranchJoinSelector(3);
         var overlaps = new FixedBranchOverlapClassifier(false);
         var factories = new (string Parameter, Func<BranchingSequenceStepExecutor> Create)[]
         {
-            ("joins", () => new(null!, reachable, distances, overlaps, new DispatcherExitSelector())),
-            ("reachableBlocks", () => new(joins, null!, distances, overlaps, new DispatcherExitSelector())),
-            ("distances", () => new(joins, reachable, null!, overlaps, new DispatcherExitSelector())),
-            ("branchOverlaps", () => new(joins, reachable, distances, null!, new DispatcherExitSelector())),
-            ("dispatcherExits", () => new(joins, reachable, distances, overlaps, null!)),
+            ("joins", () => new(null!, reachable, branchJoins, overlaps, new DispatcherExitSelector())),
+            ("reachableBlocks", () => new(joins, null!, branchJoins, overlaps, new DispatcherExitSelector())),
+            ("branchJoins", () => new(joins, reachable, null!, overlaps, new DispatcherExitSelector())),
+            ("branchOverlaps", () => new(joins, reachable, branchJoins, null!, new DispatcherExitSelector())),
+            ("dispatcherExits", () => new(joins, reachable, branchJoins, overlaps, null!)),
         };
 
         foreach (var (parameter, create) in factories)
@@ -67,22 +67,17 @@ public sealed class BranchingSequenceStepExecutorTests
         Assert.Equal(99, second.NextBlockOffset);
     }
 
-    [Theory]
-    [InlineData(true, false)]
-    [InlineData(false, true)]
-    public void ExecuteUsesAReachableExplicitStopAsTheJoin(
-        bool firstReachesStop,
-        bool secondReachesStop)
+    [Fact]
+    public void ExecuteUsesTheSelectedJoin()
     {
         var state = CreateConditionalState(CilOperation.BranchIfTrue);
         var entry = state.Graph.Entry;
-        var successors = state.Graph.Successors[entry.Index];
         const int stop = 99;
-        var distances = new FixedDistanceFinder(
-            firstReachesStop ? successors[0] : secondReachesStop ? successors[1] : -1,
-            stop);
         var joins = new FixedJoinFinder(88, 88);
-        var actor = CreateActor(joins, distances: distances, overlaps: false);
+        var actor = CreateActor(
+            joins,
+            branchJoins: new FixedBranchJoinSelector(stop),
+            overlaps: false);
 
         var result = Execute(actor, new StructuredControlFlowBuilderProbe(), state,
             entry.StartOffset, stop, state.Graph.ReachableBlocks, [],
@@ -95,14 +90,15 @@ public sealed class BranchingSequenceStepExecutorTests
     [Theory]
     [InlineData(0)]
     [InlineData(1)]
-    public void ExecuteUsesAnActiveLoopExitAsTheJoin(int successorIndex)
+    public void ExecutePassesTheActiveLoopExitToJoinSelection(int successorIndex)
     {
         var state = CreateConditionalState(CilOperation.BranchIfTrue);
         var entry = state.Graph.Entry;
         var loopExit = state.Graph.Successors[entry.Index][successorIndex];
         state.LoopExitTargets.Push(loopExit);
         var joins = new FixedJoinFinder(88, 88);
-        var actor = CreateActor(joins, overlaps: false);
+        var branchJoins = new RecordingBranchJoinSelector(null);
+        var actor = CreateActor(joins, branchJoins: branchJoins, overlaps: false);
 
         var result = Execute(actor, new StructuredControlFlowBuilderProbe(), state,
             entry.StartOffset, null, state.Graph.ReachableBlocks, [],
@@ -110,6 +106,7 @@ public sealed class BranchingSequenceStepExecutorTests
 
         Assert.Null(result.NextBlockOffset);
         Assert.Equal(0, joins.PairCallCount);
+        Assert.Equal(loopExit, Assert.IsType<int>(branchJoins.LastRequest!.BreakTarget));
     }
 
     [Theory]
@@ -137,6 +134,41 @@ public sealed class BranchingSequenceStepExecutorTests
         Assert.Equal(77, result.NextBlockOffset);
         Assert.Equal(1, joins.ArrayCallCount);
         Assert.Equal(firstPath ? 1 : 2, reachable.CallCount);
+    }
+
+    [Fact]
+    public void ExecuteInvalidatesASplitProofWhenMovingPastADispatcher()
+    {
+        var state = CreateConditionalStateWithDispatcherExits(
+            CilOperation.BranchIfTrue);
+        var entry = state.Graph.Entry;
+        var successors = state.Graph.Successors[entry.Index];
+        var dispatcherEntry = successors[0];
+        state.DispatchersByNode[dispatcherEntry] = [dispatcherEntry];
+        var component = ImmutableHashSet.Create(entry.Index);
+        var reachable = new FixedReachableBlockFinder(
+            new Dictionary<int, ImmutableHashSet<int>>
+            {
+                [entry.Index] = component,
+                [successors[0]] = [dispatcherEntry, 4],
+                [successors[1]] = [4],
+            });
+        var joins = new FixedJoinFinder(dispatcherEntry, 77);
+        var builder = new StructuredControlFlowBuilderProbe();
+        var actor = CreateActor(
+            joins,
+            reachable,
+            new FixedBranchJoinSelector(dispatcherEntry, [entry.Index]),
+            overlaps: true);
+        var regions = ImmutableArray.CreateBuilder<StructuredRegionDraft>();
+
+        var result = Execute(actor, builder, state, entry.StartOffset, null,
+            state.Graph.ReachableBlocks, [], regions);
+
+        Assert.Equal(77, result.NextBlockOffset);
+        Assert.Same(builder.DispatcherResult, Assert.Single(regions));
+        Assert.True(Assert.Single(builder.DispatcherCalls).Component
+            .SetEquals(component));
     }
 
     [Fact]
@@ -177,7 +209,14 @@ public sealed class BranchingSequenceStepExecutorTests
         var command = new BranchingSequenceStepExecutor(
             joins,
             reachableBlocks,
-            distances,
+            new BranchJoinSelector(
+                joins,
+                reachableBlocks,
+                distances,
+                new BranchReachabilityOverlapClassifier(reachableBlocks),
+                new ControlFlowSubgraphCycleClassifier(
+                    new ControlFlowComponentAnalyzer(),
+                    new ControlFlowCycleClassifier())),
             new BranchReachabilityOverlapClassifier(reachableBlocks),
                 new DispatcherExitSelector());
         var state = ControlFlowStructuringStateTestFactory.CreateSingleReturnBlock();
@@ -203,11 +242,11 @@ public sealed class BranchingSequenceStepExecutorTests
     private static BranchingSequenceStepExecutor CreateActor(
         FixedJoinFinder joins,
         FixedReachableBlockFinder? reachable = null,
-        FixedDistanceFinder? distances = null,
+        IBranchJoinSelector? branchJoins = null,
         bool overlaps = false) => new BranchingSequenceStepExecutor(
             joins,
             reachable ?? new FixedReachableBlockFinder(),
-            distances ?? new FixedDistanceFinder(),
+            branchJoins ?? new FixedBranchJoinSelector(joins.PairResult),
             new FixedBranchOverlapClassifier(overlaps),
             new DispatcherExitSelector());
 
@@ -253,6 +292,8 @@ public sealed class BranchingSequenceStepExecutorTests
     private sealed class FixedJoinFinder(int? pairResult, int? arrayResult) :
         ICommonReachableBlockFinder
     {
+        public int? PairResult { get; } = pairResult;
+
         public int PairCallCount { get; private set; }
 
         public int ArrayCallCount { get; private set; }
@@ -261,7 +302,7 @@ public sealed class BranchingSequenceStepExecutorTests
             int? stop, ImmutableHashSet<int> allowed)
         {
             PairCallCount++;
-            return pairResult;
+            return PairResult;
         }
 
         public int? Find(ControlFlowStructuringState state, int[] starts,
@@ -300,6 +341,27 @@ public sealed class BranchingSequenceStepExecutorTests
             start == reachableStart && stop == reachableStop
                 ? new Dictionary<int, int> { [reachableStop] = 0 }
                 : [];
+    }
+
+    private class FixedBranchJoinSelector(
+        int? join,
+        ImmutableHashSet<int>? duplicatedPrefixBlocks = null) :
+        IBranchJoinSelector
+    {
+        public virtual BranchJoinSelection Select(BranchJoinSelectionRequest request) =>
+            new(join, request.AllowedBlocks, [], duplicatedPrefixBlocks ?? []);
+    }
+
+    private sealed class RecordingBranchJoinSelector(int? join) :
+        FixedBranchJoinSelector(join)
+    {
+        public BranchJoinSelectionRequest? LastRequest { get; private set; }
+
+        public override BranchJoinSelection Select(BranchJoinSelectionRequest request)
+        {
+            LastRequest = request;
+            return base.Select(request);
+        }
     }
 
     private sealed class FixedBranchOverlapClassifier(bool result) :

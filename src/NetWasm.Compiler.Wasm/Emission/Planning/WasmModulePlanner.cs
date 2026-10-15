@@ -10,17 +10,14 @@ namespace NetWasm.Compiler.Wasm.Emission.Planning;
 
 internal sealed record WasmModulePlan(
     RuntimeImportSelection RuntimeImportSelection,
+    FinalizationPlan Finalization,
     ImmutableArray<WasmFunctionImport> RuntimeImports,
     ImmutableArray<ManagedDefinitionEmission> OrderedMethods,
     ImmutableArray<ManagedMethodIdentity> OrderedConstructedMethods,
     StackTraceMethodPlan StackTraceMethods,
     ImmutableArray<MethodInstanceModel> DelegateInvokes,
     FunctionIndexMap FunctionIndices,
-    InteropImportPlan InteropImports,
-    OptionalFunctionIndex DelegateCountHelperIndex,
-    OptionalFunctionIndex DelegateLeafHelperIndex,
-    OptionalFunctionIndex DelegateEqualityHelperIndex,
-    OptionalFunctionIndex DelegateRemoveHelperIndex)
+    InteropImportPlan InteropImports)
 {
     public int StaticInitializerFunctionBase { get; init; }
     public NativeImportPlan NativeImports { get; init; } = NativeImportPlan.Empty;
@@ -37,12 +34,15 @@ internal sealed class WasmModulePlanner(
     IStackTraceMethodPlanBuilder stackTraceMethods,
     IWasmModulePlanInvariantValidator invariants,
     INativeImportPlanner nativeImports,
-    INativeCallbackPlanBuilder callbackPlans) : IWasmModulePlanner
+    INativeCallbackPlanBuilder callbackPlans,
+    IFinalizationPlanBuilder finalizationPlans) : IWasmModulePlanner
 {
     private readonly INativeImportPlanner _nativeImports = nativeImports ??
         throw new ArgumentNullException(nameof(nativeImports));
     private readonly INativeCallbackPlanBuilder _callbackPlans = callbackPlans ??
         throw new ArgumentNullException(nameof(callbackPlans));
+    private readonly IFinalizationPlanBuilder _finalizationPlans = finalizationPlans ??
+        throw new ArgumentNullException(nameof(finalizationPlans));
     public WasmModulePlan Build(
         WasmEmissionRequest request,
         ImmutableArray<StructuredMethodEmission> methodEmissions)
@@ -53,6 +53,7 @@ internal sealed class WasmModulePlanner(
             (request.UseJavaScriptExportBoundary ||
              request.ModuleProfile == WasmModuleProfile.CoreApplication) &&
              request.RequestedExports.Count != 0;
+        var finalization = _finalizationPlans.Build(methodEmissions);
         var runtimeImportSelection = new RuntimeImportSelection(
             request.ModuleProfile,
             request.EntryPointProfile == WasmEntryPointProfile.Process &&
@@ -61,7 +62,10 @@ internal sealed class WasmModulePlanner(
             request.EmitStackTrace,
             request.RequestedExports.Values.Any(request.JavaScriptAsyncBindings.ContainsKey),
             RequiresEphemeronHandles(methodEmissions),
-            request.StructuredDiagnostics || hasInteropTerminalBoundary);
+            request.StructuredDiagnostics || hasInteropTerminalBoundary,
+            finalization.RequiresRuntime,
+            RequiresWeakHandles(methodEmissions),
+            RequiresRandomSeed(methodEmissions));
         var selectedRuntimeImports = runtimeImports.Resolve(runtimeImportSelection);
         var runtimeImportCount = selectedRuntimeImports.Length;
         var interopImports = interopImportPlanner.Build(request, runtimeImportCount);
@@ -134,6 +138,7 @@ internal sealed class WasmModulePlanner(
         var orderedConstructedMethodKeys = orderedConstructedMethods
             .Select(identity => identity.CanonicalName)
             .ToImmutableArray();
+        var hasManagedThrowFunction = RequiresManagedThrowFunction(methodEmissions);
         var stackTraceConstructedMethods = request.EmitStackTrace
             ? orderedConstructedMethodKeys
                 .Select(name => new StackTraceConstructedMethod(
@@ -178,16 +183,18 @@ internal sealed class WasmModulePlanner(
             .Select((method, index) => (
                 method.DeclaringType.CanonicalName,
                 Index: new WasmFunctionIndex(importedFunctionCount + orderedMethods.Length +
-                    orderedConstructedMethods.Length + index)))
+                    orderedConstructedMethods.Length +
+                    (hasManagedThrowFunction ? 1 : 0) + index)))
             .ToImmutableDictionary(
                 item => item.CanonicalName,
                 item => item.Index,
                 StringComparer.Ordinal);
         var helperBase = importedFunctionCount + orderedMethods.Length +
-            orderedConstructedMethods.Length + delegateInvokes.Length;
-        var hasDelegates = !request.DelegateTypes.IsEmpty;
+            orderedConstructedMethods.Length +
+            (hasManagedThrowFunction ? 1 : 0) + delegateInvokes.Length;
         var plan = new WasmModulePlan(
             runtimeImportSelection,
+            finalization,
             selectedRuntimeImports,
             orderedMethods,
             orderedConstructedMethods,
@@ -197,14 +204,16 @@ internal sealed class WasmModulePlanner(
                 functionIndices,
                 constructedFunctionIndices,
                 delegateInvokeHelperIndices,
-                importedMethodIndices),
-            interopImports,
-            Optional(hasDelegates, helperBase),
-            Optional(hasDelegates, helperBase + 1),
-            Optional(hasDelegates, helperBase + 2),
-            Optional(hasDelegates, helperBase + 3))
+                importedMethodIndices)
+            {
+                ManagedThrowFunctionIndex = Optional(
+                    hasManagedThrowFunction,
+                    importedFunctionCount + orderedMethods.Length +
+                    orderedConstructedMethods.Length),
+            },
+            interopImports)
         {
-            StaticInitializerFunctionBase = helperBase + (hasDelegates ? 4 : 0),
+            StaticInitializerFunctionBase = helperBase,
             NativeImports = nativeImportPlan,
             NativeCallbacks = callbackPlan,
         };
@@ -233,7 +242,63 @@ internal sealed class WasmModulePlanner(
                 intrinsic is RuntimeIntrinsic.EphemeronHandleCreate or
                     RuntimeIntrinsic.EphemeronHandleGetKey or
                     RuntimeIntrinsic.EphemeronHandleGetValue or
+                    RuntimeIntrinsic.EphemeronHandleSetTargetToNull or
+                    RuntimeIntrinsic.EphemeronHandleSetValue or
                     RuntimeIntrinsic.EphemeronHandleRelease);
+
+    private bool RequiresWeakHandles(
+        ImmutableArray<StructuredMethodEmission> methodEmissions) =>
+        methodEmissions
+            .SelectMany(static emission => emission.Method.Header.Instructions)
+            .Where(static instruction =>
+                instruction.Operation is CilOperation.Call or CilOperation.CallVirtual)
+            .Select(static instruction => instruction.Operand switch
+            {
+                CilOperand.Entity entity => entity.Key,
+                CilOperand.MethodInstance method => method.Value.Definition.Key,
+                _ => default,
+            })
+            .Any(method =>
+                method != default &&
+                intrinsics.TryGetIntrinsic(method, out var intrinsic) &&
+                intrinsic is RuntimeIntrinsic.WeakHandleCreate or
+                    RuntimeIntrinsic.WeakHandleGet or
+                    RuntimeIntrinsic.WeakHandleSet or
+                    RuntimeIntrinsic.WeakHandleRelease);
+
+    private bool RequiresRandomSeed(
+        ImmutableArray<StructuredMethodEmission> methodEmissions) =>
+        methodEmissions
+            .SelectMany(static emission => emission.Method.Header.Instructions)
+            .Where(static instruction =>
+                instruction.Operation is CilOperation.Call or CilOperation.CallVirtual)
+            .Select(static instruction => instruction.Operand switch
+            {
+                CilOperand.Entity entity => entity.Key,
+                CilOperand.MethodInstance method => method.Value.Definition.Key,
+                _ => default,
+            })
+            .Any(method =>
+                method != default &&
+                intrinsics.TryGetIntrinsic(method, out var intrinsic) &&
+                intrinsic == RuntimeIntrinsic.RandomSeed);
+
+    private bool RequiresManagedThrowFunction(
+        ImmutableArray<StructuredMethodEmission> methodEmissions) =>
+        methodEmissions
+            .SelectMany(static emission => emission.Method.Header.Instructions)
+            .Where(static instruction =>
+                instruction.Operation is CilOperation.Call or CilOperation.CallVirtual)
+            .Select(static instruction => instruction.Operand switch
+            {
+                CilOperand.Entity entity => entity.Key,
+                CilOperand.MethodInstance method => method.Value.Definition.Key,
+                _ => default,
+            })
+            .Any(method =>
+                method != default &&
+                intrinsics.TryGetIntrinsic(method, out var intrinsic) &&
+                intrinsic == RuntimeIntrinsic.StringLength);
 
     private MethodInstanceModel GetMethodInstance(CilInstruction instruction) =>
         instruction.Operand switch

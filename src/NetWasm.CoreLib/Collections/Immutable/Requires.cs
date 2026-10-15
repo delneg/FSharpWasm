@@ -69,8 +69,10 @@ namespace System.Collections.Immutable
             {
                 throw new ArgumentOutOfRangeException(parameterName);
             }
-
-            throw new ArgumentOutOfRangeException(parameterName, message);
+            else
+            {
+                throw new ArgumentOutOfRangeException(parameterName, message);
+            }
         }
 
         [DebuggerStepThrough]

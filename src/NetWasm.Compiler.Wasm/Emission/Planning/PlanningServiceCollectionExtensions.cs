@@ -26,6 +26,7 @@ internal static class PlanningServiceCollectionExtensions
             provider.GetRequiredService<InteropImportPlanner>());
         services.AddSingleton<IWasmModulePlanInvariantValidator,
             WasmModulePlanInvariantValidator>();
+        services.AddSingleton<IFinalizationPlanBuilder, FinalizationPlanBuilder>();
         services.AddSingleton<WasmModulePlanner>();
         services.AddSingleton<IWasmModulePlanner>(provider =>
             provider.GetRequiredService<WasmModulePlanner>());

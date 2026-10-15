@@ -11,6 +11,57 @@ public sealed class TimeZoneInfoFacadeAcceptanceTests
     [InlineData("Debug", WasmTarget.Wasm64)]
     [InlineData("Release", WasmTarget.Wasm32)]
     [InlineData("Release", WasmTarget.Wasm64)]
+    public void LocalAmbiguityKindAndBoundsMatchPinnedContracts(
+        string profileName,
+        WasmTarget target)
+    {
+        using var services = CorrectnessTestAssets.CreateServices();
+        var environment = services.GetRequiredService<CompilerCorrectnessEnvironment>();
+        var compiler = services.GetRequiredService<IRoslynCorpusCompiler>();
+        var processes = services.GetRequiredService<IQualifiedProcessRunner>();
+        var netWasm = new TimeZoneInfoFacadeExecutionHarness(environment, processes);
+        var profile = Enum.Parse<CilProfile>(profileName);
+        var directory = CorrectnessTestAssets.CreateDirectory();
+        try
+        {
+            var fixture = TimeZoneInfoFacadeCorpus.CreateLocalSemantics(environment);
+            var compilation = compiler.Compile(fixture, profile, directory);
+            using var asset = TimeZoneInfoFacadeAssetConfiguration.FromEnvironment();
+            var execution = netWasm.Run(compilation, target, asset);
+
+            foreach (var observation in execution.Observations)
+            {
+                Assert.True(
+                    observation.Value.Kind == OracleObservationKind.Value,
+                    $"input={observation.Key}, kind={observation.Value.Kind}, " +
+                    $"exception={observation.Value.ExceptionType}");
+            }
+            Assert.Equal(1301, execution.Observations[0].Value);
+            Assert.Equal(1401, execution.Observations[1].Value);
+            Assert.Equal(1501, execution.Observations[2].Value);
+            Assert.Equal(1601, execution.Observations[3].Value);
+            Assert.Equal(1701, execution.Observations[4].Value);
+            Assert.Equal(1801, execution.Observations[5].Value);
+            Assert.Equal(1901, execution.Observations[6].Value);
+            Assert.Equal(2001, execution.Observations[7].Value);
+            Assert.Equal(2101, execution.Observations[8].Value);
+            Assert.Equal(2201, execution.Observations[9].Value);
+            Assert.Equal(2301, execution.Observations[10].Value);
+        }
+        finally
+        {
+            if (Directory.Exists(directory))
+            {
+                Directory.Delete(directory, recursive: true);
+            }
+        }
+    }
+
+    [Theory]
+    [InlineData("Debug", WasmTarget.Wasm32)]
+    [InlineData("Debug", WasmTarget.Wasm64)]
+    [InlineData("Release", WasmTarget.Wasm32)]
+    [InlineData("Release", WasmTarget.Wasm64)]
     public void PublicFacadeMatchesDesktopOracleAcrossProfilesAndTargets(
         string profileName,
         WasmTarget target)

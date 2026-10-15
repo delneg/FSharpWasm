@@ -4,6 +4,8 @@ using NetWasm.Compiler.Core;
 using NetWasm.Compiler.Wasm.Emission;
 using NetWasm.Compiler.Wasm.Emission.Instructions;
 using NetWasm.Compiler.Wasm.Emission.Methods;
+using NetWasm.Compiler.Wasm.Emission.Values;
+using NetWasm.Compiler.Wasm.Emission.CallLifetimes;
 using NetWasm.Compiler.Wasm.Emission.Planning;
 using NetWasm.Compiler.Wasm.Encoding;
 
@@ -13,6 +15,77 @@ using static EmitterTestSupport;
 
 public sealed class ManagedMethodSequenceEmitterTests
 {
+    [Fact]
+    public void TerminalFramePlacementDelegatesConditionAndClearsPlacementBeforeRecursing()
+    {
+        var program = new FakeProgram();
+        var method = WithEntryStack(CreateMethod(program,
+            new StructuredConditionalExit(new(0, CilOperation.BranchIfTrue, 0, CliValueKind.I4, null),
+                new StructuredBlockId(1), new StructuredBlockId(1)),
+            I(0, CilOperation.BranchIfTrue, new CilOperand.BranchTarget(1))), CliValueKind.I4);
+        var placement = new TerminalBranchValueFramePlacement(
+            new(Block(0), StructuredSequence.Empty, StructuredSequence.Empty, true, []), new(0, [], [], [], []));
+        var context = CreateMethodEmissionContext() with { TerminalBranchValueFramePlacement = placement };
+        var frames = new RecordingTerminalFrames();
+        var blocks = new RecordingControlFlowEmitter();
+
+        var result = AsEmitter(CreateEmitter(blocks, frames: frames)).Emit(new RecordingInstructionWriter(),
+            method, method.Body, context, CreateInstructionModuleTarget(program), CreateFunctionIndexResolver(program));
+
+        Assert.Equal(1, frames.Calls);
+        Assert.Same(placement, frames.Placement);
+        Assert.Equal(1, result.OriginalBlockEmissionCounts[0]);
+        Assert.Equal(1, blocks.Calls);
+        Assert.Null(Assert.Single(blocks.Contexts).TerminalBranchValueFramePlacement);
+        Assert.Same(placement, context.TerminalBranchValueFramePlacement);
+    }
+
+    private sealed class RecordingTerminalFrames : ITerminalBranchValueFrameEmitter
+    {
+        public int Calls { get; private set; }
+        public TerminalBranchValueFramePlacement? Placement { get; private set; }
+        public void Emit(IWasmInstructionWriter code, StructuredMethodHeader header, MethodEmissionContext context,
+            TerminalBranchValueFramePlacement placement,
+            Func<StructuredBlockOccurrence, MethodEmissionContext, ConditionValue> emitCondition,
+            Action<StructuredSequence, MethodEmissionContext> emitBody)
+        {
+            Calls++;
+            Placement = placement;
+            Assert.Null(context.TerminalBranchValueFramePlacement);
+            _ = emitCondition(placement.Plan.Condition, context);
+            emitBody(placement.Plan.WhenTrue, context);
+        }
+    }
+
+    [Fact]
+    public void ExceptionReplicasExecuteAndEachFunctionStartsWithFreshOwnership()
+    {
+        var program = new FakeProgram();
+        var method = CreateMethod(program);
+        var group = new StructuredExceptionGroupId(7);
+        var blocks = new RecordingControlFlowEmitter { Blocks = [(Block(0), false, true)] };
+        var exceptions = new RecordingExceptionRegionEmitter { EmitSequence = true, Replica = true };
+        var instructions = new RecordingInstructionDispatcher();
+        var emitter = AsEmitter(CreateEmitter(blocks, exceptions: exceptions, dispatcher: instructions));
+        var input = CreateMethodEmissionContext() with
+        {
+            EmittedExceptionGroups = [group],
+            RecordOriginalBlockOwnership = false,
+        };
+        for (var function = 0; function < 2; function++)
+        {
+            blocks.ExceptionGroup = group;
+            var result = emitter.Emit(new RecordingInstructionWriter(), method, StructuredSequence.Empty,
+                input, CreateInstructionModuleTarget(program), CreateFunctionIndexResolver(program));
+            Assert.Equal(1, result.OriginalBlockEmissionCounts[0]);
+        }
+        Assert.Equal(8, instructions.Operations.Count);
+        Assert.Equal([true, false, true, false], blocks.Contexts.Select(context => context.RecordOriginalBlockOwnership));
+        Assert.NotSame(input.EmittedExceptionGroups, blocks.Contexts[0].EmittedExceptionGroups);
+        Assert.NotSame(blocks.Contexts[0].EmittedExceptionGroups, blocks.Contexts[2].EmittedExceptionGroups);
+        Assert.Equal([group], input.EmittedExceptionGroups);
+    }
+
     [Theory]
     [InlineData(null, 100)]
     [InlineData(71, 102)]
@@ -362,7 +435,8 @@ public sealed class ManagedMethodSequenceEmitterTests
         RecordingLeaveEmitter? leaves = null,
         RecordingBranchComparisonEmitter? branchComparisons = null,
         RecordingInstructionDispatcher? dispatcher = null,
-        RecordingStackTraceFrameLocationEmitter? locations = null)
+        RecordingStackTraceFrameLocationEmitter? locations = null,
+        ITerminalBranchValueFrameEmitter? frames = null)
     {
         var layouts = new RecordingLayoutProvider();
         return new ManagedMethodSequenceEmitter(
@@ -372,7 +446,15 @@ public sealed class ManagedMethodSequenceEmitterTests
             leaves ?? new RecordingLeaveEmitter(),
             branchComparisons ?? new RecordingBranchComparisonEmitter(),
             dispatcher ?? new RecordingInstructionDispatcher(),
-            locations ?? new RecordingStackTraceFrameLocationEmitter());
+            locations ?? new RecordingStackTraceFrameLocationEmitter(),
+            new ManagedAggregateValueInstructionEmitter(
+                layouts,
+                new ValueFrameAddressEmitter(layouts)),
+            new ManagedAggregateValueReloadEmitter(
+                layouts,
+                new ValueFrameAddressEmitter(layouts)),
+            frames ?? CreateTerminalBranchValueFrames(new FakeProgram(), layouts, WasmRuntimeImports.CreateCatalog()),
+            new ScalarCallPreservationEmitter(layouts, new ValueFrameAddressEmitter(layouts)));
     }
 
     private static IManagedMethodSequenceEmitter AsEmitter(
@@ -490,6 +572,7 @@ public sealed class ManagedMethodSequenceEmitterTests
         public int Calls { get; private set; }
         public int? InitialExceptionLeaveDepth { get; private set; }
         public List<ConditionValue> Conditions { get; } = [];
+        public List<MethodEmissionContext> Contexts { get; } = [];
 
         public void Emit(
             IWasmInstructionWriter code,
@@ -505,6 +588,7 @@ public sealed class ManagedMethodSequenceEmitterTests
         {
             Calls++;
             InitialExceptionLeaveDepth ??= exceptionLeaveDepth;
+            Contexts.Add(context);
             foreach (var item in Blocks)
             {
                 Conditions.Add(emitBlock(item.Block, item.IncludeConditional, item.RecordOriginal));
@@ -526,6 +610,7 @@ public sealed class ManagedMethodSequenceEmitterTests
     private sealed class RecordingExceptionRegionEmitter : IExceptionRegionEmitter
     {
         public bool EmitSequence { get; init; }
+        public bool Replica { get; init; }
         public int Calls { get; private set; }
         public List<(int? BreakDepth, int? ContinueDepth, int? LeaveDepth)> SequenceDepths { get; } = [];
 
@@ -548,7 +633,7 @@ public sealed class ManagedMethodSequenceEmitterTests
             }
             emitSequence(
                 StructuredSequence.Empty,
-                context,
+                Replica ? context with { RecordOriginalBlockOwnership = false } : context,
                 1,
                 2,
                 3);

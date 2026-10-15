@@ -57,6 +57,24 @@ public sealed class LoopConditionChooserTests
     }
 
     [Fact]
+    public void ChoosesOnlyBoundaryThatPartitionsMultipleTests()
+    {
+        var graph = Graph(
+            I(0, CilOperation.Branch, new CilOperand.BranchTarget(1)),
+            I(1, CilOperation.Branch, new CilOperand.BranchTarget(2)),
+            I(2, CilOperation.LoadArgument, new CilOperand.Index(0)),
+            I(3, CilOperation.BranchIfFalse, new CilOperand.BranchTarget(7)),
+            I(4, CilOperation.Branch, new CilOperand.BranchTarget(5)),
+            I(5, CilOperation.LoadArgument, new CilOperand.Index(0)),
+            I(6, CilOperation.BranchIfTrue, new CilOperand.BranchTarget(2)),
+            I(7, CilOperation.Return));
+
+        Assert.Equal(2, Choose(
+            new LoopConditionChooser(),
+            new(graph, [1, 2, 3, 4], 1)));
+    }
+
+    [Fact]
     public void ReturnsNoConditionForAnUnconditionalCycle()
     {
         var graph = Graph(

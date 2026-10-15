@@ -23,7 +23,8 @@ internal sealed class ObjectConstructionEmitter(
     IImplicitExceptionEmitter exceptions,
     IRootPublicationEmitter roots,
     INativeIntegerConstructionEmitter nativeIntegerConstructions,
-    IStringConstructionEmitter strings) :
+    IStringConstructionEmitter strings,
+    IStaticInitializationEmitter initialization) :
     InstructionCommandProvider
 {
     public override ImmutableArray<InstructionCommand> Commands =>
@@ -45,6 +46,8 @@ internal sealed class ObjectConstructionEmitter(
         var signature = constructorInstance?.Value.Signature ?? constructor.Signature;
         var declaringType = constructorInstance?.Value.DeclaringType ??
                             types.Resolve(constructor.DeclaringType);
+        initialization.Emit(new(constructor.DeclaringType, declaringType,
+            request.Target.ModuleData, IsMethodInvocation: true), code, functionIndices);
         var argumentBase = request.Stack.Count - signature.ParameterTypes.Length;
         if (symbols.Format(constructor.DeclaringType) == "System.String")
         {
@@ -181,10 +184,15 @@ internal sealed class ObjectConstructionEmitter(
         var layout = isConstructed
             ? typeLayouts.GetObjectLayout(declaringType)
             : typeLayouts.GetObjectLayout(constructor.DeclaringType);
+        var allocation = request.Target.Finalization.IsFinalizable(layout.TypeId)
+            ? RuntimeImportSymbol.AllocateFinalizable
+            : RuntimeImportSymbol.Allocate;
         roots.Emit(request, code);
         addresses.Emit(code, layout.Size);
         code.Write(WasmInstruction.WithOperand(WasmOpcodes.I32Constant, WasmInstructionOperand.Signed(layout.TypeId)));
-        code.Write(WasmInstruction.WithOperand(WasmOpcodes.Call, WasmInstructionOperand.Unsigned((uint)(runtimeImports.Resolve(RuntimeImportSymbol.Allocate)))));
+        code.Write(WasmInstruction.WithOperand(WasmOpcodes.Call, WasmInstructionOperand.Unsigned((uint)(runtimeImports.Resolve(
+            allocation,
+            request.Target.RuntimeImportSelection)))));
         code.Write(WasmInstruction.WithOperand(WasmOpcodes.LocalSet, WasmInstructionOperand.Unsigned((uint)(request.Context.ObjectTemporary))));
         EmitAllocationFailureCheck(code, request.Context.ObjectTemporary);
         roots.Emit(request, code, constructorCall: true);

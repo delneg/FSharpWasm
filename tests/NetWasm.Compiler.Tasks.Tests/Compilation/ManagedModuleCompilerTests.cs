@@ -1,6 +1,8 @@
 using System.Collections.Immutable;
 using NetWasm.Compiler.Core;
 using NetWasm.Compiler.Core.ManagedExecutables;
+using NetWasm.Compiler.ComponentModel;
+using NetWasm.Compiler.ComponentModel.Optimization;
 using NetWasm.Compiler.Tasks.Compilation;
 using NetWasm.Compiler.Tasks.Tests.TestSupport;
 
@@ -39,7 +41,12 @@ public sealed class ManagedModuleCompilerTests
             UseJavaScriptExportBoundary: true,
             ProjectDirectory: "/project",
             PathMap: "/source=/mapped",
-            StructuredDiagnostics: true);
+            StructuredDiagnostics: true,
+            OptimizationOverrides: new(
+                LoopInvariantFieldHoisting:
+                    ManagedLoopInvariantFieldHoisting.Disabled,
+                StaticDataViewElimination:
+                    ManagedStaticDataViewElimination.Enabled));
 
         var result = compiler.Compile(request);
 
@@ -69,6 +76,8 @@ public sealed class ManagedModuleCompilerTests
         Assert.Equal(request.PathMap, options.PathMap);
         Assert.True(options.EmitStackTrace);
         Assert.True(options.StructuredDiagnostics);
+        Assert.Equal(FinalWasmOptimization.None, options.Optimization);
+        Assert.Same(request.OptimizationOverrides, options.OptimizationOverrides);
         Assert.Equal(0x06000001, options.EntryMethodToken);
         Assert.Equal(CompilerEntryPointKind.ManagedExecutable, options.EntryPointKind);
     }
@@ -120,8 +129,7 @@ public sealed class ManagedModuleCompilerTests
     [InlineData("O3")]
     [InlineData("Os")]
     [InlineData("Oz")]
-    public void CompileEnablesFrontendCacheForEveryCanonicalOptimizationMode(
-        string optimization)
+    public void CompilePropagatesEveryCanonicalOptimizationMode(string optimization)
     {
         var invoker = new RecordingCompilationInvoker(
             CompilerTaskTestData.CreateCompilation());
@@ -133,6 +141,9 @@ public sealed class ManagedModuleCompilerTests
             false, optimization, "obj/netwasm"));
 
         Assert.True(invoker.Options!.EnableFrontendCache);
+        Assert.Equal(
+            Enum.Parse<FinalWasmOptimization>(optimization),
+            invoker.Options.Optimization);
     }
 
     [Fact]

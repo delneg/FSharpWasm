@@ -1,4 +1,5 @@
 using NetWasm.Compiler.ComponentModel.Worlds;
+using NetWasm.Compiler.ComponentModel.Optimization;
 
 namespace NetWasm.Compiler.ComponentModel.Tests;
 
@@ -26,7 +27,8 @@ public sealed class ComponentBuilderTests
             "command",
             "application.component.wasm",
             ComponentTarget.Wasm32Wasi02,
-            new(ComponentJavaScriptBoundary.Empty, ComponentAdapterVersions.None));
+            new(ComponentJavaScriptBoundary.Empty, ComponentAdapterVersions.None))
+        { OptimizationOverrides = new(ManagedInliningHints.Preserve) };
 
         var result = builder.Build(request);
 
@@ -42,6 +44,7 @@ public sealed class ComponentBuilderTests
         Assert.Equal(request.RuntimeModulePath, components.Request.RuntimeModulePath);
         Assert.Equal("wasi:cli/command@0.2.11", components.Request.World);
         Assert.Equal(request.OutputPath, components.Request.OutputPath);
+        Assert.Same(request.OptimizationOverrides, components.Request.OptimizationOverrides);
     }
 
     [Fact]

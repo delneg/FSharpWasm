@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="460" viewBox="0 0 960 460"
+     role="img" aria-labelledby="title description">
+  <title id="title">C# with precise GC beats Rust's size-oriented profile at Wasm size</title>
+  <desc id="description">Printing 42 as a WASI Preview 2 component. NetWasm 0.8.0 candidate with Compact GC: 47,798 bytes. Rust 1.95.0 with its documented size profile: 53,635 bytes. NetWasm is 10.9 percent smaller. Zero-based linear scale. Uncompressed artifacts, not a language-wide ranking.</desc>
+  <style>
+    text { font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    .muted { fill: #a9b4c7; font-size: 15px; }
+    .label { fill: #f4f6fa; font-size: 19px; font-weight: 650; }
+    .value { fill: #f4f6fa; font-size: 19px; font-weight: 700; text-anchor: end; }
+    .tick { fill: #a9b4c7; font-size: 13px; text-anchor: middle; }
+  </style>
+  <rect width="960" height="460" rx="20" fill="#0c1220"/>
+  <text x="80" y="56" fill="#67e8f9" font-size="36" font-weight="800">C# just beat Rust at Wasm size.</text>
+  <text x="80" y="88" class="muted">10.9% smaller. Runtime and precise GC included.</text>
+  <g stroke="#28354b">
+    <path d="M80 130V352 M280 130V352 M480 130V352 M680 130V352 M880 130V352"/>
+  </g>
+  <text x="80" y="152" class="label">C# / NetWasm 0.8.0 candidate / Compact GC</text>
+  <text x="880" y="152" class="value">47,798 bytes</text>
+  <rect x="80" y="171" width="583.4717" height="48" rx="4" fill="#22d3ee"/>
+  <text x="80" y="270" class="label">Rust 1.95.0 / size-oriented profile</text>
+  <text x="880" y="270" class="value">53,635 bytes</text>
+  <rect x="80" y="289" width="654.7241" height="48" rx="4" fill="#e8a36d"/>
+  <path d="M80 352H880" stroke="#62728d"/>
+  <text x="80" y="374" class="tick">0</text>
+  <text x="280" y="374" class="tick">16</text>
+  <text x="480" y="374" class="tick">32</text>
+  <text x="680" y="374" class="tick">48</text>
+  <text x="880" y="374" class="tick">64 KiB</text>
+  <text x="80" y="410" class="muted">Same print-42 workload. Both are WASI Preview 2 components. Uncompressed.</text>
+  <text x="80" y="435" class="muted">NetWasm Release/Oz; Rust opt-level=z, LTO, one codegen unit, panic=abort, symbols stripped.</text>
+</svg>

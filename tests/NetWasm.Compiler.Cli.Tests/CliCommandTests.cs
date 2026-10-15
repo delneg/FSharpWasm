@@ -1,3 +1,4 @@
+using NetWasm.Compiler.ComponentModel.Optimization;
 using System.Collections.Immutable;
 using System.Security.Cryptography;
 using System.Text.Json;
@@ -236,6 +237,47 @@ public sealed class CliCommandTests
     }
 
     [Fact]
+    public void CompileCommandPassesCompilerOwnedOptimizationSelections()
+    {
+        var files = new RecordingFiles();
+        var compiler = new RecordingCompiler(Result());
+        var command = CreateCompileCommand(compiler, files);
+
+        command.Run([
+            "--input", "application.dll",
+            "--output", "application.wasm",
+            "--entry", "Example.Entry::Run",
+            "--optimization", "O3",
+            "--managed-loop-invariant-field-hoisting", "Disabled",
+            "--managed-static-data-view-elimination", "Enabled",
+            "--managed-branch-prefix-duplication", "Disabled",
+            "--managed-scalar-call-preservation", "Enabled",
+            "--managed-array-bounds-check-elimination", "Disabled",
+            "--managed-loop-unrolling", "Enabled",
+            "--managed-constant-argument-propagation", "Enabled",
+            "--managed-static-array-population-elimination", "Disabled",
+        ]);
+
+        Assert.Equal(FinalWasmOptimization.O3, compiler.Options!.Optimization);
+        Assert.Equal(
+            ManagedLoopInvariantFieldHoisting.Disabled,
+            compiler.Options.OptimizationOverrides!.LoopInvariantFieldHoisting);
+        Assert.Equal(
+            ManagedStaticDataViewElimination.Enabled,
+            compiler.Options.OptimizationOverrides.StaticDataViewElimination);
+        Assert.Equal(
+            ManagedBranchPrefixDuplication.Disabled,
+            compiler.Options.OptimizationOverrides.BranchPrefixDuplication);
+        Assert.Equal(
+            ManagedScalarCallPreservation.Enabled,
+            compiler.Options.OptimizationOverrides.ScalarCallPreservation);
+        Assert.Equal(ManagedArrayBoundsCheckElimination.Disabled, compiler.Options.OptimizationOverrides.ArrayBoundsCheckElimination);
+        Assert.Equal(ManagedLoopUnrolling.Enabled, compiler.Options.OptimizationOverrides.LoopUnrolling);
+        Assert.Equal(ManagedConstantArgumentPropagation.Enabled, compiler.Options.OptimizationOverrides.ConstantArgumentPropagation);
+        Assert.Equal(ManagedStaticArrayPopulationElimination.Disabled, compiler.Options.OptimizationOverrides.StaticArrayPopulationElimination);
+    }
+
+    [Fact]
     public void CompileCommandWritesRequestedArtifactsThroughCapabilities()
     {
         var files = new RecordingFiles();
@@ -353,8 +395,12 @@ public sealed class CliCommandTests
         Assert.False(layout.RootElement.TryGetProperty("runtimeGlobalBase", out _));
     }
 
-    [Fact]
-    public void ComponentizeCommandUsesComponentizeOptions()
+    [Theory]
+    [InlineData("none", FinalWasmOptimization.None, "Auto", ManagedInliningHints.Auto)]
+    [InlineData("O3", FinalWasmOptimization.O3, "IgnoreAggressive", ManagedInliningHints.IgnoreAggressive)]
+    [InlineData("Oz", FinalWasmOptimization.Oz, "Preserve", ManagedInliningHints.Preserve)]
+    public void ComponentizeCommandUsesComponentizeOptions(string mode, FinalWasmOptimization expectedMode,
+        string hints, ManagedInliningHints expectedHints)
     {
         var document = Document();
         var files = new RecordingFiles();
@@ -379,14 +425,15 @@ public sealed class CliCommandTests
             new RecordingManifestBuilder(manifest),
             packager,
             new RecordingManifestInputs(),
-            files);
+            files, new ManagedInliningHintsParser());
 
         var result = command.Run([
             "--core-module", "application.wasm",
             "--wit", "contract.wit",
             "--output", "component.wasm",
             "--manifest", "component.json",
-            "--optimization", "none",
+            "--optimization", mode,
+            "--managed-inlining-hints", hints,
         ]);
 
         Assert.Equal(0, result);
@@ -394,7 +441,8 @@ public sealed class CliCommandTests
         Assert.True(validator.Called);
         Assert.NotNull(packager.Request);
         Assert.Equal("wasm32", packager.Request!.Target.Width);
-        Assert.Equal(FinalWasmOptimization.None, packager.Request.Optimization);
+        Assert.Equal(expectedMode, packager.Request.Optimization);
+        Assert.Equal(expectedHints, packager.Request.OptimizationOverrides?.ManagedInliningHints ?? ManagedInliningHints.Auto);
         Assert.Equal("component.json", Assert.Single(files.TextWrites).Path);
         Assert.DoesNotContain('\r', Assert.Single(files.TextWrites).Content);
     }
@@ -412,7 +460,7 @@ public sealed class CliCommandTests
                 "hash", "wasm-tools 1", [], [], [], [])),
             new RecordingPackager(),
             new RecordingManifestInputs(),
-            files);
+            files, new ManagedInliningHintsParser());
 
         command.Run([
             "--core-module", "application.wasm",
@@ -426,41 +474,71 @@ public sealed class CliCommandTests
     }
 
     [Fact]
+    public void ComponentizeRejectsInvalidHintsBeforeReadingDocumentsOrPublishing()
+    {
+        var files = new RecordingFiles();
+        var packager = new RecordingPackager();
+        var validator = new RecordingValidator();
+        var command = new ComponentizeCliCommand(new RecordingDocuments(null!), validator,
+            new RecordingManifestBuilder(null!), packager, new RecordingManifestInputs(), files,
+            new ManagedInliningHintsParser());
+        Assert.Throws<CompilerException>(() => command.Run([
+            "--core-module", "application.wasm", "--wit", "contract.wit",
+            "--output", "component.wasm", "--manifest", "component.json",
+            "--managed-inlining-hints", "invalid",
+        ]));
+        Assert.False(validator.Called);
+        Assert.Null(packager.Request);
+        Assert.Empty(files.TextWrites);
+    }
+
+    [Fact]
     public void CommandConstructorsRejectMissingCapabilities()
     {
         var files = new RecordingFiles();
         Assert.Throws<ArgumentNullException>(() => new CompileCliCommand(
-            null!, Planner(), files, files, files));
+            null!, Planner(), files, files, files,
+            new ManagedCompilerOptimizationOverridesParser()));
         Assert.Throws<ArgumentNullException>(() => new CompileCliCommand(
-            new RecordingCompiler(Result()), null!, files, files, files));
+            new RecordingCompiler(Result()), null!, files, files, files,
+            new ManagedCompilerOptimizationOverridesParser()));
         Assert.Throws<ArgumentNullException>(() => new CompileCliCommand(
-            new RecordingCompiler(Result()), Planner(), null!, files, files));
+            new RecordingCompiler(Result()), Planner(), null!, files, files,
+            new ManagedCompilerOptimizationOverridesParser()));
         Assert.Throws<ArgumentNullException>(() => new CompileCliCommand(
-            new RecordingCompiler(Result()), Planner(), files, null!, files));
+            new RecordingCompiler(Result()), Planner(), files, null!, files,
+            new ManagedCompilerOptimizationOverridesParser()));
         Assert.Throws<ArgumentNullException>(() => new CompileCliCommand(
-            new RecordingCompiler(Result()), Planner(), files, files, null!));
+            new RecordingCompiler(Result()), Planner(), files, files, null!,
+            new ManagedCompilerOptimizationOverridesParser()));
+        Assert.Throws<ArgumentNullException>(() => new CompileCliCommand(
+            new RecordingCompiler(Result()), Planner(), files, files, files,
+            null!));
         Assert.Throws<ArgumentNullException>(() =>
             new CompileCliArtifactPlanner(null!));
 
         Assert.Throws<ArgumentNullException>(() => new ComponentizeCliCommand(
             null!, new RecordingValidator(), new RecordingManifestBuilder(null!),
-            new RecordingPackager(), new RecordingManifestInputs(), files));
+            new RecordingPackager(), new RecordingManifestInputs(), files, new ManagedInliningHintsParser()));
         Assert.Throws<ArgumentNullException>(() => new ComponentizeCliCommand(
             new RecordingDocuments(Document()), null!, new RecordingManifestBuilder(null!),
-            new RecordingPackager(), new RecordingManifestInputs(), files));
+            new RecordingPackager(), new RecordingManifestInputs(), files, new ManagedInliningHintsParser()));
         Assert.Throws<ArgumentNullException>(() => new ComponentizeCliCommand(
             new RecordingDocuments(Document()), new RecordingValidator(), null!,
-            new RecordingPackager(), new RecordingManifestInputs(), files));
+            new RecordingPackager(), new RecordingManifestInputs(), files, new ManagedInliningHintsParser()));
         Assert.Throws<ArgumentNullException>(() => new ComponentizeCliCommand(
             new RecordingDocuments(Document()), new RecordingValidator(),
-            new RecordingManifestBuilder(null!), null!, new RecordingManifestInputs(), files));
+            new RecordingManifestBuilder(null!), null!, new RecordingManifestInputs(), files, new ManagedInliningHintsParser()));
         Assert.Throws<ArgumentNullException>(() => new ComponentizeCliCommand(
             new RecordingDocuments(Document()), new RecordingValidator(),
-            new RecordingManifestBuilder(null!), new RecordingPackager(), null!, files));
+            new RecordingManifestBuilder(null!), new RecordingPackager(), null!, files, new ManagedInliningHintsParser()));
         Assert.Throws<ArgumentNullException>(() => new ComponentizeCliCommand(
             new RecordingDocuments(Document()), new RecordingValidator(),
             new RecordingManifestBuilder(null!), new RecordingPackager(),
-            new RecordingManifestInputs(), null!));
+            new RecordingManifestInputs(), null!, new ManagedInliningHintsParser()));
+        Assert.Throws<ArgumentNullException>(() => new ComponentizeCliCommand(
+            new RecordingDocuments(Document()), new RecordingValidator(), new RecordingManifestBuilder(null!),
+            new RecordingPackager(), new RecordingManifestInputs(), files, null!));
     }
 
     [Fact]
@@ -535,7 +613,8 @@ public sealed class CliCommandTests
         Planner(),
         files,
         files,
-        files);
+        files,
+        new ManagedCompilerOptimizationOverridesParser());
 
     private static CompileCliArtifactPlanner Planner() => new(
         new NativeCallbackSupportArtifactValidator());

@@ -3,17 +3,20 @@ using NetWasm.Compiler.ControlFlow.Structured;
 using System.Linq;
 using NetWasm.Compiler.Core;
 using NetWasm.Compiler.Wasm.Encoding;
+using NetWasm.Compiler.Wasm.Emission.AddressTakenValues;
+using NetWasm.Compiler.Wasm.Emission.Values;
 
 namespace NetWasm.Compiler.Wasm.Emission.Methods;
 
 internal sealed class MethodFrameEntryEmitter(
     ITargetLayout layouts,
     IValueLayoutProvider values,
-    IArgumentSignatureTypeResolver argumentTypes,
     IRuntimeImportResolver runtimeImports,
     IStackTraceFrameEntryEmitter stackTraceFrames,
     IValueFrameAddressEmitter valueFrameAddresses,
-    IFilterEnvironmentRootEmitter filterEnvironmentRoots) :
+    IValueFrameEntryEmitter valueFrames,
+    IFilterEnvironmentRootEmitter filterEnvironmentRoots,
+    IManagedByRefAggregateInitializationEmitter managedByRefAggregates) :
     IMethodFrameEntryEmitter
 {
     public void Emit(
@@ -40,49 +43,76 @@ internal sealed class MethodFrameEntryEmitter(
                 WasmInstructionOperand.Signed(context.RootSlotCount)));
             code.Write(WasmInstruction.WithOperand(
                 WasmOpcodes.Call,
-                WasmInstructionOperand.Unsigned((uint)runtimeImports.Resolve(RuntimeImportSymbol.RootFrameEnter))));
+                WasmInstructionOperand.Unsigned((uint)runtimeImports.Resolve(
+                    RuntimeImportSymbol.RootFrameEnter))));
             code.Write(WasmInstruction.WithOperand(
-                WasmOpcodes.LocalSet,
+                context.ExceptionRootSlots.Count == 0
+                    ? WasmOpcodes.LocalSet
+                    : WasmOpcodes.LocalTee,
                 WasmInstructionOperand.Unsigned((uint)context.RootFrame)));
-        }
-        if (context.ValueLayout.Size != 0)
-        {
-            ManagedMemoryEmitter.EmitAddressConstant(
-                code,
-                layouts.Target,
-                context.ValueLayout.Size);
-            code.Write(WasmInstruction.WithOperand(
-                WasmOpcodes.Call,
-                WasmInstructionOperand.Unsigned((uint)runtimeImports.Resolve(RuntimeImportSymbol.ValueFrameEnter))));
-            code.Write(WasmInstruction.WithOperand(
-                WasmOpcodes.LocalSet,
-                WasmInstructionOperand.Unsigned((uint)context.ValueFrame)));
-            foreach ((var localIndex, var offset) in context.ValueLayout.LocalOffsets)
+            InitializeExceptionRoots(code, context);
+            foreach (var (source, slot) in context.AuthoritativeRootSlots.OrderBy(pair => pair.Value))
             {
-                valueFrameAddresses.Emit(code, context, offset);
-                code.Write(WasmInstruction.WithOperand(
-                    WasmOpcodes.LocalSet,
-                    WasmInstructionOperand.Unsigned((uint)(context.LocalBase + localIndex))));
-            }
-            foreach ((var argumentIndex, var offset) in context.ValueLayout.ArgumentOffsets)
-            {
-                valueFrameAddresses.Emit(code, context, offset);
-                code.Write(WasmInstruction.WithOperand(
-                    WasmOpcodes.LocalGet,
-                    WasmInstructionOperand.Unsigned((uint)(argumentIndex + context.ParameterOffset))));
-                var argumentType = argumentTypes.Resolve(header, argumentIndex);
-                ManagedMemoryEmitter.EmitStoreByType(
-                    code,
-                    layouts.Target,
-                    0,
-                    argumentType,
-                    layouts.Target.GetStorageSize(argumentType));
+                code.Write(WasmInstruction.WithOperand(WasmOpcodes.LocalGet,
+                    WasmInstructionOperand.Unsigned((uint)context.RootFrame)));
+                if (source.Kind == RootSourceKind.Argument)
+                    code.Write(WasmInstruction.WithOperand(WasmOpcodes.LocalGet,
+                        WasmInstructionOperand.Unsigned((uint)(source.Index + context.ParameterOffset))));
+                else
+                    ManagedMemoryEmitter.EmitAddressConstant(code, layouts.Target, 0);
+                ManagedMemoryEmitter.EmitStoreBySize(code, layouts.Target,
+                    checked(slot * layouts.Target.ObjectReferenceSize), layouts.Target.ObjectReferenceSize);
             }
         }
+        valueFrames.Emit(code, header, context);
         if (context.FilterEnvironment.Size != 0)
         {
             InitializeFilterEnvironment(code, context);
         }
+        managedByRefAggregates.Emit(code, context);
+    }
+
+    private void InitializeExceptionRoots(
+        IWasmInstructionWriter code,
+        MethodEmissionContext context)
+    {
+        if (context.ExceptionRootSlots.Count == 0)
+        {
+            return;
+        }
+
+        var byteOffset = checked(
+            context.RootMap.SlotCount * layouts.Target.ObjectReferenceSize);
+        if (context.ExceptionRootSlots.Count == 1)
+        {
+            ManagedMemoryEmitter.EmitAddressConstant(code, layouts.Target, 0);
+            ManagedMemoryEmitter.EmitStoreBySize(
+                code,
+                layouts.Target,
+                byteOffset,
+                layouts.Target.ObjectReferenceSize);
+            return;
+        }
+
+        if (byteOffset != 0)
+        {
+            ManagedMemoryEmitter.EmitAddressConstant(
+                code,
+                layouts.Target,
+                byteOffset);
+            ManagedMemoryEmitter.EmitAddressAdd(code, layouts.Target);
+        }
+        code.Write(WasmInstruction.WithOperand(
+            WasmOpcodes.I32Constant,
+            WasmInstructionOperand.Signed(0)));
+        ManagedMemoryEmitter.EmitAddressConstant(
+            code,
+            layouts.Target,
+            checked(context.ExceptionRootSlots.Count *
+                layouts.Target.ObjectReferenceSize));
+        code.Write(WasmInstruction.WithOperand(
+            WasmOpcodes.Prefixed,
+            WasmInstructionOperand.PrefixedPair(WasmOpcodes.MemoryFill, 0)));
     }
 
     private void InitializeFilterEnvironment(
@@ -96,7 +126,8 @@ internal sealed class MethodFrameEntryEmitter(
                 WasmInstructionOperand.Signed(context.FilterEnvironment.RootSlotCount)));
             code.Write(WasmInstruction.WithOperand(
                 WasmOpcodes.Call,
-                WasmInstructionOperand.Unsigned((uint)runtimeImports.Resolve(RuntimeImportSymbol.RootFrameEnter))));
+                WasmInstructionOperand.Unsigned((uint)runtimeImports.Resolve(
+                    RuntimeImportSymbol.RootFrameEnter))));
             code.Write(WasmInstruction.WithOperand(
                 WasmOpcodes.LocalSet,
                 WasmInstructionOperand.Unsigned((uint)context.FilterRootFrame)));
@@ -108,6 +139,15 @@ internal sealed class MethodFrameEntryEmitter(
         code.Write(WasmInstruction.WithOperand(
             WasmOpcodes.LocalGet,
             WasmInstructionOperand.Unsigned((uint)context.FilterRootFrame)));
+        ManagedMemoryEmitter.EmitStoreBySize(
+            code,
+            layouts.Target,
+            0,
+            layouts.Target.AddressSize);
+        valueFrameAddresses.Emit(code, context, context.FilterEnvironment.ParentRootFrameOffset);
+        code.Write(WasmInstruction.WithOperand(
+            WasmOpcodes.LocalGet,
+            WasmInstructionOperand.Unsigned((uint)context.RootFrame)));
         ManagedMemoryEmitter.EmitStoreBySize(
             code,
             layouts.Target,

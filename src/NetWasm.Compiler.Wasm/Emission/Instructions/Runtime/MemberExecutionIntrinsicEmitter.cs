@@ -26,7 +26,8 @@ internal sealed class MemberExecutionIntrinsicEmitter(
     IRootPublicationEmitter roots,
     INullableTypeResolver nullableTypes,
     INullableBoxEmitter nullableBoxes,
-    IValueFrameAddressEmitter valueFrames) : IRuntimeIntrinsicEmitter
+    IValueFrameAddressEmitter valueFrames,
+    IMethodInitializationTriggerClassifier initializationTriggers) : IRuntimeIntrinsicEmitter
 {
     private readonly ITargetLayout _layouts = layouts ??
         throw new ArgumentNullException(nameof(layouts));
@@ -58,6 +59,8 @@ internal sealed class MemberExecutionIntrinsicEmitter(
         throw new ArgumentNullException(nameof(nullableBoxes));
     private readonly IValueFrameAddressEmitter _valueFrames = valueFrames ??
         throw new ArgumentNullException(nameof(valueFrames));
+    private readonly IMethodInitializationTriggerClassifier _initializationTriggers = initializationTriggers ??
+        throw new ArgumentNullException(nameof(initializationTriggers));
 
     public void Emit(RuntimeIntrinsicEmissionRequest request, IWasmInstructionWriter code)
     {
@@ -144,17 +147,6 @@ internal sealed class MemberExecutionIntrinsicEmitter(
             if (!method.Definition.IsStatic)
             {
                 EmitNullCheck(code, receiverLocal);
-            }
-            else
-            {
-                _initialization.Emit(
-                    new(
-                        method.Definition.DeclaringType,
-                        method.DeclaringType,
-                        request.Instruction.Target.ModuleData,
-                        IsStaticMethodCall: true),
-                    code,
-                    request.FunctionIndices);
             }
             if (!execution.RequiresDispatch)
             {
@@ -277,6 +269,12 @@ internal sealed class MemberExecutionIntrinsicEmitter(
         CliTypeIdentity resultType,
         CliTypeIdentity? receiverType = null)
     {
+        if (_initializationTriggers.Classify(method.Definition))
+        {
+            _initialization.Emit(new(method.Definition.DeclaringType,
+                method.DeclaringType, request.Instruction.Target.ModuleData,
+                IsMethodInvocation: true), code, request.FunctionIndices);
+        }
         var underlying = _nullableTypes.Resolve(resultType);
         if (underlying is not null)
         {

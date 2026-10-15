@@ -18,6 +18,9 @@ export function createRuntimeContractImports(target, getMemory) {
         new Uint8Array(getMemory().buffer, Number(result), width * 2).fill(0);
       },
     },
+    [`${prefix}|wasi:random/random@0.2`]: {
+      'get-random-u64': () => 0x0123456789abcdefn,
+    },
     [`${prefix}|wasi:cli/stdout@0.2`]: { 'get-stdout': unexpected },
     [`${prefix}|wasi:cli/stderr@0.2`]: { 'get-stderr': unexpected },
     [`${prefix}|wasi:io/streams@0.2`]: {

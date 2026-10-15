@@ -4,6 +4,7 @@ using NetWasm.Compiler.Core;
 using NetWasm.Compiler.Wasm.Emission.Methods;
 using NetWasm.Compiler.Wasm.Emission.Support;
 using NetWasm.Compiler.Wasm.Encoding;
+using NetWasm.Compiler.Wasm.Emission.AddressTakenValues;
 
 namespace NetWasm.Compiler.Wasm.Emission.Instructions.Memory;
 
@@ -13,7 +14,9 @@ internal sealed class FieldInstructionEmitter(
     ITargetLayout layouts,
     IInstanceFieldLayoutProvider fields,
     IImplicitExceptionEmitter exceptions,
-    IAddressInstructionEmitter addresses) : InstructionCommandProvider
+    IAddressInstructionEmitter addresses,
+    IAddressTakenAggregateProjectionEmitter aggregateProjections) :
+    InstructionCommandProvider
 {
     public override ImmutableArray<InstructionCommand> Commands =>
     [
@@ -31,8 +34,33 @@ internal sealed class FieldInstructionEmitter(
 
     private void EmitLoad(InstructionEmissionRequest request, IWasmInstructionWriter code)
     {
+        if (aggregateProjections.TryEmit(request, code))
+        {
+            return;
+        }
         var (layout, fieldType, receiverType) = Resolve(request.Instruction);
         var slot = request.Stack.Count - 1;
+        if (request.Context.TransientAggregatePromotions.Plan.Projections.TryGetValue(
+                request.Instruction.Offset,
+                out var projection))
+        {
+            var aggregate = request.Context.TransientAggregatePromotions.ProducerLocals[
+                projection.ProducerOffset];
+            var source = projection.ElementIndex == 0
+                ? aggregate.First
+                : aggregate.Second;
+            code.Write(WasmInstruction.WithOperand(
+                WasmOpcodes.LocalGet,
+                WasmInstructionOperand.Unsigned((uint)source)));
+            code.Write(WasmInstruction.WithOperand(
+                WasmOpcodes.LocalSet,
+                WasmInstructionOperand.Unsigned((uint)GetStackLocal(
+                    request.Context,
+                    slot,
+                    fieldType.StackKind))));
+            request.Stack[slot] = fieldType.StackKind;
+            return;
+        }
         var objectLocal = GetStackLocal(request.Context, slot, request.Stack[slot]);
         EmitNullCheckIfRequired(code, objectLocal, receiverType);
         if (fieldType.StackKind == CliValueKind.ValueType)
@@ -94,6 +122,10 @@ internal sealed class FieldInstructionEmitter(
 
     private void EmitStore(InstructionEmissionRequest request, IWasmInstructionWriter code)
     {
+        if (aggregateProjections.TryEmit(request, code))
+        {
+            return;
+        }
         var (layout, fieldType, receiverType) = Resolve(request.Instruction);
         var objectSlot = request.Stack.Count - 2;
         var objectLocal = GetStackLocal(

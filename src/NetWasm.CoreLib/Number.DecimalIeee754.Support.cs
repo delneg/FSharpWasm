@@ -10,37 +10,11 @@
 
 using System.Globalization;
 using System.Numerics;
-
-namespace System.Buffers.Text
-{
-    internal static partial class FormattingHelpers
-    {
-        internal static int CountDigits(uint value)
-        {
-            var digits = 1;
-            while (value >= 10) { value /= 10; digits++; }
-            return digits;
-        }
-
-        internal static int CountDigits(ulong value)
-        {
-            var digits = 1;
-            while (value >= 10) { value /= 10; digits++; }
-            return digits;
-        }
-
-        internal static int CountDigits(UInt128 value)
-        {
-            var digits = 1;
-            while (value >= 10U) { value /= 10U; digits++; }
-            return digits;
-        }
-    }
-}
+using System.Text;
 
 namespace System.Globalization
 {
-    public sealed class NumberFormatInfo : IFormatProvider
+    public sealed partial class NumberFormatInfo : IFormatProvider
     {
         internal const string InvariantNaNSymbol = "NaN";
         internal const string InvariantPositiveInfinitySymbol = "Infinity";
@@ -66,13 +40,17 @@ namespace System.Globalization
         public string NumberDecimalSeparator => ".";
         public string NumberGroupSeparator => ",";
         public int NumberDecimalDigits => 2;
-        public string CurrencySymbol => "$";
+        public string CurrencySymbol => _currencySymbol;
         public int CurrencyDecimalDigits => 2;
         public string PercentSymbol => "%";
         public int PercentDecimalDigits => 2;
 
-        internal static NumberFormatInfo GetInstance(IFormatProvider? provider) =>
-            provider as NumberFormatInfo ?? s_invariant;
+        internal static NumberFormatInfo GetInstance(IFormatProvider? provider)
+        {
+            if (provider is NumberFormatInfo numberFormat) return numberFormat;
+            if (provider is CultureInfo culture) return culture.NumberFormat;
+            return provider?.GetFormat(typeof(NumberFormatInfo)) as NumberFormatInfo ?? s_invariant;
+        }
 
         public object? GetFormat(Type? formatType) => formatType == typeof(NumberFormatInfo) ? this : null;
 
@@ -80,7 +58,21 @@ namespace System.Globalization
 
         internal static void ValidateParseStyleFloatingPoint(NumberStyles style) => Validate(style, allowExponent: true, allowDecimalPoint: true);
 
-        internal static void ValidateParseStyleInteger(NumberStyles style) => Validate(style, allowExponent: false, allowDecimalPoint: false);
+        internal static void ValidateParseStyleInteger(NumberStyles style)
+        {
+            const NumberStyles allowed = NumberStyles.AllowLeadingWhite | NumberStyles.AllowTrailingWhite |
+                NumberStyles.AllowLeadingSign | NumberStyles.AllowTrailingSign | NumberStyles.AllowParentheses |
+                NumberStyles.AllowDecimalPoint | NumberStyles.AllowThousands | NumberStyles.AllowExponent |
+                NumberStyles.AllowCurrencySymbol | NumberStyles.AllowHexSpecifier | NumberStyles.AllowBinarySpecifier;
+
+            if ((style & ~allowed) != 0 ||
+                ((style & (NumberStyles.AllowHexSpecifier | NumberStyles.AllowBinarySpecifier)) != 0 &&
+                 (style & ~NumberStyles.HexNumber) != 0 &&
+                 (style & ~NumberStyles.BinaryNumber) != 0))
+            {
+                throw new ArgumentException("The number style is not supported.", nameof(style));
+            }
+        }
 
         private static void Validate(NumberStyles style, bool allowExponent, bool allowDecimalPoint)
         {
@@ -112,7 +104,12 @@ namespace System
 {
     internal static class SR
     {
-        internal const string Arithmetic_NaN = "NaN is not a number.";
+        internal const string Arg_InvalidBase = "Invalid Base.";
+        internal const string Argument_BadFormatSpecifier = "Format specifier was invalid.";
+        internal const string Argument_CannotParsePrecision = "Characters following the format symbol must be a number of {0} or less.";
+        internal const string Argument_GWithPrecisionNotSupported = "The 'G' format combined with a precision is not supported.";
+        internal const string Argument_PrecisionTooLarge = "Precision cannot be larger than {0}.";
+        internal const string Arithmetic_NaN = "Function does not accept floating point Not-a-Number values.";
         internal const string Overflow_Decimal = "Value was either too large or too small for a Decimal.";
         internal const string Arg_MustBeDecimal32 = "Object must be of type Decimal32.";
         internal const string Arg_MustBeDecimal64 = "Object must be of type Decimal64.";
@@ -123,6 +120,51 @@ namespace System
         internal const string Arg_MustBeUInt128 = "Object must be of type UInt128.";
         internal const string Overflow_Int128 = "Value was either too large or too small for an Int128.";
         internal const string Overflow_UInt128 = "Value was either too large or too small for a UInt128.";
+        internal const string ArgumentException_TupleIncorrectType = "Argument must be of type {0}.";
+        internal const string ArgumentException_TupleLastArgumentNotATuple =
+            "The last element of an eight element tuple must be a Tuple.";
+        internal const string ArgumentException_ValueTupleIncorrectType =
+            "Argument must be of type {0}.";
+        internal const string ArgumentException_ValueTupleLastArgumentNotAValueTuple =
+            "The last element of an eight element ValueTuple must be a ValueTuple.";
+        internal const string ArgumentOutOfRange_IndexCountBuffer = "Index and count must refer to a location within the buffer.";
+        internal const string ArgumentOutOfRange_IndexMustBeLessOrEqual = "Index was out of range. Must be non-negative and less than or equal to the size of the collection.";
+        internal const string Argument_ExtraNotValid = "Extra portion of URI not valid.";
+        internal const string Argument_IdnBadBidi = "Left to right characters may not be mixed with right to left characters in IDN labels.";
+        internal const string Argument_IdnBadLabelSize = "IDN labels must be between 1 and 63 characters long.";
+        internal const string Argument_IdnBadNameSize = "IDN names must be between 1 and {0} characters long.";
+        internal const string Argument_IdnBadPunycode = "Invalid IDN encoded string.";
+        internal const string Argument_IdnBadStd3 = "Label contains character '{0}' not allowed with UseStd3AsciiRules";
+        internal const string Argument_IdnIllegalName = "Decoded string is not a valid IDN name.";
+        internal const string Argument_InvalidCharSequence = "Invalid Unicode code point found at index {0}.";
+        internal const string Argument_InvalidUriSubcomponent = "The subcomponent, {0}, of this uri is not valid.";
+        internal const string net_uri_AlreadyRegistered = "A URI scheme name '{0}' already has a registered custom parser.";
+        internal const string net_uri_BadAuthority = "Invalid URI: The Authority/Host could not be parsed.";
+        internal const string net_uri_BadAuthorityTerminator = "Invalid URI: The Authority/Host cannot end with a backslash character ('\\').";
+        internal const string net_uri_BadFormat = "Invalid URI: The format of the URI could not be determined.";
+        internal const string net_uri_BadHostName = "Invalid URI: The hostname could not be parsed.";
+        internal const string net_uri_BadPort = "Invalid URI: Invalid port specified.";
+        internal const string net_uri_BadScheme = "Invalid URI: The URI scheme is not valid.";
+        internal const string net_uri_BadUnicodeHostForIdn = "An invalid Unicode character by IDN standards was specified in the host.";
+        internal const string net_uri_BadUserPassword = "Invalid URI: The username:password construct is badly formed.";
+        internal const string net_uri_CannotCreateRelative = "A relative URI cannot be created because the 'uriString' parameter represents an absolute URI.";
+        internal const string net_uri_EmptyUri = "Invalid URI: The URI is empty.";
+        internal const string net_uri_GetComponentsCalledWhenCanonicalizationDisabled = "GetComponents() may not be used for Path/Query on a Uri instance created with UriCreationOptions.DangerousDisablePathAndQueryCanonicalization.";
+        internal const string net_uri_InitializeCalledAlreadyOrTooLate = "UriParser's base InitializeAndValidate may only be called once on a single Uri instance and only from an override of InitializeAndValidate.";
+        internal const string net_uri_InvalidUriKind = "The value '{0}' passed for the UriKind parameter is invalid.";
+        internal const string net_uri_MustRootedPath = "Invalid URI: A Dos path must be rooted, for example, 'c:\\'.";
+        internal const string net_uri_NeedFreshParser = "The URI parser instance passed into 'uriParser' parameter is already registered with the scheme name '{0}'.";
+        internal const string net_uri_NotAbsolute = "This operation is not supported for a relative URI.";
+        internal const string net_uri_NotJustSerialization = "UriComponents.SerializationInfoString must not be combined with other UriComponents.";
+        internal const string net_uri_PortOutOfRange = "A derived type '{0}' has reported an invalid value for the Uri port '{1}'.";
+        internal const string net_uri_SchemeLimit = "Invalid URI: The Uri scheme is too long.";
+        internal const string net_uri_UserDrivenParsing = "A derived type '{0}' is responsible for parsing this Uri instance. The base implementation must not be used.";
+
+        internal static string Format(string format, object? arg) =>
+            string.Format(format, arg);
+
+        internal static string Format(string format, object? first, object? second) =>
+            string.Format(format, first, second);
     }
 
     public static partial class Math
@@ -133,15 +175,6 @@ namespace System
 
     internal static partial class Number
     {
-        // P significant digits, one digit retained for rounding, and the NUL.
-        internal const int Decimal32NumberBufferLength = 9;
-        internal const int Decimal64NumberBufferLength = 18;
-        internal const int Decimal128NumberBufferLength = 36;
-        internal const int UInt128NumberBufferLength = 40;
-
-        internal static string UInt32ToDecStr(uint value) => FormatUnsigned(value, 32, null);
-
-        internal static string UInt64ToDecStr(ulong value) => FormatUnsigned(value, 64, null);
 
         internal static uint DigitsToUInt32(ReadOnlySpan<byte> digits, int count)
         {
@@ -187,12 +220,11 @@ namespace System
             where TFloat : unmanaged, IBinaryFloatParseAndFormatInfo<TFloat>
         {
             var digits = UInt64ToDecStr(mantissa).ToCharArray();
-            bits = ConvertDecimalToFloatingBits(
+            bits = ConvertDecimalToFloatingBits<TFloat>(
                 digits,
                 digits.Length,
                 exponent,
-                negative: false,
-                single: typeof(TFloat) == typeof(float));
+                negative: false);
             return true;
         }
 
@@ -209,8 +241,13 @@ namespace System
             where TFloat : unmanaged, IBinaryFloatParseAndFormatInfo<TFloat>
         {
             var bits = TFloat.FloatToBits(value);
-            var single = typeof(TFloat) == typeof(float);
-            GetFloatingRational(bits, single, out var numerator, out var denominator);
+            GetFloatingRational(
+                bits,
+                out var numerator,
+                out var denominator,
+                TFloat.ExponentBits,
+                TFloat.ExponentBias,
+                TFloat.NormalMantissaBits);
             var binaryExponent = FloorBinaryExponent(numerator, denominator);
             var decimalExponent = (int)(binaryExponent * 30_103L / 100_000L);
             while (CompareToPower10(numerator, denominator, decimalExponent) < 0) decimalExponent--;
@@ -301,10 +338,27 @@ namespace System
             where TDecimal : unmanaged, IDecimalIeee754ParseAndFormatInfo<TDecimal, TValue>
             where TValue : unmanaged, IBinaryInteger<TValue>
         {
-            if (TDecimal.IsNaN(value)) return NumberFormatInfo.InvariantNaNSymbol;
-            if (TDecimal.IsInfinity(value)) return TDecimal.IsNegative(value)
-                ? NumberFormatInfo.InvariantNegativeInfinitySymbol
-                : NumberFormatInfo.InvariantPositiveInfinitySymbol;
+            var builder = new ValueStringBuilder(64);
+            AppendDecimalIeee754<TDecimal, TValue>(ref builder, value, format.AsSpan(), info);
+            return builder.ToString();
+        }
+
+        private static void AppendDecimalIeee754<TDecimal, TValue>(
+            scoped ref ValueStringBuilder builder,
+            TValue value,
+            scoped ReadOnlySpan<char> format,
+            NumberFormatInfo info)
+            where TDecimal : unmanaged, IDecimalIeee754ParseAndFormatInfo<TDecimal, TValue>
+            where TValue : unmanaged, IBinaryInteger<TValue>
+        {
+            if (TDecimal.IsNaN(value)) { builder.Append(NumberFormatInfo.InvariantNaNSymbol); return; }
+            if (TDecimal.IsInfinity(value))
+            {
+                builder.Append(TDecimal.IsNegative(value)
+                    ? NumberFormatInfo.InvariantNegativeInfinitySymbol
+                    : NumberFormatInfo.InvariantPositiveInfinitySymbol);
+                return;
+            }
 
             var decoded = UnpackDecimalIeee754<TDecimal, TValue>(value);
             if (TValue.IsZero(decoded.Significand))
@@ -317,9 +371,9 @@ namespace System
             var specifier = 'G';
             var precision = -1;
 
-            if (!string.IsNullOrEmpty(format))
+            if (!format.IsEmpty)
             {
-                specifier = format![0];
+                specifier = format[0];
                 if (format.Length > 1)
                 {
                     precision = ParseDecimalFormatPrecision(format);
@@ -346,17 +400,19 @@ namespace System
             {
                 var places = precision < 0 ? TDecimal.Precision - 1 : precision;
                 RoundCoefficient(ref digits, ref decoded, places + 1);
-                return FormatScientific(digits, decoded.UnbiasedExponent, negative, places, specifier);
+                AppendScientific(ref builder, digits, decoded.UnbiasedExponent, negative, places, specifier);
+                return;
             }
 
             if (specifier is 'C' or 'c')
             {
                 var places = precision < 0 ? info.CurrencyDecimalDigits : precision;
                 RoundToFixed(ref digits, ref decoded, places);
-                var currencyText = AddGrouping(FormatFixed(digits, decoded.UnbiasedExponent, negative, places));
-                return negative
-                    ? "(" + info.CurrencySymbol + currencyText.Substring(1) + ")"
-                    : info.CurrencySymbol + currencyText;
+                if (negative) builder.Append('(');
+                builder.Append(info.CurrencySymbol);
+                AppendFixed(ref builder, digits, decoded.UnbiasedExponent, negative: false, places, group: true);
+                if (negative) builder.Append(')');
+                return;
             }
 
             if (specifier is 'P' or 'p')
@@ -364,19 +420,21 @@ namespace System
                 var places = precision < 0 ? info.PercentDecimalDigits : precision;
                 decoded = new DecodedDecimalIeee754<TValue>(decoded.Signed, decoded.UnbiasedExponent + 2, decoded.Significand);
                 RoundToFixed(ref digits, ref decoded, places);
-                return AddGrouping(FormatFixed(digits, decoded.UnbiasedExponent, negative, places)) + " %";
+                AppendFixed(ref builder, digits, decoded.UnbiasedExponent, negative, places, group: true);
+                builder.Append(" %");
+                return;
             }
 
             if (specifier is 'F' or 'f' or 'N' or 'n')
             {
                 var places = precision < 0 ? 2 : precision;
                 RoundToFixed(ref digits, ref decoded, places);
-                var fixedText = FormatFixed(digits, decoded.UnbiasedExponent, negative, places);
-                return specifier is 'N' or 'n' ? AddGrouping(fixedText) : fixedText;
+                AppendFixed(ref builder, digits, decoded.UnbiasedExponent, negative, places, specifier is 'N' or 'n');
+                return;
             }
 
             if (precision >= 0) RoundCoefficient(ref digits, ref decoded, precision);
-            return FormatGeneral(digits, decoded.UnbiasedExponent, negative, TDecimal.Precision, specifier);
+            AppendGeneral(ref builder, digits, decoded.UnbiasedExponent, negative, TDecimal.Precision, specifier);
         }
 
         internal static bool TryFormatDecimalIeee754<TDecimal, TValue, TChar>(
@@ -389,9 +447,19 @@ namespace System
             where TValue : unmanaged, IBinaryInteger<TValue>
             where TChar : unmanaged
         {
-            var text = FormatDecimalIeee754<TDecimal, TValue>(value, SpanToString(format), info);
-            if (typeof(TChar) == typeof(char)) return TryCopy(text, System.Runtime.InteropServices.MemoryMarshal.Cast<TChar, char>(destination), out charsWritten);
-            return TryCopyUtf8(text, System.Runtime.InteropServices.MemoryMarshal.Cast<TChar, byte>(destination), out charsWritten);
+            if (typeof(TChar) == typeof(char))
+            {
+                var chars = System.Runtime.InteropServices.MemoryMarshal.Cast<TChar, char>(destination);
+                var builder = new ValueStringBuilder(chars);
+                AppendDecimalIeee754<TDecimal, TValue>(ref builder, value, format, info);
+                return builder.TryCopyTo(chars, out charsWritten);
+            }
+            Span<char> buffer = stackalloc char[128];
+            var utf16 = new ValueStringBuilder(buffer);
+            AppendDecimalIeee754<TDecimal, TValue>(ref utf16, value, format, info);
+            var success = TryCopyUtf8(utf16.AsSpan(), System.Runtime.InteropServices.MemoryMarshal.Cast<TChar, byte>(destination), out charsWritten);
+            utf16.Dispose();
+            return success;
         }
 
         internal static TDecimal ParseDecimalIeee754<TChar, TDecimal, TValue>(
@@ -419,39 +487,38 @@ namespace System
         {
             result = default;
             elementsConsumed = 0;
-            var source = SpanToString(value);
             var index = 0;
             var allowTrailing = (styles & AllowTrailingInvalidCharacters) != 0;
             var allowLeadingWhite = (styles & NumberStyles.AllowLeadingWhite) != 0;
             var allowTrailingWhite = (styles & NumberStyles.AllowTrailingWhite) != 0;
 
-            if (allowLeadingWhite) while (index < source.Length && IsAsciiWhiteSpace(source[index])) index++;
-            else if (index < source.Length && IsAsciiWhiteSpace(source[index])) return ParsingStatus.Failed;
+            if (allowLeadingWhite) while (index < value.Length && IsAsciiWhiteSpace(ReadSourceChar(value, index))) index++;
+            else if (index < value.Length && IsAsciiWhiteSpace(ReadSourceChar(value, index))) return ParsingStatus.Failed;
 
             var start = index;
             var negative = false;
             var hadLeadingSign = false;
             var parenthesized = false;
-            if ((styles & NumberStyles.AllowParentheses) != 0 && index < source.Length && source[index] == '(')
+            if ((styles & NumberStyles.AllowParentheses) != 0 && index < value.Length && ReadSourceChar(value, index) == '(')
             {
                 parenthesized = true;
                 index++;
             }
-            if ((styles & NumberStyles.AllowCurrencySymbol) != 0 && index < source.Length && source[index] == '$') index++;
-            if (index < source.Length && (source[index] == '+' || source[index] == '-'))
+            if ((styles & NumberStyles.AllowCurrencySymbol) != 0 && index < value.Length && ReadSourceChar(value, index) == '$') index++;
+            if (index < value.Length && ReadSourceChar(value, index) is '+' or '-')
             {
                 if ((styles & NumberStyles.AllowLeadingSign) == 0) return ParsingStatus.Failed;
                 hadLeadingSign = true;
-                negative = source[index++] == '-';
+                negative = ReadSourceChar(value, index++) == '-';
             }
 
             var specialStart = index;
-            if (MatchWord(source, ref index, "Infinity") || MatchWord(source, ref index, "NaN"))
+            if (MatchWord(value, ref index, "Infinity") || MatchWord(value, ref index, "NaN"))
             {
-                var trailing = ConsumeTrailing(source, index, allowTrailingWhite);
-                if (trailing < 0 || (!allowTrailing && trailing != source.Length)) return ParsingStatus.Failed;
-                elementsConsumed = allowTrailing ? trailing : source.Length;
-                var wasNaN = source[specialStart] is 'N' or 'n';
+                var trailing = ConsumeTrailing(value, index, allowTrailingWhite);
+                if (trailing < 0 || (!allowTrailing && trailing != value.Length)) return ParsingStatus.Failed;
+                elementsConsumed = allowTrailing ? trailing : value.Length;
+                var wasNaN = ReadSourceChar(value, specialStart) is 'N' or 'n';
                 var bits = wasNaN ? TDecimal.NaN : negative ? TDecimal.NegativeInfinity : TDecimal.PositiveInfinity;
                 if (wasNaN && negative) bits |= TDecimal.SignMask;
                 result = TDecimal.Construct(bits);
@@ -460,32 +527,52 @@ namespace System
 
             index = start;
             parenthesized = false;
-            if ((styles & NumberStyles.AllowParentheses) != 0 && index < source.Length && source[index] == '(')
+            if ((styles & NumberStyles.AllowParentheses) != 0 && index < value.Length && ReadSourceChar(value, index) == '(')
             {
                 parenthesized = true;
                 index++;
             }
-            if ((styles & NumberStyles.AllowCurrencySymbol) != 0 && index < source.Length && source[index] == '$') index++;
-            if (index < source.Length && (source[index] == '+' || source[index] == '-'))
+            if ((styles & NumberStyles.AllowCurrencySymbol) != 0 && index < value.Length && ReadSourceChar(value, index) == '$') index++;
+            if (index < value.Length && ReadSourceChar(value, index) is '+' or '-')
             {
                 if ((styles & NumberStyles.AllowLeadingSign) == 0) return ParsingStatus.Failed;
                 hadLeadingSign = true;
-                negative = source[index++] == '-';
+                negative = ReadSourceChar(value, index++) == '-';
             }
-            if ((styles & NumberStyles.AllowCurrencySymbol) != 0 && index < source.Length && source[index] == '$') index++;
+            if ((styles & NumberStyles.AllowCurrencySymbol) != 0 && index < value.Length && ReadSourceChar(value, index) == '$') index++;
 
-            var raw = new char[source.Length];
             var rawCount = 0;
             var decimalIndex = -1;
             var sawDigit = false;
             var exponent = 0;
             var exponentNegative = false;
-            while (index < source.Length)
+            var firstNonZero = -1;
+            var storedCount = 0;
+            var hasNonZeroTail = false;
+            Span<byte> digits = stackalloc byte[TDecimal.BufferLength];
+            var number = new NumberBuffer(NumberBufferKind.Decimal, digits);
+            var capacity = digits.Length - 1;
+            while (index < value.Length)
             {
-                var c = source[index];
+                var c = ReadSourceChar(value, index);
                 if (c is >= '0' and <= '9')
                 {
-                    raw[rawCount++] = c;
+                    if (firstNonZero < 0 && c != '0')
+                    {
+                        firstNonZero = rawCount;
+                    }
+                    if (firstNonZero >= 0)
+                    {
+                        if (storedCount < capacity)
+                        {
+                            number.Digits[storedCount++] = (byte)c;
+                        }
+                        else if (c != '0')
+                        {
+                            hasNonZeroTail = true;
+                        }
+                    }
+                    rawCount++;
                     sawDigit = true;
                     index++;
                     continue;
@@ -508,18 +595,18 @@ namespace System
             if (!sawDigit) return ParsingStatus.Failed;
             if (decimalIndex < 0) decimalIndex = rawCount;
 
-            if (index < source.Length && (source[index] is 'e' or 'E'))
+            if (index < value.Length && ReadSourceChar(value, index) is 'e' or 'E')
             {
                 if ((styles & NumberStyles.AllowExponent) == 0) return ParsingStatus.Failed;
                 index++;
-                if (index < source.Length && (source[index] is '+' or '-'))
+                if (index < value.Length && ReadSourceChar(value, index) is '+' or '-')
                 {
-                    exponentNegative = source[index++] == '-';
+                    exponentNegative = ReadSourceChar(value, index++) == '-';
                 }
                 var exponentDigits = 0;
-                while (index < source.Length && source[index] is >= '0' and <= '9')
+                while (index < value.Length && ReadSourceChar(value, index) is >= '0' and <= '9')
                 {
-                    if (exponentDigits < 6) exponent = exponent * 10 + source[index] - '0';
+                    if (exponentDigits < 6) exponent = exponent * 10 + ReadSourceChar(value, index) - '0';
                     exponentDigits++;
                     index++;
                 }
@@ -527,77 +614,46 @@ namespace System
                 if (exponentNegative) exponent = -exponent;
             }
 
-            if ((styles & NumberStyles.AllowTrailingSign) != 0 && index < source.Length && (source[index] == '+' || source[index] == '-'))
+            if ((styles & NumberStyles.AllowTrailingSign) != 0 && index < value.Length && ReadSourceChar(value, index) is '+' or '-')
             {
                 if (hadLeadingSign) return ParsingStatus.Failed;
-                negative = source[index++] == '-';
+                negative = ReadSourceChar(value, index++) == '-';
             }
             if (parenthesized)
             {
-                if (index >= source.Length || source[index++] != ')') return ParsingStatus.Failed;
+                if (index >= value.Length || ReadSourceChar(value, index++) != ')') return ParsingStatus.Failed;
                 negative = true;
             }
 
-            var trailingIndex = ConsumeTrailing(source, index, allowTrailingWhite);
-            if (trailingIndex < 0 || (!allowTrailing && trailingIndex != source.Length)) return ParsingStatus.Failed;
-            elementsConsumed = allowTrailing ? trailingIndex : source.Length;
+            var trailingIndex = ConsumeTrailing(value, index, allowTrailingWhite);
+            if (trailingIndex < 0 || (!allowTrailing && trailingIndex != value.Length)) return ParsingStatus.Failed;
+            elementsConsumed = allowTrailing ? trailingIndex : value.Length;
 
-            var first = 0;
-            while (first < rawCount && raw[first] == '0') first++;
-            Span<byte> digits = stackalloc byte[TDecimal.BufferLength];
-            var number = new NumberBuffer(NumberBufferKind.Decimal, digits);
             number.IsNegative = negative;
-            if (first == rawCount)
+            if (firstNonZero < 0)
             {
                 number.Scale = 0;
                 result = TDecimal.Construct(NumberToDecimalIeee754<TDecimal, TValue>(ref number));
                 return ParsingStatus.OK;
             }
 
-            var significantCount = rawCount - first;
-            var capacity = digits.Length - 1;
-            var stored = Math.Min(significantCount, capacity);
-            for (var i = 0; i < stored; i++) number.Digits[i] = (byte)raw[first + i];
-            number.Digits[stored] = 0;
-            number.DigitsCount = stored;
-            number.HasNonZeroTail = significantCount > stored;
-            if (number.HasNonZeroTail)
-            {
-                for (var i = first + stored; i < rawCount; i++)
-                {
-                    if (raw[i] != '0') { number.HasNonZeroTail = true; break; }
-                    number.HasNonZeroTail = false;
-                }
-            }
-
-            number.Scale = decimalIndex + exponent - first;
+            number.Digits[storedCount] = 0;
+            number.DigitsCount = storedCount;
+            number.HasNonZeroTail = hasNonZeroTail;
+            number.Scale = decimalIndex + exponent - firstNonZero;
             result = TDecimal.Construct(NumberToDecimalIeee754<TDecimal, TValue>(ref number));
             return ParsingStatus.OK;
         }
 
-        private static int ConsumeTrailing(string source, int index, bool allowTrailingWhite)
+        private static int ConsumeTrailing<TChar>(ReadOnlySpan<TChar> source, int index, bool allowTrailingWhite)
+            where TChar : unmanaged
         {
             var end = index;
-            if (allowTrailingWhite) while (end < source.Length && IsAsciiWhiteSpace(source[end])) end++;
+            if (allowTrailingWhite) while (end < source.Length && IsAsciiWhiteSpace(ReadSourceChar(source, end))) end++;
             return end;
         }
 
-        private static bool MatchWord(string source, ref int index, string word)
-        {
-            if (index + word.Length > source.Length) return false;
-            for (var i = 0; i < word.Length; i++)
-            {
-                var c = source[index + i];
-                var expected = word[i];
-                if (c >= 'a' && c <= 'z') c = (char)(c - ('a' - 'A'));
-                if (expected >= 'a' && expected <= 'z') expected = (char)(expected - ('a' - 'A'));
-                if (c != expected) return false;
-            }
-            index += word.Length;
-            return true;
-        }
-
-        private static int ParseDecimalFormatPrecision(string format)
+        private static int ParseDecimalFormatPrecision(ReadOnlySpan<char> format)
         {
             var result = 0;
             for (var i = 1; i < format.Length; i++)
@@ -649,29 +705,45 @@ namespace System
             RoundCoefficient(ref digits, ref decoded, keep);
         }
 
-        private static string FormatGeneral(string digits, int exponent, bool negative, int precision, char specifier)
+        private static void AppendGeneral(
+            scoped ref ValueStringBuilder builder,
+            string digits,
+            int exponent,
+            bool negative,
+            int precision,
+            char specifier)
         {
-            if (digits == "0") return negative ? "-0" : "0";
+            if (digits == "0") { builder.Append(negative ? "-0" : "0"); return; }
 
             // General formatting suppresses insignificant trailing zeros after rounding. Moving a
             // zero from the coefficient into the exponent preserves the represented value.
-            while (digits.Length > 1 && digits[digits.Length - 1] == '0')
+            var digitCount = digits.Length;
+            while (digitCount > 1 && digits[digitCount - 1] == '0')
             {
-                digits = digits.Substring(0, digits.Length - 1);
+                digitCount--;
                 exponent++;
             }
 
-            var decimalExponent = digits.Length + exponent - 1;
-            return FormatGeneralDigits(
-                digits.ToCharArray(),
-                digits.Length,
+            var decimalExponent = digitCount + exponent - 1;
+            var digitBuffer = new char[digitCount];
+            for (var index = 0; index < digitCount; index++) digitBuffer[index] = digits[index];
+            AppendGeneralDigits(
+                ref builder,
+                digitBuffer,
+                digitCount,
                 decimalExponent,
                 negative,
                 precision < 0 ? int.MaxValue : precision,
                 specifier is 'g');
         }
 
-        private static string FormatFixed(string digits, int exponent, bool negative, int places)
+        private static void AppendFixed(
+            scoped ref ValueStringBuilder builder,
+            string digits,
+            int exponent,
+            bool negative,
+            int places,
+            bool group)
         {
             var position = digits.Length + exponent;
             var leadingZeros = position <= 0 ? -position : 0;
@@ -682,77 +754,64 @@ namespace System
                 fractionLength = Math.Max(fractionLength, leadingZeros + digits.Length);
             }
 
-            var length = (negative ? 1 : 0) + Math.Max(position, 1) + (fractionLength == 0 ? 0 : 1 + fractionLength);
-            var chars = new char[length];
-            var at = 0;
-            if (negative) chars[at++] = '-';
+            if (negative) builder.Append('-');
             if (position <= 0)
             {
-                chars[at++] = '0';
-                chars[at++] = '.';
-                for (var i = 0; i < leadingZeros; i++) chars[at++] = '0';
-                for (var i = 0; i < digits.Length; i++) chars[at++] = digits[i];
-                while (at < chars.Length) chars[at++] = '0';
+                builder.Append('0');
+                builder.Append('.');
+                builder.Append('0', leadingZeros);
+                builder.Append(digits);
+                var writtenFraction = leadingZeros + digits.Length;
+                if (fractionLength > writtenFraction) builder.Append('0', fractionLength - writtenFraction);
             }
             else
             {
-                for (var i = 0; i < position; i++) chars[at++] = i < digits.Length ? digits[i] : '0';
+                for (var i = 0; i < position; i++)
+                {
+                    if (group && i != 0 && (position - i) % 3 == 0) builder.Append(',');
+                    builder.Append(i < digits.Length ? digits[i] : '0');
+                }
                 if (fractionLength != 0)
                 {
-                    chars[at++] = '.';
-                    for (var i = 0; i < fractionLength; i++) chars[at++] = position + i < digits.Length ? digits[position + i] : '0';
+                    builder.Append('.');
+                    for (var i = 0; i < fractionLength; i++) builder.Append(position + i < digits.Length ? digits[position + i] : '0');
                 }
             }
-            return string.Create(chars);
         }
 
-        private static string FormatScientific(string digits, int exponent, bool negative, int places, char specifier)
+        private static void AppendScientific(
+            scoped ref ValueStringBuilder builder,
+            string digits,
+            int exponent,
+            bool negative,
+            int places,
+            char specifier)
         {
             var scientificExponent = exponent + digits.Length - 1;
             var exponentMagnitude = scientificExponent < 0 ? -scientificExponent : scientificExponent;
-            const int exponentDigits = 3;
-            var length = (negative ? 1 : 0) + 1 + (places == 0 ? 0 : 1 + places) + 2 + exponentDigits;
-            var chars = new char[length];
-            var at = 0;
-            if (negative) chars[at++] = '-';
-            chars[at++] = digits[0];
+            var exponentDigits = 3;
+            for (var remaining = exponentMagnitude; remaining >= 1000; remaining /= 10)
+            {
+                exponentDigits++;
+            }
+            if (negative) builder.Append('-');
+            builder.Append(digits[0]);
             if (places != 0)
             {
-                chars[at++] = '.';
-                for (var i = 0; i < places; i++) chars[at++] = i + 1 < digits.Length ? digits[i + 1] : '0';
+                builder.Append('.');
+                for (var i = 0; i < places; i++) builder.Append(i + 1 < digits.Length ? digits[i + 1] : '0');
             }
-            chars[at++] = specifier;
-            chars[at++] = scientificExponent < 0 ? '-' : '+';
+            builder.Append(specifier);
+            builder.Append(scientificExponent < 0 ? '-' : '+');
+            Span<char> exponentBuffer = stackalloc char[10];
+            var at = exponentBuffer.Length;
             for (var i = exponentDigits - 1; i >= 0; i--)
             {
-                chars[at + i] = (char)('0' + exponentMagnitude % 10);
+                exponentBuffer[--at] = (char)('0' + exponentMagnitude % 10);
                 exponentMagnitude /= 10;
             }
-            return string.Create(chars);
+            builder.Append(exponentBuffer[at..]);
         }
 
-        private static string AddGrouping(string value)
-        {
-            var sign = value.Length != 0 && value[0] == '-' ? 1 : 0;
-            var point = value.IndexOf('.');
-            if (point < 0) point = value.Length;
-            var integerLength = point - sign;
-            if (integerLength <= 3) return value;
-
-            var groups = (integerLength - 1) / 3;
-            var chars = new char[value.Length + groups];
-            var source = 0;
-            var target = 0;
-            if (sign != 0) chars[target++] = value[source++];
-            var firstGroup = integerLength % 3;
-            if (firstGroup == 0) firstGroup = 3;
-            for (var i = 0; i < integerLength; i++)
-            {
-                if (i != 0 && i % firstGroup == 0 && (i - firstGroup) % 3 == 0) chars[target++] = ',';
-                chars[target++] = value[source++];
-            }
-            while (source < value.Length) chars[target++] = value[source++];
-            return string.Create(chars);
-        }
     }
 }

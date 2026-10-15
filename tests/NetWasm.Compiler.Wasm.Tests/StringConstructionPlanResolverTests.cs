@@ -5,6 +5,38 @@ namespace NetWasm.Compiler.Wasm.Tests;
 
 public sealed class StringConstructionPlanResolverTests
 {
+    [Theory]
+    [InlineData("ReadOnlySpan`1", 1, true, true)]
+    [InlineData("Span`1", 1, true, false)]
+    [InlineData("ReadOnlySpan`1", 0, true, false)]
+    [InlineData("ReadOnlySpan`1", 2, true, false)]
+    [InlineData("ReadOnlySpan`1", 1, false, false)]
+    public void ResolveRequiresExactlyOneCharacterTypeArgumentForReadOnlySpan(
+        string name, int argumentCount, bool character, bool supported)
+    {
+        var element = character ? CliTypeIdentity.Primitive("char", CliValueKind.I4)
+            : CliTypeIdentity.FromStackKind(CliValueKind.I4);
+        var span = CliTypeIdentity.GenericInstantiation(
+            CliTypeIdentity.Named(new("System.Private.CoreLib"), "System", name, true),
+            [.. Enumerable.Repeat(element, argumentCount)]);
+        var signature = MethodSignatureModel.Create(CliTypeIdentity.FromStackKind(CliValueKind.Void), span);
+        var resolver = CreateResolver();
+
+        if (supported)
+        {
+            var plan = resolver.Resolve(signature, 17);
+            Assert.Equal(StringConstructionSourceKind.CharacterSpan, plan.SourceKind);
+            Assert.Null(plan.StartArgumentIndex);
+            Assert.Null(plan.LengthArgumentIndex);
+        }
+        else
+        {
+            var error = Assert.Throws<CompilerException>(() => resolver.Resolve(signature, 17));
+            Assert.Equal(DiagnosticCode.UnsupportedMetadata, error.Diagnostic.Code);
+            Assert.Equal(17, error.Diagnostic.IlOffset);
+        }
+    }
+
     [Fact]
     public void ResolveMapsEverySupportedSignatureToAConstructionPlan()
     {

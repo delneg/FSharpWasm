@@ -13,12 +13,15 @@ internal sealed class RuntimeModuleMaterializer(
     IRuntimeLayoutReader layouts,
     IRuntimeMemoryLayoutCalculator memoryLayouts,
     IRuntimeAssetDigestVerifier assetDigests,
+    IRuntimeCollectorCompatibilityValidator collectorCompatibility,
     IRuntimeLinkArgumentBuilder linkArguments,
     IRuntimeOptimizationArgumentBuilder optimizationArguments,
     IRuntimeMaterializationCacheKeyBuilder cacheKeys,
     IRuntimeMaterializationCacheReader cacheReader,
     IRuntimeMaterializationCacheWriter cacheWriter,
     IRuntimeArtifactPublisher artifactPublisher,
+    IRuntimeArtifactWriter artifactWriter,
+    IRuntimeInlineIntentWriter inlineIntents,
     ICommandInvoker commands,
     IArtifactDigestCalculator artifactDigests,
     IRuntimeNativeModuleMaterializer nativeModules) : IRuntimeModuleMaterializer
@@ -38,7 +41,8 @@ internal sealed class RuntimeModuleMaterializer(
             throw new InvalidOperationException("The NetWasm runtime layout target does not match the requested target.");
         }
 
-        var target = targets.Select(manifest, request.Target, request.GarbageCollector);
+        var target = targets.Select(manifest, request.Target, request.GarbageCollector, request.Optimization);
+        collectorCompatibility.Validate(target, sourceLayout);
         var systemLibraryPaths = target.SystemLibraries.Assets
             .Select(asset => ResolveAsset(request.AssetRoot, asset.Path))
             .ToImmutableArray();
@@ -114,6 +118,9 @@ internal sealed class RuntimeModuleMaterializer(
                 optimizeArguments,
                 Path.Combine(request.LogDirectory, "runtime-optimize.log")));
         }
+        var annotated = inlineIntents.Write(
+            File.ReadAllBytes(request.OutputPath), manifest.InlineIntents);
+        artifactWriter.Write(request.OutputPath, annotated);
         commands.Invoke(new(
             request.WasmToolsNodePath,
             ImmutableArray.Create(

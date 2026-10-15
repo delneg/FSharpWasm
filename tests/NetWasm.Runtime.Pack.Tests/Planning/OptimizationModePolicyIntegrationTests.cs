@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using NetWasm.Compiler.ComponentModel;
+using NetWasm.Compiler.ComponentModel.Inlining;
 using NetWasm.Compiler.ComponentModel.Node;
 using NetWasm.Runtime.Pack.Materialization;
 using NetWasm.Runtime.Pack.Planning;
@@ -24,18 +25,19 @@ public sealed class OptimizationModePolicyIntegrationTests
     {
         using var directory = new TemporaryDirectory();
         var runtimeOutput = directory.PathTo("runtime.wasm");
-        var runtimeArguments = new RuntimeOptimizationArgumentBuilder().Build(new(
+        var runtimeArguments = new RuntimeOptimizationArgumentBuilder(new RuntimeOptimizationPolicyResolver()).Build(new(
             RuntimePackTestData.Target("wasm32"), runtimeOutput, runtimeOptimization));
         var input = directory.PathTo("input.wasm");
         var output = directory.PathTo("output.wasm");
-        File.WriteAllBytes(input, [0x2a]);
+        File.WriteAllBytes(input, [0, 97, 115, 109, 1, 0, 0, 0]);
         var tools = new RecordingBinaryenTools();
 
         new ComponentCoreModuleOptimizer(
             tools,
             new SystemFileExistence(),
             new RecordingValidator(),
-            new SystemFileCopier()).Optimize(
+            new WasmCoreModuleInlineAnnotationEditor(
+                new SystemByteFileReader(), new SystemByteFileWriter(), new WasmInlineAnnotationFilter())).Optimize(
                 input,
                 output,
                 ComponentTarget.Wasm32Wasi02,

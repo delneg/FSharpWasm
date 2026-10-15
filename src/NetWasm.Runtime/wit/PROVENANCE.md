@@ -18,6 +18,7 @@ complete implementation of those packages. The upstream source is
 | `wasi:cli/exit.exit` | `cli/exit.wit` |
 | `wasi:io/error.error` resource identity | `io/error.wit` |
 | `wasi:io/streams.stream-error`, `output-stream.blocking-write-and-flush` | `io/streams.wit` |
+| `wasi:random/random.get-random-u64` | `random/random.wit` |
 
 The adaptation retains the required package versions, resource identities,
 function signatures, and stream-error variant order. It omits unused functions,

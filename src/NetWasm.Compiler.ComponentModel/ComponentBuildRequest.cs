@@ -1,4 +1,5 @@
 using NetWasm.Compiler.Core.ManagedExecutables;
+using NetWasm.Compiler.ComponentModel.Optimization;
 
 namespace NetWasm.Compiler.ComponentModel;
 
@@ -12,4 +13,7 @@ public sealed record ComponentBuildRequest(
     ComponentManifestInputs ManifestInputs,
     ManagedExecutableEntryPointAbi? ManagedExecutableEntryPoint = null,
     FinalWasmOptimization Optimization = FinalWasmOptimization.Oz,
-    bool StructuredDiagnostics = false);
+    bool StructuredDiagnostics = false)
+{
+    public WasmOptimizationOverrides? OptimizationOverrides { get; init; }
+}

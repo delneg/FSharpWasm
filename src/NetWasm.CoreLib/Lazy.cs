@@ -148,7 +148,7 @@ namespace System
         }
 
         public override string ToString() => IsValueCreated
-            ? Value!.ToString() ?? string.Empty
+            ? Value!.ToString()!
             : "Value is not created.";
     }
 

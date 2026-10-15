@@ -24,8 +24,44 @@ public sealed class GcWaitForPendingFinalizersIntrinsicEmitterTests
         var instruction = Assert.Single(writer.Instructions);
         Assert.Equal(WasmOpcodes.Call, instruction.Opcode);
         Assert.Equal(
-            (uint)runtimeImports.Resolve(RuntimeImportSymbol.GcWaitForPendingFinalizers),
+            (uint)runtimeImports.Resolve(
+                RuntimeImportSymbol.GcWaitForPendingFinalizers,
+                request.Instruction.Target.RuntimeImportSelection),
             instruction.Operand!.UnsignedValue);
+    }
+
+    [Fact]
+    public void EmitDoesNothingWhenNoFinalizableTypeExists()
+    {
+        var runtimeImports = WasmRuntimeImports.CreateCatalog();
+        var emitter = RuntimeIntrinsicEmitterTestFactory.Create(
+            RuntimeIntrinsic.GcWaitForPendingFinalizers,
+            runtimeImports);
+        var request = EmitterTestSupport.CreateRuntimeIntrinsicRequest(
+            RuntimeIntrinsic.GcWaitForPendingFinalizers,
+            []);
+        request = request with
+        {
+            Call = request.Call with
+            {
+                Instruction = request.Instruction with
+                {
+                    Target = request.Instruction.Target with
+                    {
+                        RuntimeImportSelection = request.Instruction.Target
+                            .RuntimeImportSelection with
+                        {
+                            IncludeFinalization = false,
+                        },
+                    },
+                },
+            },
+        };
+        var writer = new RecordingWriter();
+
+        emitter.Emit(request, writer);
+
+        Assert.Empty(writer.Instructions);
     }
 
     private sealed class RecordingWriter : IWasmInstructionWriter

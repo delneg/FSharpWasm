@@ -295,6 +295,7 @@ public sealed class NativeManagedExecutionIntegrationTests
                     target,
                     applicationStaticDataEnd = compilation.StaticDataEnd,
                     managedExecutableEntryPoint = (object?)null,
+                    runtimeFeatures = compilation.RuntimeFeatures,
                     nativeImports = compilation.NativeImports,
                     nativeCallbackSupport = new
                     {
@@ -311,6 +312,7 @@ public sealed class NativeManagedExecutionIntegrationTests
                     target,
                     applicationStaticDataEnd = compilation.StaticDataEnd,
                     managedExecutableEntryPoint = (object?)null,
+                    runtimeFeatures = compilation.RuntimeFeatures,
                     nativeImports = compilation.NativeImports,
                 };
             File.WriteAllText(layout, JsonSerializer.Serialize(layoutEvidence, JsonOptions));

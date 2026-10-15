@@ -18,6 +18,38 @@ namespace System
 
         public virtual DateTimeOffset GetUtcNow() => DateTimeOffset.UtcNow;
 
+        private static readonly long s_minDateTicks = DateTime.MinValue.Ticks;
+        private static readonly long s_maxDateTicks = DateTime.MaxValue.Ticks;
+
+        public DateTimeOffset GetLocalNow()
+        {
+            var utcDateTime = GetUtcNow();
+            var zoneInfo = LocalTimeZone;
+            if (zoneInfo is null)
+            {
+                throw new InvalidOperationException(
+                    "The local time zone cannot be null.");
+            }
+
+            var offset = zoneInfo.GetUtcOffset(utcDateTime);
+            if (offset.Ticks == 0)
+            {
+                return utcDateTime;
+            }
+
+            var localTicks = utcDateTime.Ticks + offset.Ticks;
+            if ((ulong)localTicks > (ulong)s_maxDateTicks)
+            {
+                localTicks = localTicks < s_minDateTicks
+                    ? s_minDateTicks
+                    : s_maxDateTicks;
+            }
+
+            return new DateTimeOffset(localTicks, offset);
+        }
+
+        public virtual TimeZoneInfo LocalTimeZone => TimeZoneInfo.Local;
+
         public virtual long TimestampFrequency => 1_000_000_000L;
 
         public virtual long GetTimestamp() =>

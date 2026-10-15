@@ -4,7 +4,8 @@ using System.IO;
 namespace NetWasm.Runtime.Pack.Materialization;
 
 internal sealed class RuntimeArtifactPublisher(
-    IArtifactDigestCalculator artifactDigests) : IRuntimeArtifactPublisher
+    IArtifactDigestCalculator artifactDigests,
+    IRuntimeArtifactWriter writer) : IRuntimeArtifactPublisher
 {
     public void PublishIfDifferent(string outputPath, byte[] bytes, string sha256)
     {
@@ -24,29 +25,6 @@ internal sealed class RuntimeArtifactPublisher(
             }
         }
 
-        var directory = Path.GetDirectoryName(fullOutputPath)!;
-        Directory.CreateDirectory(directory);
-        var temporaryPath = Path.Combine(directory, $".{Path.GetFileName(fullOutputPath)}.{Guid.NewGuid():N}.tmp");
-        try
-        {
-            using (var stream = new FileStream(
-                temporaryPath,
-                FileMode.CreateNew,
-                FileAccess.Write,
-                FileShare.None))
-            {
-                stream.Write(bytes);
-                stream.Flush(flushToDisk: true);
-            }
-
-            File.Move(temporaryPath, fullOutputPath, overwrite: true);
-        }
-        finally
-        {
-            if (File.Exists(temporaryPath))
-            {
-                File.Delete(temporaryPath);
-            }
-        }
+        writer.Write(fullOutputPath, bytes);
     }
 }

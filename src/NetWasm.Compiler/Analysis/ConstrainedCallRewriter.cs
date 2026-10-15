@@ -28,12 +28,21 @@ internal sealed class ConstrainedCallRewriter(
             {
                 continue;
             }
-            if (constrained.Value.Shape is not (CliTypeShape.Primitive or
+            var enclosingTypeArguments = body.MethodInstance?.DeclaringType.Shape ==
+                CliTypeShape.GenericInstantiation
+                    ? body.MethodInstance.DeclaringType.TypeArguments
+                    : ImmutableArray<CliTypeIdentity>.Empty;
+            var enclosingMethodArguments = body.MethodInstance?.MethodArguments ??
+                ImmutableArray<CliTypeIdentity>.Empty;
+            var constrainedType = constrained.Value.Substitute(
+                enclosingTypeArguments,
+                enclosingMethodArguments);
+            if (constrainedType.Shape is not (CliTypeShape.Primitive or
                     CliTypeShape.Named or CliTypeShape.GenericInstantiation))
             {
                 continue;
             }
-            var concreteType = typeDefinitions.ResolveTypeIdentity(constrained.Value);
+            var concreteType = typeDefinitions.ResolveTypeIdentity(constrainedType);
             if (!concreteType.IsValueType && !concreteType.IsSealed)
             {
                 continue;
@@ -45,9 +54,9 @@ internal sealed class ConstrainedCallRewriter(
                 _ => throw new InvalidOperationException(
                     "constrained call has no method operand"),
             };
-            var typeArguments = constrained.Value.Shape ==
+            var typeArguments = constrainedType.Shape ==
                 CliTypeShape.GenericInstantiation
-                    ? constrained.Value.TypeArguments
+                    ? constrainedType.TypeArguments
                     : [];
             var methodArguments = call.Operand is CilOperand.MethodInstance methodCall
                 ? methodCall.Value.MethodArguments
@@ -56,7 +65,7 @@ internal sealed class ConstrainedCallRewriter(
                 ? instanceCall.Value.Signature
                 : declaration.Signature;
             var implementation = targets.Resolve(new ConstrainedCallTargetRequest(
-                constrained.Value,
+                constrainedType,
                 concreteType,
                 declaration,
                 callSignature,
@@ -79,9 +88,14 @@ internal sealed class ConstrainedCallRewriter(
                     Operand = new CilOperand.None(),
                 };
             }
+            var implementationTypeArguments = implementation.Key == declaration.Key &&
+                call.Operand is CilOperand.MethodInstance declarationCall &&
+                declarationCall.Value.DeclaringType.Shape == CliTypeShape.GenericInstantiation
+                    ? declarationCall.Value.DeclaringType.TypeArguments
+                    : typeArguments;
             var resolved = ConstructedInstance(
                 implementation,
-                typeArguments,
+                implementationTypeArguments,
                 methodArguments);
             instructions[index] = call with
             {

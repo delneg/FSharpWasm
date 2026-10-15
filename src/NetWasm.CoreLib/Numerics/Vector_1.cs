@@ -11,6 +11,7 @@ using System.Runtime.CompilerServices;
 
 namespace System.Numerics
 {
+    // TODO(netwasm-simd)
     public struct Vector<T> : IEquatable<Vector<T>>, IFormattable
     {
         private T[]? _elements;

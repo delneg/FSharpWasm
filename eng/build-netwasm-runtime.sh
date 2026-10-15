@@ -6,6 +6,7 @@ layout=""
 output=""
 target="wasm32"
 configuration="release"
+native_profile="size"
 force_component_collection=0
 output_kind="module"
 collector_output=""
@@ -19,6 +20,7 @@ while [[ $# -gt 0 ]]; do
         --output) output="$2"; shift 2 ;;
         --target) target="$2"; shift 2 ;;
         --configuration) configuration="$2"; shift 2 ;;
+        --native-profile) native_profile="$2"; shift 2 ;;
         --force-component-collection) force_component_collection=1; shift ;;
         --relocatable) output_kind="relocatable"; shift ;;
         --collector-output) collector_output="$2"; shift 2 ;;
@@ -29,8 +31,8 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-[[ "$collector" = boehm || "$collector" = tcms ]] || {
-    echo "collector must be 'boehm' or 'tcms'" >&2
+[[ "$collector" = boehm || "$collector" = tcms || "$collector" = netwasm || "$collector" = netwasm-next || "$collector" = bump ]] || {
+    echo "collector must be 'boehm', 'tcms', 'netwasm', 'netwasm-next' or 'bump'" >&2
     exit 2
 }
 
@@ -52,6 +54,20 @@ done
     echo "configuration must be 'debug' or 'release'" >&2
     exit 2
 }
+[[ "$native_profile" = size || "$native_profile" = speed ]] || {
+    echo "native profile must be 'size' or 'speed'" >&2
+    exit 2
+}
+[[ "$configuration" != debug || "$native_profile" = size ]] || {
+    echo "the speed native profile requires release configuration" >&2
+    exit 2
+}
+native_optimization=-Oz
+native_cmake_configuration=MinSizeRel
+if [[ "$native_profile" = speed ]]; then
+    native_optimization=-O3
+    native_cmake_configuration=Release
+fi
 
 for source in "${additional_sources[@]}"; do
     [[ -f "$source" ]] || { echo "missing additional runtime source" >&2; exit 2; }
@@ -130,18 +146,24 @@ const includeEphemerons = layout.runtimeFeatures === undefined ||
   layout.runtimeFeatures.includes("ephemeron-handles");
 const includeStructuredCommandDiagnostics = layout.runtimeFeatures === undefined ||
   layout.runtimeFeatures.includes("structured-command-diagnostics");
-process.stdout.write(`${layout.target}\n${runtimeGlobalBase}\n${includeEphemerons ? 1 : 0}\n${includeStructuredCommandDiagnostics ? 1 : 0}`);
+const includeFinalization = layout.runtimeFeatures === undefined ||
+  layout.runtimeFeatures.includes("finalization");
+process.stdout.write(
+  `${layout.target}\n${runtimeGlobalBase}\n${includeEphemerons ? 1 : 0}\n${includeStructuredCommandDiagnostics ? 1 : 0}\n${includeFinalization ? 1 : 0}`);
 NODE
 )"
 runtime_target="${runtime_layout_values%%$'\n'*}"
 runtime_layout_values="${runtime_layout_values#*$'\n'}"
 runtime_global_base="${runtime_layout_values%%$'\n'*}"
-include_ephemerons="${runtime_layout_values#*$'\n'}"
-include_structured_command_diagnostics="${include_ephemerons#*$'\n'}"
-include_ephemerons="${include_ephemerons%%$'\n'*}"
+runtime_layout_values="${runtime_layout_values#*$'\n'}"
+include_ephemerons="${runtime_layout_values%%$'\n'*}"
+runtime_layout_values="${runtime_layout_values#*$'\n'}"
+include_structured_command_diagnostics="${runtime_layout_values%%$'\n'*}"
+include_finalization="${runtime_layout_values#*$'\n'}"
 [[ "$runtime_target" = "$target" && "$runtime_global_base" =~ ^[0-9]+$ &&
    "$include_ephemerons" =~ ^[01]$ &&
-   "$include_structured_command_diagnostics" =~ ^[01]$ ]] || {
+   "$include_structured_command_diagnostics" =~ ^[01]$ &&
+   "$include_finalization" =~ ^[01]$ ]] || {
     echo "runtime layout contract validation failed" >&2
     exit 1
 }
@@ -179,6 +201,15 @@ actual_emscripten="$(emcc --version | sed -nE \
 }
 
 defines=()
+collector_defines=()
+if [[ "$collector" = tcms || "$collector" = netwasm || "$collector" = netwasm-next ]]; then
+    # Internal collector invariants stay checked in debug builds. Shipping
+    # assertion messages also retains libc's diagnostic formatting machinery.
+    # Public argument, overflow and allocation checks are ordinary code.
+    if [[ "$configuration" = release ]]; then
+        collector_defines+=(-DNDEBUG)
+    fi
+fi
 if [[ "$force_component_collection" = 1 ]]; then
     defines+=(-DNETWASM_FORCE_COMPONENT_COLLECTION)
 fi
@@ -252,7 +283,7 @@ collection_profile="ordinary"
 if [[ "$force_component_collection" = 1 ]]; then
     collection_profile="forced-component"
 fi
-build_root="$dependency_root/build-bdwgc-$gc_version-$emscripten_version-$target-$collection_profile"
+build_root="$dependency_root/build-bdwgc-$gc_version-$emscripten_version-$target-$collection_profile-$native_profile"
 defines=(-DSTACK_NOT_SCANNED -DSMALL_CONFIG -DGC_NO_DLOPEN
     -DGC_DONT_REGISTER_MAIN_STATIC_DATA -DNO_CLOCK -DNO_GETENV
     -DGC_DISABLE_INCREMENTAL)
@@ -266,7 +297,7 @@ fi
 dependency_cache_key="$(
     {
         printf '%s\n' "$gc_commit" "$emscripten_version" "$target" \
-            "$force_component_collection"
+            "$force_component_collection" "$native_profile"
         shasum -a 256 "$repo_root/eng/build-netwasm-runtime.sh"
     } | shasum -a 256 | cut -d' ' -f1
 )"
@@ -279,7 +310,8 @@ if [[ ! -f "$build_root/libgc.a" ||
       "$cached_dependency_key" != "$dependency_cache_key" ]]; then
     cmake -S "$gc_work" -B "$build_root" -G Ninja \
         -DCMAKE_TOOLCHAIN_FILE="$EMSDK/upstream/emscripten/cmake/Modules/Platform/Emscripten.cmake" \
-        -DCMAKE_BUILD_TYPE=MinSizeRel -DBUILD_SHARED_LIBS=OFF \
+        -DCMAKE_BUILD_TYPE="$native_cmake_configuration" -DBUILD_SHARED_LIBS=OFF \
+        -DCMAKE_C_FLAGS_MINSIZEREL=-DNDEBUG -DCMAKE_C_FLAGS_RELEASE=-DNDEBUG \
         -Dbuild_cord=OFF -Dbuild_tests=OFF -Denable_docs=OFF \
         -Denable_threads=OFF -Denable_parallel_mark=OFF \
         -Denable_thread_local_alloc=OFF -Denable_gcj_support=OFF \
@@ -287,7 +319,7 @@ if [[ ! -f "$build_root/libgc.a" ||
         -Denable_dynamic_loading=OFF -Denable_register_main_static_data=OFF \
         -Denable_munmap=OFF -Ddisable_handle_fork=ON -Ddisable_gc_debug=ON \
         -Denable_gc_assertions=OFF \
-        -DCMAKE_C_FLAGS="-Oz -flto${target_cflags:+ $target_cflags} ${defines[*]}" >/dev/null
+        -DCMAKE_C_FLAGS="$native_optimization -flto${target_cflags:+ $target_cflags} ${defines[*]}" >/dev/null
     node "$repo_root/src/NetWasm.Runtime.Pack/tools/relativize-ninja-source-root.mjs" \
         "$build_root/build.ninja" "$gc_work" "$build_root"
     cmake --build "$build_root" --target gc -j 8 >/dev/null
@@ -298,10 +330,19 @@ release_dependency_lock
 trap - EXIT INT TERM
 else
     defines+=('-DNETWASM_UNMANAGED_ALLOCATOR_BACKEND="unmanaged_allocator_libc.h"')
-    gc_work="$repo_root/src/NetWasm.Runtime/collector/compact"
+    if [[ "$collector" = tcms || "$collector" = netwasm ]]; then
+        gc_work="$repo_root/src/NetWasm.Runtime/collector/compact"
+    elif [[ "$collector" = netwasm-next ]]; then
+        gc_work="$repo_root/src/NetWasm.Runtime/collector/netwasm"
+    else
+        gc_work="$repo_root/src/NetWasm.Runtime/collector/bump"
+    fi
+fi
+if [[ "$include_finalization" = 0 ]]; then
+    defines+=(-DNETWASM_NO_FINALIZATION)
 fi
 
-optimization=(-Oz -flto)
+optimization=("$native_optimization" -flto)
 configuration_defines=()
 if [[ "$configuration" = debug ]]; then
     optimization=(-O0)
@@ -372,19 +413,54 @@ if [[ "$include_ephemerons" = 1 ]]; then
 fi
 collector_sources=()
 collector_archive=""
-if [[ "$collector" = tcms ]]; then
+if [[ "$collector" = tcms || "$collector" = netwasm ]]; then
     # Keep the existing collector interfaces and shared handle stores. Select
     # adapters at composition time, without runtime backend dispatch.
+    profile_work="$gc_work/profiles/compact"
+    if [[ "$collector" = netwasm ]]; then
+        profile_work="$gc_work/profiles/netwasm"
+    fi
     selected_sources=()
     for source in "${runtime_sources[@]}"; do
         case "$(basename "$source")" in
             boehm_identity_hash.c|boehm_reference_store.c|boehm_pinning.c) ;;
-            boehm_*.c) source="${source%/*}/tcms_${source##*/boehm_}" ;;
+            boehm_*.c) source="$profile_work/tcms_${source##*/boehm_}" ;;
         esac
         selected_sources+=("$source")
     done
     runtime_sources=("${selected_sources[@]}")
-    collector_sources=("$gc_work/tcms.c" "$gc_work/tcms_lifetime.c")
+    collector_sources=(
+      "$profile_work/gc.c"
+      "$profile_work/lifetime.c"
+      "$profile_work/allocator.c"
+    )
+elif [[ "$collector" = netwasm-next ]]; then
+    selected_sources=()
+    for source in "${runtime_sources[@]}"; do
+        case "$(basename "$source")" in
+            boehm_*.c) source="$gc_work/${source##*/boehm_}" ;;
+        esac
+        selected_sources+=("$source")
+    done
+    runtime_sources=("${selected_sources[@]}")
+    collector_sources=(
+      "$gc_work/netwasm_gc.c"
+      "$gc_work/lifetime.c"
+    )
+elif [[ "$collector" = bump ]]; then
+    defines+=(-DNETWASM_BUMP_COLLECTOR)
+    selected_sources=()
+    for source in "${runtime_sources[@]}"; do
+        case "$(basename "$source")" in
+            boehm_identity_hash.c|boehm_reference_store.c|boehm_pinning.c)
+                selected_sources+=("$source") ;;
+            boehm_*.c) ;;
+            *) selected_sources+=("$source") ;;
+        esac
+    done
+    selected_sources+=("$repo_root/src/NetWasm.Runtime/collector/bump_runtime.c")
+    runtime_sources=("${selected_sources[@]}")
+    collector_sources=("$gc_work/bump_arena.c")
 else
     collector_archive="$build_root/libgc.a"
 fi
@@ -407,7 +483,7 @@ if [[ "$output_kind" = relocatable ]]; then
             cd "$repo_root"
             emcc "$relative_source" -c -I"$repo_root/src/NetWasm.Runtime" -I"$gc_work/include" -I"$gc_work" \
                 -I"$libc_internal_include" -I"$libc_arch_include" -I"$libc_source_include" \
-                "${defines[@]}" "${configuration_defines[@]}" \
+                "${defines[@]}" "${configuration_defines[@]}" "${collector_defines[@]}" \
                 -DNETWASM_RUNTIME_PACK \
                 "${target_args[@]}" "${optimization[@]}" \
                 "${debug_information[@]}" -o "$object"
@@ -416,11 +492,11 @@ if [[ "$output_kind" = relocatable ]]; then
     done
     emar rcs "$output" "${runtime_objects[@]}"
     mkdir -p "$(dirname "$collector_output")"
-    if [[ "$collector" = tcms ]]; then
+    if [[ "$collector" = tcms || "$collector" = netwasm || "$collector" = netwasm-next || "$collector" = bump ]]; then
         collector_objects=()
         for source in "${collector_sources[@]}"; do
             object="$archive_work/collector-$(basename "${source%.c}").o"
-            emcc "$source" -c "${target_args[@]}" "${optimization[@]}" \
+            emcc "$source" -c "${target_args[@]}" "${optimization[@]}" "${collector_defines[@]}" \
                 "${debug_information[@]}" -o "$object"
             collector_objects+=("$object")
         done
@@ -435,7 +511,7 @@ else
       "${runtime_sources[@]}"
       "${collector_sources[@]}"
       -I"$repo_root/src/NetWasm.Runtime" -I"$gc_work/include" -I"$gc_work" -I"$libc_internal_include" -I"$libc_arch_include"
-      -I"$libc_source_include" "${defines[@]}" "${configuration_defines[@]}"
+      -I"$libc_source_include" "${defines[@]}" "${configuration_defines[@]}" "${collector_defines[@]}"
     )
     if [[ -n "$collector_archive" ]]; then emcc_args+=("$collector_archive"); fi
     if [[ "$target" = wasm64 ]]; then

@@ -7,6 +7,38 @@ namespace NetWasm.Compiler.ControlFlow.Tests.Structuring;
 
 public sealed class ExceptionGroupStructurerCoverageTests
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void OnlyBuildsGroupsWithReachableProtectedCode(bool includeLiveGroup)
+    {
+        var regions = ImmutableArray.Create(
+            new CilExceptionRegion(CilExceptionRegionKind.Finally, 1, 1, 2, 1, null, null),
+            new CilExceptionRegion(CilExceptionRegionKind.Finally, 6, 1, 7, 1, null, null));
+        var state = CreateState(regions, includeLiveGroup ? [0, 6, 7, 9] : [0, 9]);
+        var ranges = new EmptyBlockRangeStructurer();
+        var structurer = Assert.IsAssignableFrom<IExceptionGroupStructurer>(new ExceptionGroupStructurer(
+            new ExceptionScopeFinder(),
+            new RecordingContinuationDispatcherBuilder(),
+            new UnusedLoopContinuationBuilder(),
+            new NonNestedFlowClassifier(),
+            ranges,
+            new FixedNormalLeaveTargetFinder([])));
+
+        var groups = structurer.Structure(state, regions);
+
+        Assert.Equal(includeLiveGroup ? 1 : 0, groups.Length);
+        Assert.Equal(includeLiveGroup ? 2 : 0, ranges.Starts.Count);
+        if (includeLiveGroup)
+        {
+            Assert.Equal(6, Assert.Single(groups).TryOffset);
+            Assert.Collection(ranges.Starts,
+                start => Assert.Equal(6, start),
+                start => Assert.Equal(7, start));
+        }
+        Assert.Equal(regions, state.Graph.MethodBody.ExceptionRegions);
+    }
+
     [Fact]
     public void IrreducibleControlFlowErrorsRetainTheMethodAndReason()
     {
@@ -93,7 +125,8 @@ public sealed class ExceptionGroupStructurerCoverageTests
     }
 
     private static ControlFlowStructuringState CreateState(
-        ImmutableArray<CilExceptionRegion> regions)
+        ImmutableArray<CilExceptionRegion> regions,
+        ImmutableHashSet<int>? reachable = null)
     {
         var instructions = Enumerable.Range(0, 10)
             .Select(offset => new CilInstruction(
@@ -126,7 +159,7 @@ public sealed class ExceptionGroupStructurerCoverageTests
             emptyEdges,
             emptyEdges,
             emptyEdges,
-            blocks.Select(block => block.Index).ToImmutableHashSet());
+            reachable ?? blocks.Select(block => block.Index).ToImmutableHashSet());
         return new ControlFlowStructuringState(new ValidatedControlFlowGraph(
             graph,
             ImmutableDictionary<int, ImmutableArray<CliValueKind>>.Empty,
@@ -180,10 +213,16 @@ public sealed class ExceptionGroupStructurerCoverageTests
 
     private sealed class EmptyBlockRangeStructurer : IBlockRangeStructurer
     {
+        public List<int> Starts { get; } = [];
+
         public StructuredSequenceDraft Structure(
             ControlFlowStructuringState state,
             int offset,
-            int length) => StructuredSequenceDraft.Empty;
+            int length)
+        {
+            Starts.Add(offset);
+            return StructuredSequenceDraft.Empty;
+        }
     }
 
     private sealed class FixedNormalLeaveTargetFinder(int[] targets) :

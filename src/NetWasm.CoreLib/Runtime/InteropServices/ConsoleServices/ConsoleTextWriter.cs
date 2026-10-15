@@ -5,18 +5,12 @@ namespace System.Runtime.InteropServices.ConsoleServices;
 
 internal sealed class ConsoleTextWriter : TextWriter
 {
-    private readonly IConsoleIntegerLineFormatter _integerFormatter;
-    private readonly IConsoleStringLineFormatter _stringFormatter;
-    private readonly IConsoleOutputStreamSource _streamSource;
+    private readonly IPlatformOutputStream _output;
+    private bool _disposed;
 
-    internal ConsoleTextWriter(
-        IConsoleIntegerLineFormatter integerFormatter,
-        IConsoleStringLineFormatter stringFormatter,
-        IConsoleOutputStreamSource streamSource)
+    internal ConsoleTextWriter(IPlatformOutputStream output)
     {
-        _integerFormatter = integerFormatter ?? throw new ArgumentNullException();
-        _stringFormatter = stringFormatter ?? throw new ArgumentNullException();
-        _streamSource = streamSource ?? throw new ArgumentNullException();
+        _output = output ?? throw new ArgumentNullException();
     }
 
     public override Encoding Encoding => Encoding.UTF8;
@@ -39,9 +33,21 @@ internal sealed class ConsoleTextWriter : TextWriter
         }
     }
 
-    public override void WriteLine(int value) => WriteBytes(_integerFormatter.Format(value));
+    public override void WriteLine(int value) =>
+        Write(value.ToString(FormatProvider) + NewLine);
 
-    public override void WriteLine(string? value) => WriteBytes(_stringFormatter.Format(value));
+    public override void WriteLine(string? value) => Write((value ?? string.Empty) + NewLine);
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing && !_disposed)
+        {
+            _disposed = true;
+            _output.Dispose();
+        }
+
+        base.Dispose(disposing);
+    }
 
     private void WriteBytes(byte[] contents)
     {
@@ -50,7 +56,6 @@ internal sealed class ConsoleTextWriter : TextWriter
             return;
         }
 
-        using var output = _streamSource.Open();
-        output.WriteBlocking(contents);
+        _output.WriteBlocking(contents);
     }
 }

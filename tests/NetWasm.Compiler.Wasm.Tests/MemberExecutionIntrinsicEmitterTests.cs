@@ -11,6 +11,31 @@ namespace NetWasm.Compiler.Wasm.Tests;
 
 public sealed class MemberExecutionIntrinsicEmitterTests
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void InitializesTheSelectedValueDispatchTargetBeforeUnboxingAndCalling(bool memory64)
+    {
+        var fixture = new ExpressionIntrinsicEmissionFixture(memory64);
+        var descriptor = Method("Read", CliValueKind.I4, Type("IRead"), isVirtual: true);
+        var target = Method("ValueRead", CliValueKind.I4, Type("Value", valueType: true));
+        var reference = Method("ReferenceRead", CliValueKind.I4, Type("Reference"));
+        fixture.InitializationTriggers.Add(target.Definition);
+        var request = fixture.Request(RuntimeIntrinsic.MemberExecuteMethod,
+            members: Members(descriptor, true,
+                [new(target.DeclaringType, target), new(reference.DeclaringType, reference)]));
+
+        Create(fixture).Emit(request, fixture.Writer);
+
+        var initialization = Assert.Single(fixture.Initialization.Requests);
+        Assert.Equal(target.DeclaringType, initialization.DeclaringType);
+        Assert.True(initialization.IsMethodInvocation);
+        var before = Assert.Single(fixture.Initialization.InstructionCounts);
+        Assert.Equal(WasmOpcodes.If, fixture.Code[before - 1].Opcode);
+        Assert.Equal(WasmOpcodes.LocalGet, fixture.Code[before].Opcode);
+        Assert.Same(request.FunctionIndices, Assert.Single(fixture.Initialization.FunctionResolvers));
+    }
+
     public static TheoryData<bool, bool, CliValueKind> NullableResults
     {
         get
@@ -157,6 +182,7 @@ public sealed class MemberExecutionIntrinsicEmitterTests
     [InlineData("nullableTypes")]
     [InlineData("nullableBoxes")]
     [InlineData("valueFrames")]
+    [InlineData("initializationTriggers")]
     public void ConstructorRejectsMissingDependency(string dependency)
     {
         var fixture = new ExpressionIntrinsicEmissionFixture(false);
@@ -317,7 +343,7 @@ public sealed class MemberExecutionIntrinsicEmitterTests
         var initialization = Assert.Single(fixture.Initialization.Requests);
         Assert.Equal(method.Definition.DeclaringType, initialization.TypeDefinition);
         Assert.Equal(method.DeclaringType, initialization.DeclaringType);
-        Assert.True(initialization.IsStaticMethodCall);
+        Assert.True(initialization.IsMethodInvocation);
         Assert.Same(
             request.FunctionIndices,
             Assert.Single(fixture.Initialization.FunctionResolvers));
@@ -899,5 +925,6 @@ public sealed class MemberExecutionIntrinsicEmitterTests
         missing == "roots" ? null! : fixture.Roots,
         missing == "nullableTypes" ? null! : fixture,
         missing == "nullableBoxes" ? null! : fixture,
-        missing == "valueFrames" ? null! : fixture);
+        missing == "valueFrames" ? null! : fixture,
+        missing == "initializationTriggers" ? null! : fixture);
 }

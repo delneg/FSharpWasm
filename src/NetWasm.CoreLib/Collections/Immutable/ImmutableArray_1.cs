@@ -913,7 +913,9 @@ namespace System.Collections.Immutable
         /// <param name="start">The index at which to begin the span.</param>
         /// <param name="length">The number of items in the span.</param>
         /// <returns>The <see cref="ReadOnlySpan{T}"/> representation of the <see cref="ImmutableArray{T}"/></returns>
-        public ReadOnlySpan<T> AsSpan(int start, int length) => new ReadOnlySpan<T>(array!, start, length);
+#pragma warning disable CS8604 // Match the pinned implementation; a default array throws from the span constructor.
+        public ReadOnlySpan<T> AsSpan(int start, int length) => new ReadOnlySpan<T>(array, start, length);
+#pragma warning restore CS8604
 
         /// <summary>
         /// Copies the elements of current <see cref="ImmutableArray{T}"/> to an <see cref="Span{T}"/>.

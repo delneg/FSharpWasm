@@ -17,25 +17,32 @@ namespace System
                 _length = 0;
                 return;
             }
+            if (!typeof(T).IsValueType && array.GetType() != typeof(T[]))
+            {
+                throw new ArrayTypeMismatchException();
+            }
             _reference = ref MemoryMarshal.GetArrayDataReference(array);
             _length = array.Length;
         }
 
-        public Span(T[] array, int start, int length)
+        public Span(T[]? array, int start, int length)
         {
             if (array == null)
             {
-                throw new ArgumentNullException();
+                if (start != 0 || length != 0)
+                {
+                    throw new ArgumentOutOfRangeException();
+                }
+                _reference = ref Unsafe.NullRef<T>();
+                _length = 0;
+                return;
             }
-            if (start < 0)
+            if (!typeof(T).IsValueType && array.GetType() != typeof(T[]))
             {
-                throw new ArgumentOutOfRangeException();
+                throw new ArrayTypeMismatchException();
             }
-            if (length < 0)
-            {
-                throw new ArgumentOutOfRangeException();
-            }
-            if (start > array.Length - length)
+            if ((uint)start > (uint)array.Length ||
+                (uint)length > (uint)(array.Length - start))
             {
                 throw new ArgumentOutOfRangeException();
             }
@@ -46,6 +53,10 @@ namespace System
 
         public unsafe Span(void* pointer, int length)
         {
+            if (RuntimeHelpers.IsReferenceOrContainsReferences<T>())
+            {
+                throw new ArgumentException();
+            }
             if (length < 0)
             {
                 throw new ArgumentOutOfRangeException();
@@ -108,10 +119,11 @@ namespace System
         }
 
         public static bool operator ==(Span<T> left, Span<T> right) =>
-            throw new PlatformNotSupportedException();
+            left._length == right._length &&
+            Unsafe.AreSame(ref left._reference, ref right._reference);
 
         public static bool operator !=(Span<T> left, Span<T> right) =>
-            throw new PlatformNotSupportedException();
+            !(left == right);
 
         public override bool Equals(object? value) =>
             throw new NotSupportedException();
@@ -215,30 +227,30 @@ namespace System
 
         public void CopyTo(Span<T> destination)
         {
-            if (_length > destination._length)
+            if ((uint)_length <= (uint)destination._length)
             {
-                throw new ArgumentException();
+                Buffer.Memmove(
+                    ref destination._reference,
+                    ref _reference,
+                    _length);
+                return;
             }
-            var temporary = new T[_length];
-            for (var index = 0; index < _length; index++)
-            {
-                temporary[index] = Unsafe.Add(ref _reference, index);
-            }
-            for (var index = 0; index < _length; index++)
-            {
-                Unsafe.Add(ref destination._reference, index) =
-                    temporary[index];
-            }
+
+            throw new ArgumentException();
         }
 
         public bool TryCopyTo(Span<T> destination)
         {
-            if (_length > destination._length)
+            if ((uint)_length <= (uint)destination._length)
             {
-                return false;
+                Buffer.Memmove(
+                    ref destination._reference,
+                    ref _reference,
+                    _length);
+                return true;
             }
-            CopyTo(destination);
-            return true;
+
+            return false;
         }
 
         public T[] ToArray()

@@ -42,8 +42,8 @@ public sealed class FrameworkName : IEquatable<FrameworkName?>
         get
         {
             _fullName ??= string.IsNullOrEmpty(Profile)
-                ? $"{Identifier}, Version=v{Version}"
-                : $"{Identifier}, Version=v{Version}, Profile={Profile}";
+                ? $"{Identifier},Version=v{Version}"
+                : $"{Identifier},Version=v{Version},Profile={Profile}";
             return _fullName;
         }
     }
@@ -78,31 +78,18 @@ public sealed class FrameworkName : IEquatable<FrameworkName?>
     public FrameworkName(string frameworkName)
     {
         ArgumentException.ThrowIfNullOrEmpty(frameworkName);
-        var parts = new string[4];
-        var count = 0;
-        var start = 0;
-        for (var index = 0; index <= frameworkName.Length; index++)
-        {
-            if (index != frameworkName.Length && frameworkName[index] != ComponentSeparator)
-            {
-                continue;
-            }
-
-            if (count == parts.Length)
-            {
-                throw InvalidFrameworkName(frameworkName);
-            }
-
-            parts[count++] = frameworkName.Substring(start, index - start);
-            start = index + 1;
-        }
-
-        if (count is not (2 or 3))
+        ReadOnlySpan<char> frameworkNameSpan = frameworkName;
+        Span<Range> components = stackalloc Range[4];
+        Span<char> componentSeparator = stackalloc char[1];
+        componentSeparator[0] = ComponentSeparator;
+        var componentCount = frameworkNameSpan.Split(components, componentSeparator);
+        if (componentCount is not (2 or 3))
         {
             throw InvalidFrameworkName(frameworkName);
         }
+        components = components.Slice(0, componentCount);
 
-        _identifier = parts[0].Trim();
+        _identifier = CreateString(frameworkNameSpan[components[0]].Trim());
         if (_identifier.Length == 0)
         {
             throw InvalidFrameworkName(frameworkName);
@@ -111,39 +98,32 @@ public sealed class FrameworkName : IEquatable<FrameworkName?>
         _profile = string.Empty;
         _version = null!;
         var versionFound = false;
-        for (var index = 1; index < count; index++)
+        for (var index = 1; index < components.Length; index++)
         {
-            var component = parts[index].AsSpan();
-            var separator = component.IndexOf(KeyValueSeparator);
-            if (separator < 0 || separator != component.LastIndexOf(KeyValueSeparator))
+            var component = frameworkNameSpan[components[index]];
+            var separatorIndex = component.IndexOf(KeyValueSeparator);
+            if (separatorIndex < 0 || separatorIndex != component.LastIndexOf(KeyValueSeparator))
             {
                 throw InvalidFrameworkName(frameworkName);
             }
 
-            var key = component[..separator].Trim().ToString();
-            var value = component[(separator + 1)..].Trim().ToString();
-            if (string.Equals(key, VersionKey, StringComparison.OrdinalIgnoreCase))
+            var key = component[..separatorIndex].Trim();
+            var value = component[(separatorIndex + 1)..].Trim();
+            if (key.Equals(VersionKey, StringComparison.OrdinalIgnoreCase))
             {
                 versionFound = true;
                 if (value.Length > 0 && (value[0] == VersionValuePrefix || value[0] == 'V'))
                 {
-                    value = value.Substring(1);
+                    value = value[1..];
                 }
 
-                try
-                {
-                    _version = Version.Parse(value);
-                }
-                catch (Exception exception)
-                {
-                    throw new ArgumentException("Framework name contains an invalid version.", nameof(frameworkName), exception);
-                }
+                _version = ParseVersion(value, frameworkName);
             }
-            else if (string.Equals(key, ProfileKey, StringComparison.OrdinalIgnoreCase))
+            else if (key.Equals(ProfileKey, StringComparison.OrdinalIgnoreCase))
             {
                 if (value.Length > 0)
                 {
-                    _profile = value;
+                    _profile = CreateString(value);
                 }
             }
             else
@@ -155,6 +135,30 @@ public sealed class FrameworkName : IEquatable<FrameworkName?>
         if (!versionFound)
         {
             throw new ArgumentException("Framework name is missing its Version component.", nameof(frameworkName));
+        }
+    }
+
+    private static string CreateString(ReadOnlySpan<char> value)
+    {
+        if (value.IsEmpty)
+        {
+            return string.Empty;
+        }
+
+        var result = new string('\0', value.Length);
+        value.CopyTo(new Span<char>(ref result.GetRawStringData(), result.Length));
+        return result;
+    }
+
+    private static Version ParseVersion(ReadOnlySpan<char> value, string frameworkName)
+    {
+        try
+        {
+            return Version.Parse(value);
+        }
+        catch (Exception exception)
+        {
+            throw new ArgumentException("Framework name contains an invalid version.", nameof(frameworkName), exception);
         }
     }
 

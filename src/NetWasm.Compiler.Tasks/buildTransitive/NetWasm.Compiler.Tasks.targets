@@ -61,6 +61,17 @@
     <NetWasmStructuredDiagnostics Condition="'$(NetWasmStructuredDiagnostics)' == '' AND '$(Configuration)' == 'Debug'">true</NetWasmStructuredDiagnostics>
     <NetWasmStructuredDiagnostics Condition="'$(NetWasmStructuredDiagnostics)' == ''">false</NetWasmStructuredDiagnostics>
     <NetWasmOptimization Condition="'$(NetWasmOptimization)' == ''">Oz</NetWasmOptimization>
+    <NetWasmManagedInliningHints Condition="'$(NetWasmManagedInliningHints)' == ''">Auto</NetWasmManagedInliningHints>
+    <NetWasmManagedLoopInvariantFieldHoisting Condition="'$(NetWasmManagedLoopInvariantFieldHoisting)' == ''">Auto</NetWasmManagedLoopInvariantFieldHoisting>
+    <NetWasmManagedStaticDataViewElimination Condition="'$(NetWasmManagedStaticDataViewElimination)' == ''">Auto</NetWasmManagedStaticDataViewElimination>
+    <NetWasmManagedAddressTakenValuePromotion Condition="'$(NetWasmManagedAddressTakenValuePromotion)' == ''">Auto</NetWasmManagedAddressTakenValuePromotion>
+    <NetWasmManagedMethodInlining Condition="'$(NetWasmManagedMethodInlining)' == ''">Auto</NetWasmManagedMethodInlining>
+    <NetWasmManagedBranchPrefixDuplication Condition="'$(NetWasmManagedBranchPrefixDuplication)' == ''">Auto</NetWasmManagedBranchPrefixDuplication>
+    <NetWasmManagedScalarCallPreservation Condition="'$(NetWasmManagedScalarCallPreservation)' == ''">Auto</NetWasmManagedScalarCallPreservation>
+    <NetWasmManagedArrayBoundsCheckElimination Condition="'$(NetWasmManagedArrayBoundsCheckElimination)' == ''">Auto</NetWasmManagedArrayBoundsCheckElimination>
+    <NetWasmManagedLoopUnrolling Condition="'$(NetWasmManagedLoopUnrolling)' == ''">Auto</NetWasmManagedLoopUnrolling>
+    <NetWasmManagedConstantArgumentPropagation Condition="'$(NetWasmManagedConstantArgumentPropagation)' == ''">Auto</NetWasmManagedConstantArgumentPropagation>
+    <NetWasmManagedStaticArrayPopulationElimination Condition="'$(NetWasmManagedStaticArrayPopulationElimination)' == ''">Auto</NetWasmManagedStaticArrayPopulationElimination>
     <_NetWasmCanonicalOptimization Condition="'$(_NetWasmCanonicalOptimization)' == ''">$(NetWasmOptimization)</_NetWasmCanonicalOptimization>
     <NetWasmTarget Condition="'$(NetWasmTarget)' == ''">wasm32</NetWasmTarget>
     <NetWasmIntermediateOutputPath Condition="'$(NetWasmIntermediateOutputPath)' == ''">$(IntermediateOutputPath)netwasm\$(NetWasmTarget)\</NetWasmIntermediateOutputPath>
@@ -162,6 +173,17 @@
       <_NetWasmCompilationIdentityLine Include="wit=$(_NetWasmCompilerWitPath)" />
       <_NetWasmCompilationIdentityLine Include="world=$(NetWasmCompilerWitWorld)" />
       <_NetWasmCompilationIdentityLine Include="stackTrace=$(NetWasmManagedStackTrace)" />
+      <_NetWasmCompilationIdentityLine Include="optimization=$(_NetWasmCanonicalOptimization)" />
+      <_NetWasmCompilationIdentityLine Include="managedLoopInvariantFieldHoisting=$(NetWasmManagedLoopInvariantFieldHoisting)" />
+      <_NetWasmCompilationIdentityLine Include="managedStaticDataViewElimination=$(NetWasmManagedStaticDataViewElimination)" />
+      <_NetWasmCompilationIdentityLine Include="managedAddressTakenValuePromotion=$(NetWasmManagedAddressTakenValuePromotion)" />
+      <_NetWasmCompilationIdentityLine Include="managedMethodInlining=$(NetWasmManagedMethodInlining)" />
+      <_NetWasmCompilationIdentityLine Include="managedBranchPrefixDuplication=$(NetWasmManagedBranchPrefixDuplication)" />
+      <_NetWasmCompilationIdentityLine Include="managedScalarCallPreservation=$(NetWasmManagedScalarCallPreservation)" />
+      <_NetWasmCompilationIdentityLine Include="managedArrayBoundsCheckElimination=$(NetWasmManagedArrayBoundsCheckElimination)" />
+      <_NetWasmCompilationIdentityLine Include="managedLoopUnrolling=$(NetWasmManagedLoopUnrolling)" />
+      <_NetWasmCompilationIdentityLine Include="managedConstantArgumentPropagation=$(NetWasmManagedConstantArgumentPropagation)" />
+      <_NetWasmCompilationIdentityLine Include="managedStaticArrayPopulationElimination=$(NetWasmManagedStaticArrayPopulationElimination)" />
       <_NetWasmCompilationIdentityLine Include="pathMap=$(PathMap)" />
       <_NetWasmPortablePdbCandidate Remove="@(_NetWasmPortablePdbCandidate)" />
       <_NetWasmPortablePdbInput Remove="@(_NetWasmPortablePdbInput)" />
@@ -241,6 +263,16 @@
                         EmitStackTrace="$(NetWasmManagedStackTrace)"
                         StructuredDiagnostics="$(NetWasmStructuredDiagnostics)"
                         Optimization="$(_NetWasmCanonicalOptimization)"
+                        ManagedLoopInvariantFieldHoisting="$(NetWasmManagedLoopInvariantFieldHoisting)"
+                        ManagedStaticDataViewElimination="$(NetWasmManagedStaticDataViewElimination)"
+                        ManagedAddressTakenValuePromotion="$(NetWasmManagedAddressTakenValuePromotion)"
+                        ManagedMethodInlining="$(NetWasmManagedMethodInlining)"
+                        ManagedBranchPrefixDuplication="$(NetWasmManagedBranchPrefixDuplication)"
+                        ManagedScalarCallPreservation="$(NetWasmManagedScalarCallPreservation)"
+                        ManagedArrayBoundsCheckElimination="$(NetWasmManagedArrayBoundsCheckElimination)"
+                        ManagedLoopUnrolling="$(NetWasmManagedLoopUnrolling)"
+                        ManagedConstantArgumentPropagation="$(NetWasmManagedConstantArgumentPropagation)"
+                        ManagedStaticArrayPopulationElimination="$(NetWasmManagedStaticArrayPopulationElimination)"
                         NoLogo="$(NoLogo)"
                         ExceptionTypeMapPath="$(NetWasmExceptionTypeMapPath)"
                         StackTraceSymbolsPath="$(NetWasmStackTraceSymbolsPath)">
@@ -258,7 +290,8 @@
     <ItemGroup>
       <_NetWasmPackagingIdentityLine Remove="@(_NetWasmPackagingIdentityLine)" />
       <_NetWasmPackagingIdentityLine Include="optimization=$(_NetWasmCanonicalOptimization)" />
-      <_NetWasmPackagingIdentityLine Include="packagingPolicyRevision=2" />
+      <_NetWasmPackagingIdentityLine Include="managedInliningHints=$(NetWasmManagedInliningHints)" />
+      <_NetWasmPackagingIdentityLine Include="packagingPolicyRevision=4" />
       <_NetWasmPackagingIdentityLine Include="target=$(NetWasmTarget)" />
       <_NetWasmPackagingIdentityLine Include="worker=$(_NetWasmWorkerKind)" />
       <_NetWasmPackagingIdentityLine Include="raw=$(NetWasmRawWasm)" />
@@ -335,6 +368,7 @@
                              JcoVersion="$(NetWasmJcoVersion)"
                              Preview2ShimVersion="$(NetWasmPreview2ShimVersion)"
                              Optimization="$(_NetWasmCanonicalOptimization)"
+                             ManagedInliningHints="$(NetWasmManagedInliningHints)"
                              StructuredDiagnostics="$(NetWasmStructuredDiagnostics)">
       <Output TaskParameter="Components" ItemName="_NetWasmBuiltComponent" />
       <Output TaskParameter="SelectedWitPath" PropertyName="NetWasmSelectedWitPath" />
@@ -369,6 +403,7 @@
                               NativeBinaryenWasmOptPath="$(NetWasmNativeBinaryenWasmOptPath)"
                               NativeBinaryenWasmMergePath="$(NetWasmNativeBinaryenWasmMergePath)"
                               Target="$(NetWasmTarget)"
+                              ManagedInliningHints="$(NetWasmManagedInliningHints)"
                               Optimization="$(_NetWasmCanonicalOptimization)">
       <Output TaskParameter="Modules" ItemName="_NetWasmBuiltRawModule" />
     </NetWasmLinkRawModuleTask>

@@ -5,6 +5,7 @@ using NetWasm.Compiler.Core;
 using NetWasm.Compiler.Wasm.Emission.Methods;
 using NetWasm.Compiler.Wasm.Emission.Instructions.Runtime;
 using NetWasm.Compiler.Wasm.Emission.Support;
+using NetWasm.Compiler.Wasm.Emission.Arrays;
 
 namespace NetWasm.Compiler.Wasm.Emission.Instructions.Objects;
 
@@ -18,7 +19,9 @@ internal sealed class ArrayInstructionEmitter(
     IRuntimeImportResolver runtimeImports,
     IImplicitExceptionEmitter exceptions,
     IRootPublicationEmitter roots,
-    IArrayLengthAdapter lengths) :
+    IArrayLengthAdapter lengths,
+    IArrayIndexAdapter indexes,
+    IArrayElementAddressEmitter elementAddresses) :
     InstructionCommandProvider
 {
     public override ImmutableArray<InstructionCommand> Commands =>
@@ -102,8 +105,16 @@ internal sealed class ArrayInstructionEmitter(
             arraySlot,
             CliValueKind.ManagedReference);
         EmitNullCheck(code, arrayLocal);
-        code.Write(WasmInstruction.WithOperand(WasmOpcodes.LocalGet, WasmInstructionOperand.Unsigned((uint)(arrayLocal))));
-        code.Write(WasmInstruction.WithOperand(WasmOpcodes.I32Load, WasmInstructionOperand.Memory(2, (uint)(objects.ArrayLengthOffset))));
+        if (request.Context.ArrayMetadata.Plan.Accesses.TryGetValue(request.Instruction.Offset, out var slot))
+        {
+            code.Write(WasmInstruction.WithOperand(WasmOpcodes.LocalGet,
+                WasmInstructionOperand.Unsigned((uint)request.Context.ArrayMetadata.Slots[slot].Length)));
+        }
+        else
+        {
+            code.Write(WasmInstruction.WithOperand(WasmOpcodes.LocalGet, WasmInstructionOperand.Unsigned((uint)(arrayLocal))));
+            code.Write(WasmInstruction.WithOperand(WasmOpcodes.I32Load, WasmInstructionOperand.Memory(2, (uint)(objects.ArrayLengthOffset))));
+        }
         code.Write(WasmInstruction.WithOperand(WasmOpcodes.LocalSet, WasmInstructionOperand.Unsigned((uint)(GetStackLocal(
             request.Context,
             arraySlot,
@@ -118,14 +129,14 @@ internal sealed class ArrayInstructionEmitter(
             request.Context,
             arraySlot,
             CliValueKind.ManagedReference);
-        var indexLocal = GetStackLocal(
-            request.Context,
-            arraySlot + 1,
-            CliValueKind.I4);
-        EmitBoundsCheck(code, arrayLocal, indexLocal);
-        ManagedMemoryEmitter.EmitArrayElementAddress(
+        var indexLocal = indexes.Adapt(
+            request,
             code,
-            layouts.Target,
+            arrayLocal,
+            arraySlot + 1);
+        elementAddresses.Emit(
+            request,
+            code,
             arrayLocal,
             indexLocal,
             layouts.Target.ObjectReferenceSize);
@@ -149,19 +160,19 @@ internal sealed class ArrayInstructionEmitter(
             request.Context,
             arraySlot,
             CliValueKind.ManagedReference);
-        var indexLocal = GetStackLocal(
-            request.Context,
-            arraySlot + 1,
-            CliValueKind.I4);
+        var indexLocal = indexes.Adapt(
+            request,
+            code,
+            arrayLocal,
+            arraySlot + 1);
         var valueLocal = GetStackLocal(
             request.Context,
             arraySlot + 2,
             CliValueKind.ManagedReference);
-        EmitBoundsCheck(code, arrayLocal, indexLocal);
         EmitReferenceStoreTypeCheck(code, arrayLocal, valueLocal);
-        ManagedMemoryEmitter.EmitArrayElementAddress(
+        elementAddresses.Emit(
+            request,
             code,
-            layouts.Target,
             arrayLocal,
             indexLocal,
             layouts.Target.ObjectReferenceSize);
@@ -203,12 +214,23 @@ internal sealed class ArrayInstructionEmitter(
             request.Context,
             arraySlot,
             CliValueKind.ManagedReference);
-        var indexLocal = GetStackLocal(
-            request.Context,
-            arraySlot + 1,
-            CliValueKind.I4);
-        EmitBoundsCheck(code, arrayLocal, indexLocal);
-        if (elementType.StackKind == CliValueKind.ValueType)
+        var indexLocal = indexes.Adapt(
+            request,
+            code,
+            arrayLocal,
+            arraySlot + 1);
+        if (elementType.StackKind == CliValueKind.ValueType &&
+            request.Context.ValueLayout.DirectValueLoadOffsets.Contains(
+                request.Instruction.Offset))
+        {
+            elementAddresses.Emit(
+                request,
+                code,
+                arrayLocal,
+                indexLocal,
+                elementSize);
+        }
+        else if (elementType.StackKind == CliValueKind.ValueType)
         {
             var offset = request.Context.ValueLayout.TemporaryOffsets[
                 request.Instruction.Offset];
@@ -219,9 +241,9 @@ internal sealed class ArrayInstructionEmitter(
                 addresses.Emit(code, AddressOperation.Add);
             }
             code.Write(WasmInstruction.WithOperand(WasmOpcodes.LocalTee, WasmInstructionOperand.Unsigned((uint)(request.Context.ObjectTemporary))));
-            ManagedMemoryEmitter.EmitArrayElementAddress(
+            elementAddresses.Emit(
+                request,
                 code,
-                layouts.Target,
                 arrayLocal,
                 indexLocal,
                 elementSize);
@@ -231,9 +253,9 @@ internal sealed class ArrayInstructionEmitter(
         }
         else
         {
-            ManagedMemoryEmitter.EmitArrayElementAddress(
+            elementAddresses.Emit(
+                request,
                 code,
-                layouts.Target,
                 arrayLocal,
                 indexLocal,
                 elementSize);
@@ -261,11 +283,11 @@ internal sealed class ArrayInstructionEmitter(
             request.Context,
             arraySlot,
             CliValueKind.ManagedReference);
-        var indexLocal = GetStackLocal(
-            request.Context,
-            arraySlot + 1,
-            CliValueKind.I4);
-        EmitBoundsCheck(code, arrayLocal, indexLocal);
+        var indexLocal = indexes.Adapt(
+            request,
+            code,
+            arrayLocal,
+            arraySlot + 1);
         if (elementType.StackKind == CliValueKind.ManagedReference &&
             !HasReadonlyPrefix(request))
         {
@@ -289,9 +311,9 @@ internal sealed class ArrayInstructionEmitter(
             exceptions.Emit(code, ManagedExceptionKind.ArrayTypeMismatch);
             code.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
         }
-        ManagedMemoryEmitter.EmitArrayElementAddress(
+        elementAddresses.Emit(
+            request,
             code,
-            layouts.Target,
             arrayLocal,
             indexLocal,
             elementSize);
@@ -312,22 +334,22 @@ internal sealed class ArrayInstructionEmitter(
             request.Context,
             arraySlot,
             CliValueKind.ManagedReference);
-        var indexLocal = GetStackLocal(
-            request.Context,
-            arraySlot + 1,
-            CliValueKind.I4);
+        var indexLocal = indexes.Adapt(
+            request,
+            code,
+            arrayLocal,
+            arraySlot + 1);
         var valueLocal = GetStackLocal(
             request.Context,
             arraySlot + 2,
             elementType.StackKind);
-        EmitBoundsCheck(code, arrayLocal, indexLocal);
         if (elementType.StackKind == CliValueKind.ManagedReference)
         {
             EmitReferenceStoreTypeCheck(code, arrayLocal, valueLocal);
         }
-        ManagedMemoryEmitter.EmitArrayElementAddress(
+        elementAddresses.Emit(
+            request,
             code,
-            layouts.Target,
             arrayLocal,
             indexLocal,
             elementSize);
@@ -367,27 +389,6 @@ internal sealed class ArrayInstructionEmitter(
         elementType.StackKind == CliValueKind.ManagedReference
             ? layouts.Target.ObjectReferenceSize
             : values.GetValueLayout(elementType).Size;
-
-    private void EmitBoundsCheck(
-        IWasmInstructionWriter code,
-        int arrayLocal,
-        int indexLocal)
-    {
-        EmitNullCheck(code, arrayLocal);
-        code.Write(WasmInstruction.WithOperand(WasmOpcodes.LocalGet, WasmInstructionOperand.Unsigned((uint)(indexLocal))));
-        code.Write(WasmInstruction.WithOperand(WasmOpcodes.I32Constant, WasmInstructionOperand.Signed(0)));
-        code.Write(WasmInstruction.NoOperand(WasmOpcodes.I32LessThanSigned));
-        code.Write(WasmInstruction.WithOperand(WasmOpcodes.If, WasmInstructionOperand.BlockType(WasmOpcodes.EmptyBlockType)));
-        exceptions.Emit(code, ManagedExceptionKind.IndexOutOfRange);
-        code.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
-        code.Write(WasmInstruction.WithOperand(WasmOpcodes.LocalGet, WasmInstructionOperand.Unsigned((uint)(indexLocal))));
-        code.Write(WasmInstruction.WithOperand(WasmOpcodes.LocalGet, WasmInstructionOperand.Unsigned((uint)(arrayLocal))));
-        code.Write(WasmInstruction.WithOperand(WasmOpcodes.I32Load, WasmInstructionOperand.Memory(2, (uint)(objects.ArrayLengthOffset))));
-        code.Write(WasmInstruction.NoOperand(WasmOpcodes.I32GreaterThanOrEqualUnsigned));
-        code.Write(WasmInstruction.WithOperand(WasmOpcodes.If, WasmInstructionOperand.BlockType(WasmOpcodes.EmptyBlockType)));
-        exceptions.Emit(code, ManagedExceptionKind.IndexOutOfRange);
-        code.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
-    }
 
     private void EmitNullCheck(IWasmInstructionWriter code, int objectLocal)
     {

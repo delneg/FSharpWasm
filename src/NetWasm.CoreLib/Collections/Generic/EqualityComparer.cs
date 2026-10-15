@@ -3,185 +3,454 @@
 // Adapted from dotnet/runtime System.Private.CoreLib EqualityComparer.cs at
 // commit 811225a482702af7ecc35d817966bc70b88a3a23.
 
+using System.Diagnostics.CodeAnalysis;
+using System.Diagnostics;
+using System.Runtime.CompilerServices;
+
 namespace System.Collections.Generic
 {
     public abstract class EqualityComparer<T> : IEqualityComparer<T>, System.Collections.IEqualityComparer
     {
-        private static readonly EqualityComparer<T> DefaultComparer = new DefaultEqualityComparer();
+        private static readonly EqualityComparer<T> s_default = CreateDefaultComparer();
 
         public static EqualityComparer<T> Default
         {
-            get => DefaultComparer;
+            [Intrinsic]
+            get => s_default;
         }
 
-        public static EqualityComparer<T> Create(
-            System.Func<T?, T?, bool> equals,
-            System.Func<T, int>? getHashCode = null)
-        {
-            if (equals == null)
-            {
-                throw new System.ArgumentNullException();
-            }
+        // The AOT compiler replaces this call for closed types. Reflection-free
+        // open generic code retains the object-comparer fallback.
+        [Intrinsic]
+        private static EqualityComparer<T> CreateDefaultComparer() =>
+            new ObjectEqualityComparer<T>();
 
-            return new DelegateEqualityComparer<T>(
-                equals,
-                getHashCode ?? (_ => throw new System.NotSupportedException()));
+        public static EqualityComparer<T> Create(
+            Func<T?, T?, bool> equals,
+            Func<T, int>? getHashCode = null)
+        {
+            ArgumentNullException.ThrowIfNull(equals);
+            getHashCode ??= _ => throw new NotSupportedException();
+            return new DelegateEqualityComparer<T>(equals, getHashCode);
         }
 
         public static EqualityComparer<T> Create<TKey>(
-            System.Func<T?, TKey?> keySelector,
+            Func<T?, TKey?> keySelector,
             IEqualityComparer<TKey>? keyComparer = null)
         {
-            if (keySelector == null)
-            {
-                throw new System.ArgumentNullException();
-            }
-
+            ArgumentNullException.ThrowIfNull(keySelector);
             keyComparer ??= EqualityComparer<TKey>.Default;
             return new DelegateEqualityComparer<T>(
-                (left, right) => keyComparer.Equals(keySelector(left), keySelector(right)),
-                value =>
+                (itemX, itemY) => keyComparer.Equals(keySelector(itemX), keySelector(itemY)),
+                obj =>
                 {
-                    var key = keySelector(value);
+                    var key = keySelector(obj);
                     return key is null ? 0 : keyComparer.GetHashCode(key);
                 });
         }
 
-        public abstract bool Equals(T? left, T? right);
+        public abstract bool Equals(T? x, T? y);
 
-        public abstract int GetHashCode(T value);
+        public abstract int GetHashCode([DisallowNull] T obj);
 
-        bool System.Collections.IEqualityComparer.Equals(object? left, object? right)
+        int System.Collections.IEqualityComparer.GetHashCode(object obj)
         {
-            if (ReferenceEquals(left, right))
-            {
-                return true;
-            }
-            if (left is null || right is null)
-            {
-                return false;
-            }
-            if (left is T typedLeft && right is T typedRight)
-            {
-                return Equals(typedLeft, typedRight);
-            }
-            throw new System.ArgumentException();
-        }
-
-        int System.Collections.IEqualityComparer.GetHashCode(object value)
-        {
-            if (value is null)
+            if (obj == null)
             {
                 return 0;
             }
-            if (value is T typedValue)
+            if (obj is T typedObj)
             {
-                return GetHashCode(typedValue);
+                return GetHashCode(typedObj);
             }
-            throw new System.ArgumentException();
+            throw new ArgumentException();
         }
 
-        private sealed class DefaultEqualityComparer : EqualityComparer<T>
+        bool System.Collections.IEqualityComparer.Equals(object? x, object? y)
         {
-            public override bool Equals(T? left, T? right)
+            if (x == y)
             {
-                if (left is null)
-                {
-                    return right is null;
-                }
-                if (right is null)
-                {
-                    return false;
-                }
-                return left is System.IEquatable<T> equatable
-                    ? equatable.Equals(right)
-                    : ((object)left).Equals(right);
+                return true;
             }
+            if (x == null || y == null)
+            {
+                return false;
+            }
+            if (x is T typedX && y is T typedY)
+            {
+                return Equals(typedX, typedY);
+            }
+            throw new ArgumentException();
+        }
 
-            public override int GetHashCode(T value) =>
-                value is null ? 0 : ((object)value).GetHashCode();
+        internal virtual int IndexOf(T[] array, T value, int startIndex, int count)
+        {
+            var endIndex = startIndex + count;
+            for (var index = startIndex; index < endIndex; index++)
+            {
+                if (Equals(array[index], value))
+                {
+                    return index;
+                }
+            }
+            return -1;
+        }
+
+        internal virtual int LastIndexOf(T[] array, T value, int startIndex, int count)
+        {
+            var endIndex = startIndex - count + 1;
+            for (var index = startIndex; index >= endIndex; index--)
+            {
+                if (Equals(array[index], value))
+                {
+                    return index;
+                }
+            }
+            return -1;
         }
     }
 
     internal sealed class DelegateEqualityComparer<T> : EqualityComparer<T>
     {
-        private readonly System.Func<T?, T?, bool> _equals;
-        private readonly System.Func<T, int> _getHashCode;
+        private readonly Func<T?, T?, bool> _equals;
+        private readonly Func<T, int> _getHashCode;
 
-        internal DelegateEqualityComparer(
-            System.Func<T?, T?, bool> equals,
-            System.Func<T, int> getHashCode)
+        public DelegateEqualityComparer(
+            Func<T?, T?, bool> equals,
+            Func<T, int> getHashCode)
         {
             _equals = equals;
             _getHashCode = getHashCode;
         }
 
-        public override bool Equals(T? left, T? right) => _equals(left, right);
+        public override bool Equals(T? x, T? y) => _equals(x, y);
 
-        public override int GetHashCode(T value) => _getHashCode(value);
+        public override int GetHashCode([DisallowNull] T obj) => _getHashCode(obj);
+
+        public override bool Equals(object? obj) =>
+            obj is DelegateEqualityComparer<T> other &&
+            _equals == other._equals &&
+            _getHashCode == other._getHashCode;
+
+        public override int GetHashCode() =>
+            HashCode.Combine(_equals.GetHashCode(), _getHashCode.GetHashCode());
     }
 
-    // Public comparer classes are retained because closed generic code and the
-    // desktop API expose their concrete identities. Runtime-driven comparer
-    // discovery is intentionally not used by NetWasm's AOT profile.
-    public sealed class GenericEqualityComparer<T> : EqualityComparer<T>
-        where T : System.IEquatable<T>
+    public sealed class GenericEqualityComparer<T> : EqualityComparer<T> where T : IEquatable<T>
     {
-        public GenericEqualityComparer()
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public override bool Equals(T? x, T? y)
         {
-        }
-
-        public override bool Equals(T? left, T? right)
-        {
-            if (left is null)
+            if (x != null)
             {
-                return right is null;
+                return y != null && x.Equals(y);
             }
-            return right is not null && left.Equals(right);
+            return y == null;
         }
 
-        public override int GetHashCode(T value) =>
-            value is null ? 0 : value.GetHashCode();
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public override int GetHashCode([DisallowNull] T obj) =>
+            obj?.GetHashCode() ?? 0;
 
-        public override bool Equals(object? value) => value is GenericEqualityComparer<T>;
+        public override bool Equals([NotNullWhen(true)] object? obj) =>
+            obj is GenericEqualityComparer<T>;
 
         public override int GetHashCode() => 0;
+
+        internal override int IndexOf(T[] array, T value, int startIndex, int count)
+        {
+            var endIndex = startIndex + count;
+            if (value == null)
+            {
+                for (var index = startIndex; index < endIndex; index++)
+                {
+                    if (array[index] == null)
+                    {
+                        return index;
+                    }
+                }
+            }
+            else
+            {
+                for (var index = startIndex; index < endIndex; index++)
+                {
+                    if (array[index] != null && array[index]!.Equals(value))
+                    {
+                        return index;
+                    }
+                }
+            }
+            return -1;
+        }
+
+        internal override int LastIndexOf(T[] array, T value, int startIndex, int count)
+        {
+            var endIndex = startIndex - count + 1;
+            if (value == null)
+            {
+                for (var index = startIndex; index >= endIndex; index--)
+                {
+                    if (array[index] == null)
+                    {
+                        return index;
+                    }
+                }
+            }
+            else
+            {
+                for (var index = startIndex; index >= endIndex; index--)
+                {
+                    if (array[index] != null && array[index]!.Equals(value))
+                    {
+                        return index;
+                    }
+                }
+            }
+            return -1;
+        }
+    }
+
+    public sealed class NullableEqualityComparer<T> : EqualityComparer<T?> where T : struct
+    {
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public override bool Equals(T? x, T? y)
+        {
+            if (x.HasValue)
+            {
+                return y.HasValue && EqualityComparer<T>.Default.Equals(x.value, y.value);
+            }
+            return !y.HasValue;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public override int GetHashCode(T? obj) => obj.GetHashCode();
+
+        public override bool Equals([NotNullWhen(true)] object? obj) =>
+            obj is NullableEqualityComparer<T>;
+
+        public override int GetHashCode() => 0;
+
+        internal override int IndexOf(T?[] array, T? value, int startIndex, int count)
+        {
+            var endIndex = startIndex + count;
+            if (!value.HasValue)
+            {
+                for (var index = startIndex; index < endIndex; index++)
+                {
+                    if (!array[index].HasValue)
+                    {
+                        return index;
+                    }
+                }
+            }
+            else
+            {
+                for (var index = startIndex; index < endIndex; index++)
+                {
+                    if (array[index].HasValue &&
+                        EqualityComparer<T>.Default.Equals(array[index].value, value.value))
+                    {
+                        return index;
+                    }
+                }
+            }
+            return -1;
+        }
+
+        internal override int LastIndexOf(T?[] array, T? value, int startIndex, int count)
+        {
+            var endIndex = startIndex - count + 1;
+            if (!value.HasValue)
+            {
+                for (var index = startIndex; index >= endIndex; index--)
+                {
+                    if (!array[index].HasValue)
+                    {
+                        return index;
+                    }
+                }
+            }
+            else
+            {
+                for (var index = startIndex; index >= endIndex; index--)
+                {
+                    if (array[index].HasValue &&
+                        EqualityComparer<T>.Default.Equals(array[index].value, value.value))
+                    {
+                        return index;
+                    }
+                }
+            }
+            return -1;
+        }
     }
 
     public sealed class ObjectEqualityComparer<T> : EqualityComparer<T>
     {
-        public ObjectEqualityComparer()
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public override bool Equals(T? x, T? y)
         {
-        }
-
-        public override bool Equals(T? left, T? right)
-        {
-            if (left is null)
+            if (x != null)
             {
-                return right is null;
+                return y != null && x.Equals(y);
             }
-            return right is not null && ((object)left).Equals(right);
+            return y == null;
         }
 
-        public override int GetHashCode(T value) =>
-            value is null ? 0 : ((object)value).GetHashCode();
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public override int GetHashCode([DisallowNull] T obj) =>
+            obj?.GetHashCode() ?? 0;
 
-        public override bool Equals(object? value) => value is ObjectEqualityComparer<T>;
+        public override bool Equals([NotNullWhen(true)] object? obj) =>
+            obj is ObjectEqualityComparer<T>;
 
         public override int GetHashCode() => 0;
+
+        internal override int IndexOf(T[] array, T value, int startIndex, int count)
+        {
+            var endIndex = startIndex + count;
+            if (value == null)
+            {
+                for (var index = startIndex; index < endIndex; index++)
+                {
+                    if (array[index] == null)
+                    {
+                        return index;
+                    }
+                }
+            }
+            else
+            {
+                for (var index = startIndex; index < endIndex; index++)
+                {
+                    if (array[index] != null && array[index]!.Equals(value))
+                    {
+                        return index;
+                    }
+                }
+            }
+            return -1;
+        }
+
+        internal override int LastIndexOf(T[] array, T value, int startIndex, int count)
+        {
+            var endIndex = startIndex - count + 1;
+            if (value == null)
+            {
+                for (var index = startIndex; index >= endIndex; index--)
+                {
+                    if (array[index] == null)
+                    {
+                        return index;
+                    }
+                }
+            }
+            else
+            {
+                for (var index = startIndex; index >= endIndex; index--)
+                {
+                    if (array[index] != null && array[index]!.Equals(value))
+                    {
+                        return index;
+                    }
+                }
+            }
+            return -1;
+        }
     }
 
     public sealed class ByteEqualityComparer : EqualityComparer<byte>
     {
-        public ByteEqualityComparer()
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public override bool Equals(byte x, byte y) => x == y;
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public override int GetHashCode(byte b) => b.GetHashCode();
+
+        public override bool Equals([NotNullWhen(true)] object? obj) =>
+            obj is ByteEqualityComparer;
+
+        public override int GetHashCode() => 0;
+
+#if DEBUG
+        internal override int IndexOf(byte[] array, byte value, int startIndex, int count)
         {
+            Debug.Fail("Should not get here.");
+            return -1;
         }
 
-        public override bool Equals(byte left, byte right) => left == right;
+        internal override int LastIndexOf(byte[] array, byte value, int startIndex, int count)
+        {
+            Debug.Fail("Should not get here.");
+            return -1;
+        }
+#endif
+    }
 
-        public override int GetHashCode(byte value) => value.GetHashCode();
+    public sealed class EnumEqualityComparer<T> : EqualityComparer<T> where T : struct, Enum
+    {
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public override bool Equals(T x, T y) => x.Equals(y);
 
-        public override bool Equals(object? value) => value is ByteEqualityComparer;
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public override int GetHashCode(T obj) => obj.GetHashCode();
+
+        public override bool Equals([NotNullWhen(true)] object? obj) =>
+            obj is EnumEqualityComparer<T>;
+
+        public override int GetHashCode() => 0;
+
+        internal override int IndexOf(T[] array, T value, int startIndex, int count)
+        {
+            var endIndex = startIndex + count;
+            for (var index = startIndex; index < endIndex; index++)
+            {
+                if (array[index].Equals(value))
+                {
+                    return index;
+                }
+            }
+            return -1;
+        }
+
+        internal override int LastIndexOf(T[] array, T value, int startIndex, int count)
+        {
+            var endIndex = startIndex - count + 1;
+            for (var index = startIndex; index >= endIndex; index--)
+            {
+                if (array[index].Equals(value))
+                {
+                    return index;
+                }
+            }
+            return -1;
+        }
+    }
+
+    internal sealed class StringEqualityComparer :
+        EqualityComparer<string>,
+        IAlternateEqualityComparer<ReadOnlySpan<char>, string>
+    {
+        public override bool Equals(string? x, string? y) => string.Equals(x, y);
+
+        public override int GetHashCode([DisallowNull] string obj) =>
+            obj?.GetHashCode() ?? 0;
+
+        public bool Equals(ReadOnlySpan<char> alternate, string target)
+        {
+            if (alternate.IsEmpty && target is null)
+            {
+                return false;
+            }
+            return alternate.SequenceEqual(target);
+        }
+
+        public int GetHashCode(ReadOnlySpan<char> alternate) =>
+            string.GetHashCode(alternate);
+
+        public string Create(ReadOnlySpan<char> alternate) => alternate.ToString();
+
+        public override bool Equals(object? obj) => obj is StringEqualityComparer;
 
         public override int GetHashCode() => 0;
     }

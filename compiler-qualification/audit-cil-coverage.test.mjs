@@ -22,10 +22,10 @@ assert.throws(
   /exactly one accepted origin: Add/);
 
 const missingEvidence = structuredClone(source);
-delete missingEvidence.families.Delegates.semantic;
+delete missingEvidence.families.CallsAndCallableLoading.semantic;
 assert.throws(
   () => validateCoverage(missingEvidence),
-  /Delegates lacks semantic evidence/);
+  /CallsAndCallableLoading lacks semantic evidence/);
 
 const runtimeHandleAudit = validateCoverage(structuredClone(source));
 assert.ok(runtimeHandleAudit.opcodeCount > 0);

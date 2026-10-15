@@ -76,6 +76,13 @@ internal static class RuntimeIntrinsicEmitterTestFactory
             RuntimeIntrinsic.GcWaitForPendingFinalizers =>
                 new GcWaitForPendingFinalizersIntrinsicEmitter(runtimeImports),
             RuntimeIntrinsic.ObjectIdentityHash => new ObjectIdentityHashIntrinsicEmitter(runtimeImports),
+            RuntimeIntrinsic.BoxedValueClone => new BoxedValueCloneIntrinsicEmitter(runtimeImports),
+            RuntimeIntrinsic.RuntimeHelpersEquals =>
+                new RuntimeHelpersEqualsIntrinsicEmitter(runtimeImports),
+            RuntimeIntrinsic.RandomSeed => new RandomSeedIntrinsicEmitter(runtimeImports),
+            RuntimeIntrinsic.NativeMemoryClear => new NativeMemoryClearIntrinsicEmitter(),
+            RuntimeIntrinsic.NativeMemoryCopy => new NativeMemoryCopyIntrinsicEmitter(),
+            RuntimeIntrinsic.NativeMemoryFill => new NativeMemoryFillIntrinsicEmitter(),
             _ => throw new ArgumentOutOfRangeException(nameof(intrinsic)),
         };
 }

@@ -10,7 +10,7 @@ namespace NetWasm.Compiler.ControlFlow.Structuring;
 internal sealed class BranchingSequenceStepExecutor(
     ICommonReachableBlockFinder joins,
     IReachableBlockFinder reachableBlocks,
-    IControlFlowDistanceFinder distances,
+    IBranchJoinSelector branchJoins,
     IBranchReachabilityOverlapClassifier branchOverlaps,
     IDispatcherExitSelector dispatcherExits) : IStructuredSequenceStepExecutor
 {
@@ -18,8 +18,8 @@ internal sealed class BranchingSequenceStepExecutor(
         throw new ArgumentNullException(nameof(joins));
     private readonly IReachableBlockFinder _reachableBlocks = reachableBlocks ??
         throw new ArgumentNullException(nameof(reachableBlocks));
-    private readonly IControlFlowDistanceFinder _distances = distances ??
-        throw new ArgumentNullException(nameof(distances));
+    private readonly IBranchJoinSelector _branchJoins = branchJoins ??
+        throw new ArgumentNullException(nameof(branchJoins));
     private readonly IBranchReachabilityOverlapClassifier _branchOverlaps = branchOverlaps ??
         throw new ArgumentNullException(nameof(branchOverlaps));
     private readonly IDispatcherExitSelector _dispatcherExits =
@@ -77,50 +77,58 @@ internal sealed class BranchingSequenceStepExecutor(
                 CilOperation.BranchIfLessThanOrEqualUnsigned
                 ? fallthrough
                 : branchTarget;
-            var activeLoopExit = state.LoopExitTargets.TryPeek(out var breakTarget)
-                ? breakTarget
-                : (int?)null;
-            var branchReachesStop = stop is int stopBlock &&
-                (_distances.Find(state, trueStart, stop, allowed).ContainsKey(stopBlock) ||
-                 _distances.Find(state, falseStart, stop, allowed).ContainsKey(stopBlock)) ||
-                trueStart == activeLoopExit || falseStart == activeLoopExit;
-            var join = branchReachesStop
-                ? stop
-                : _joins.Find(state, trueStart, falseStart, stop, allowed);
+            var selection = _branchJoins.Select(new(
+                state,
+                trueStart,
+                falseStart,
+                stop,
+                allowed,
+                state.LoopContinueTargets.TryPeek(out var continueTarget)
+                    ? continueTarget
+                    : null,
+                state.LoopExitTargets.TryPeek(out var breakTarget)
+                    ? breakTarget
+                    : null));
+            var join = selection.Join;
+            var analysisAllowed = selection.AnalysisBlocks;
             ImmutableHashSet<int>? joinDispatcher = null;
             var dispatcherCandidate = join is int dispatcherJoinBlock
                 && state.DispatchersByNode.TryGetValue(dispatcherJoinBlock, out joinDispatcher);
             var firstPath = dispatcherCandidate &&
-                _reachableBlocks.Find(state, trueStart, join!.Value, allowed).Any(joinDispatcher!.Contains);
+                _reachableBlocks.Find(state, trueStart, join!.Value, analysisAllowed).Any(joinDispatcher!.Contains);
             var secondPath = dispatcherCandidate && !firstPath &&
-                _reachableBlocks.Find(state, falseStart, join!.Value, allowed).Any(joinDispatcher!.Contains);
+                _reachableBlocks.Find(state, falseStart, join!.Value, analysisAllowed).Any(joinDispatcher!.Contains);
             var reachesDispatcher = firstPath || secondPath;
             if (reachesDispatcher)
             {
                 var dispatcherExits = _dispatcherExits.Select(joinDispatcher!
-                    .SelectMany(node => state.Graph.Successors[node]), allowed);
-                join = _joins.Find(state, dispatcherExits, stop, allowed);
+                    .SelectMany(node => state.Graph.Successors[node]), analysisAllowed);
+                join = _joins.Find(state, dispatcherExits, stop, analysisAllowed);
             }
-            if (_branchOverlaps.Classify(state,
+            var hasApplicableSplitProof =
+                !selection.DuplicatedPrefixBlocks.IsEmpty &&
+                !reachesDispatcher;
+            if (!hasApplicableSplitProof &&
+                _branchOverlaps.Classify(state,
                         trueStart,
                         falseStart,
                         join,
-                        allowed))
+                        analysisAllowed))
             {
                 var component = _reachableBlocks.Find(state,
                             current.Value,
                             join,
-                            allowed);
+                            analysisAllowed);
                 var dispatcherJoin = _joins.Find(state,
                     component
                         .SelectMany(node => state.Graph.Successors[node])
                         .Where(successor => !component.Contains(successor))
-                        .Where(allowed.Contains)
+                        .Where(analysisAllowed.Contains)
                         .Distinct()
                         .Order()
                         .ToArray(),
                     join,
-                    allowed);
+                    analysisAllowed);
                 regions.Add(structuredControlFlowBuilder.Build(
                     state,
                     current.Value,

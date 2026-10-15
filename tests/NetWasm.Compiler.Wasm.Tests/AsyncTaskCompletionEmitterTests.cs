@@ -31,8 +31,8 @@ public sealed class AsyncTaskCompletionEmitterTests
         // including operands and exception handlers, must remain unchanged.
         var snapshot = System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(instructions);
         Assert.Equal(target == WasmTarget.Wasm32
-                ? "1061b16d6f24afd4ac51aad9a3668690e458959dd7b6e70a08b7b454115eef41"
-                : "002326b7ea3950b15855646f3be7ec86b6130b31688467e4dffd62975caf45fe",
+                ? "ef1d1ef1a4b9cd64d09a1f5b47a546adbf6221ab275d50c4e13f6d534f5b4a7d"
+                : "e40e4031fc30d6d3a1fce73520eaed450716c3c20c32699926680140ca0dcc6b",
             Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(snapshot)));
         int CallIndex(int index) => instructions.FindIndex(i =>
             i.Opcode == WasmOpcodes.Call && i.Operand.UnsignedValue == index);

@@ -1,48 +1,22 @@
 ﻿// Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using System.Globalization;
 using System.Runtime.CompilerServices;
 
 namespace System.Buffers.Text
 {
     internal static partial class FormattingHelpers
     {
-        public static bool TryFormat<T>(T value, Span<byte> utf8Destination, out int bytesWritten, StandardFormat format) where T : struct
+        public static unsafe bool TryFormat<T>(T value, Span<byte> utf8Destination, out int bytesWritten, StandardFormat format) where T : IUtf8SpanFormattable
         {
-            string? formatText = format.IsDefault ? null : format.ToString();
-            string text;
-            if (typeof(T) == typeof(decimal))
+            scoped Span<char> formatText = default;
+            if (!format.IsDefault)
             {
-                text = ((decimal)(object)value).ToString();
-            }
-            else if (typeof(T) == typeof(float))
-            {
-                text = Number.FormatSingle((float)(object)value, formatText);
-            }
-            else
-            {
-                text = Number.FormatDouble((double)(object)value, formatText);
+                formatText = format.Format(stackalloc char[StandardFormat.FormatStringLength]);
             }
 
-            if (utf8Destination.Length < text.Length)
-            {
-                bytesWritten = 0;
-                return false;
-            }
-
-            for (var index = 0; index < text.Length; index++)
-            {
-                var character = text[index];
-                if (character > 0x7F)
-                {
-                    bytesWritten = 0;
-                    return false;
-                }
-                utf8Destination[index] = (byte)character;
-            }
-
-            bytesWritten = text.Length;
-            return true;
+            return value.TryFormat(utf8Destination, out bytesWritten, formatText, CultureInfo.InvariantCulture);
         }
 
         /// <summary>

@@ -2,6 +2,7 @@ using System;
 using System.Linq;
 using System.Text.Json;
 using NetWasm.Compiler.ComponentModel;
+using NetWasm.Compiler.ComponentModel.Optimization;
 using NetWasm.Compiler.Core;
 
 namespace NetWasm.Compiler.Cli;
@@ -12,7 +13,8 @@ internal sealed class ComponentizeCliCommand(
     IComponentManifestBuilder manifests,
     IComponentPackager packager,
     IComponentManifestInputReader manifestInputs,
-    ITextFileWriter textFiles) : ICompilerCliCommand
+    ITextFileWriter textFiles,
+    IManagedInliningHintsParser inlineHints) : ICompilerCliCommand
 {
     private readonly IWitDocumentReader _documents = documents ??
         throw new ArgumentNullException(nameof(documents));
@@ -26,12 +28,15 @@ internal sealed class ComponentizeCliCommand(
         throw new ArgumentNullException(nameof(manifestInputs));
     private readonly ITextFileWriter _textFiles = textFiles ??
         throw new ArgumentNullException(nameof(textFiles));
+    private readonly IManagedInliningHintsParser _inlineHints = inlineHints ??
+        throw new ArgumentNullException(nameof(inlineHints));
 
     public string Name => "componentize";
 
     public int Run(string[] arguments)
     {
         var options = ComponentizeCliOptions.Parse(arguments);
+        var optimizationOverrides = _inlineHints.Parse(options.ManagedInliningHints);
         var target = options.Target == WasmTarget.Wasm32
             ? ComponentTarget.Wasm32Wasi02
             : ComponentTarget.Wasm64Wasi02;
@@ -50,7 +55,8 @@ internal sealed class ComponentizeCliCommand(
             options.Output,
             target,
             options.RuntimeModule,
-            Optimization: options.Optimization));
+            Optimization: options.Optimization)
+        { OptimizationOverrides = optimizationOverrides });
         _textFiles.Write(options.Manifest, CliJson.Serialize(manifest));
         return 0;
     }

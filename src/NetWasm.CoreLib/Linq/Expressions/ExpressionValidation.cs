@@ -37,6 +37,62 @@ namespace System.Linq.Expressions
             !source.IsValueType &&
             destination.IsAssignableFrom(source);
 
+        internal static bool IsSupportedInterpreterValue(Type type)
+        {
+            if (type == typeof(void) || type.ContainsGenericParameters ||
+                type.IsByRef || type.IsPointer)
+            {
+                return false;
+            }
+
+            if (type.IsNullable)
+            {
+                Type? underlying = Nullable.GetUnderlyingType(type);
+                return underlying is not null &&
+                    IsSupportedInterpreterNonNullableValue(underlying);
+            }
+
+            return IsSupportedInterpreterNonNullableValue(type);
+        }
+
+        internal static bool IsSupportedInterpreterEqualityOperand(Type type)
+        {
+            if (!IsSupportedInterpreterValue(type))
+            {
+                return false;
+            }
+
+            Type operandType = type.IsNullable
+                ? Nullable.GetUnderlyingType(type)!
+                : type;
+            return !operandType.IsEnum;
+        }
+
+        internal static bool IsSupportedInterpreterNonNullableValue(Type type)
+        {
+            if (!type.IsValueType)
+            {
+                return type.IsClass || type.IsInterface || type.IsArray;
+            }
+
+            if (type.IsEnum)
+            {
+                return Type.GetTypeCode(type) is
+                    TypeCode.SByte or TypeCode.Byte or
+                    TypeCode.Int16 or TypeCode.UInt16 or
+                    TypeCode.Int32 or TypeCode.UInt32 or
+                    TypeCode.Int64 or TypeCode.UInt64;
+            }
+
+            return Type.GetTypeCode(type) is
+                TypeCode.Boolean or TypeCode.Char or
+                TypeCode.SByte or TypeCode.Byte or
+                TypeCode.Int16 or TypeCode.UInt16 or
+                TypeCode.Int32 or TypeCode.UInt32 or
+                TypeCode.Int64 or TypeCode.UInt64 or
+                TypeCode.Single or TypeCode.Double;
+        }
+
         internal static void RequiresCanRead(
             Expression expression,
             string parameterName)

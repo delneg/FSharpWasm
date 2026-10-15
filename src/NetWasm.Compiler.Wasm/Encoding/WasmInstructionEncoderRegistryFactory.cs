@@ -19,6 +19,9 @@ public static class WasmInstructionEncoderRegistryFactory
             new(WasmInstructionOperandShape.Byte, new ByteInstructionEncoder()),
             new(WasmInstructionOperandShape.BlockType, new BlockTypeInstructionEncoder()),
             new(
+                WasmInstructionOperandShape.BranchTable,
+                new BranchTableInstructionEncoder(unsigned)),
+            new(
                 WasmInstructionOperandShape.UnsignedLeb128,
                 new UnsignedLeb128InstructionEncoder(unsigned)),
             new(

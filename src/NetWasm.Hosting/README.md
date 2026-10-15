@@ -46,6 +46,11 @@ The request is the resolved invocation and host-policy snapshot; deployment
 and package identities come from the SDK-generated, hash-bound descriptor and
 manifest.
 
+At this low-level boundary, `request.arguments` is the complete WASI command
+line, including the program name at index zero. SDK-generated requests supply
+the logical assembly name automatically. Direct request authors supply that
+entry themselves; additional invocation arguments are appended after it.
+
 For a local process, invoke the packaged launcher with three distinct absolute,
 canonical channels:
 

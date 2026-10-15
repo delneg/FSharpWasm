@@ -1,5 +1,6 @@
 using NetWasm.Compiler.Analysis;
 using System;
+using NetWasm.Compiler.ComponentModel.Optimization;
 using NetWasm.Compiler.ControlFlow;
 using NetWasm.Compiler.ControlFlow.Structured;
 using NetWasm.Compiler.Wasm.Emission.Planning;
@@ -18,14 +19,17 @@ internal sealed class CachingWasmMethodLowerer(
     private readonly IFrontendArtifactStager _stager = stager ??
         throw new ArgumentNullException(nameof(stager));
 
-    public StructuredMethod Lower(ManagedMethodBody method)
+    public StructuredMethod Lower(
+        ManagedMethodBody method,
+        BranchPrefixDuplicationPolicy branchPrefixDuplication =
+            BranchPrefixDuplicationPolicy.SizeAware)
     {
         ArgumentNullException.ThrowIfNull(method);
         if (_restorer.TryRestore(method.Method, out var structured))
         {
             return structured;
         }
-        structured = _inner.Lower(method);
+        structured = _inner.Lower(method, branchPrefixDuplication);
         _stager.Stage(method.Method, structured);
         return structured;
     }

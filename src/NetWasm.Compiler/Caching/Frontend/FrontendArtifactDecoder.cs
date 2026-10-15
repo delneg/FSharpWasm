@@ -18,7 +18,7 @@ namespace NetWasm.Compiler.Caching.Frontend;
 internal sealed class FrontendArtifactDecoder : IFrontendArtifactDecoder
 {
     private const uint Magic = 0x3146434E;
-    private const ushort SchemaVersion = 16;
+    private const ushort SchemaVersion = 18;
 
     public FrontendArtifactSnapshot Decode(ImmutableArray<byte> payload)
     {
@@ -278,6 +278,8 @@ internal sealed class FrontendArtifactDecoder : IFrontendArtifactDecoder
                 var isNewSlot = ReadBoolean();
                 var isFinal = ReadBoolean();
                 var isAbstract = ReadBoolean();
+                var isAggressiveInlining = ReadBoolean();
+                var isNoInlining = ReadBoolean();
                 var jsImport = ReadNullableClass(() =>
                     new InteropImportDeclaration(ReadString(), ReadNullableString())
                     {
@@ -314,6 +316,8 @@ internal sealed class FrontendArtifactDecoder : IFrontendArtifactDecoder
                     IsNewSlot = isNewSlot,
                     IsFinal = isFinal,
                     IsAbstract = isAbstract,
+                    IsAggressiveInlining = isAggressiveInlining,
+                    IsNoInlining = isNoInlining,
                     JSImport = jsImport,
                     JSExport = jsExport,
                     WitImport = witImport,
@@ -386,6 +390,11 @@ internal sealed class FrontendArtifactDecoder : IFrontendArtifactDecoder
                         ReadBoolean(), ReadBoolean()),
                     14 => new CilOperand.UserString(ReadString()),
                     15 => new CilOperand.ByteData(ReadBytes()),
+                    16 => new CilOperand.ReadOnlySpanData(
+                        tables.FieldInstance(reader.ReadInt32()),
+                        tables.Type(reader.ReadInt32()),
+                        tables.Type(reader.ReadInt32()),
+                        reader.ReadInt32()),
                     var tag => throw Invalid($"CIL operand tag {tag} is unsupported."),
                 };
                 return new(offset, nextOffset, operation, operand)

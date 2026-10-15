@@ -49,13 +49,14 @@ public sealed class FilterEnvironmentLayoutPlannerTests
             }
             .Cast<IFilterEnvironmentLayoutPlanner>()
             .Single();
-        var result = planner.Create(structured, values);
+        var result = planner.Create(structured, values, EmptyRootMap());
 
-        Assert.Equal(12, result.Size);
+        Assert.Equal(16, result.Size);
         Assert.Equal(1, result.RootSlotCount);
         Assert.Equal(0, result.RootFrameOffset);
-        Assert.Equal(4, result.Captures[new CapturedSlot(true, 0)].Offset);
-        Assert.Equal(8, result.Captures[new CapturedSlot(false, 0)].Offset);
+        Assert.Equal(4, result.ParentRootFrameOffset);
+        Assert.Equal(8, result.Captures[new CapturedSlot(true, 0)].Offset);
+        Assert.Equal(12, result.Captures[new CapturedSlot(false, 0)].Offset);
         var (ByteOffset, RootSlot) = Assert.Single(result.Captures[new CapturedSlot(false, 0)].Roots);
         Assert.Equal(0, ByteOffset);
         Assert.Equal(0, RootSlot);
@@ -91,7 +92,7 @@ public sealed class FilterEnvironmentLayoutPlannerTests
                 [],
                 [],
                 [],
-                []));
+                []), EmptyRootMap());
 
         Assert.Same(FilterEnvironmentLayout.Empty, result);
     }
@@ -154,13 +155,13 @@ public sealed class FilterEnvironmentLayoutPlannerTests
 
         var result = planner.Create(
             structured,
-            new ValueFrameLayout(0, [], [], [], []));
+            new ValueFrameLayout(0, [], [], [], []), EmptyRootMap());
 
         Assert.Equal(2, result.Captures.Count);
-        Assert.Equal(12, result.Size);
+        Assert.Equal(16, result.Size);
         Assert.Equal(0, result.RootSlotCount);
-        Assert.Equal(4, result.Captures[new CapturedSlot(true, 0)].Offset);
-        Assert.Equal(8, result.Captures[new CapturedSlot(false, 0)].Offset);
+        Assert.Equal(8, result.Captures[new CapturedSlot(true, 0)].Offset);
+        Assert.Equal(12, result.Captures[new CapturedSlot(false, 0)].Offset);
     }
 
     [Fact]
@@ -208,12 +209,12 @@ public sealed class FilterEnvironmentLayoutPlannerTests
                 ImmutableDictionary<int, int>.Empty.Add(0, 4),
                 [],
                 [],
-                []));
+                []), EmptyRootMap());
 
         Assert.Equal(2, result.Captures.Count);
-        Assert.Equal(16, result.Size);
+        Assert.Equal(20, result.Size);
         Assert.Equal(0, result.RootSlotCount);
-        Assert.Equal(12, result.Captures[new CapturedSlot(true, 0)].Offset);
+        Assert.Equal(16, result.Captures[new CapturedSlot(true, 0)].Offset);
         Assert.Equal(4, result.Captures[new CapturedSlot(false, 0)].Offset);
     }
 
@@ -243,11 +244,67 @@ public sealed class FilterEnvironmentLayoutPlannerTests
             new ValueTypeArgumentSignatureResolver(valueType),
             new ExceptionGroupEnumerator());
 
-        var result = planner.Create(structured, new ValueFrameLayout(0, [], [], [], []));
+        var result = planner.Create(structured, new ValueFrameLayout(0, [], [], [], []), EmptyRootMap());
 
         var capture = result.Captures[new CapturedSlot(true, 0)];
         Assert.Equal(CliValueKind.ManagedAddress, capture.Type.StackKind);
-        Assert.Equal(4, capture.Offset);
+        Assert.Equal(8, capture.Offset);
+    }
+
+    [Fact]
+    public void CapturesContinuationRootsAndSharesOnlyLocalAnchors()
+    {
+        var program = new FakeProgram();
+        var method = program.GetMethod(EntryKey);
+        var structured = StructureWithLocals(
+            program,
+            method,
+            [CliValueKind.ManagedReference],
+            I(0, CilOperation.LoadInt32, new CilOperand.ConstantI4(1)),
+            I(1, CilOperation.Return));
+        var filter = ExceptionClause(structured, CilExceptionRegionKind.Filter, true);
+        structured = WithExceptionGroups(
+            structured,
+            ExceptionGroup(structured, 0, filter));
+        var localRoot = new RootSource(RootSourceKind.Local, 0);
+        var backingType = CliTypeIdentity.Named(
+            Assembly,
+            "Tests",
+            "Backing",
+            isValueType: true);
+        var rootMap = new MethodRootMap(
+            EntryKey,
+            ImmutableDictionary<RootSource, int>.Empty.Add(localRoot, 0),
+            ImmutableDictionary<int, SafepointRootMap>.Empty.Add(
+                0,
+                new(0, [localRoot], [])))
+        {
+            AnchorPlan = new(
+            [
+                new(new(StackStorageLocationKind.EvaluationStack, 0), backingType),
+                new(new(StackStorageLocationKind.Local, 0), backingType),
+            ],
+            []),
+        };
+        var layouts = new RecordingLayoutProvider();
+        var planner = new FilterEnvironmentLayoutPlanner(
+            layouts,
+            layouts,
+            CreateArgumentTypes(program),
+            CreateArgumentSignatureTypes(program),
+            new ExceptionGroupEnumerator());
+
+        var result = planner.Create(
+            structured,
+            new ValueFrameLayout(0, [], [], [], []),
+            rootMap);
+
+        var capture = Assert.Single(result.Captures);
+        Assert.Equal(new CapturedSlot(false, 0), capture.Key);
+        Assert.Equal(12, capture.Value.Offset);
+        Assert.Equal(8, Assert.Single(result.AnchorOffsets).Value);
+        Assert.False(result.AnchorOffsets.ContainsKey(0));
+        Assert.True(result.AnchorOffsets.ContainsKey(1));
     }
 
     [Fact]
@@ -295,11 +352,13 @@ public sealed class FilterEnvironmentLayoutPlannerTests
 
         var result = planner.Create(
             structured,
-            new ValueFrameLayout(0, [], [], [], []));
+            new ValueFrameLayout(0, [], [], [], []), EmptyRootMap());
 
         Assert.Empty(result.Captures);
-        Assert.Equal(4, result.Size);
+        Assert.Equal(8, result.Size);
     }
+
+    private static MethodRootMap EmptyRootMap() => new(EntryKey, [], []);
 
     private sealed class ValueTypeArgumentSignatureResolver(CliTypeIdentity type) :
         IArgumentSignatureTypeResolver

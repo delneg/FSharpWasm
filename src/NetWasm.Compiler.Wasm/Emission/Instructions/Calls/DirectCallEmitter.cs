@@ -1,6 +1,7 @@
 using System;
 using NetWasm.Compiler.Wasm.Encoding;
 using NetWasm.Compiler.Core;
+using NetWasm.Compiler.Core.Types;
 using NetWasm.Compiler.Wasm.Emission.Methods;
 using NetWasm.Compiler.Wasm.Emission.Planning;
 
@@ -10,7 +11,8 @@ internal sealed class DirectCallEmitter(
     ITargetLayout layouts,
     IValueLayoutProvider values,
     IImplicitExceptionEmitter exceptions,
-    IStaticInitializationEmitter initialization) : ICallEmitter
+    IStaticInitializationEmitter initialization,
+    IMethodInitializationTriggerClassifier initializationTriggers) : ICallEmitter
 {
     public void Emit(
         CallEmissionRequest request, IWasmInstructionWriter code,
@@ -19,10 +21,10 @@ internal sealed class DirectCallEmitter(
         var instruction = request.Instruction;
         var target = request.Method.Definition;
         var signature = request.Method.Signature;
-        if (target.IsStatic && target.Name != ".cctor")
+        if (initializationTriggers.Classify(target))
         {
             initialization.Emit(new(target.DeclaringType, request.Method.DeclaringType,
-                instruction.Target.ModuleData, IsStaticMethodCall: true), code, functionIndices);
+                instruction.Target.ModuleData, IsMethodInvocation: true), code, functionIndices);
         }
         var constrainedReferenceReceiver = !target.IsStatic &&
             request.ConstrainedType is { IsValueType: false };
@@ -62,7 +64,7 @@ internal sealed class DirectCallEmitter(
                 CliValueKind.ManagedAddress or CliValueKind.NativeInt);
         if (scalarValueReceiver)
         {
-            var receiverOffset = instruction.Context.ValueLayout.TemporaryOffsets[
+            var receiverOffset = instruction.Context.ValueLayout.CallReceiverOffsets[
                 instruction.Instruction.Offset];
             EmitValueFrameAddress(code, instruction.Context, receiverOffset);
             code.Write(WasmInstruction.WithOperand(WasmOpcodes.LocalGet, WasmInstructionOperand.Unsigned((uint)(GetStackLocal(
@@ -83,7 +85,7 @@ internal sealed class DirectCallEmitter(
                 EmitValueFrameAddress(
                     code,
                     instruction.Context,
-                    instruction.Context.ValueLayout.TemporaryOffsets[
+                    instruction.Context.ValueLayout.CallReceiverOffsets[
                         instruction.Instruction.Offset]);
             }
             else

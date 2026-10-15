@@ -22,6 +22,8 @@ for (const target of ['wasm32', 'wasm64']) {
     assert.equal(bytes[31], 0xa5);
     assert.equal(bytes[32 + width * 2], 0xa5);
     assert.equal(imports.env.emscripten_notify_memory_growth(), undefined);
+    assert.equal(imports[`${prefix}|wasi:random/random@0.2`]['get-random-u64'](),
+      0x0123456789abcdefn);
     const guarded = [
       imports['netwasm.application.v1']['netwasm.filter'],
       imports['netwasm.application.v1']['netwasm.finalize'],

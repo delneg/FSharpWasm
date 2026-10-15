@@ -1,37 +1,56 @@
 using NetWasm.Compiler.Core;
 using NetWasm.Compiler.Wasm.Emission.Instructions.Runtime;
+using NetWasm.Compiler.Wasm.Encoding;
 
 namespace NetWasm.Compiler.Wasm.Tests;
 
 public sealed class FloatingIntrinsicEmitterTests
 {
     [Theory]
-    [InlineData(RuntimeIntrinsic.SingleToInt32Bits, CliValueKind.F4)]
-    [InlineData(RuntimeIntrinsic.Int32BitsToSingle, CliValueKind.I4)]
-    [InlineData(RuntimeIntrinsic.DoubleToInt64Bits, CliValueKind.F8)]
-    [InlineData(RuntimeIntrinsic.Int64BitsToDouble, CliValueKind.I8)]
-    [InlineData(RuntimeIntrinsic.FloatingAbsolute, CliValueKind.F4)]
-    [InlineData(RuntimeIntrinsic.FloatingAbsolute, CliValueKind.F8)]
-    [InlineData(RuntimeIntrinsic.FloatingCeiling, CliValueKind.F4)]
-    [InlineData(RuntimeIntrinsic.FloatingCeiling, CliValueKind.F8)]
-    [InlineData(RuntimeIntrinsic.FloatingFloor, CliValueKind.F4)]
-    [InlineData(RuntimeIntrinsic.FloatingFloor, CliValueKind.F8)]
-    [InlineData(RuntimeIntrinsic.FloatingTruncate, CliValueKind.F4)]
-    [InlineData(RuntimeIntrinsic.FloatingTruncate, CliValueKind.F8)]
-    [InlineData(RuntimeIntrinsic.FloatingRound, CliValueKind.F4)]
-    [InlineData(RuntimeIntrinsic.FloatingRound, CliValueKind.F8)]
-    [InlineData(RuntimeIntrinsic.FloatingSquareRoot, CliValueKind.F4)]
-    [InlineData(RuntimeIntrinsic.FloatingSquareRoot, CliValueKind.F8)]
+    [InlineData(RuntimeIntrinsic.SingleToInt32Bits, CliValueKind.F4, CliValueKind.I4, WasmOpcodes.I32ReinterpretF32)]
+    [InlineData(RuntimeIntrinsic.Int32BitsToSingle, CliValueKind.I4, CliValueKind.F4, WasmOpcodes.F32ReinterpretI32)]
+    [InlineData(RuntimeIntrinsic.DoubleToInt64Bits, CliValueKind.F8, CliValueKind.I8, WasmOpcodes.I64ReinterpretF64)]
+    [InlineData(RuntimeIntrinsic.Int64BitsToDouble, CliValueKind.I8, CliValueKind.F8, WasmOpcodes.F64ReinterpretI64)]
+    [InlineData(RuntimeIntrinsic.FloatingAbsolute, CliValueKind.F4, CliValueKind.F4, WasmOpcodes.F32Absolute)]
+    [InlineData(RuntimeIntrinsic.FloatingAbsolute, CliValueKind.F8, CliValueKind.F8, WasmOpcodes.F64Absolute)]
+    [InlineData(RuntimeIntrinsic.FloatingCeiling, CliValueKind.F4, CliValueKind.F4, WasmOpcodes.F32Ceiling)]
+    [InlineData(RuntimeIntrinsic.FloatingCeiling, CliValueKind.F8, CliValueKind.F8, WasmOpcodes.F64Ceiling)]
+    [InlineData(RuntimeIntrinsic.FloatingFloor, CliValueKind.F4, CliValueKind.F4, WasmOpcodes.F32Floor)]
+    [InlineData(RuntimeIntrinsic.FloatingFloor, CliValueKind.F8, CliValueKind.F8, WasmOpcodes.F64Floor)]
+    [InlineData(RuntimeIntrinsic.FloatingTruncate, CliValueKind.F4, CliValueKind.F4, WasmOpcodes.F32Truncate)]
+    [InlineData(RuntimeIntrinsic.FloatingTruncate, CliValueKind.F8, CliValueKind.F8, WasmOpcodes.F64Truncate)]
+    [InlineData(RuntimeIntrinsic.FloatingRound, CliValueKind.F4, CliValueKind.F4, WasmOpcodes.F32Nearest)]
+    [InlineData(RuntimeIntrinsic.FloatingRound, CliValueKind.F8, CliValueKind.F8, WasmOpcodes.F64Nearest)]
+    [InlineData(RuntimeIntrinsic.FloatingSquareRoot, CliValueKind.F4, CliValueKind.F4, WasmOpcodes.F32SquareRoot)]
+    [InlineData(RuntimeIntrinsic.FloatingSquareRoot, CliValueKind.F8, CliValueKind.F8, WasmOpcodes.F64SquareRoot)]
     public void EmitsEveryFloatingIntrinsicThroughItsCapability(
         RuntimeIntrinsic intrinsic,
-        CliValueKind argument)
+        CliValueKind argument,
+        CliValueKind result,
+        byte expectedOpcode)
     {
         var emitter = CreateEmitter(intrinsic);
-        var request = EmitterTestSupport.CreateRuntimeIntrinsicRequest(intrinsic, [argument]);
+        foreach (var target in new[] { WasmTarget.Wasm32, WasmTarget.Wasm64 })
+        {
+            var request = EmitterTestSupport.CreateRuntimeIntrinsicRequest(intrinsic, [argument]) with
+            {
+                Target = WasmTargetLayout.For(target),
+            };
+            var writer = new EmitterTestSupport.RecordingInstructionWriter();
 
-        EmitThroughCapability(emitter, request);
+            emitter.Emit(request, writer);
 
-        Assert.NotEmpty(EmitterTestSupport.GetCodeBytes(request.Instruction));
+            Assert.Equal(
+                new[]
+                {
+                    WasmInstruction.WithOperand(WasmOpcodes.LocalGet,
+                        WasmInstructionOperand.Unsigned((uint)request.Local(0, argument))),
+                    WasmInstruction.NoOperand(expectedOpcode),
+                    WasmInstruction.WithOperand(WasmOpcodes.LocalSet,
+                        WasmInstructionOperand.Unsigned((uint)request.Local(0, result))),
+                },
+                writer.ToInstructions());
+        }
     }
 
     [Fact]

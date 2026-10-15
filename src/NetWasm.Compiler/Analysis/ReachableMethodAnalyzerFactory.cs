@@ -26,6 +26,7 @@ internal sealed class ReachableMethodAnalyzerFactory(
         IFieldRepository fields,
         IMethodRepository methods,
         IMethodSpecializer specializer,
+        IManagedMethodOptimizer optimizer,
         IImplicitExceptionDiscovery exceptionDiscovery,
         IReachabilityInstructionAnalyzer instructionAnalyzer) =>
         new DiagnosticReachableMethodAnalyzer(
@@ -35,6 +36,7 @@ internal sealed class ReachableMethodAnalyzerFactory(
             fields,
             methods,
             specializer,
+            optimizer,
             exceptionDiscovery,
             stackValidators,
             graphBuilders.Create(),

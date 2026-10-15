@@ -12,38 +12,13 @@ using System.Runtime.InteropServices;
 namespace System
 {
     /// <summary>Represents a 128-bit signed integer.</summary>
+    [Intrinsic]
     [StructLayout(LayoutKind.Sequential)]
     public readonly struct Int128
-        : IComparable,
-          IComparable<Int128>,
-          IEquatable<Int128>,
-          IFormattable,
-          IParsable<Int128>,
-          ISpanFormattable,
-          ISpanParsable<Int128>,
-          IUtf8SpanFormattable,
-          IUtf8SpanParsable<Int128>,
-          IAdditionOperators<Int128, Int128, Int128>,
-          IAdditiveIdentity<Int128, Int128>,
-          IBinaryInteger<Int128>,
-          IBinaryNumber<Int128>,
-          IBitwiseOperators<Int128, Int128, Int128>,
-          IComparisonOperators<Int128, Int128, bool>,
-          IDecrementOperators<Int128>,
-          IDivisionOperators<Int128, Int128, Int128>,
-          IEqualityOperators<Int128, Int128, bool>,
-          IIncrementOperators<Int128>,
+        : IBinaryInteger<Int128>,
           IMinMaxValue<Int128>,
-          IModulusOperators<Int128, Int128, Int128>,
-          IMultiplicativeIdentity<Int128, Int128>,
-          IMultiplyOperators<Int128, Int128, Int128>,
-          INumber<Int128>,
-          INumberBase<Int128>,
-          IShiftOperators<Int128, int, Int128>,
           ISignedNumber<Int128>,
-          ISubtractionOperators<Int128, Int128, Int128>,
-          IUnaryNegationOperators<Int128, Int128>,
-          IUnaryPlusOperators<Int128, Int128>,
+          IUtf8SpanFormattable,
           IBinaryIntegerParseAndFormatInfo<Int128>
     {
         internal const int Size = 16;
@@ -59,6 +34,7 @@ namespace System
         /// <summary>Initializes a new instance of the <see cref="Int128" /> struct.</summary>
         /// <param name="upper">The upper 64-bits of the 128-bit value.</param>
         /// <param name="lower">The lower 64-bits of the 128-bit value.</param>
+        [CLSCompliant(false)]
         public Int128(ulong upper, ulong lower)
         {
             _lower = lower;
@@ -139,13 +115,13 @@ namespace System
             return Number.FormatInt128(this, format, provider);
         }
 
-        public bool TryFormat(Span<char> destination, out int charsWritten, [StringSyntax(StringSyntaxAttribute.NumericFormat)] ReadOnlySpan<char> format = default(System.ReadOnlySpan<char>), IFormatProvider? provider = null)
+        public bool TryFormat(Span<char> destination, out int charsWritten, [StringSyntax(StringSyntaxAttribute.NumericFormat)] ReadOnlySpan<char> format = default, IFormatProvider? provider = null)
         {
             return Number.TryFormatInt128(this, format, provider, destination, out charsWritten);
         }
 
         /// <inheritdoc cref="IUtf8SpanFormattable.TryFormat" />
-        public bool TryFormat(Span<byte> utf8Destination, out int bytesWritten, [StringSyntax(StringSyntaxAttribute.NumericFormat)] ReadOnlySpan<char> format = default(System.ReadOnlySpan<char>), IFormatProvider? provider = null)
+        public bool TryFormat(Span<byte> utf8Destination, out int bytesWritten, [StringSyntax(StringSyntaxAttribute.NumericFormat)] ReadOnlySpan<char> format = default, IFormatProvider? provider = null)
         {
             return Number.TryFormatInt128(this, format, provider, utf8Destination, out bytesWritten);
         }
@@ -162,7 +138,7 @@ namespace System
             return Parse(s.AsSpan(), style, provider);
         }
 
-        public static Int128 Parse(ReadOnlySpan<char> s, NumberStyles style = System.Globalization.NumberStyles.Integer, IFormatProvider? provider = null)
+        public static Int128 Parse(ReadOnlySpan<char> s, NumberStyles style = NumberStyles.Integer, IFormatProvider? provider = null)
         {
             NumberFormatInfo.ValidateParseStyleInteger(style);
             return Number.ParseBinaryInteger<char, Int128>(s, style, NumberFormatInfo.GetInstance(provider));
@@ -348,12 +324,14 @@ namespace System
         /// <summary>Explicitly converts a 128-bit signed integer to a <see cref="sbyte" /> value.</summary>
         /// <param name="value">The value to convert.</param>
         /// <returns><paramref name="value" /> converted to a <see cref="sbyte" />.</returns>
+        [CLSCompliant(false)]
         public static explicit operator sbyte(Int128 value) => (sbyte)value._lower;
 
         /// <summary>Explicitly converts a 128-bit signed integer to a <see cref="sbyte" /> value, throwing an overflow exception for any values that fall outside the representable range.</summary>
         /// <param name="value">The value to convert.</param>
         /// <returns><paramref name="value" /> converted to a <see cref="sbyte" />.</returns>
         /// <exception cref="OverflowException"><paramref name="value" /> is not representable by <see cref="Int128" />.</exception>
+        [CLSCompliant(false)]
         public static explicit operator checked sbyte(Int128 value)
         {
             long lower = (long)value._lower;
@@ -380,12 +358,14 @@ namespace System
         /// <summary>Explicitly converts a 128-bit signed integer to a <see cref="ushort" /> value.</summary>
         /// <param name="value">The value to convert.</param>
         /// <returns><paramref name="value" /> converted to a <see cref="ushort" />.</returns>
+        [CLSCompliant(false)]
         public static explicit operator ushort(Int128 value) => (ushort)value._lower;
 
         /// <summary>Explicitly converts a 128-bit signed integer to a <see cref="ushort" /> value, throwing an overflow exception for any values that fall outside the representable range.</summary>
         /// <param name="value">The value to convert.</param>
         /// <returns><paramref name="value" /> converted to a <see cref="ushort" />.</returns>
         /// <exception cref="OverflowException"><paramref name="value" /> is not representable by <see cref="Int128" />.</exception>
+        [CLSCompliant(false)]
         public static explicit operator checked ushort(Int128 value)
         {
             if (value._upper != 0)
@@ -398,12 +378,14 @@ namespace System
         /// <summary>Explicitly converts a 128-bit signed integer to a <see cref="uint" /> value.</summary>
         /// <param name="value">The value to convert.</param>
         /// <returns><paramref name="value" /> converted to a <see cref="uint" />.</returns>
+        [CLSCompliant(false)]
         public static explicit operator uint(Int128 value) => (uint)value._lower;
 
         /// <summary>Explicitly converts a 128-bit signed integer to a <see cref="uint" /> value, throwing an overflow exception for any values that fall outside the representable range.</summary>
         /// <param name="value">The value to convert.</param>
         /// <returns><paramref name="value" /> converted to a <see cref="uint" />.</returns>
         /// <exception cref="OverflowException"><paramref name="value" /> is not representable by <see cref="Int128" />.</exception>
+        [CLSCompliant(false)]
         public static explicit operator checked uint(Int128 value)
         {
             if (value._upper != 0)
@@ -416,12 +398,14 @@ namespace System
         /// <summary>Explicitly converts a 128-bit signed integer to a <see cref="ulong" /> value.</summary>
         /// <param name="value">The value to convert.</param>
         /// <returns><paramref name="value" /> converted to a <see cref="ulong" />.</returns>
+        [CLSCompliant(false)]
         public static explicit operator ulong(Int128 value) => value._lower;
 
         /// <summary>Explicitly converts a 128-bit signed integer to a <see cref="ulong" /> value, throwing an overflow exception for any values that fall outside the representable range.</summary>
         /// <param name="value">The value to convert.</param>
         /// <returns><paramref name="value" /> converted to a <see cref="ulong" />.</returns>
         /// <exception cref="OverflowException"><paramref name="value" /> is not representable by <see cref="Int128" />.</exception>
+        [CLSCompliant(false)]
         public static explicit operator checked ulong(Int128 value)
         {
             if (value._upper != 0)
@@ -434,12 +418,14 @@ namespace System
         /// <summary>Explicitly converts a 128-bit signed integer to a <see cref="UInt128" /> value.</summary>
         /// <param name="value">The value to convert.</param>
         /// <returns><paramref name="value" /> converted to a <see cref="UInt128" />.</returns>
+        [CLSCompliant(false)]
         public static explicit operator UInt128(Int128 value) => new UInt128(value._upper, value._lower);
 
         /// <summary>Explicitly converts a 128-bit signed integer to a <see cref="UInt128" /> value, throwing an overflow exception for any values that fall outside the representable range.</summary>
         /// <param name="value">The value to convert.</param>
         /// <returns><paramref name="value" /> converted to a <see cref="UInt128" />.</returns>
         /// <exception cref="OverflowException"><paramref name="value" /> is not representable by <see cref="Int128" />.</exception>
+        [CLSCompliant(false)]
         public static explicit operator checked UInt128(Int128 value)
         {
             if ((long)value._upper < 0)
@@ -452,12 +438,14 @@ namespace System
         /// <summary>Explicitly converts a 128-bit signed integer to a <see cref="UIntPtr" /> value.</summary>
         /// <param name="value">The value to convert.</param>
         /// <returns><paramref name="value" /> converted to a <see cref="UIntPtr" />.</returns>
+        [CLSCompliant(false)]
         public static explicit operator nuint(Int128 value) => (nuint)value._lower;
 
         /// <summary>Explicitly converts a 128-bit signed integer to a <see cref="UIntPtr" /> value, throwing an overflow exception for any values that fall outside the representable range.</summary>
         /// <param name="value">The value to convert.</param>
         /// <returns><paramref name="value" /> converted to a <see cref="UIntPtr" />.</returns>
         /// <exception cref="OverflowException"><paramref name="value" /> is not representable by <see cref="Int128" />.</exception>
+        [CLSCompliant(false)]
         public static explicit operator checked nuint(Int128 value)
         {
             if (value._upper != 0)
@@ -637,6 +625,7 @@ namespace System
         /// <summary>Implicitly converts a <see cref="sbyte" /> value to a 128-bit signed integer.</summary>
         /// <param name="value">The value to convert.</param>
         /// <returns><paramref name="value" /> converted to a 128-bit signed integer.</returns>
+        [CLSCompliant(false)]
         public static implicit operator Int128(sbyte value)
         {
             long lower = value;
@@ -646,21 +635,25 @@ namespace System
         /// <summary>Implicitly converts a <see cref="ushort" /> value to a 128-bit signed integer.</summary>
         /// <param name="value">The value to convert.</param>
         /// <returns><paramref name="value" /> converted to a 128-bit signed integer.</returns>
+        [CLSCompliant(false)]
         public static implicit operator Int128(ushort value) => new Int128(0, value);
 
         /// <summary>Implicitly converts a <see cref="uint" /> value to a 128-bit signed integer.</summary>
         /// <param name="value">The value to convert.</param>
         /// <returns><paramref name="value" /> converted to a 128-bit signed integer.</returns>
+        [CLSCompliant(false)]
         public static implicit operator Int128(uint value) => new Int128(0, value);
 
         /// <summary>Implicitly converts a <see cref="ulong" /> value to a 128-bit signed integer.</summary>
         /// <param name="value">The value to convert.</param>
         /// <returns><paramref name="value" /> converted to a 128-bit signed integer.</returns>
+        [CLSCompliant(false)]
         public static implicit operator Int128(ulong value) => new Int128(0, value);
 
         /// <summary>Implicitly converts a <see cref="UIntPtr" /> value to a 128-bit signed integer.</summary>
         /// <param name="value">The value to convert.</param>
         /// <returns><paramref name="value" /> converted to a 128-bit signed integer.</returns>
+        [CLSCompliant(false)]
         public static implicit operator Int128(nuint value) => new Int128(0, value);
 
         //
@@ -686,7 +679,7 @@ namespace System
             // For signed addition, we can detect overflow by checking if the sign of
             // both inputs are the same and then if that differs from the sign of the
             // output. The logic for how this works is explained in the
-            //   a hardware scalar AddSaturate implementation
+            //   System.Runtime.Intrinsics.Scalar<T>.AddSaturate method
 
             Int128 result = left + right;
 
@@ -725,9 +718,9 @@ namespace System
         {
             if (value._upper == 0)
             {
-                return 64 + LeadingZeroCount(value._lower);
+                return 64 + BitOperations.LeadingZeroCount(value._lower);
             }
-            return LeadingZeroCount(value._upper);
+            return BitOperations.LeadingZeroCount(value._upper);
         }
 
         /// <inheritdoc cref="IBinaryInteger{TSelf}.Log10(TSelf)" />
@@ -1118,10 +1111,10 @@ namespace System
         //
 
         /// <inheritdoc cref="IMinMaxValue{TSelf}.MinValue" />
-        public static Int128 MinValue { get => new Int128(0x8000_0000_0000_0000, 0); }
+        public static Int128 MinValue => new Int128(0x8000_0000_0000_0000, 0);
 
         /// <inheritdoc cref="IMinMaxValue{TSelf}.MaxValue" />
-        public static Int128 MaxValue { get => new Int128(0x7FFF_FFFF_FFFF_FFFF, 0xFFFF_FFFF_FFFF_FFFF); }
+        public static Int128 MaxValue => new Int128(0x7FFF_FFFF_FFFF_FFFF, 0xFFFF_FFFF_FFFF_FFFF);
 
         //
         // IModulusOperators
@@ -1268,13 +1261,13 @@ namespace System
         //
 
         /// <inheritdoc cref="INumberBase{TSelf}.One" />
-        public static Int128 One { get => new Int128(0, 1); }
+        public static Int128 One => new Int128(0, 1);
 
         /// <inheritdoc cref="INumberBase{TSelf}.Radix" />
         static int INumberBase<Int128>.Radix => 2;
 
         /// <inheritdoc cref="INumberBase{TSelf}.Zero" />
-        public static Int128 Zero { get => default; }
+        public static Int128 Zero => default;
 
         /// <inheritdoc cref="INumberBase{TSelf}.Abs(TSelf)" />
         public static Int128 Abs(Int128 value)
@@ -2054,7 +2047,7 @@ namespace System
         //
 
         /// <inheritdoc cref="ISignedNumber{TSelf}.NegativeOne" />
-        public static Int128 NegativeOne { get => new Int128(0xFFFF_FFFF_FFFF_FFFF, 0xFFFF_FFFF_FFFF_FFFF); }
+        public static Int128 NegativeOne => new Int128(0xFFFF_FFFF_FFFF_FFFF, 0xFFFF_FFFF_FFFF_FFFF);
 
         //
         // ISpanParsable
@@ -2089,7 +2082,7 @@ namespace System
             // For signed subtraction, we can detect overflow by checking if the sign of
             // both inputs are different and then if that differs from the sign of the
             // output. The logic for how this works is explained in the
-            //   a hardware scalar SubtractSaturate implementation
+            //   System.Runtime.Intrinsics.Scalar<T>.SubtractSaturate method
 
             Int128 result = left - right;
 
@@ -2122,7 +2115,7 @@ namespace System
         //
 
         /// <inheritdoc cref="INumberBase{TSelf}.Parse(ReadOnlySpan{byte}, NumberStyles, IFormatProvider?)" />
-        public static Int128 Parse(ReadOnlySpan<byte> utf8Text, NumberStyles style = System.Globalization.NumberStyles.Integer, IFormatProvider? provider = null)
+        public static Int128 Parse(ReadOnlySpan<byte> utf8Text, NumberStyles style = NumberStyles.Integer, IFormatProvider? provider = null)
         {
             NumberFormatInfo.ValidateParseStyleInteger(style);
             return Number.ParseBinaryInteger<byte, Int128>(utf8Text, style, NumberFormatInfo.GetInstance(provider));
@@ -2160,21 +2153,5 @@ namespace System
         static Int128 IBinaryIntegerParseAndFormatInfo<Int128>.MultiplyBy10(Int128 value) => value * 10;
 
         static Int128 IBinaryIntegerParseAndFormatInfo<Int128>.MultiplyBy16(Int128 value) => value * 16;
-
-        private static int LeadingZeroCount(ulong value)
-        {
-            if (value == 0)
-            {
-                return 64;
-            }
-            var count = 0;
-            var mask = 1UL << 63;
-            while ((value & mask) == 0)
-            {
-                count++;
-                mask >>= 1;
-            }
-            return count;
-        }
     }
 }

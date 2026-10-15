@@ -15,7 +15,7 @@ using NetWasm.Compiler.Wasm.Encoding;
 namespace NetWasm.Compiler.Wasm.Tests;
 
 internal sealed class ExpressionIntrinsicEmissionFixture : INullableTypeResolver,
-    INullableBoxEmitter, IValueFrameAddressEmitter
+    INullableBoxEmitter, IValueFrameAddressEmitter, IMethodInitializationTriggerClassifier
 {
     public ExpressionIntrinsicEmissionFixture(bool memory64)
     {
@@ -34,6 +34,9 @@ internal sealed class ExpressionIntrinsicEmissionFixture : INullableTypeResolver
     public ScalarLayouts Scalars { get; }
     public RecordingBoxedValueTypeValidator TypeValidator { get; } = new();
     public RecordingStaticInitializationEmitter Initialization { get; }
+    public HashSet<MethodDefinitionModel> InitializationTriggers { get; } = [];
+    public bool Classify(MethodDefinitionModel method) =>
+        method.IsStatic || InitializationTriggers.Contains(method);
     public int RootCount { get; private set; }
     public InstructionEmissionRequest? PublishedRequest { get; private set; }
     public ImmutableArray<WasmInstruction> Code => Writer.ToInstructions();

@@ -18,7 +18,6 @@ internal enum InstructionFamily
     ArraysFieldsStatics,
     AllocationBoxingTypes,
     CallsAndCallableLoading,
-    Delegates,
     StructuredControlFlow,
     ExceptionsAndRoots,
 }

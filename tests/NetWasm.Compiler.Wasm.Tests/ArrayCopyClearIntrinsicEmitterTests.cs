@@ -9,21 +9,105 @@ using static EmitterTestSupport;
 
 public sealed class ArrayCopyClearIntrinsicEmitterTests
 {
-    [Fact]
-    public void CloneLoadsTheArrayCallsRuntimeAndPublishesTheResult()
+    [Theory]
+    [InlineData(false, 0)]
+    [InlineData(false, 2)]
+    [InlineData(true, 0)]
+    [InlineData(true, 2)]
+    public void ClonePassesTheFullRangeSentinelAndPublishesTheResult(
+        bool memory64,
+        int argumentBase)
     {
-        var emitter = ThroughContract(new ArrayCloneIntrinsicEmitter(
-            WasmRuntimeImports.CreateCatalog()));
+        var imports = WasmRuntimeImports.CreateCatalog();
+        var emitter = ThroughContract(new ArrayCloneIntrinsicEmitter(imports));
         var request = CreateRuntimeIntrinsicRequest(
             RuntimeIntrinsic.ArrayClone,
-            [CliValueKind.ManagedReference]);
+            [
+                .. Enumerable.Repeat(CliValueKind.I4, argumentBase),
+                CliValueKind.ManagedReference,
+            ]);
+        request = request with
+        {
+            Target = memory64 ? WasmTargetLayout.Wasm64 : WasmTargetLayout.Wasm32,
+            Call = request.Call with { ArgumentBase = argumentBase, Consumed = 1 },
+        };
+        var writer = Assert.IsType<RecordingInstructionWriter>(GetCodeWriter(request.Instruction));
 
-        emitter.Emit(request, GetCodeWriter(request.Instruction));
+        emitter.Emit(request, writer);
 
-        var code = GetCodeBytes(request.Instruction);
-        Assert.Contains(WasmOpcodes.LocalGet, code);
-        Assert.Contains(WasmOpcodes.Call, code);
-        Assert.Contains(WasmOpcodes.LocalSet, code);
+        var instructions = writer.ToInstructions();
+        Assert.Equal(
+            [
+                WasmOpcodes.LocalGet,
+                WasmOpcodes.I32Constant,
+                WasmOpcodes.I32Constant,
+                WasmOpcodes.Call,
+                WasmOpcodes.LocalSet,
+            ],
+            instructions.Select(instruction => instruction.Opcode));
+        var sourceLocal = (uint)((memory64
+            ? request.Instruction.Context.StackLocals.ReferenceBase
+            : request.Instruction.Context.StackLocals.I4Base) + argumentBase);
+        Assert.Equal(sourceLocal, instructions[0].Operand.UnsignedValue);
+        Assert.Equal(0, instructions[1].Operand.SignedValue);
+        Assert.Equal(-1, instructions[2].Operand.SignedValue);
+        Assert.Equal(
+            (uint)imports.Resolve(
+                RuntimeImportSymbol.ArrayClone,
+                request.Instruction.Target.RuntimeImportSelection),
+            instructions[3].Operand.UnsignedValue);
+        Assert.Equal(sourceLocal, instructions[4].Operand.UnsignedValue);
+    }
+
+    [Theory]
+    [InlineData(false, 0)]
+    [InlineData(false, 2)]
+    [InlineData(true, 0)]
+    [InlineData(true, 2)]
+    public void CloneRangePreservesTheArrayAndBoundsAndPublishesTheResult(
+        bool memory64,
+        int argumentBase)
+    {
+        var imports = WasmRuntimeImports.CreateCatalog();
+        var emitter = ThroughContract(new ArrayCloneRangeIntrinsicEmitter(imports));
+        var request = CreateRuntimeIntrinsicRequest(
+            RuntimeIntrinsic.ArrayCloneRange,
+            [
+                .. Enumerable.Repeat(CliValueKind.I4, argumentBase),
+                CliValueKind.ManagedReference,
+                CliValueKind.I4,
+                CliValueKind.I4,
+            ]);
+        request = request with
+        {
+            Target = memory64 ? WasmTargetLayout.Wasm64 : WasmTargetLayout.Wasm32,
+            Call = request.Call with { ArgumentBase = argumentBase, Consumed = 3 },
+        };
+        var writer = Assert.IsType<RecordingInstructionWriter>(GetCodeWriter(request.Instruction));
+
+        emitter.Emit(request, writer);
+
+        var instructions = writer.ToInstructions();
+        Assert.Equal(
+            [
+                WasmOpcodes.LocalGet,
+                WasmOpcodes.LocalGet,
+                WasmOpcodes.LocalGet,
+                WasmOpcodes.Call,
+                WasmOpcodes.LocalSet,
+            ],
+            instructions.Select(instruction => instruction.Opcode));
+        var locals = request.Instruction.Context.StackLocals;
+        var sourceLocal = (uint)((memory64 ? locals.ReferenceBase : locals.I4Base) + argumentBase);
+        Assert.Equal(sourceLocal, instructions[0].Operand.UnsignedValue);
+        Assert.Equal((uint)(locals.I4Base + argumentBase + 1), instructions[1].Operand.UnsignedValue);
+        Assert.Equal((uint)(locals.I4Base + argumentBase + 2), instructions[2].Operand.UnsignedValue);
+        Assert.Equal(
+            (uint)imports.Resolve(
+                RuntimeImportSymbol.ArrayClone,
+                request.Instruction.Target.RuntimeImportSelection),
+            instructions[3].Operand.UnsignedValue);
+        Assert.Equal(sourceLocal, instructions[4].Operand.UnsignedValue);
     }
 
     [Fact]

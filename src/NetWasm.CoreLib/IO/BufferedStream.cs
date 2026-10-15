@@ -2,13 +2,13 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System.Diagnostics;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace System.IO
 {
-    // This synchronous buffering implementation is adapted from dotnet/runtime
-    // System.Private.CoreLib commit 811225a482702af7ecc35d817966bc70b88a3a23.
-    // Async members and their synchronization machinery belong to a later
-    // profile slice.
+    // Adapted from dotnet/runtime System.Private.CoreLib commit
+    // 811225a482702af7ecc35d817966bc70b88a3a23.
     public sealed class BufferedStream : Stream
     {
         private const int DefaultBufferSize = 4096;
@@ -19,6 +19,7 @@ namespace System.IO
         private int _readPos;
         private int _readLen;
         private int _writePos;
+        private CachedCompletedInt32Task _lastSyncCompletedReadTask;
 
         public BufferedStream(Stream stream)
             : this(stream, DefaultBufferSize)
@@ -123,6 +124,32 @@ namespace System.IO
             }
         }
 
+        public override async ValueTask DisposeAsync()
+        {
+            try
+            {
+                if (_stream is not null)
+                {
+                    try
+                    {
+                        await FlushAsync().ConfigureAwait(false);
+                    }
+                    finally
+                    {
+                        await _stream.DisposeAsync().ConfigureAwait(false);
+                    }
+                }
+            }
+            finally
+            {
+                _stream = null;
+                _buffer = null;
+                _writePos = 0;
+                _readPos = 0;
+                _readLen = 0;
+            }
+        }
+
         public override void Flush()
         {
             EnsureNotClosed();
@@ -145,6 +172,43 @@ namespace System.IO
             if (_stream!.CanWrite)
                 _stream.Flush();
             _readPos = _readLen = 0;
+        }
+
+        public override Task FlushAsync(CancellationToken cancellationToken)
+        {
+            if (cancellationToken.IsCancellationRequested)
+                return Task.FromCanceled(cancellationToken);
+            EnsureNotClosed();
+            return FlushAsyncInternal(cancellationToken);
+        }
+
+        private async Task FlushAsyncInternal(CancellationToken cancellationToken)
+        {
+            await EnsureAsyncActiveSemaphoreInitialized().WaitAsync(cancellationToken).ConfigureAwait(false);
+            try
+            {
+                if (_writePos > 0)
+                {
+                    await FlushWriteAsync(cancellationToken).ConfigureAwait(false);
+                    return;
+                }
+
+                if (_readPos < _readLen)
+                {
+                    if (_stream!.CanSeek)
+                        FlushRead();
+                    if (_stream.CanWrite)
+                        await _stream.FlushAsync(cancellationToken).ConfigureAwait(false);
+                    return;
+                }
+
+                if (_stream!.CanWrite)
+                    await _stream.FlushAsync(cancellationToken).ConfigureAwait(false);
+            }
+            finally
+            {
+                _asyncActiveSemaphore!.Release();
+            }
         }
 
         private void FlushRead()
@@ -178,6 +242,15 @@ namespace System.IO
             _stream!.Write(_buffer!, 0, _writePos);
             _writePos = 0;
             _stream.Flush();
+        }
+
+        private async ValueTask FlushWriteAsync(CancellationToken cancellationToken)
+        {
+            await _stream!.WriteAsync(
+                new ReadOnlyMemory<byte>(_buffer!, 0, _writePos),
+                cancellationToken).ConfigureAwait(false);
+            _writePos = 0;
+            await _stream.FlushAsync(cancellationToken).ConfigureAwait(false);
         }
 
         private int ReadFromBuffer(byte[] destination, int offset, int count)
@@ -265,6 +338,121 @@ namespace System.IO
             _readLen = _stream!.Read(_buffer!, 0, _bufferSize);
             _readPos = 0;
             return ReadFromBuffer(buffer);
+        }
+
+        public override Task<int> ReadAsync(
+            byte[] buffer,
+            int offset,
+            int count,
+            CancellationToken cancellationToken)
+        {
+            ValidateBufferArguments(buffer, offset, count);
+            if (cancellationToken.IsCancellationRequested)
+                return Task.FromCanceled<int>(cancellationToken);
+            EnsureNotClosed();
+            EnsureCanRead();
+
+            var bytesFromBuffer = 0;
+            var semaphore = EnsureAsyncActiveSemaphoreInitialized();
+            var semaphoreTask = semaphore.WaitAsync(cancellationToken);
+            if (semaphoreTask.IsCompletedSuccessfully)
+            {
+                var completeSynchronously = true;
+                try
+                {
+                    bytesFromBuffer = ReadFromBuffer(buffer, offset, count);
+                    completeSynchronously = bytesFromBuffer == count;
+                    if (completeSynchronously)
+                        return _lastSyncCompletedReadTask.GetTask(bytesFromBuffer);
+                }
+                finally
+                {
+                    if (completeSynchronously)
+                        semaphore.Release();
+                }
+            }
+
+            return ReadFromUnderlyingStreamAsync(
+                new Memory<byte>(buffer, offset + bytesFromBuffer, count - bytesFromBuffer),
+                cancellationToken,
+                bytesFromBuffer,
+                semaphoreTask).AsTask();
+        }
+
+        public override ValueTask<int> ReadAsync(
+            Memory<byte> buffer,
+            CancellationToken cancellationToken = default)
+        {
+            if (cancellationToken.IsCancellationRequested)
+                return ValueTask.FromCanceled<int>(cancellationToken);
+            EnsureNotClosed();
+            EnsureCanRead();
+
+            var bytesFromBuffer = 0;
+            var semaphore = EnsureAsyncActiveSemaphoreInitialized();
+            var semaphoreTask = semaphore.WaitAsync(cancellationToken);
+            if (semaphoreTask.IsCompletedSuccessfully)
+            {
+                var completeSynchronously = true;
+                try
+                {
+                    bytesFromBuffer = ReadFromBuffer(buffer.Span);
+                    completeSynchronously = bytesFromBuffer == buffer.Length;
+                    if (completeSynchronously)
+                        return new ValueTask<int>(bytesFromBuffer);
+                }
+                finally
+                {
+                    if (completeSynchronously)
+                        semaphore.Release();
+                }
+            }
+
+            return ReadFromUnderlyingStreamAsync(
+                buffer.Slice(bytesFromBuffer),
+                cancellationToken,
+                bytesFromBuffer,
+                semaphoreTask);
+        }
+
+        private async ValueTask<int> ReadFromUnderlyingStreamAsync(
+            Memory<byte> buffer,
+            CancellationToken cancellationToken,
+            int bytesAlreadySatisfied,
+            Task semaphoreTask)
+        {
+            await semaphoreTask.ConfigureAwait(false);
+            try
+            {
+                var bytesFromBuffer = ReadFromBuffer(buffer.Span);
+                if (bytesFromBuffer == buffer.Length)
+                    return bytesAlreadySatisfied + bytesFromBuffer;
+                if (bytesFromBuffer > 0)
+                {
+                    buffer = buffer.Slice(bytesFromBuffer);
+                    bytesAlreadySatisfied += bytesFromBuffer;
+                }
+
+                _readPos = _readLen = 0;
+                if (_writePos > 0)
+                    await FlushWriteAsync(cancellationToken).ConfigureAwait(false);
+
+                if (buffer.Length >= _bufferSize)
+                {
+                    return bytesAlreadySatisfied +
+                        await _stream!.ReadAsync(buffer, cancellationToken).ConfigureAwait(false);
+                }
+
+                EnsureBufferAllocated();
+                _readLen = await _stream!.ReadAsync(
+                    new Memory<byte>(_buffer!, 0, _bufferSize),
+                    cancellationToken).ConfigureAwait(false);
+                return bytesAlreadySatisfied + ReadFromBuffer(buffer.Span);
+            }
+            finally
+            {
+                _asyncActiveSemaphore!.Release();
+            }
         }
 
         public override int ReadByte()
@@ -363,6 +551,95 @@ namespace System.IO
             }
         }
 
+        public override Task WriteAsync(
+            byte[] buffer,
+            int offset,
+            int count,
+            CancellationToken cancellationToken)
+        {
+            ValidateBufferArguments(buffer, offset, count);
+            return WriteAsync(
+                new ReadOnlyMemory<byte>(buffer, offset, count),
+                cancellationToken).AsTask();
+        }
+
+        public override ValueTask WriteAsync(
+            ReadOnlyMemory<byte> buffer,
+            CancellationToken cancellationToken = default)
+        {
+            if (cancellationToken.IsCancellationRequested)
+                return ValueTask.FromCanceled(cancellationToken);
+            EnsureNotClosed();
+            EnsureCanWrite();
+
+            var semaphore = EnsureAsyncActiveSemaphoreInitialized();
+            var semaphoreTask = semaphore.WaitAsync(cancellationToken);
+            if (semaphoreTask.IsCompletedSuccessfully)
+            {
+                var completeSynchronously = true;
+                try
+                {
+                    if (_writePos == 0)
+                        ClearReadBufferBeforeWrite();
+                    completeSynchronously = buffer.Length < _bufferSize - _writePos;
+                    if (completeSynchronously)
+                    {
+                        WriteToBuffer(buffer.Span);
+                        return default;
+                    }
+                }
+                finally
+                {
+                    if (completeSynchronously)
+                        semaphore.Release();
+                }
+            }
+
+            return WriteToUnderlyingStreamAsync(buffer, cancellationToken, semaphoreTask);
+        }
+
+        private async ValueTask WriteToUnderlyingStreamAsync(
+            ReadOnlyMemory<byte> buffer,
+            CancellationToken cancellationToken,
+            Task semaphoreTask)
+        {
+            await semaphoreTask.ConfigureAwait(false);
+            try
+            {
+                if (_writePos == 0)
+                    ClearReadBufferBeforeWrite();
+
+                if (buffer.Length >= _bufferSize)
+                {
+                    if (_writePos > 0)
+                    {
+                        await _stream!.WriteAsync(
+                            new ReadOnlyMemory<byte>(_buffer!, 0, _writePos),
+                            cancellationToken).ConfigureAwait(false);
+                        _writePos = 0;
+                    }
+                    await _stream!.WriteAsync(buffer, cancellationToken).ConfigureAwait(false);
+                    return;
+                }
+
+                while (!buffer.IsEmpty)
+                {
+                    if (_writePos == _bufferSize)
+                    {
+                        await _stream!.WriteAsync(
+                            new ReadOnlyMemory<byte>(_buffer!, 0, _writePos),
+                            cancellationToken).ConfigureAwait(false);
+                        _writePos = 0;
+                    }
+                    buffer = buffer.Slice(WriteToBuffer(buffer.Span));
+                }
+            }
+            finally
+            {
+                _asyncActiveSemaphore!.Release();
+            }
+        }
+
         public override void WriteByte(byte value)
         {
             if (_writePos > 0 && _writePos < _bufferSize)
@@ -442,6 +719,51 @@ namespace System.IO
             }
 
             _stream!.CopyTo(destination, bufferSize);
+        }
+
+        public override Task CopyToAsync(
+            Stream destination,
+            int bufferSize,
+            CancellationToken cancellationToken)
+        {
+            ValidateCopyToArguments(destination, bufferSize);
+            EnsureNotClosed();
+            EnsureCanRead();
+            return cancellationToken.IsCancellationRequested
+                ? Task.FromCanceled(cancellationToken)
+                : CopyToAsyncCore(destination, bufferSize, cancellationToken);
+        }
+
+        private async Task CopyToAsyncCore(
+            Stream destination,
+            int bufferSize,
+            CancellationToken cancellationToken)
+        {
+            await EnsureAsyncActiveSemaphoreInitialized().WaitAsync(cancellationToken).ConfigureAwait(false);
+            try
+            {
+                var readBytes = _readLen - _readPos;
+                if (readBytes > 0)
+                {
+                    await destination.WriteAsync(
+                        new ReadOnlyMemory<byte>(_buffer!, _readPos, readBytes),
+                        cancellationToken).ConfigureAwait(false);
+                    _readPos = _readLen = 0;
+                }
+                else if (_writePos > 0)
+                {
+                    await FlushWriteAsync(cancellationToken).ConfigureAwait(false);
+                }
+
+                await _stream!.CopyToAsync(
+                    destination,
+                    bufferSize,
+                    cancellationToken).ConfigureAwait(false);
+            }
+            finally
+            {
+                _asyncActiveSemaphore!.Release();
+            }
         }
     }
 }

@@ -47,8 +47,6 @@ namespace System.Collections.Immutable
             /// </summary>
             private int _version;
 
-            private readonly object _syncRoot = new();
-
             /// <summary>
             /// Initializes a new instance of the <see cref="Builder"/> class.
             /// </summary>
@@ -787,7 +785,7 @@ namespace System.Collections.Immutable
             {
                 Requires.NotNull(items, nameof(items));
 
-                foreach (T item in items)
+                foreach (T item in items.GetEnumerableDisposable<T, Enumerator>())
                 {
                     int index = this.Root.IndexOf(item, equalityComparer);
                     if (index >= 0)
@@ -832,7 +830,7 @@ namespace System.Collections.Immutable
                 int index = this.IndexOf(oldValue, 0, this.Count, equalityComparer);
                 if (index < 0)
                 {
-                    throw new ArgumentException("The old value was not found.", nameof(oldValue));
+                    throw new ArgumentException(SR.CannotFindOldValue, nameof(oldValue));
                 }
 
                 this.Root = this.Root.ReplaceAt(index, newValue);
@@ -1157,7 +1155,7 @@ namespace System.Collections.Immutable
             /// </summary>
             /// <returns>An object that can be used to synchronize access to the <see cref="ICollection"/>.</returns>
             [DebuggerBrowsable(DebuggerBrowsableState.Never)]
-            object ICollection.SyncRoot => _syncRoot;
+            object ICollection.SyncRoot => field ??= new object();
             #endregion
         }
     }

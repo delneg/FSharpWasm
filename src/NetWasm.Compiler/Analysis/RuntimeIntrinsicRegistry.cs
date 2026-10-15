@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Frozen;
 using System.Collections.Generic;
 using NetWasm.Compiler;
 using NetWasm.Compiler.Core;
@@ -7,6 +8,14 @@ namespace NetWasm.Compiler.Analysis;
 
 public sealed class RuntimeIntrinsicRegistry : IRuntimeIntrinsicRegistry
 {
+    private static readonly FrozenSet<string> IntegralPrimitiveNames =
+        new[]
+        {
+            "primitive:i1", "primitive:u1", "primitive:i2", "primitive:u2",
+            "primitive:char", "primitive:i4", "primitive:u4", "primitive:i8",
+            "primitive:u8", "primitive:nativeint", "primitive:nativeuint",
+        }.ToFrozenSet(StringComparer.Ordinal);
+
     private readonly Dictionary<EntityKey, RuntimeIntrinsic> _intrinsics;
 
     public RuntimeIntrinsicRegistry(ISymbolFormatter symbols, IEnumerable<MethodDefinitionModel> methods)
@@ -28,10 +37,15 @@ public sealed class RuntimeIntrinsicRegistry : IRuntimeIntrinsicRegistry
                 ("System.Array", "InternalCopy") => RuntimeIntrinsic.ArrayCopy,
                 ("System.Array", "InternalClear") => RuntimeIntrinsic.ArrayClear,
                 ("System.Array", "InternalClone") => RuntimeIntrinsic.ArrayClone,
+                ("System.Array", "InternalCloneRange") => RuntimeIntrinsic.ArrayCloneRange,
                 ("System.String", "get_Chars") when IsStringCharacterAt(method) =>
                     RuntimeIntrinsic.StringCharacterAt,
                 ("System.String", "SetCharUnchecked") =>
                     RuntimeIntrinsic.StringSetCharacterUnchecked,
+                ("System.String", "GetRawStringData") =>
+                    RuntimeIntrinsic.StringGetRawDataReference,
+                ("System.String", "EqualsHelper") when IsStringEqualsHelper(method) =>
+                    RuntimeIntrinsic.StringEqualsOrdinal,
                 ("System.GCCollectionRuntime", "Collect") => RuntimeIntrinsic.GcCollect,
                 ("System.GC", "SuppressFinalize") => RuntimeIntrinsic.SuppressFinalize,
                 ("System.GC", "ReRegisterForFinalize") => RuntimeIntrinsic.ReRegisterForFinalize,
@@ -45,6 +59,10 @@ public sealed class RuntimeIntrinsicRegistry : IRuntimeIntrinsicRegistry
                     RuntimeIntrinsic.EphemeronHandleGetKey,
                 ("System.Runtime.CompilerServices.ConditionalWeakTableRuntime", "GetValue") =>
                     RuntimeIntrinsic.EphemeronHandleGetValue,
+                ("System.Runtime.CompilerServices.ConditionalWeakTableRuntime", "SetTargetToNull") =>
+                    RuntimeIntrinsic.EphemeronHandleSetTargetToNull,
+                ("System.Runtime.CompilerServices.ConditionalWeakTableRuntime", "SetValue") =>
+                    RuntimeIntrinsic.EphemeronHandleSetValue,
                 ("System.Runtime.CompilerServices.ConditionalWeakTableRuntime", "Release") =>
                     RuntimeIntrinsic.EphemeronHandleRelease,
                 ("System.GCHandleRuntime", "Create") => RuntimeIntrinsic.GcHandleCreate,
@@ -57,6 +75,12 @@ public sealed class RuntimeIntrinsicRegistry : IRuntimeIntrinsicRegistry
                     RuntimeIntrinsic.GcMetricIsSupported,
                 ("System.GCFinalizerRuntime", "WaitForPending") => RuntimeIntrinsic.GcWaitForPendingFinalizers,
                 ("System.ObjectIdentityRuntime", "GetHashCode") => RuntimeIntrinsic.ObjectIdentityHash,
+                ("System.Runtime.CompilerServices.RuntimeHelpersRuntime", "CloneBoxedValue") =>
+                    RuntimeIntrinsic.BoxedValueClone,
+                ("System.DelegateRuntime", "Clone") => RuntimeIntrinsic.DelegateClone,
+                ("System.Runtime.CompilerServices.RuntimeHelpersRuntime", "AreEqual") =>
+                    RuntimeIntrinsic.RuntimeHelpersEquals,
+                ("System.MarvinSeedRuntime", "Get") => RuntimeIntrinsic.RandomSeed,
                 ("System.ValueType", "Equals") => RuntimeIntrinsic.ValueTypeEquals,
                 ("System.ValueType", "GetHashCode") =>
                     RuntimeIntrinsic.ValueTypeGetHashCode,
@@ -110,6 +134,12 @@ public sealed class RuntimeIntrinsicRegistry : IRuntimeIntrinsicRegistry
                     RuntimeIntrinsic.NativeMemoryAlignedRealloc,
                 ("System.Runtime.InteropServices.NativeMemory", "AlignedFree") =>
                     RuntimeIntrinsic.NativeMemoryAlignedFree,
+                ("System.Runtime.InteropServices.NativeMemory", "Clear") =>
+                    RuntimeIntrinsic.NativeMemoryClear,
+                ("System.Runtime.InteropServices.NativeMemory", "Copy") =>
+                    RuntimeIntrinsic.NativeMemoryCopy,
+                ("System.Runtime.InteropServices.NativeMemory", "Fill") =>
+                    RuntimeIntrinsic.NativeMemoryFill,
                 ("System.Runtime.InteropServices.MemoryMarshal", "GetArrayDataReference") =>
                     RuntimeIntrinsic.GetArrayDataReference,
                 ("System.Nullable", "GetUnderlyingType") =>
@@ -205,6 +235,21 @@ public sealed class RuntimeIntrinsicRegistry : IRuntimeIntrinsicRegistry
                     RuntimeIntrinsic.DoubleToInt64Bits,
                 ("System.BitConverter", "Int64BitsToDouble") =>
                     RuntimeIntrinsic.Int64BitsToDouble,
+                ("System.Numerics.BitOperations", "LeadingZeroCount") =>
+                    RuntimeIntrinsic.IntegerLeadingZeroCount,
+                ("System.Numerics.BitOperations", "Log2") =>
+                    RuntimeIntrinsic.IntegerLog2,
+                ("System.Numerics.BitOperations", "PopCount") =>
+                    RuntimeIntrinsic.IntegerPopulationCount,
+                ("System.Numerics.BitOperations", "TrailingZeroCount") =>
+                    RuntimeIntrinsic.IntegerTrailingZeroCount,
+                ("System.Numerics.BitOperations", "RotateLeft") =>
+                    RuntimeIntrinsic.IntegerRotateLeft,
+                ("System.Numerics.BitOperations", "RotateRight") =>
+                    RuntimeIntrinsic.IntegerRotateRight,
+                (var declaringType, "DivRem")
+                    when IsIntegralDivRem(declaringType, method) =>
+                    RuntimeIntrinsic.IntegerDivRem,
                 (("System.Math", "Abs") or ("System.MathF", "Abs"))
                     when IsUnaryFloating(method) =>
                     RuntimeIntrinsic.FloatingAbsolute,
@@ -223,6 +268,10 @@ public sealed class RuntimeIntrinsicRegistry : IRuntimeIntrinsicRegistry
                 (("System.Math", "Sqrt") or ("System.MathF", "Sqrt"))
                     when IsUnaryFloating(method) =>
                     RuntimeIntrinsic.FloatingSquareRoot,
+                ("System.Math", "CopySign") when IsCopySign(method, CliValueKind.F8) =>
+                    RuntimeIntrinsic.FloatingCopySign,
+                ("System.MathF", "CopySign") when IsCopySign(method, CliValueKind.F4) =>
+                    RuntimeIntrinsic.FloatingCopySign,
                 _ => null,
             };
             if (intrinsic is not null)
@@ -236,9 +285,50 @@ public sealed class RuntimeIntrinsicRegistry : IRuntimeIntrinsicRegistry
             method.Signature.ParameterTypes.Length == 1 &&
             method.Signature.ParameterTypes[0] is CliValueKind.F4 or CliValueKind.F8;
 
+        static bool IsCopySign(MethodDefinitionModel method, CliValueKind kind) =>
+            method.IsStatic &&
+            method.GenericArity == 0 &&
+            method.Signature.ReturnType == kind &&
+            method.Signature.ParameterTypes.AsSpan().SequenceEqual([kind, kind]);
+
         static bool IsStringCharacterAt(MethodDefinitionModel method) =>
             method.Signature.ParameterTypes.AsSpan().SequenceEqual([CliValueKind.I4]) &&
             method.Signature.ReturnType == CliValueKind.I4;
+
+        static bool IsStringEqualsHelper(MethodDefinitionModel method) =>
+            method.IsStatic &&
+            method.Signature.ParameterTypes.AsSpan().SequenceEqual(
+                [CliValueKind.ManagedReference, CliValueKind.ManagedReference]) &&
+            method.Signature.ReturnType == CliValueKind.I4;
+
+        static bool IsIntegralDivRem(
+            string declaringType,
+            MethodDefinitionModel method)
+        {
+            if (declaringType is not (
+                    "System.Math" or
+                    "System.SByte" or "System.Byte" or "System.Char" or
+                    "System.Int16" or "System.UInt16" or
+                    "System.Int32" or "System.UInt32" or
+                    "System.Int64" or "System.UInt64" or
+                    "System.IntPtr" or "System.UIntPtr") ||
+                !method.IsStatic ||
+                method.Signature.ReturnType != CliValueKind.ValueType ||
+                method.Signature.ParameterSignatureTypes is not [var left, var right] ||
+                !left.Equals(right) ||
+                !IsIntegralPrimitive(left))
+            {
+                return false;
+            }
+
+            var result = method.Signature.ReturnSignatureType;
+            return result.TypeArguments is [var quotient, var remainder] &&
+                quotient.Equals(left) &&
+                remainder.Equals(left);
+        }
+
+        static bool IsIntegralPrimitive(CliTypeIdentity type) =>
+            IntegralPrimitiveNames.Contains(type.CanonicalName);
     }
 
     public bool TryGetIntrinsic(EntityKey method, out RuntimeIntrinsic intrinsic) =>

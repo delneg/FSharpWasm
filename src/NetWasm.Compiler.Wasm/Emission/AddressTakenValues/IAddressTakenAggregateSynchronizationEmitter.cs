@@ -1,0 +1,19 @@
+using NetWasm.Compiler.Wasm.Emission.Instructions;
+using NetWasm.Compiler.Wasm.Encoding;
+
+namespace NetWasm.Compiler.Wasm.Emission.AddressTakenValues;
+
+internal interface IAddressTakenAggregateSynchronizationEmitter
+{
+    void Emit(
+        InstructionEmissionRequest request,
+        IWasmInstructionWriter code,
+        int localIndex,
+        AddressTakenValueSynchronizationPhase phase);
+
+    void Emit(
+        InstructionEmissionRequest request,
+        IWasmInstructionWriter code,
+        AddressTakenAggregateCallSynchronization synchronization,
+        AddressTakenValueSynchronizationPhase phase);
+}

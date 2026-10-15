@@ -16,10 +16,13 @@ public interface IRootMapAnalyzerFactory
 }
 
 public sealed class RootMapAnalyzerFactory(
-    IRootDecisionClassifierFactory rootDecisions) : IRootMapAnalyzerFactory
+    IRootDecisionClassifierFactory rootDecisions,
+    IRootSlotAllocator rootSlots) : IRootMapAnalyzerFactory
 {
     private readonly IRootDecisionClassifierFactory _rootDecisions =
         rootDecisions ?? throw new ArgumentNullException(nameof(rootDecisions));
+    private readonly IRootSlotAllocator _rootSlots =
+        rootSlots ?? throw new ArgumentNullException(nameof(rootSlots));
 
     public IRootMapAnalyzer Create(
         ITypeRepository types,
@@ -27,10 +30,15 @@ public sealed class RootMapAnalyzerFactory(
         IMethodRepository methods,
         IValueLayoutProvider layouts,
         IReadOnlyDictionary<string, DispatchCallSiteModel> dispatchCallSites,
-        ITypeClassifier typeClassifier) =>
-        new RootMapAnalyzer(
-            types,
-            methods,
+        ITypeClassifier typeClassifier)
+    {
+        var continuations = new StackStorageContinuationAnalyzer();
+        return new RootMapAnalyzer(
             layouts,
-            _rootDecisions.Create(types, fields, methods, dispatchCallSites, typeClassifier));
+            new StackStorageTypeAnalyzer(types, fields, methods, layouts, continuations),
+            continuations,
+            new StackStorageAnchorPlanner(continuations),
+            _rootDecisions.Create(types, fields, methods, dispatchCallSites, typeClassifier),
+            _rootSlots);
+    }
 }

@@ -11,8 +11,16 @@ namespace System
         IFormattable, IParsable<DateTime>, ISpanFormattable, ISpanParsable<DateTime>,
         IUtf8SpanFormattable
     {
-        private readonly long _ticks;
-        private readonly DateTimeKind _kind;
+        private const ulong TicksMask = 0x3fff_ffff_ffff_ffffUL;
+        private const ulong FlagsMask = 0xc000_0000_0000_0000UL;
+        internal const ulong KindUtc = 0x4000_0000_0000_0000UL;
+        private const ulong KindLocal = 0x8000_0000_0000_0000UL;
+        private const ulong KindLocalAmbiguousDst = 0xc000_0000_0000_0000UL;
+        private const int KindShift = 62;
+
+        // Keep the upstream four-state representation. The second local state
+        // distinguishes the daylight occurrence of an ambiguous local clock value.
+        internal readonly ulong _dateData;
 
         public DateTime(long ticks) : this(ticks, DateTimeKind.Unspecified)
         {
@@ -28,8 +36,26 @@ namespace System
             {
                 throw new ArgumentException();
             }
-            _ticks = ticks;
-            _kind = kind;
+            _dateData = (ulong)ticks | ((ulong)(uint)kind << KindShift);
+        }
+
+        private DateTime(ulong dateData)
+        {
+            _dateData = dateData;
+        }
+
+        internal DateTime(long ticks, DateTimeKind kind, bool isAmbiguousDst)
+        {
+            if ((ulong)ticks > (ulong)MaxTicks)
+            {
+                throw new ArgumentOutOfRangeException();
+            }
+            if (kind != DateTimeKind.Local)
+            {
+                throw new ArgumentException();
+            }
+            _dateData = (ulong)ticks |
+                (isAmbiguousDst ? KindLocalAmbiguousDst : KindLocal);
         }
 
         public DateTime(DateOnly date, TimeOnly time) : this(
@@ -158,33 +184,49 @@ namespace System
             get => UtcNow.ToLocalTime();
         }
 
-        public bool IsDaylightSavingTime() => _kind != DateTimeKind.Utc &&
-            ResolveLocalTimeOffset(_ticks, LocalTimeBasis.Local)
+        public bool IsDaylightSavingTime() => Kind != DateTimeKind.Utc &&
+            ResolveLocalTimeOffset(
+                Ticks,
+                IsAmbiguousDaylightSavingTime()
+                    ? LocalTimeBasis.LocalAmbiguousDaylight
+                    : LocalTimeBasis.Local)
                 .IsDaylightSavingTime;
 
         public DateTime ToLocalTime()
         {
-            if (_kind == DateTimeKind.Local)
+            if (Kind == DateTimeKind.Local)
             {
                 return this;
             }
-            var offset = ResolveLocalTimeOffset(_ticks, LocalTimeBasis.Utc);
-            var localTicks = _ticks + offset.Ticks;
+            var offset = ResolveLocalTimeOffset(Ticks, LocalTimeBasis.Utc);
+            var localTicks = Ticks + offset.Ticks;
             if ((ulong)localTicks > (ulong)MaxTicks)
             {
                 localTicks = localTicks < 0 ? 0 : MaxTicks;
             }
-            return new DateTime(localTicks, DateTimeKind.Local);
+            return new DateTime(
+                localTicks,
+                DateTimeKind.Local,
+                offset.IsAmbiguousDaylightSavingTime);
         }
 
         public DateTime ToUniversalTime()
         {
-            if (_kind == DateTimeKind.Utc)
+            if (Kind == DateTimeKind.Utc)
             {
                 return this;
             }
-            var offset = ResolveLocalTimeOffset(_ticks, LocalTimeBasis.Local);
-            return new DateTime(checked(_ticks - offset.Ticks), DateTimeKind.Utc);
+            var offset = ResolveLocalTimeOffset(
+                Ticks,
+                IsAmbiguousDaylightSavingTime()
+                    ? LocalTimeBasis.LocalAmbiguousDaylight
+                    : LocalTimeBasis.Local);
+            var utcTicks = Ticks - offset.Ticks;
+            if ((ulong)utcTicks > (ulong)MaxTicks)
+            {
+                utcTicks = utcTicks < 0 ? 0 : MaxTicks;
+            }
+            return new DateTime(utcTicks, DateTimeKind.Utc);
         }
 
         private static LocalTimeOffset ResolveLocalTimeOffset(
@@ -194,10 +236,18 @@ namespace System
             PlatformServices.EnsureLocalTimeReady();
             return PlatformServices.LocalTimeOffsets.Resolve(ticks, basis);
         }
-        public long Ticks { get { return _ticks; } }
-        public DateTimeKind Kind { get { return _kind; } }
-        public DateTime Date { get { return new(_ticks - _ticks % TimeSpan.TicksPerDay, _kind); } }
-        public TimeSpan TimeOfDay { get { return new(_ticks % TimeSpan.TicksPerDay); } }
+        private ulong InternalKind => _dateData & FlagsMask;
+        internal bool IsAmbiguousDaylightSavingTime() =>
+            _dateData >= KindLocalAmbiguousDst;
+        public long Ticks { get { return (long)(_dateData & TicksMask); } }
+        public DateTimeKind Kind => InternalKind switch
+        {
+            0 => DateTimeKind.Unspecified,
+            KindUtc => DateTimeKind.Utc,
+            _ => DateTimeKind.Local,
+        };
+        public DateTime Date => new((ulong)(Ticks - Ticks % TimeSpan.TicksPerDay) | InternalKind);
+        public TimeSpan TimeOfDay { get { return new(Ticks % TimeSpan.TicksPerDay); } }
         public int Year { get { GetDateParts(out var year, out _, out _); return year; } }
         public int Month { get { GetDateParts(out _, out var month, out _); return month; } }
         public int Day { get { GetDateParts(out _, out _, out var day); return day; } }
@@ -210,23 +260,23 @@ namespace System
                     - GregorianDateMath.DateToDayNumber(year, 1, 1) + 1;
             }
         }
-        public int Hour { get { return (int)(_ticks / TimeSpan.TicksPerHour % 24); } }
-        public int Minute { get { return (int)(_ticks / TimeSpan.TicksPerMinute % 60); } }
-        public int Second { get { return (int)(_ticks / TimeSpan.TicksPerSecond % 60); } }
-        public int Millisecond { get { return (int)(_ticks / TimeSpan.TicksPerMillisecond % 1000); } }
-        public int Microsecond { get { return (int)(_ticks / TimeSpan.TicksPerMicrosecond % 1000); } }
-        public int Nanosecond { get { return (int)(_ticks % TimeSpan.TicksPerMicrosecond) * 100; } }
-        public DayOfWeek DayOfWeek { get { return (DayOfWeek)((_ticks / TimeSpan.TicksPerDay + 1) % 7); } }
+        public int Hour { get { return (int)(Ticks / TimeSpan.TicksPerHour % 24); } }
+        public int Minute { get { return (int)(Ticks / TimeSpan.TicksPerMinute % 60); } }
+        public int Second { get { return (int)(Ticks / TimeSpan.TicksPerSecond % 60); } }
+        public int Millisecond { get { return (int)(Ticks / TimeSpan.TicksPerMillisecond % 1000); } }
+        public int Microsecond { get { return (int)(Ticks / TimeSpan.TicksPerMicrosecond % 1000); } }
+        public int Nanosecond { get { return (int)(Ticks % TimeSpan.TicksPerMicrosecond) * 100; } }
+        public DayOfWeek DayOfWeek { get { return (DayOfWeek)((Ticks / TimeSpan.TicksPerDay + 1) % 7); } }
 
         public DateTime Add(TimeSpan value) => AddTicks(value.Ticks);
         public DateTime AddTicks(long value)
         {
-            var ticks = unchecked(_ticks + value);
+            var ticks = unchecked(Ticks + value);
             if ((ulong)ticks > (ulong)MaxTicks)
             {
                 throw new ArgumentOutOfRangeException(nameof(value));
             }
-            return new DateTime(ticks, _kind);
+            return new DateTime((ulong)ticks | InternalKind);
         }
         public DateTime AddDays(double value) => AddUnits(
             value, MaxTicks / TimeSpan.TicksPerDay, TimeSpan.TicksPerDay);
@@ -243,9 +293,9 @@ namespace System
         public DateTime AddMonths(int value)
         {
             var date = new DateOnly(Year, Month, Day).AddMonths(value);
-            return new DateTime(
-                checked((long)date.DayNumber * TimeSpan.TicksPerDay + TimeOfDay.Ticks),
-                _kind);
+            var ticks = checked(
+                (long)date.DayNumber * TimeSpan.TicksPerDay + TimeOfDay.Ticks);
+            return new DateTime((ulong)ticks | InternalKind);
         }
         public DateTime AddYears(int value)
         {
@@ -255,8 +305,16 @@ namespace System
             }
             return AddMonths(value * 12);
         }
-        public TimeSpan Subtract(DateTime value) => new(_ticks - value._ticks);
-        public DateTime Subtract(TimeSpan value) => AddTicks(checked(-value.Ticks));
+        public TimeSpan Subtract(DateTime value) => new(Ticks - value.Ticks);
+        public DateTime Subtract(TimeSpan value)
+        {
+            var ticks = (ulong)(Ticks - value.Ticks);
+            if (ticks > (ulong)MaxTicks)
+            {
+                throw new ArgumentOutOfRangeException(nameof(value));
+            }
+            return new DateTime(ticks | InternalKind);
+        }
         public static bool IsLeapYear(int year) => GregorianDateMath.IsLeapYear(year);
         public static int DaysInMonth(int year, int month) => DateOnly.DaysInMonth(year, month);
 
@@ -267,12 +325,12 @@ namespace System
 
         public long ToBinary()
         {
-            if (_kind == DateTimeKind.Local)
+            if (Kind == DateTimeKind.Local)
             {
                 throw new PlatformNotSupportedException(
                     "Local time-zone conversion is unavailable in the invariant profile.");
             }
-            return _ticks | ((long)_kind << 62);
+            return (long)_dateData;
         }
 
         public static DateTime FromBinary(long data)
@@ -288,37 +346,39 @@ namespace System
 
         public long ToFileTimeUtc()
         {
-            var fileTime = checked(_ticks - FileTimeOffsetTicks);
+            var ticks = Kind == DateTimeKind.Local ? ToUniversalTime().Ticks : Ticks;
+            var fileTime = ticks - FileTimeOffsetTicks;
             if (fileTime < 0) throw new ArgumentOutOfRangeException();
             return fileTime;
         }
 
         public static DateTime FromFileTimeUtc(long fileTime)
         {
-            if (fileTime < 0) throw new ArgumentOutOfRangeException(nameof(fileTime));
-            return new DateTime(checked(fileTime + FileTimeOffsetTicks), DateTimeKind.Utc);
+            if ((ulong)fileTime > (ulong)(MaxTicks - FileTimeOffsetTicks))
+            {
+                throw new ArgumentOutOfRangeException(nameof(fileTime));
+            }
+            return new DateTime(fileTime + FileTimeOffsetTicks, DateTimeKind.Utc);
         }
 
-        public long ToFileTime() => _kind == DateTimeKind.Local
-            ? throw new PlatformNotSupportedException(
-                "Local time-zone conversion is unavailable in the invariant profile.")
-            : ToFileTimeUtc();
+        public long ToFileTime() => ToUniversalTime().ToFileTimeUtc();
 
-        public static DateTime FromFileTime(long fileTime) => FromFileTimeUtc(fileTime);
+        public static DateTime FromFileTime(long fileTime) =>
+            FromFileTimeUtc(fileTime).ToLocalTime();
 
         public TypeCode GetTypeCode() => TypeCode.DateTime;
 
-        public int CompareTo(DateTime value) => _ticks.CompareTo(value._ticks);
+        public int CompareTo(DateTime value) => Ticks.CompareTo(value.Ticks);
         public int CompareTo(object? value) => value is null
             ? 1
             : value is DateTime other
                 ? CompareTo(other)
                 : throw new ArgumentException();
         public static int Compare(DateTime left, DateTime right) =>
-            left._ticks.CompareTo(right._ticks);
-        public bool Equals(DateTime value) => _ticks == value._ticks;
+            left.Ticks.CompareTo(right.Ticks);
+        public bool Equals(DateTime value) => Ticks == value.Ticks;
         public override bool Equals(object? value) => value is DateTime other && Equals(other);
-        public override int GetHashCode() => _ticks.GetHashCode();
+        public override int GetHashCode() => Ticks.GetHashCode();
 
         public static bool Equals(DateTime left, DateTime right) => left.Equals(right);
 
@@ -332,15 +392,8 @@ namespace System
         }
 
         public static DateTime SpecifyKind(DateTime value, DateTimeKind kind) =>
-            new(value._ticks, kind);
-        public override string ToString() => InvariantDateTimeText.FourDigits(Year) + "-"
-            + InvariantDateTimeText.TwoDigits(Month) + "-"
-            + InvariantDateTimeText.TwoDigits(Day) + "T"
-            + InvariantDateTimeText.TwoDigits(Hour) + ":"
-            + InvariantDateTimeText.TwoDigits(Minute) + ":"
-            + InvariantDateTimeText.TwoDigits(Second)
-            + InvariantDateTimeText.Fraction(_ticks)
-            + (_kind == DateTimeKind.Utc ? "Z" : string.Empty);
+            new(value.Ticks, kind);
+        public override string ToString() => FormatGeneral(includeSeconds: true);
 
         public string ToLongDateString() => Date.ToString();
         public string ToShortDateString() => Date.ToString();
@@ -411,18 +464,22 @@ namespace System
         public static bool TryParse(string? value, out DateTime result)
         {
             result = default;
-            if (value == null || value.Length < 19 ||
-                !InvariantDateTimeText.TryReadDigits(value, 0, 4, out var year) ||
-                !InvariantDateTimeText.HasSeparator(value, 4, '-') ||
-                !InvariantDateTimeText.TryReadDigits(value, 5, 2, out var month) ||
-                !InvariantDateTimeText.HasSeparator(value, 7, '-') ||
-                !InvariantDateTimeText.TryReadDigits(value, 8, 2, out var day) ||
-                !InvariantDateTimeText.HasSeparator(value, 10, 'T') ||
-                !InvariantDateTimeText.TryReadDigits(value, 11, 2, out var hour) ||
-                !InvariantDateTimeText.HasSeparator(value, 13, ':') ||
-                !InvariantDateTimeText.TryReadDigits(value, 14, 2, out var minute) ||
-                !InvariantDateTimeText.HasSeparator(value, 16, ':') ||
-                !InvariantDateTimeText.TryReadDigits(value, 17, 2, out var second))
+            if (TryParseGeneralText(value, out result))
+            {
+                return true;
+            }
+            return TryParseIsoText(value, out result);
+        }
+
+        private static bool TryParseIsoText(string? value, out DateTime result)
+        {
+            result = default;
+            if (value is null || value.Length < 19 ||
+                !InvariantDateTimeText.TryParseIso(
+                    value.Substring(0, 19),
+                    'T',
+                    includeSeconds: true,
+                    out var clock))
             {
                 return false;
             }
@@ -445,13 +502,28 @@ namespace System
             {
                 return false;
             }
-            try
+            result = new DateTime(clock.Ticks + fraction, kind);
+            return true;
+        }
+
+        private static bool TryParseGeneralText(string? value, out DateTime result)
+        {
+            result = default;
+            if (value is null)
             {
-                result = new DateTime(year, month, day, hour, minute, second, kind)
-                    .AddTicks(fraction);
+                return false;
+            }
+            if (InvariantDateTimeText.TryParseGeneral(
+                value,
+                includeSeconds: true,
+                out result))
+            {
                 return true;
             }
-            catch (Exception) { return false; }
+            return InvariantDateTimeText.TryParseGeneral(
+                value,
+                includeSeconds: false,
+                out result);
         }
 
         public static bool TryParse(string? value, IFormatProvider? provider, out DateTime result) =>
@@ -462,14 +534,13 @@ namespace System
         {
             ValidateStyles(style);
             value = TrimWhiteSpace(value, style);
-            if (!TryParse(value, out result)) return false;
-            if ((style & (System.Globalization.DateTimeStyles.AssumeUniversal |
-                System.Globalization.DateTimeStyles.AdjustToUniversal)) != 0 &&
-                result._kind == DateTimeKind.Unspecified)
+            if (value is not null &&
+                (style & System.Globalization.DateTimeStyles.AllowInnerWhite) != 0)
             {
-                result = new DateTime(result._ticks, DateTimeKind.Utc);
+                value = CollapseInnerWhite(value);
             }
-            return true;
+            if (!TryParse(value, out result)) return false;
+            return ApplyStyles(ref result, style);
         }
 
         public static bool TryParse(ReadOnlySpan<char> value, out DateTime result) =>
@@ -517,8 +588,80 @@ namespace System
         {
             ValidateStyles(style);
             result = default;
-            if (!IsSupportedFormat(format)) return false;
-            return TryParse(value, provider, style, out result);
+            if (value is null || !IsSupportedFormat(format)) return false;
+            var exactValue = TrimWhiteSpace(value, style)!;
+            if ((style & System.Globalization.DateTimeStyles.AllowInnerWhite) != 0)
+            {
+                exactValue = CollapseInnerWhite(exactValue);
+            }
+            var parsed = format switch
+            {
+                "s" => InvariantDateTimeText.TryParseIso(
+                    exactValue,
+                    'T',
+                    includeSeconds: true,
+                    out result),
+                "u" => exactValue.Length == 20 && exactValue[19] == 'Z' &&
+                    InvariantDateTimeText.TryParseIso(
+                        exactValue.Substring(0, 19),
+                        ' ',
+                        includeSeconds: true,
+                        out result),
+                "G" => InvariantDateTimeText.TryParseGeneral(
+                    exactValue,
+                    includeSeconds: true,
+                    out result),
+                "g" => InvariantDateTimeText.TryParseGeneral(
+                    exactValue,
+                    includeSeconds: false,
+                    out result),
+                "O" or "o" => TryParseRoundTrip(exactValue, out result),
+                _ when format == InvariantDateTimeText.Rfc3339Format =>
+                    TryParse(exactValue, out result),
+                _ => TryParseCustomExact(exactValue, format!, out result),
+            };
+            if (!parsed)
+            {
+                return false;
+            }
+            return ApplyStyles(ref result, style);
+        }
+
+        private static bool TryParseCustomExact(
+            string value,
+            string format,
+            out DateTime result)
+        {
+            result = default;
+            if (!InvariantDateTimePattern.TryParse(
+                value,
+                format,
+                out var clock,
+                out var hasOffset,
+                out var offset,
+                out var utcDesignator))
+            {
+                return false;
+            }
+            if (utcDesignator)
+            {
+                result = new DateTime(clock.Ticks, DateTimeKind.Utc);
+                return true;
+            }
+            if (!hasOffset)
+            {
+                result = clock;
+                return true;
+            }
+            try
+            {
+                result = new DateTimeOffset(clock, offset).LocalDateTime;
+                return true;
+            }
+            catch (Exception)
+            {
+                return false;
+            }
         }
 
         public static bool TryParseExact(string? value, string?[]? formats, IFormatProvider? provider,
@@ -547,14 +690,14 @@ namespace System
         public static TimeSpan operator -(DateTime left, DateTime right) => left.Subtract(right);
         public static bool operator ==(DateTime left, DateTime right) => left.Equals(right);
         public static bool operator !=(DateTime left, DateTime right) => !left.Equals(right);
-        public static bool operator <(DateTime left, DateTime right) => left._ticks < right._ticks;
-        public static bool operator <=(DateTime left, DateTime right) => left._ticks <= right._ticks;
-        public static bool operator >(DateTime left, DateTime right) => left._ticks > right._ticks;
-        public static bool operator >=(DateTime left, DateTime right) => left._ticks >= right._ticks;
+        public static bool operator <(DateTime left, DateTime right) => left.Ticks < right.Ticks;
+        public static bool operator <=(DateTime left, DateTime right) => left.Ticks <= right.Ticks;
+        public static bool operator >(DateTime left, DateTime right) => left.Ticks > right.Ticks;
+        public static bool operator >=(DateTime left, DateTime right) => left.Ticks >= right.Ticks;
 
         private void GetDateParts(out int year, out int month, out int day) =>
             GregorianDateMath.GetDateParts(
-                (int)(_ticks / TimeSpan.TicksPerDay), out year, out month, out day);
+                (int)(Ticks / TimeSpan.TicksPerDay), out year, out month, out day);
 
         private DateTime AddUnits(double value, long maxUnitCount, long ticksPerUnit)
         {
@@ -651,31 +794,88 @@ namespace System
 
         private string FormatInvariant(string? format)
         {
-            if (format is not null && format.Length != 0 && !IsSupportedFormat(format))
+            if (format is { Length: 1 } && !IsSupportedFormat(format))
             {
                 throw new FormatException();
             }
             if (format == InvariantDateTimeText.Rfc3339Format)
             {
-                var suffix = _kind switch
+                var suffix = Kind switch
                 {
                     DateTimeKind.Utc => "Z",
                     DateTimeKind.Local => FormatOffset(
-                        ResolveLocalTimeOffset(_ticks, LocalTimeBasis.Local).Ticks),
+                        ResolveLocalTimeOffset(
+                            Ticks,
+                            IsAmbiguousDaylightSavingTime()
+                                ? LocalTimeBasis.LocalAmbiguousDaylight
+                                : LocalTimeBasis.Local).Ticks),
                     _ => string.Empty,
                 };
                 return InvariantDateTimeText.FormatRfc3339(this, suffix);
             }
-            return format is "O" or "o" ? FormatRoundTrip() : ToString();
+            if (format is { Length: > 1 })
+            {
+                var offset = Kind == DateTimeKind.Utc
+                    ? TimeSpan.Zero
+                    : new TimeSpan(ResolveLocalTimeOffset(
+                        Ticks,
+                        IsAmbiguousDaylightSavingTime()
+                            ? LocalTimeBasis.LocalAmbiguousDaylight
+                            : LocalTimeBasis.Local).Ticks);
+                return InvariantDateTimePattern.Format(
+                    this,
+                    format,
+                    hasOffset: true,
+                    offset,
+                    explicitOffset: false);
+            }
+            return format switch
+            {
+                "O" or "o" => FormatRoundTrip(),
+                "s" => FormatSortable(),
+                "u" => FormatUniversalSortable(),
+                "g" => FormatGeneral(includeSeconds: false),
+                _ => FormatGeneral(includeSeconds: true),
+            };
         }
+
+        internal string FormatGeneral(bool includeSeconds) =>
+            InvariantDateTimeText.TwoDigits(Month) + "/" +
+            InvariantDateTimeText.TwoDigits(Day) + "/" +
+            InvariantDateTimeText.FourDigits(Year) + " " +
+            InvariantDateTimeText.TwoDigits(Hour) + ":" +
+            InvariantDateTimeText.TwoDigits(Minute) +
+            (includeSeconds
+                ? ":" + InvariantDateTimeText.TwoDigits(Second)
+                : string.Empty);
+
+        private string FormatSortable() =>
+            InvariantDateTimeText.FourDigits(Year) + "-" +
+            InvariantDateTimeText.TwoDigits(Month) + "-" +
+            InvariantDateTimeText.TwoDigits(Day) + "T" +
+            InvariantDateTimeText.TwoDigits(Hour) + ":" +
+            InvariantDateTimeText.TwoDigits(Minute) + ":" +
+            InvariantDateTimeText.TwoDigits(Second);
+
+        private string FormatUniversalSortable() =>
+            InvariantDateTimeText.FourDigits(Year) + "-" +
+            InvariantDateTimeText.TwoDigits(Month) + "-" +
+            InvariantDateTimeText.TwoDigits(Day) + " " +
+            InvariantDateTimeText.TwoDigits(Hour) + ":" +
+            InvariantDateTimeText.TwoDigits(Minute) + ":" +
+            InvariantDateTimeText.TwoDigits(Second) + "Z";
 
         private string FormatRoundTrip()
         {
-            var suffix = _kind switch
+            var suffix = Kind switch
             {
                 DateTimeKind.Utc => "Z",
                 DateTimeKind.Local => FormatOffset(
-                    ResolveLocalTimeOffset(_ticks, LocalTimeBasis.Local).Ticks),
+                    ResolveLocalTimeOffset(
+                        Ticks,
+                        IsAmbiguousDaylightSavingTime()
+                            ? LocalTimeBasis.LocalAmbiguousDaylight
+                            : LocalTimeBasis.Local).Ticks),
                 _ => string.Empty,
             };
             return InvariantDateTimeText.FourDigits(Year) + "-"
@@ -684,8 +884,57 @@ namespace System
                 + InvariantDateTimeText.TwoDigits(Hour) + ":"
                 + InvariantDateTimeText.TwoDigits(Minute) + ":"
                 + InvariantDateTimeText.TwoDigits(Second) + "."
-                + (_ticks % TimeSpan.TicksPerSecond).ToString().PadLeft(7, '0')
+                + (Ticks % TimeSpan.TicksPerSecond).ToString().PadLeft(7, '0')
                 + suffix;
+        }
+
+        private static bool TryParseRoundTrip(string value, out DateTime result)
+        {
+            result = default;
+            if (value.Length is not (27 or 28 or 33) ||
+                !InvariantDateTimeText.HasSeparator(value, 19, '.') ||
+                !InvariantDateTimeText.TryReadFraction(value, 20, 27, out var fraction) ||
+                !InvariantDateTimeText.TryParseIso(
+                    value.Substring(0, 19),
+                    'T',
+                    includeSeconds: true,
+                    out var clock))
+            {
+                return false;
+            }
+            clock = clock.AddTicks(fraction);
+            if (value.Length == 27)
+            {
+                result = clock;
+                return true;
+            }
+            if (value.Length == 28 && value[27] == 'Z')
+            {
+                result = new DateTime(clock.Ticks, DateTimeKind.Utc);
+                return true;
+            }
+            if (value.Length != 33 || value[27] is not ('+' or '-') ||
+                !InvariantDateTimeText.TryReadDigits(value, 28, 2, out var hours) ||
+                !InvariantDateTimeText.HasSeparator(value, 30, ':') ||
+                !InvariantDateTimeText.TryReadDigits(value, 31, 2, out var minutes) ||
+                hours > 14 || minutes >= 60 || hours == 14 && minutes != 0)
+            {
+                return false;
+            }
+            var offset = TimeSpan.FromMinutes(hours * 60 + minutes);
+            if (value[27] == '-')
+            {
+                offset = -offset;
+            }
+            try
+            {
+                result = new DateTimeOffset(clock, offset).LocalDateTime;
+                return true;
+            }
+            catch (Exception)
+            {
+                return false;
+            }
         }
 
         private static string FormatOffset(long ticks)
@@ -702,30 +951,110 @@ namespace System
         }
 
         private static bool IsSupportedFormat(string? format) =>
-            format is not null && (format.Length == 0 || format is "O" or "o" or "s" or "u" or "G" or "g"
+            format is not null && (format.Length == 0 || format.Length > 1 ||
+                format is "O" or "o" or "s" or "u" or "G" or "g"
                 || format == InvariantDateTimeText.Rfc3339Format);
 
         private static string? TrimWhiteSpace(string? value, System.Globalization.DateTimeStyles style)
         {
-            if (value is null || (style & System.Globalization.DateTimeStyles.AllowWhiteSpaces) == 0)
+            if (value is null)
             {
                 return value;
             }
             var start = 0;
             var end = value.Length;
-            while (start < end && IsWhiteSpace(value[start])) start++;
-            while (end > start && IsWhiteSpace(value[end - 1])) end--;
+            if ((style & System.Globalization.DateTimeStyles.AllowLeadingWhite) != 0)
+            {
+                while (start < end && IsWhiteSpace(value[start])) start++;
+            }
+            if ((style & System.Globalization.DateTimeStyles.AllowTrailingWhite) != 0)
+            {
+                while (end > start && IsWhiteSpace(value[end - 1])) end--;
+            }
             return start == 0 && end == value.Length ? value : value.Substring(start, end - start);
+        }
+
+        private static string CollapseInnerWhite(string value)
+        {
+            var output = string.Empty;
+            var inWhiteSpace = false;
+            for (var index = 0; index < value.Length; index++)
+            {
+                var current = value[index];
+                if (IsWhiteSpace(current))
+                {
+                    if (!inWhiteSpace)
+                    {
+                        output += ' ';
+                        inWhiteSpace = true;
+                    }
+                }
+                else
+                {
+                    output += current;
+                    inWhiteSpace = false;
+                }
+            }
+            return output;
+        }
+
+        private static bool ApplyStyles(
+            ref DateTime result,
+            System.Globalization.DateTimeStyles style)
+        {
+            var adjust =
+                (style & System.Globalization.DateTimeStyles.AdjustToUniversal) != 0;
+            if (result.Kind == DateTimeKind.Utc)
+            {
+                return true;
+            }
+            if (result.Kind == DateTimeKind.Local)
+            {
+                if (adjust)
+                {
+                    result = result.ToUniversalTime();
+                }
+                return true;
+            }
+
+            if ((style & System.Globalization.DateTimeStyles.AssumeUniversal) != 0)
+            {
+                result = new DateTime(result.Ticks, DateTimeKind.Utc);
+                if (!adjust)
+                {
+                    result = result.ToLocalTime();
+                }
+                return true;
+            }
+            if ((style & System.Globalization.DateTimeStyles.AssumeLocal) != 0 || adjust)
+            {
+                result = new DateTime(result.Ticks, DateTimeKind.Local);
+                if (adjust)
+                {
+                    result = result.ToUniversalTime();
+                }
+            }
+            return true;
         }
 
         private static void ValidateStyles(System.Globalization.DateTimeStyles style)
         {
             const System.Globalization.DateTimeStyles supported =
                 System.Globalization.DateTimeStyles.AllowWhiteSpaces |
+                System.Globalization.DateTimeStyles.AssumeLocal |
                 System.Globalization.DateTimeStyles.AssumeUniversal |
                 System.Globalization.DateTimeStyles.AdjustToUniversal |
                 System.Globalization.DateTimeStyles.RoundtripKind;
-            if ((style & ~supported) != 0)
+            const System.Globalization.DateTimeStyles localUniversal =
+                System.Globalization.DateTimeStyles.AssumeLocal |
+                System.Globalization.DateTimeStyles.AssumeUniversal;
+            var roundtripConflict = System.Globalization.DateTimeStyles.RoundtripKind |
+                localUniversal |
+                System.Globalization.DateTimeStyles.AdjustToUniversal;
+            if ((style & ~supported) != 0 ||
+                (style & localUniversal) == localUniversal ||
+                (style & roundtripConflict) >
+                    System.Globalization.DateTimeStyles.RoundtripKind)
             {
                 throw new ArgumentException();
             }

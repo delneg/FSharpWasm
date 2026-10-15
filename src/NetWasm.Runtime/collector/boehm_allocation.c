@@ -33,3 +33,5 @@ void *collector_allocate_atomic(size_t size)
 {
     return GC_malloc_atomic(size);
 }
+
+bool collector_atomic_allocation_is_zeroed(void) { return false; }

@@ -2,6 +2,7 @@ using NetWasm.Compiler.Core;
 using System.Collections.Immutable;
 using NetWasm.Compiler.Wasm.Emission;
 using NetWasm.Compiler.Wasm.Emission.Instructions.Runtime;
+using NetWasm.Compiler.Wasm.Encoding;
 
 namespace NetWasm.Compiler.Wasm.Tests;
 
@@ -14,6 +15,8 @@ public sealed class RuntimeSupportIntrinsicEmitterTests
     [InlineData(RuntimeIntrinsic.ReportUnobservedTaskException, 3)]
     [InlineData(RuntimeIntrinsic.IsReferenceOrContainsReferences, 1)]
     [InlineData(RuntimeIntrinsic.GetArrayDataReference, 1)]
+    [InlineData(RuntimeIntrinsic.StringGetRawDataReference, 1)]
+    [InlineData(RuntimeIntrinsic.StringEqualsOrdinal, 2)]
     [InlineData(RuntimeIntrinsic.NativeIntegerSize, 0)]
     [InlineData(RuntimeIntrinsic.ComponentReallocate, 4)]
     [InlineData(RuntimeIntrinsic.ComponentFree, 1)]
@@ -34,9 +37,11 @@ public sealed class RuntimeSupportIntrinsicEmitterTests
         else if (intrinsic is RuntimeIntrinsic.SuppressFinalize or
             RuntimeIntrinsic.ReRegisterForFinalize or
             RuntimeIntrinsic.GetArrayDataReference or
+            RuntimeIntrinsic.StringGetRawDataReference or
+            RuntimeIntrinsic.StringEqualsOrdinal or
             RuntimeIntrinsic.ComponentResourceHandleCreate)
         {
-            stack[0] = CliValueKind.ManagedReference;
+            Array.Fill(stack, CliValueKind.ManagedReference);
         }
         ImmutableArray<CliTypeIdentity> methodArguments = intrinsic == RuntimeIntrinsic.IsReferenceOrContainsReferences
             ? [CliTypeIdentity.FromStackKind(CliValueKind.I4)]
@@ -68,37 +73,136 @@ public sealed class RuntimeSupportIntrinsicEmitterTests
     }
 
     [Theory]
+    [InlineData(RuntimeIntrinsic.SuppressFinalize)]
+    [InlineData(RuntimeIntrinsic.ReRegisterForFinalize)]
+    public void ObjectFinalizationApisEmitNothingWhenFinalizationIsAbsent(
+        RuntimeIntrinsic intrinsic)
+    {
+        var request = EmitterTestSupport.CreateRuntimeIntrinsicRequest(
+            intrinsic,
+            [CliValueKind.ManagedReference]);
+        request = request with
+        {
+            Call = request.Call with
+            {
+                Instruction = request.Instruction with
+                {
+                    Target = request.Instruction.Target with
+                    {
+                        RuntimeImportSelection = request.Instruction.Target
+                            .RuntimeImportSelection with
+                        {
+                            IncludeFinalization = false,
+                        },
+                    },
+                },
+            },
+        };
+
+        var writer = new EmitterTestSupport.RecordingInstructionWriter();
+        EmitterTestSupport.RegisterInstructionWriter(request.Instruction, writer);
+        CreateEmitter(intrinsic, new RecordingLayoutProvider()).Emit(request, writer);
+
+        Assert.Empty(writer.ToInstructions());
+    }
+
+    [Theory]
     [MemberData(nameof(ReferenceInspectionTypes))]
-    public void ReferenceInspectionHandlesEveryTypeShape(CliTypeIdentity inspectedType)
+    public void ReferenceInspectionHandlesEveryTypeShape(
+        CliTypeIdentity inspectedType,
+        int expected)
     {
         var layouts = new RecordingLayoutProvider();
         var request = EmitterTestSupport.CreateRuntimeIntrinsicRequest(
             RuntimeIntrinsic.IsReferenceOrContainsReferences,
             [CliValueKind.I4],
             [inspectedType]);
+        var writer = Assert.IsType<EmitterTestSupport.RecordingInstructionWriter>(
+            EmitterTestSupport.GetCodeWriter(request.Instruction));
 
         EmitThroughCapability(
             new IsReferenceOrContainsReferencesIntrinsicEmitter(layouts),
             request);
 
-        Assert.NotEmpty(EmitterTestSupport.GetCodeBytes(request.Instruction));
+        var instruction = Assert.Single(writer.ToInstructions(), candidate =>
+            candidate.Opcode == WasmOpcodes.I32Constant);
+        Assert.Equal(expected, instruction.Operand.SignedValue);
     }
 
-    public static TheoryData<CliTypeIdentity> ReferenceInspectionTypes => new()
+    [Fact]
+    public void ReferenceInspectionIncludesManagedReferenceFields()
     {
-        CliTypeIdentity.Named(
+        var inspectedType = CliTypeIdentity.Named(
             new AssemblyIdentity("Test"),
             "Test",
-            "Reference",
-            isValueType: false),
-        CliTypeIdentity.ManagedByReference(
-            CliTypeIdentity.FromStackKind(CliValueKind.I4)),
-        CliTypeIdentity.Named(
+            "ContainsManagedReference",
+            isValueType: true);
+        var request = EmitterTestSupport.CreateRuntimeIntrinsicRequest(
+            RuntimeIntrinsic.IsReferenceOrContainsReferences,
+            [CliValueKind.I4],
+            [inspectedType]);
+        var writer = Assert.IsType<EmitterTestSupport.RecordingInstructionWriter>(
+            EmitterTestSupport.GetCodeWriter(request.Instruction));
+
+        EmitThroughCapability(
+            new IsReferenceOrContainsReferencesIntrinsicEmitter(
+                new ManagedReferenceLayoutProvider()),
+            request);
+
+        var instruction = Assert.Single(writer.ToInstructions(), candidate =>
+            candidate.Opcode == WasmOpcodes.I32Constant);
+        Assert.Equal(1, instruction.Operand.SignedValue);
+    }
+
+    [Fact]
+    public void ReferenceInspectionIncludesManagedByReferenceFields()
+    {
+        var inspectedType = CliTypeIdentity.Named(
             new AssemblyIdentity("Test"),
             "Test",
-            "ContainsReferences",
-            isValueType: true),
-        CliTypeIdentity.FromStackKind(CliValueKind.I4),
+            "ContainsManagedByReference",
+            isValueType: true);
+        var request = EmitterTestSupport.CreateRuntimeIntrinsicRequest(
+            RuntimeIntrinsic.IsReferenceOrContainsReferences,
+            [CliValueKind.I4],
+            [inspectedType]);
+        var writer = Assert.IsType<EmitterTestSupport.RecordingInstructionWriter>(
+            EmitterTestSupport.GetCodeWriter(request.Instruction));
+
+        EmitThroughCapability(
+            new IsReferenceOrContainsReferencesIntrinsicEmitter(
+                new ManagedByReferenceLayoutProvider()),
+            request);
+
+        var instruction = Assert.Single(writer.ToInstructions(), candidate =>
+            candidate.Opcode == WasmOpcodes.I32Constant);
+        Assert.Equal(1, instruction.Operand.SignedValue);
+    }
+
+    public static TheoryData<CliTypeIdentity, int> ReferenceInspectionTypes => new()
+    {
+        {
+            CliTypeIdentity.Named(
+                new AssemblyIdentity("Test"),
+                "Test",
+                "Reference",
+                isValueType: false),
+            1
+        },
+        {
+            CliTypeIdentity.ManagedByReference(
+                CliTypeIdentity.FromStackKind(CliValueKind.I4)),
+            1
+        },
+        {
+            CliTypeIdentity.Named(
+                new AssemblyIdentity("Test"),
+                "Test",
+                "ValueWithoutReferences",
+                isValueType: true),
+            0
+        },
+        { CliTypeIdentity.FromStackKind(CliValueKind.I4), 0 },
     };
 
     private static IRuntimeIntrinsicEmitter CreateEmitter(
@@ -120,6 +224,14 @@ public sealed class RuntimeSupportIntrinsicEmitterTests
                 new IsReferenceOrContainsReferencesIntrinsicEmitter(layouts),
             RuntimeIntrinsic.GetArrayDataReference => new GetArrayDataReferenceIntrinsicEmitter(
                 layouts, layouts, exceptions, addresses),
+            RuntimeIntrinsic.StringGetRawDataReference =>
+                new StringGetRawDataReferenceIntrinsicEmitter(
+                    layouts,
+                    addresses),
+            RuntimeIntrinsic.StringEqualsOrdinal =>
+                new StringEqualsOrdinalIntrinsicEmitter(
+                    layouts,
+                    addresses),
             RuntimeIntrinsic.NativeIntegerSize => new NativeIntegerSizeIntrinsicEmitter(layouts),
             RuntimeIntrinsic.ComponentReallocate =>
                 new ComponentReallocateIntrinsicEmitter(imports),
@@ -140,4 +252,16 @@ public sealed class RuntimeSupportIntrinsicEmitterTests
         RuntimeIntrinsicEmissionRequest request) => emitter.Emit(
             request,
             EmitterTestSupport.GetCodeWriter(request.Instruction));
+
+    private sealed class ManagedByReferenceLayoutProvider : IValueLayoutProvider
+    {
+        public ValueLayout GetValueLayout(CliTypeIdentity type) =>
+            new(type, 4, 4, []) { ByReferenceOffsets = [0] };
+    }
+
+    private sealed class ManagedReferenceLayoutProvider : IValueLayoutProvider
+    {
+        public ValueLayout GetValueLayout(CliTypeIdentity type) =>
+            new(type, 4, 4, [0]);
+    }
 }

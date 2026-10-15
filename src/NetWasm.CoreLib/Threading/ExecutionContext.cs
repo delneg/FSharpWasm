@@ -11,7 +11,15 @@ namespace System.Threading
     public sealed class ExecutionContext : IDisposable
     {
         private static readonly ExecutionContext s_default =
-            new(null, flowSuppressed: false);
+            new(
+                AsyncLocalValueMap.Empty,
+                localChangeNotifications: null,
+                flowSuppressed: false);
+        private static readonly ExecutionContext s_defaultFlowSuppressed =
+            new(
+                AsyncLocalValueMap.Empty,
+                localChangeNotifications: null,
+                flowSuppressed: true);
 
         // NetWasm has one managed reactor. This is the reactor's ambient context,
         // rather than a claim of thread-local or cross-worker execution semantics.
@@ -19,19 +27,29 @@ namespace System.Threading
         private static int s_nextFlowControlToken;
         private static int s_currentFlowControlToken;
 
-        private readonly LocalValue? _localValues;
+        private readonly IAsyncLocalValueMap _localValues;
+        private readonly IAsyncLocal[]? _localChangeNotifications;
         private readonly bool _flowSuppressed;
         private ExecutionContext(
-            LocalValue? localValues,
+            IAsyncLocalValueMap localValues,
+            IAsyncLocal[]? localChangeNotifications,
             bool flowSuppressed)
         {
             _localValues = localValues;
+            _localChangeNotifications = localChangeNotifications;
             _flowSuppressed = flowSuppressed;
         }
 
         /// <summary>Captures the current flow, or null while flow is suppressed.</summary>
         public static ExecutionContext? Capture() =>
             s_current._flowSuppressed ? null : s_current;
+
+        internal static ExecutionContext CaptureForRestore(
+            out int flowControlToken)
+        {
+            flowControlToken = s_currentFlowControlToken;
+            return s_current;
+        }
 
         /// <summary>Suppresses propagation of the current execution context.</summary>
         public static AsyncFlowControl SuppressFlow()
@@ -127,6 +145,14 @@ namespace System.Threading
             SetCurrent(executionContext, contextChanged: true);
         }
 
+        internal static void Restore(
+            ExecutionContext executionContext,
+            int flowControlToken)
+        {
+            Restore(executionContext);
+            s_currentFlowControlToken = flowControlToken;
+        }
+
         /// <summary>Creates an immutable copy of this context.</summary>
         public ExecutionContext CreateCopy() => this;
 
@@ -137,15 +163,8 @@ namespace System.Threading
 
         internal static object? GetLocalValue(IAsyncLocal local)
         {
-            for (var current = s_current._localValues; current is not null; current = current.Next)
-            {
-                if (ReferenceEquals(current.Local, local))
-                {
-                    return current.Value;
-                }
-            }
-
-            return null;
+            s_current._localValues.TryGetValue(local, out var value);
+            return value;
         }
 
         internal static void SetLocalValue(
@@ -153,27 +172,40 @@ namespace System.Threading
             object? newValue,
             bool needChangeNotifications)
         {
-            var previousValue = FindValue(s_current._localValues, local, out var hadPreviousValue);
+            var current = s_current;
+            var hadPreviousValue = current._localValues.TryGetValue(
+                local,
+                out var previousValue);
             if (ReferenceEquals(previousValue, newValue))
             {
                 return;
             }
 
-            var values = s_current._localValues;
-            if (hadPreviousValue)
+            var values = current._localValues.Set(
+                local,
+                newValue,
+                treatNullValueAsNonexistent: !needChangeNotifications);
+            var changeNotifications = current._localChangeNotifications;
+            if (needChangeNotifications && !hadPreviousValue)
             {
-                values = newValue is null && !needChangeNotifications
-                    ? RemoveValue(values, local)
-                    : ReplaceValue(values!, local, newValue);
-            }
-            else if (newValue is not null || needChangeNotifications)
-            {
-                values = new LocalValue(local, newValue, values);
+                if (changeNotifications is null)
+                {
+                    changeNotifications = [local];
+                }
+                else
+                {
+                    var notificationIndex = changeNotifications.Length;
+                    Array.Resize(
+                        ref changeNotifications,
+                        notificationIndex + 1);
+                    changeNotifications[notificationIndex] = local;
+                }
             }
 
             s_current = CreateContext(
                 values,
-                s_current._flowSuppressed);
+                changeNotifications,
+                current._flowSuppressed);
 
             if (needChangeNotifications)
             {
@@ -197,21 +229,26 @@ namespace System.Threading
         }
 
         private ExecutionContext WithFlowSuppressed(bool flowSuppressed) =>
-            CreateContext(_localValues, flowSuppressed);
+            CreateContext(
+                _localValues,
+                _localChangeNotifications,
+                flowSuppressed);
 
         private static ExecutionContext CreateContext(
-            LocalValue? values,
+            IAsyncLocalValueMap values,
+            IAsyncLocal[]? localChangeNotifications,
             bool flowSuppressed)
         {
-            if (values is null)
+            if (AsyncLocalValueMap.IsEmpty(values))
             {
                 return flowSuppressed
-                    ? new ExecutionContext(null, flowSuppressed: true)
+                    ? s_defaultFlowSuppressed
                     : s_default;
             }
 
             return new ExecutionContext(
                 values,
+                localChangeNotifications,
                 flowSuppressed);
         }
 
@@ -226,114 +263,93 @@ namespace System.Threading
             return s_nextFlowControlToken;
         }
 
-        private static object? FindValue(
-            LocalValue? values,
-            IAsyncLocal local,
-            out bool found)
-        {
-            for (var current = values; current is not null; current = current.Next)
-            {
-                if (ReferenceEquals(current.Local, local))
-                {
-                    found = true;
-                    return current.Value;
-                }
-            }
-
-            found = false;
-            return null;
-        }
-
-        private static LocalValue? ReplaceValue(
-            LocalValue values,
-            IAsyncLocal local,
-            object? value)
-        {
-            if (ReferenceEquals(values.Local, local))
-            {
-                return new LocalValue(local, value, values.Next);
-            }
-
-            return new LocalValue(
-                values.Local,
-                values.Value,
-                values.Next is null ? null : ReplaceValue(values.Next, local, value));
-        }
-
-        private static LocalValue? RemoveValue(LocalValue? values, IAsyncLocal local)
-        {
-            if (values is null)
-            {
-                return null;
-            }
-
-            if (ReferenceEquals(values.Local, local))
-            {
-                return values.Next;
-            }
-
-            return new LocalValue(
-                values.Local,
-                values.Value,
-                RemoveValue(values.Next, local));
-        }
-
         private static void NotifyValuesChanged(
             ExecutionContext previous,
             ExecutionContext next)
         {
-            for (var current = previous._localValues; current is not null; current = current.Next)
+            var previousNotifications = previous._localChangeNotifications;
+            var nextNotifications = next._localChangeNotifications;
+
+            if (previousNotifications is not null &&
+                nextNotifications is not null)
             {
-                if (!current.Local.HasValueChangedHandler)
+                foreach (var local in previousNotifications)
                 {
-                    continue;
+                    previous._localValues.TryGetValue(
+                        local,
+                        out var previousValue);
+                    next._localValues.TryGetValue(local, out var currentValue);
+                    if (!ReferenceEquals(previousValue, currentValue))
+                    {
+                        local.OnValueChanged(
+                            previousValue,
+                            currentValue,
+                            contextChanged: true);
+                    }
                 }
 
-                var nextValue = FindValue(next._localValues, current.Local, out _);
-                if (!ReferenceEquals(current.Value, nextValue))
+                if (!ReferenceEquals(
+                    previousNotifications,
+                    nextNotifications))
                 {
-                    current.Local.OnValueChanged(
-                        current.Value,
-                        nextValue,
-                        contextChanged: true);
+                    foreach (var local in nextNotifications)
+                    {
+                        if (previous._localValues.TryGetValue(
+                            local,
+                            out var previousValue))
+                        {
+                            continue;
+                        }
+
+                        next._localValues.TryGetValue(
+                            local,
+                            out var currentValue);
+                        if (!ReferenceEquals(previousValue, currentValue))
+                        {
+                            local.OnValueChanged(
+                                previousValue,
+                                currentValue,
+                                contextChanged: true);
+                        }
+                    }
                 }
+
+                return;
             }
 
-            for (var current = next._localValues; current is not null; current = current.Next)
+            if (previousNotifications is not null)
             {
-                if (!current.Local.HasValueChangedHandler)
+                foreach (var local in previousNotifications)
                 {
-                    continue;
+                    previous._localValues.TryGetValue(
+                        local,
+                        out var previousValue);
+                    if (previousValue is not null)
+                    {
+                        local.OnValueChanged(
+                            previousValue,
+                            currentValue: null,
+                            contextChanged: true);
+                    }
                 }
 
-                FindValue(previous._localValues, current.Local, out var hadPreviousValue);
-                if (hadPreviousValue)
-                {
-                    continue;
-                }
-
-                if (current.Value is not null)
-                {
-                    current.Local.OnValueChanged(
-                        previousValue: null,
-                        current.Value,
-                        contextChanged: true);
-                }
-            }
-        }
-
-        private sealed class LocalValue
-        {
-            internal LocalValue(IAsyncLocal local, object? value, LocalValue? next)
-            {
-                Local = local;
-                Value = value;
-                Next = next;
+                return;
             }
 
-            internal IAsyncLocal Local { get; }
-            internal object? Value { get; }
-            internal LocalValue? Next { get; }
+            if (nextNotifications is not null)
+            {
+                foreach (var local in nextNotifications)
+                {
+                    next._localValues.TryGetValue(local, out var currentValue);
+                    if (currentValue is not null)
+                    {
+                        local.OnValueChanged(
+                            previousValue: null,
+                            currentValue,
+                            contextChanged: true);
+                    }
+                }
+            }
         }
     }
 

@@ -1,7 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// Adapted from dotnet/runtime System.Collections.Immutable at commit
-// 811225a482702af7ecc35d817966bc70b88a3a23.
 
 using System.Collections.Generic;
 using System.ComponentModel;
@@ -15,16 +13,28 @@ namespace System.Collections.Immutable
         /// Enumerates the contents of a binary tree.
         /// </summary>
         /// <remarks>
-        /// This struct walks the AVL tree without boxing its traversal state. Copies
-        /// share a reference state so disposal is observed by all copies.
+        /// This struct can and should be kept in exact sync with the other binary tree enumerators:
+        /// <see cref="ImmutableList{T}.Enumerator"/>, <see cref="ImmutableSortedDictionary{TKey, TValue}.Enumerator"/>, and <see cref="ImmutableSortedSet{T}.Enumerator"/>.
+        ///
+        /// CAUTION: when this enumerator is actually used as a valuetype (not boxed) do NOT copy it by assigning to a second variable
+        /// or by passing it to another method.  When this enumerator is disposed of it returns a mutable reference type stack to a resource pool,
+        /// and if the value type enumerator is copied (which can easily happen unintentionally if you pass the value around) there is a risk
+        /// that a stack that has already been returned to the resource pool may still be in use by one of the enumerator copies, leading to data
+        /// corruption and/or exceptions.
         /// </remarks>
         [EditorBrowsable(EditorBrowsableState.Advanced)]
-        public struct Enumerator : IEnumerator<T>, IStrongEnumerator<T>
+        public struct Enumerator : IEnumerator<T>, ISecurePooledObjectUser, IStrongEnumerator<T>
         {
             /// <summary>
             /// The builder being enumerated, if applicable.
             /// </summary>
             private readonly Builder? _builder;
+
+            /// <summary>
+            /// A unique ID for this instance of this enumerator.
+            /// Used to protect pooled objects from use after they are recycled.
+            /// </summary>
+            private readonly int _poolUserId;
 
             /// <summary>
             /// The starting index of the collection at which to begin enumeration.
@@ -54,7 +64,7 @@ namespace System.Collections.Immutable
             /// <summary>
             /// The stack to use for enumerating the binary tree.
             /// </summary>
-            private EnumeratorState? _state;
+            private SecurePooledObject<Stack<RefAsValueType<Node>>>? _stack;
 
             /// <summary>
             /// The node currently selected.
@@ -65,15 +75,6 @@ namespace System.Collections.Immutable
             /// The version of the builder (when applicable) that is being enumerated.
             /// </summary>
             private int _enumeratingBuilderVersion;
-
-            private sealed class EnumeratorState
-            {
-                internal EnumeratorState(int capacity) => Stack = new Stack<Node>(capacity);
-
-                internal Stack<Node> Stack { get; }
-
-                internal bool Disposed { get; set; }
-            }
 
             /// <summary>
             /// Initializes an <see cref="Enumerator"/> structure.
@@ -99,12 +100,21 @@ namespace System.Collections.Immutable
                 _remainingCount = _count;
                 _reversed = reversed;
                 _enumeratingBuilderVersion = builder != null ? builder.Version : -1;
-                _state = _count > 0 ? new EnumeratorState(root.Height) : null;
-                if (_state != null)
+                _poolUserId = SecureObjectPool.NewId();
+                _stack = null;
+                if (_count > 0)
                 {
+                    if (!SecureObjectPool<Stack<RefAsValueType<Node>>, Enumerator>.TryTake(this, out _stack))
+                    {
+                        _stack = SecureObjectPool<Stack<RefAsValueType<Node>>, Enumerator>.PrepNew(this, new Stack<RefAsValueType<Node>>(root.Height));
+                    }
+
                     this.ResetStack();
                 }
             }
+
+            /// <inheritdoc/>
+            int ISecurePooledObjectUser.PoolUserId => _poolUserId;
 
             /// <summary>
             /// The current element.
@@ -116,7 +126,7 @@ namespace System.Collections.Immutable
                     this.ThrowIfDisposed();
                     if (_current == null)
                     {
-                        throw new InvalidOperationException();
+                        ThrowHelper.ThrowInvalidOperationException();
                     }
 
                     return _current.Value;
@@ -129,19 +139,19 @@ namespace System.Collections.Immutable
             object? System.Collections.IEnumerator.Current => this.Current;
 
             /// <summary>
-            /// Disposes of this enumerator and releases its traversal state.
+            /// Disposes of this enumerator and returns the stack reference to the resource pool.
             /// </summary>
             public void Dispose()
             {
                 _root = null!;
                 _current = null;
-                if (_state != null)
+                if (_stack != null && _stack.TryUse(ref this, out Stack<RefAsValueType<Node>>? stack))
                 {
-                    _state.Disposed = true;
-                    _state.Stack.Clear();
+                    stack.ClearFastWhenEmpty();
+                    SecureObjectPool<Stack<RefAsValueType<Node>>, Enumerator>.TryAdd(this, _stack!);
                 }
 
-                _state = null;
+                _stack = null;
             }
 
             /// <summary>
@@ -153,12 +163,12 @@ namespace System.Collections.Immutable
                 this.ThrowIfDisposed();
                 this.ThrowIfChanged();
 
-                if (_state != null)
+                if (_stack != null)
                 {
-                    Stack<Node> stack = _state.Stack;
+                    Stack<RefAsValueType<ImmutableList<T>.Node>> stack = _stack.Use(ref this);
                     if (_remainingCount > 0 && stack.Count > 0)
                     {
-                        Node n = stack.Pop();
+                        Node n = stack.Pop().Value;
                         _current = n;
                         this.PushNext(this.NextBranch(n)!);
                         _remainingCount--;
@@ -179,7 +189,7 @@ namespace System.Collections.Immutable
 
                 _enumeratingBuilderVersion = _builder != null ? _builder.Version : -1;
                 _remainingCount = _count;
-                if (_state != null)
+                if (_stack != null)
                 {
                     this.ResetStack();
                 }
@@ -188,9 +198,9 @@ namespace System.Collections.Immutable
             /// <summary>Resets the stack used for enumeration.</summary>
             private void ResetStack()
             {
-                Debug.Assert(_state != null);
-                Stack<Node> stack = _state!.Stack;
-                stack.Clear();
+                Debug.Assert(_stack != null);
+                Stack<RefAsValueType<ImmutableList<T>.Node>> stack = _stack.Use(ref this);
+                stack.ClearFastWhenEmpty();
 
                 ImmutableList<T>.Node node = _root;
                 int skipNodes = _reversed ? _root.Count - _startIndex - 1 : _startIndex;
@@ -198,7 +208,7 @@ namespace System.Collections.Immutable
                 {
                     if (skipNodes < this.PreviousBranch(node)!.Count)
                     {
-                        stack.Push(node);
+                        stack.Push(new RefAsValueType<Node>(node));
                         node = this.PreviousBranch(node)!;
                     }
                     else
@@ -210,7 +220,7 @@ namespace System.Collections.Immutable
 
                 if (!node.IsEmpty)
                 {
-                    stack.Push(node);
+                    stack.Push(new RefAsValueType<Node>(node));
                 }
             }
 
@@ -235,7 +245,7 @@ namespace System.Collections.Immutable
                 // For enumerators of empty collections, there isn't any natural
                 // way to know when a copy of the struct has been disposed of.
 
-                if (_root == null || (_state != null && _state.Disposed))
+                if (_root == null || (_stack != null && !_stack.IsOwned(ref this)))
                 {
                     Requires.FailObjectDisposed(this);
                 }
@@ -249,7 +259,7 @@ namespace System.Collections.Immutable
             {
                 if (_builder != null && _builder.Version != _enumeratingBuilderVersion)
                 {
-                    throw new InvalidOperationException();
+                    throw new InvalidOperationException(SR.CollectionModifiedDuringEnumeration);
                 }
             }
 
@@ -262,11 +272,11 @@ namespace System.Collections.Immutable
                 Requires.NotNull(node, nameof(node));
                 if (!node.IsEmpty)
                 {
-                    Debug.Assert(_state != null);
-                    Stack<Node> stack = _state!.Stack;
+                    Debug.Assert(_stack != null);
+                    Stack<RefAsValueType<ImmutableList<T>.Node>> stack = _stack.Use(ref this);
                     while (!node.IsEmpty)
                     {
-                        stack.Push(node);
+                        stack.Push(new RefAsValueType<Node>(node));
                         node = this.PreviousBranch(node)!;
                     }
                 }

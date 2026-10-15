@@ -1,6 +1,8 @@
 // Adapted from dotnet/runtime System.Diagnostics debugger metadata
 // declarations. The upstream implementation is licensed under MIT.
 
+using System.Diagnostics.CodeAnalysis;
+
 namespace System.Diagnostics
 {
     [AttributeUsage(AttributeTargets.Assembly | AttributeTargets.Module, AllowMultiple = false)]
@@ -45,7 +47,16 @@ namespace System.Diagnostics
     [AttributeUsage(AttributeTargets.Field | AttributeTargets.Property, AllowMultiple = false)]
     public sealed class DebuggerBrowsableAttribute : Attribute
     {
-        public DebuggerBrowsableAttribute(DebuggerBrowsableState state) => State = state;
+        public DebuggerBrowsableAttribute(DebuggerBrowsableState state)
+        {
+            if (state < DebuggerBrowsableState.Never || state > DebuggerBrowsableState.RootHidden)
+            {
+                throw new ArgumentOutOfRangeException(nameof(state));
+            }
+
+            State = state;
+        }
+
         public DebuggerBrowsableState State { get; }
     }
 
@@ -60,8 +71,6 @@ namespace System.Diagnostics
         AllowMultiple = true)]
     public sealed class DebuggerDisplayAttribute : Attribute
     {
-        private Type? _target;
-
         public DebuggerDisplayAttribute(string? value)
         {
             Value = value ?? string.Empty;
@@ -72,7 +81,15 @@ namespace System.Diagnostics
         public string Value { get; }
         public string? Name { get; set; }
         public string? Type { get; set; }
-        public Type? Target { get => _target; set => _target = value; }
+        public Type? Target
+        {
+            get => null;
+            set
+            {
+                ArgumentNullException.ThrowIfNull(value);
+                throw new PlatformNotSupportedException("Debugger assembly-qualified type names are not supported.");
+            }
+        }
         public string? TargetTypeName { get; set; }
     }
 
@@ -105,52 +122,96 @@ namespace System.Diagnostics
     [AttributeUsage(AttributeTargets.Struct | AttributeTargets.Class | AttributeTargets.Assembly, AllowMultiple = true)]
     public sealed class DebuggerTypeProxyAttribute : Attribute
     {
-        private Type? _target;
+        public DebuggerTypeProxyAttribute(
+            [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] Type type)
+        {
+            ArgumentNullException.ThrowIfNull(type);
+            throw new PlatformNotSupportedException("Debugger assembly-qualified type names are not supported.");
+        }
 
-        public DebuggerTypeProxyAttribute(Type type) => ProxyTypeName = type?.ToString() ?? string.Empty;
-        public DebuggerTypeProxyAttribute(string typeName) => ProxyTypeName = typeName;
+        public DebuggerTypeProxyAttribute(
+            [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] string typeName) =>
+            ProxyTypeName = typeName;
+
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)]
         public string ProxyTypeName { get; }
-        public Type? Target { get => _target; set => _target = value; }
+        public Type? Target
+        {
+            get => null;
+            set
+            {
+                ArgumentNullException.ThrowIfNull(value);
+                throw new PlatformNotSupportedException("Debugger assembly-qualified type names are not supported.");
+            }
+        }
+
         public string? TargetTypeName { get; set; }
     }
 
     [AttributeUsage(AttributeTargets.Struct | AttributeTargets.Class | AttributeTargets.Assembly, AllowMultiple = true)]
     public sealed class DebuggerVisualizerAttribute : Attribute
     {
-        private Type? _target;
+        public DebuggerVisualizerAttribute(
+            [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] string visualizerTypeName) =>
+            VisualizerTypeName = visualizerTypeName;
 
-        public DebuggerVisualizerAttribute(string visualizerTypeName) => VisualizerTypeName = visualizerTypeName;
-
-        public DebuggerVisualizerAttribute(string visualizerTypeName, string? visualizerObjectSourceTypeName)
+        public DebuggerVisualizerAttribute(
+            [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] string visualizerTypeName,
+            [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] string? visualizerObjectSourceTypeName)
         {
             VisualizerTypeName = visualizerTypeName;
             VisualizerObjectSourceTypeName = visualizerObjectSourceTypeName;
         }
 
-        public DebuggerVisualizerAttribute(string visualizerTypeName, Type visualizerObjectSource)
+        public DebuggerVisualizerAttribute(
+            [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] string visualizerTypeName,
+            [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] Type visualizerObjectSource)
         {
+            ArgumentNullException.ThrowIfNull(visualizerObjectSource);
             VisualizerTypeName = visualizerTypeName;
-            VisualizerObjectSourceTypeName = visualizerObjectSource?.ToString();
+            throw new PlatformNotSupportedException("Debugger assembly-qualified type names are not supported.");
         }
 
-        public DebuggerVisualizerAttribute(Type visualizer) => VisualizerTypeName = visualizer?.ToString() ?? string.Empty;
-
-        public DebuggerVisualizerAttribute(Type visualizer, string? visualizerObjectSourceTypeName)
+        public DebuggerVisualizerAttribute(
+            [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] Type visualizer)
         {
-            VisualizerTypeName = visualizer?.ToString() ?? string.Empty;
-            VisualizerObjectSourceTypeName = visualizerObjectSourceTypeName;
+            ArgumentNullException.ThrowIfNull(visualizer);
+            throw new PlatformNotSupportedException("Debugger assembly-qualified type names are not supported.");
         }
 
-        public DebuggerVisualizerAttribute(Type visualizer, Type visualizerObjectSource)
+        public DebuggerVisualizerAttribute(
+            [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] Type visualizer,
+            [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] string? visualizerObjectSourceTypeName)
         {
-            VisualizerTypeName = visualizer?.ToString() ?? string.Empty;
-            VisualizerObjectSourceTypeName = visualizerObjectSource?.ToString();
+            ArgumentNullException.ThrowIfNull(visualizer);
+            throw new PlatformNotSupportedException("Debugger assembly-qualified type names are not supported.");
         }
 
+        public DebuggerVisualizerAttribute(
+            [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] Type visualizer,
+            [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] Type visualizerObjectSource)
+        {
+            ArgumentNullException.ThrowIfNull(visualizer);
+            ArgumentNullException.ThrowIfNull(visualizerObjectSource);
+            throw new PlatformNotSupportedException("Debugger assembly-qualified type names are not supported.");
+        }
+
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)]
         public string? VisualizerObjectSourceTypeName { get; }
+
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)]
         public string VisualizerTypeName { get; }
         public string? Description { get; set; }
-        public Type? Target { get => _target; set => _target = value; }
+        public Type? Target
+        {
+            get => null;
+            set
+            {
+                ArgumentNullException.ThrowIfNull(value);
+                throw new PlatformNotSupportedException("Debugger assembly-qualified type names are not supported.");
+            }
+        }
+
         public string? TargetTypeName { get; set; }
     }
 

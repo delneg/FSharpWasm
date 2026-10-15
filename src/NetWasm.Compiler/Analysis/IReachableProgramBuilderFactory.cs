@@ -7,5 +7,6 @@ internal interface IReachableProgramBuilderFactory
 {
     IReachableProgramBuilder Create(
         IAllocationCapabilityAnalyzer allocationCapabilities,
+        IManagedByRefEffectAnalyzer byRefEffects,
         IDelegateBindingPlanner delegateBindings);
 }

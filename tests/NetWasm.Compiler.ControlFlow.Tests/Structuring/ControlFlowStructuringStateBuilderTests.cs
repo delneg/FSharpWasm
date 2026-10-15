@@ -11,7 +11,7 @@ public sealed class ControlFlowStructuringStateBuilderTests
     [Theory]
     [InlineData(false, false, true)]
     [InlineData(true, true, true)]
-    [InlineData(true, false, false)]
+    [InlineData(true, false, true)]
     public void BuildUsesProjectedEdgesOnlyForDiscovery(
         bool extendsComponent, bool hasExceptions, bool expectsLoop)
     {

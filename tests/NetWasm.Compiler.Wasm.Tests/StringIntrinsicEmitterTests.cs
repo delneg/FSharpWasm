@@ -1,6 +1,7 @@
 using NetWasm.Compiler.Core;
 using NetWasm.Compiler.Wasm.Emission;
 using NetWasm.Compiler.Wasm.Emission.Instructions.Runtime;
+using NetWasm.Compiler.Wasm.Emission.Planning;
 using NetWasm.Compiler.Wasm.Emission.Support;
 
 namespace NetWasm.Compiler.Wasm.Tests;
@@ -18,10 +19,27 @@ public sealed class StringIntrinsicEmitterTests
         var request = EmitterTestSupport.CreateRuntimeIntrinsicRequest(
             RuntimeIntrinsic.StringLength,
             [CliValueKind.ManagedReference]);
+        request = request with
+        {
+            Call = request.Call with
+            {
+                Instruction = request.Instruction with
+                {
+                    Target = request.Instruction.Target with
+                    {
+                        FunctionIndices = request.Instruction.Target.FunctionIndices with
+                        {
+                            ManagedThrowFunctionIndex = OptionalFunctionIndex.At(43),
+                        },
+                    },
+                },
+            },
+        };
 
-        EmitThroughCapability(emitter, request);
+        var writer = new EmitterTestSupport.RecordingInstructionWriter();
+        ((IRuntimeIntrinsicEmitter)emitter).Emit(request, writer);
 
-        Assert.NotEmpty(EmitterTestSupport.GetCodeBytes(request.Instruction));
+        Assert.NotEmpty(writer.ToInstructions());
     }
 
     [Fact]

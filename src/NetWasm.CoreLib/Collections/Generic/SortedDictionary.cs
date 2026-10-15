@@ -4,6 +4,7 @@
 // 811225a482702af7ecc35d817966bc70b88a3a23.
 
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 
 namespace System.Collections.Generic
 {
@@ -243,7 +244,7 @@ namespace System.Collections.Generic
         public Enumerator GetEnumerator() => new Enumerator(this, Enumerator.KeyValuePair);
 
         IEnumerator<KeyValuePair<TKey, TValue>> IEnumerable<KeyValuePair<TKey, TValue>>.GetEnumerator() =>
-            Count == 0 ? SortedCollectionHelpers.GetEmptyEnumerator<KeyValuePair<TKey, TValue>>() :
+            Count == 0 ? EnumerableHelpers.GetEmptyEnumerator<KeyValuePair<TKey, TValue>>() :
             _set.GetEnumerator();
 
         public bool Remove(TKey key)
@@ -253,14 +254,14 @@ namespace System.Collections.Generic
             return _set.Remove(new KeyValuePair<TKey, TValue>(key, default(TValue)!));
         }
 
-        public bool TryGetValue(TKey key, out TValue value)
+        public bool TryGetValue(TKey key, [MaybeNullWhen(false)] out TValue value)
         {
             ArgumentNullException.ThrowIfNull(key);
 
             TreeSet<KeyValuePair<TKey, TValue>>.Node? node = _set.FindNode(new KeyValuePair<TKey, TValue>(key, default(TValue)!));
             if (node == null)
             {
-                value = default!;
+                value = default;
                 return false;
             }
             value = node.Item.Value;
@@ -524,7 +525,7 @@ namespace System.Collections.Generic
             public Enumerator GetEnumerator() => new Enumerator(_dictionary);
 
             IEnumerator<TKey> IEnumerable<TKey>.GetEnumerator() =>
-                Count == 0 ? SortedCollectionHelpers.GetEmptyEnumerator<TKey>() :
+                Count == 0 ? EnumerableHelpers.GetEmptyEnumerator<TKey>() :
                 GetEnumerator();
 
             IEnumerator IEnumerable.GetEnumerator() => ((IEnumerable<TKey>)this).GetEnumerator();
@@ -684,7 +685,7 @@ namespace System.Collections.Generic
             public Enumerator GetEnumerator() => new Enumerator(_dictionary);
 
             IEnumerator<TValue> IEnumerable<TValue>.GetEnumerator() =>
-                Count == 0 ? SortedCollectionHelpers.GetEmptyEnumerator<TValue>() :
+                Count == 0 ? EnumerableHelpers.GetEmptyEnumerator<TValue>() :
                 GetEnumerator();
 
             IEnumerator IEnumerable.GetEnumerator() => ((IEnumerable<TValue>)this).GetEnumerator();

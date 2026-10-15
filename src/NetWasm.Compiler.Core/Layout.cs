@@ -137,8 +137,8 @@ public interface IRuntimeObjectLayout
     int ArrayElementTypeIdOffset { get; }
     int DelegateTargetOffset { get; }
     int DelegateMethodIdOffset { get; }
-    int DelegateLeftOffset { get; }
-    int DelegateRightOffset { get; }
+    int DelegateInvocationListOffset { get; }
+    int DelegateInvocationCountOffset { get; }
 }
 
 public readonly record struct RectangularArrayLayout(
@@ -206,6 +206,7 @@ public static class RuntimeAbi
     public const string HostInteropByteLength = "interop_byte_length";
     public const string HostInteropCopyBytes = "interop_copy_bytes";
     public const string RuntimeInitialize = "initialize";
+    public const string RuntimeInitializeFinalization = "initialize_finalization";
     public const string RuntimeRegisterType = "register_type";
     public const string RuntimeRegisterValueType = "register_value_type";
     public const string RuntimeRegisterStaticRoot = "register_static_root";
@@ -228,6 +229,7 @@ public static class RuntimeAbi
     public const string RuntimeBeginThrow = "begin_throw";
     public const string RuntimeBeginRethrow = "begin_rethrow";
     public const string RuntimeAllocate = "allocate";
+    public const string RuntimeAllocateFinalizable = "allocate_finalizable";
     public const string RuntimeCollect = "collect";
     public const string RuntimeAllocateReferenceArray = "allocate_reference_array";
     public const string RuntimeAllocateValueArray = "allocate_value_array";
@@ -252,6 +254,8 @@ public static class RuntimeAbi
     public const string RuntimeEphemeronHandleCreate = "ephemeron_handle_new";
     public const string RuntimeEphemeronHandleGetKey = "ephemeron_handle_get_key";
     public const string RuntimeEphemeronHandleGetValue = "ephemeron_handle_get_value";
+    public const string RuntimeEphemeronHandleSetTargetToNull = "ephemeron_handle_set_target_to_null";
+    public const string RuntimeEphemeronHandleSetValue = "ephemeron_handle_set_value";
     public const string RuntimeEphemeronHandleRelease = "ephemeron_handle_release";
     public const string RuntimeGcHandleCreate = "gc_handle_new";
     public const string RuntimeGcHandleGet = "gc_handle_get";
@@ -262,6 +266,9 @@ public static class RuntimeAbi
     public const string RuntimeGcMetricIsSupported = "gc_metric_is_supported";
     public const string RuntimeGcWaitForPendingFinalizers = "gc_wait_for_pending_finalizers";
     public const string RuntimeObjectIdentityHash = "object_identity_hash";
+    public const string RuntimeBoxedValueClone = "boxed_value_clone";
+    public const string RuntimeHelpersEquals = "runtime_helpers_equals";
+    public const string RuntimeRandomSeed = "random_seed";
     public const string RuntimeComponentReallocate = "component_realloc";
     public const string RuntimeComponentFree = "component_free";
     public const string RuntimeNativeAlloc = "native_alloc";

@@ -17,6 +17,8 @@ namespace System
     public abstract class Array : ICollection, IEnumerable, IList, IStructuralComparable,
         IStructuralEquatable, ICloneable
     {
+        internal const int IntrosortSizeThreshold = 16;
+
         public int Length
         {
             get => this is object[] values ? values.Length : 0;
@@ -50,7 +52,12 @@ namespace System
             get => this;
         }
 
-        public static T[] Empty<T>() => new T[0];
+        private static class EmptyArray<T>
+        {
+            internal static readonly T[] Value = new T[0];
+        }
+
+        public static T[] Empty<T>() => EmptyArray<T>.Value;
 
         public static ReadOnlyCollection<T> AsReadOnly<T>(T[] array)
         {
@@ -166,6 +173,10 @@ namespace System
             {
                 throw new InvalidCastException();
             }
+            if (status == ArrayCopyStatus.OutOfMemory)
+            {
+                throw new OutOfMemoryException();
+            }
             if (status != ArrayCopyStatus.Success)
             {
                 throw new InvalidOperationException();
@@ -232,20 +243,19 @@ namespace System
 
         public static int IndexOf(Array array, object? value, int startIndex, int count)
         {
-            if (array is object[] values)
+            var lowerBound = ValidateVectorRange(array, startIndex, count);
+            var physicalIndex = startIndex - lowerBound;
+            for (var offset = 0; offset < count; offset++)
             {
-                ValidateSearchRange(values, startIndex, count);
-                for (var index = startIndex; index < startIndex + count; index++)
+                if (object.Equals(
+                        InternalGetValue(array, physicalIndex + offset),
+                        value))
                 {
-                    if (object.Equals(values[index], value))
-                    {
-                        return index;
-                    }
+                    return startIndex + offset;
                 }
-                return -1;
             }
 
-            throw new PlatformNotSupportedException();
+            return lowerBound - 1;
         }
 
         public static int LastIndexOf<T>(T[] array, T value) =>
@@ -277,20 +287,35 @@ namespace System
 
         public static int LastIndexOf(Array array, object? value, int startIndex, int count)
         {
-            if (array is object[] values)
+            ArgumentNullException.ThrowIfNull(array);
+            if (array.Rank != 1)
             {
-                ValidateLastSearchRange(values, startIndex, count);
-                for (var index = startIndex; index > startIndex - count; index--)
-                {
-                    if (object.Equals(values[index], value))
-                    {
-                        return index;
-                    }
-                }
-                return -1;
+                throw new RankException();
+            }
+            var lowerBound = array.GetLowerBound(0);
+            if (array.Length == 0)
+            {
+                return lowerBound - 1;
+            }
+            if (startIndex < lowerBound ||
+                startIndex >= lowerBound + array.Length ||
+                count < 0 || count > startIndex - lowerBound + 1)
+            {
+                throw new ArgumentOutOfRangeException();
             }
 
-            throw new PlatformNotSupportedException();
+            var physicalIndex = startIndex - lowerBound;
+            for (var offset = 0; offset < count; offset++)
+            {
+                if (object.Equals(
+                        InternalGetValue(array, physicalIndex - offset),
+                        value))
+                {
+                    return startIndex - offset;
+                }
+            }
+
+            return lowerBound - 1;
         }
 
         public static int BinarySearch<T>(T[] array, T value) =>
@@ -310,27 +335,12 @@ namespace System
             IComparer<T>? comparer)
         {
             ValidateRange(array, index, length);
-            comparer ??= Comparer<T>.Default;
-            var low = index;
-            var high = index + length - 1;
-            while (low <= high)
-            {
-                var middle = low + ((high - low) >> 1);
-                var comparison = comparer.Compare(array[middle], value);
-                if (comparison == 0)
-                {
-                    return middle;
-                }
-                if (comparison < 0)
-                {
-                    low = middle + 1;
-                }
-                else
-                {
-                    high = middle - 1;
-                }
-            }
-            return ~low;
+            return ArraySortHelper<T>.Default.BinarySearch(
+                array,
+                index,
+                length,
+                value,
+                comparer);
         }
 
         public static int BinarySearch(Array array, object? value) =>
@@ -349,24 +359,34 @@ namespace System
             object? value,
             IComparer? comparer)
         {
-            if (array is object[] values)
+            var lowerBound = ValidateVectorRange(
+                array,
+                index,
+                length,
+                validateRankFirst: false);
+            comparer ??= DefaultArrayComparer.Instance;
+            var low = index;
+            var high = index + length - 1;
+            while (low <= high)
             {
-                ValidateRange(values, index, length);
-                comparer ??= DefaultArrayComparer.Instance;
-                var low = index;
-                var high = index + length - 1;
-                while (low <= high)
+                var middle = low + ((high - low) >> 1);
+                int comparison;
+                try
                 {
-                    var middle = low + ((high - low) >> 1);
-                    var comparison = comparer.Compare(values[middle], value);
-                    if (comparison == 0) return middle;
-                    if (comparison < 0) low = middle + 1;
-                    else high = middle - 1;
+                    comparison = comparer.Compare(
+                        InternalGetValue(array, middle - lowerBound),
+                        value);
                 }
-                return ~low;
+                catch (Exception exception)
+                {
+                    throw new InvalidOperationException(null, exception);
+                }
+                if (comparison == 0) return middle;
+                if (comparison < 0) low = middle + 1;
+                else high = middle - 1;
             }
 
-            throw new PlatformNotSupportedException();
+            return ~low;
         }
 
         public static void ConstrainedCopy(
@@ -376,17 +396,37 @@ namespace System
             int destinationIndex,
             int length)
         {
-            if (sourceArray is object[] source && destinationArray is object[] destination)
+            ArgumentNullException.ThrowIfNull(sourceArray);
+            ArgumentNullException.ThrowIfNull(destinationArray);
+            if (sourceArray.Rank != destinationArray.Rank)
             {
-                ValidateRange(source, sourceIndex, length);
-                ValidateRange(destination, destinationIndex, length);
-                var copy = new object[length];
-                Copy(source, sourceIndex, copy, 0, length);
-                Copy(copy, 0, destination, destinationIndex, length);
-                return;
+                throw new RankException();
+            }
+            if (length < 0) throw new ArgumentOutOfRangeException();
+            var sourceOffset = (long)sourceIndex - sourceArray.GetLowerBound(0);
+            var destinationOffset =
+                (long)destinationIndex - destinationArray.GetLowerBound(0);
+            if (sourceOffset < 0 || destinationOffset < 0)
+            {
+                throw new ArgumentOutOfRangeException();
+            }
+            if (sourceOffset > int.MaxValue || destinationOffset > int.MaxValue)
+            {
+                throw new ArgumentException();
+            }
+            ValidateRange(sourceArray.Length, (int)sourceOffset, length);
+            ValidateRange(destinationArray.Length, (int)destinationOffset, length);
+            if (!destinationArray.GetType().IsAssignableFrom(sourceArray.GetType()))
+            {
+                throw new ArrayTypeMismatchException();
             }
 
-            throw new PlatformNotSupportedException();
+            CopyPhysical(
+                sourceArray,
+                (int)sourceOffset,
+                destinationArray,
+                (int)destinationOffset,
+                length);
         }
 
         public static TOutput[] ConvertAll<TInput, TOutput>(
@@ -519,13 +559,27 @@ namespace System
 
         public static void Reverse(Array array, int index, int length)
         {
-            if (array is object[] values)
+            var lowerBound = ValidateVectorRange(
+                array,
+                index,
+                length,
+                validateRankFirst: false);
+            if (length <= 1)
             {
-                Reverse(values, index, length);
                 return;
             }
 
-            throw new PlatformNotSupportedException();
+            var source = (Array)InternalClone(array);
+            var physicalIndex = index - lowerBound;
+            for (var offset = 0; offset < length; offset++)
+            {
+                CopyPhysical(
+                    source,
+                    physicalIndex + length - offset - 1,
+                    array,
+                    physicalIndex + offset,
+                    1);
+            }
         }
 
         public static void Sort<T>(T[] array) => Sort(array, 0, array?.Length ?? 0, null);
@@ -536,23 +590,13 @@ namespace System
         public static void Sort<T>(T[] array, Comparison<T> comparison)
         {
             if (comparison is null) throw new ArgumentNullException();
-            Sort(array, 0, array?.Length ?? 0, new ComparisonComparer<T>(comparison));
+            ArgumentNullException.ThrowIfNull(array);
+            ArraySortHelper<T>.Sort(new Span<T>(array), comparison);
         }
         public static void Sort<T>(T[] array, int index, int length, IComparer<T>? comparer)
         {
             ValidateRange(array, index, length);
-            comparer ??= Comparer<T>.Default;
-            for (var current = index + 1; current < index + length; current++)
-            {
-                var value = array[current];
-                var insertion = current;
-                while (insertion > index && comparer.Compare(array[insertion - 1], value) > 0)
-                {
-                    array[insertion] = array[insertion - 1];
-                    insertion--;
-                }
-                array[insertion] = value;
-            }
+            ArraySortHelper<T>.Default.Sort(new Span<T>(array, index, length), comparer);
         }
 
         public static void Sort<TKey, TValue>(TKey[] keys, TValue[]? items) =>
@@ -570,21 +614,17 @@ namespace System
         {
             ValidateRange(keys, index, length);
             if (items is not null) ValidateRange(items, index, length);
-            comparer ??= Comparer<TKey>.Default;
-            for (var current = index + 1; current < index + length; current++)
+            if (items is null)
             {
-                var key = keys[current];
-                var item = items is null ? default : items[current];
-                var insertion = current;
-                while (insertion > index && comparer.Compare(keys[insertion - 1], key) > 0)
-                {
-                    keys[insertion] = keys[insertion - 1];
-                    if (items is not null) items[insertion] = items[insertion - 1];
-                    insertion--;
-                }
-                keys[insertion] = key;
-                if (items is not null) items[insertion] = item!;
+                ArraySortHelper<TKey>.Default.Sort(
+                    new Span<TKey>(keys, index, length),
+                    comparer);
+                return;
             }
+            ArraySortHelper<TKey, TValue>.Default.Sort(
+                new Span<TKey>(keys, index, length),
+                new Span<TValue>(items, index, length),
+                comparer);
         }
 
         public static void Sort(Array array) => Sort(array, 0, array?.Length ?? 0, null);
@@ -594,25 +634,7 @@ namespace System
             Sort(array, index, length, null);
         public static void Sort(Array array, int index, int length, IComparer? comparer)
         {
-            if (array is object[] values)
-            {
-                ValidateRange(values, index, length);
-                comparer ??= DefaultArrayComparer.Instance;
-                for (var current = index + 1; current < index + length; current++)
-                {
-                    var value = values[current];
-                    var insertion = current;
-                    while (insertion > index && comparer.Compare(values[insertion - 1], value) > 0)
-                    {
-                        values[insertion] = values[insertion - 1];
-                        insertion--;
-                    }
-                    values[insertion] = value;
-                }
-                return;
-            }
-
-            throw new PlatformNotSupportedException();
+            Sort(array, null, index, length, comparer);
         }
 
         public static void Sort(Array keys, Array? items)
@@ -637,30 +659,72 @@ namespace System
             int length,
             IComparer? comparer)
         {
-            if (keys is object[] keyValues && (items is null || items is object[]))
+            ArgumentNullException.ThrowIfNull(keys);
+            var lowerBound = ValidateVectorRange(keys, index, length);
+            if (items is not null)
             {
-                var itemValues = (object[]?)items;
-                ValidateRange(keyValues, index, length);
-                if (itemValues is not null) ValidateRange(itemValues, index, length);
-                comparer ??= DefaultArrayComparer.Instance;
-                for (var current = index + 1; current < index + length; current++)
+                var itemLowerBound = ValidateVectorRange(items, index, length);
+                if (itemLowerBound != lowerBound)
                 {
-                    var key = keyValues[current];
-                    var item = itemValues?[current];
-                    var insertion = current;
-                    while (insertion > index && comparer.Compare(keyValues[insertion - 1], key) > 0)
-                    {
-                        keyValues[insertion] = keyValues[insertion - 1];
-                        if (itemValues is not null) itemValues[insertion] = itemValues[insertion - 1];
-                        insertion--;
-                    }
-                    keyValues[insertion] = key;
-                    if (itemValues is not null) itemValues[insertion] = item!;
+                    throw new ArgumentException();
                 }
+            }
+            if (length <= 1)
+            {
                 return;
             }
 
-            throw new PlatformNotSupportedException();
+            comparer ??= DefaultArrayComparer.Instance;
+            if (keys is object[] keyValues &&
+                (items is null || items is object[]))
+            {
+                var physicalIndex = index - lowerBound;
+                var itemValues = (object[]?)items;
+                var adapter = new NonGenericComparerAdapter(comparer);
+                if (itemValues is null)
+                {
+                    ArraySortHelper<object?>.Default.Sort(
+                        new Span<object?>(keyValues, physicalIndex, length),
+                        adapter);
+                    return;
+                }
+                ArraySortHelper<object?, object?>.Default.Sort(
+                    new Span<object?>(keyValues, physicalIndex, length),
+                    new Span<object?>(itemValues, physicalIndex, length),
+                    adapter);
+                return;
+            }
+
+            var order = new int[length];
+            for (var offset = 0; offset < length; offset++)
+            {
+                order[offset] = offset;
+            }
+            var sourceOffset = index - lowerBound;
+            ArraySortHelper<int>.Default.Sort(
+                new Span<int>(order),
+                new ArrayIndexComparer(keys, sourceOffset, comparer));
+
+            var keySource = (Array)InternalClone(keys);
+            var itemSource = items is null ? null : (Array)InternalClone(items);
+            for (var offset = 0; offset < length; offset++)
+            {
+                CopyPhysical(
+                    keySource,
+                    sourceOffset + order[offset],
+                    keys,
+                    sourceOffset + offset,
+                    1);
+                if (items is not null)
+                {
+                    CopyPhysical(
+                        itemSource!,
+                        sourceOffset + order[offset],
+                        items,
+                        sourceOffset + offset,
+                        1);
+                }
+            }
         }
 
         public static bool TrueForAll<T>(T[] array, Predicate<T> match)
@@ -755,6 +819,9 @@ namespace System
         private static object InternalClone(Array array) =>
             throw new PlatformNotSupportedException();
 
+        internal static object InternalCloneRange(Array array, int offset, int length) =>
+            throw new PlatformNotSupportedException();
+
         public Collections.IEnumerator GetEnumerator()
         {
             if (this is object[] values) return new SZArrayEnumerator<object>(values);
@@ -764,9 +831,16 @@ namespace System
         private static object? InternalGetValue(Array array, int offset) =>
             throw new PlatformNotSupportedException();
 
-        private sealed class ArrayEnumerator(Array array) : Collections.IEnumerator
+        private sealed class ArrayEnumerator(Array array) : Collections.IEnumerator, ICloneable
         {
             private int _index = -1;
+
+            public object Clone()
+            {
+                var clone = new ArrayEnumerator(array);
+                clone._index = _index;
+                return clone;
+            }
 
             public object Current => _index >= 0 && _index < array.Length
                 ? InternalGetValue(array, _index)!
@@ -860,6 +934,33 @@ namespace System
             if (index > arrayLength - length) throw new ArgumentException();
         }
 
+        private static int ValidateVectorRange(
+            Array? array,
+            int index,
+            int length,
+            bool validateRankFirst = true)
+        {
+            ArgumentNullException.ThrowIfNull(array);
+            if (validateRankFirst && array.Rank != 1)
+            {
+                throw new RankException();
+            }
+            var lowerBound = array.GetLowerBound(0);
+            if (index < lowerBound || length < 0)
+            {
+                throw new ArgumentOutOfRangeException();
+            }
+            if (index - lowerBound > array.Length - length)
+            {
+                throw new ArgumentException();
+            }
+            if (!validateRankFirst && array.Rank != 1)
+            {
+                throw new RankException();
+            }
+            return lowerBound;
+        }
+
         [MethodImpl(MethodImplOptions.InternalCall)]
         private static extern ArrayCopyStatus InternalCopy(
             Array sourceArray,
@@ -873,6 +974,7 @@ namespace System
             Success,
             TypeMismatch,
             ElementCastFailure,
+            OutOfMemory,
         }
 
         [MethodImpl(MethodImplOptions.InternalCall)]
@@ -923,8 +1025,27 @@ namespace System
                 if (left is null) return -1;
                 if (right is null) return 1;
                 if (left is IComparable comparable) return comparable.CompareTo(right);
+                if (right is IComparable reverseComparable)
+                {
+                    return -reverseComparable.CompareTo(left);
+                }
                 throw new ArgumentException("At least one object must implement IComparable.");
             }
+        }
+
+        private sealed class NonGenericComparerAdapter(IComparer comparer) : IComparer<object?>
+        {
+            public int Compare(object? left, object? right) => comparer.Compare(left, right);
+        }
+
+        private sealed class ArrayIndexComparer(
+            Array keys,
+            int sourceOffset,
+            IComparer comparer) : IComparer<int>
+        {
+            public int Compare(int left, int right) => comparer.Compare(
+                InternalGetValue(keys, sourceOffset + left),
+                InternalGetValue(keys, sourceOffset + right));
         }
     }
 }

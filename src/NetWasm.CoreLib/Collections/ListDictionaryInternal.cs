@@ -1,216 +1,420 @@
-// Portions derived from dotnet/runtime System.Private.CoreLib ListDictionaryInternal
-// at commit 811225a482702af7ecc35d817966bc70b88a3a23.
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
+// Ported from dotnet/runtime System.Private.CoreLib ListDictionaryInternal.cs at commit
+// 811225a482702af7ecc35d817966bc70b88a3a23.
+
+using System.Diagnostics;
+using System.Runtime.CompilerServices;
 
 namespace System.Collections
 {
-    public class ListDictionaryInternal : ICollection, IDictionary, IEnumerable
+    /// <summary>
+    /// Implements <see cref="IDictionary"/> using a singly linked list.
+    /// Recommended for collections that typically include fewer than 10 items.
+    /// </summary>
+    [DebuggerDisplay("Count = {count}")]
+    [Serializable]
+    [TypeForwardedFrom("mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089")]
+    // Needs to be public to support binary serialization compatibility.
+    public class ListDictionaryInternal : IDictionary
     {
-        private Node? _head;
-        private int _count;
-        private int _version;
+        private DictionaryNode? head; // Do not rename (binary serialization)
+        private int version; // Do not rename (binary serialization)
+        private int count; // Do not rename (binary serialization)
 
-        public ListDictionaryInternal() { }
+        public ListDictionaryInternal()
+        {
+        }
 
         public object? this[object key]
         {
-            get { return Find(key)?.Value; }
+            get
+            {
+                ArgumentNullException.ThrowIfNull(key);
+
+                DictionaryNode? node = head;
+
+                while (node != null)
+                {
+                    if (node.key.Equals(key))
+                    {
+                        return node.value;
+                    }
+                    node = node.next;
+                }
+                return null;
+            }
             set
             {
-                ValidateKey(key);
-                var node = Find(key);
-                _version++;
-                if (node is not null) { node.Value = value; return; }
-                AddNode(new Node(key, value));
+                ArgumentNullException.ThrowIfNull(key);
+
+                version++;
+                DictionaryNode? last = null;
+                DictionaryNode? node;
+                for (node = head; node != null; node = node.next)
+                {
+                    if (node.key.Equals(key))
+                    {
+                        break;
+                    }
+                    last = node;
+                }
+                if (node != null)
+                {
+                    node.value = value;
+                    return;
+                }
+
+                DictionaryNode newNode = new DictionaryNode();
+                newNode.key = key;
+                newNode.value = value;
+                if (last != null)
+                {
+                    last.next = newNode;
+                }
+                else
+                {
+                    head = newNode;
+                }
+                count++;
             }
         }
 
-        public int Count
-        {
-            get => _count;
-        }
+        public int Count => count;
 
-        public ICollection Keys
-        {
-            get => new NodeCollection(this, true);
-        }
+        public ICollection Keys => new NodeKeyValueCollection(this, true);
 
-        public ICollection Values
-        {
-            get => new NodeCollection(this, false);
-        }
+        public bool IsReadOnly => false;
 
-        public bool IsReadOnly
-        {
-            get => false;
-        }
+        public bool IsFixedSize => false;
 
-        public bool IsFixedSize
-        {
-            get => false;
-        }
+        public bool IsSynchronized => false;
 
-        public bool IsSynchronized
-        {
-            get => false;
-        }
+        public object SyncRoot => this;
 
-        public object SyncRoot
-        {
-            get => this;
-        }
+        public ICollection Values => new NodeKeyValueCollection(this, false);
 
         public void Add(object key, object? value)
         {
-            ValidateKey(key);
-            if (Find(key) is not null) throw new ArgumentException();
-            _version++;
-            AddNode(new Node(key, value));
+            ArgumentNullException.ThrowIfNull(key);
+
+            version++;
+            DictionaryNode? last = null;
+            for (DictionaryNode? node = head; node != null; node = node.next)
+            {
+                if (node.key.Equals(key))
+                {
+                    throw new ArgumentException(SR.Format(SR.Argument_AddingDuplicate__, node.key, key));
+                }
+                last = node;
+            }
+
+            DictionaryNode newNode = new DictionaryNode();
+            newNode.key = key;
+            newNode.value = value;
+            if (last != null)
+            {
+                last.next = newNode;
+            }
+            else
+            {
+                head = newNode;
+            }
+            count++;
         }
 
         public void Clear()
         {
-            _head = null;
-            _count = 0;
-            _version++;
+            count = 0;
+            head = null;
+            version++;
         }
 
-        public bool Contains(object key) => Find(key) is not null;
-
-        public void Remove(object key)
+        public bool Contains(object key)
         {
-            ValidateKey(key);
-            Node? previous = null;
-            for (var current = _head; current is not null; current = current.Next)
+            ArgumentNullException.ThrowIfNull(key);
+
+            for (DictionaryNode? node = head; node != null; node = node.next)
             {
-                if (!object.Equals(current.Key, key)) { previous = current; continue; }
-                if (previous is null) _head = current.Next;
-                else previous.Next = current.Next;
-                _count--;
-                _version++;
-                return;
+                if (node.key.Equals(key))
+                {
+                    return true;
+                }
             }
+            return false;
         }
 
         public void CopyTo(Array array, int index)
         {
             ArgumentNullException.ThrowIfNull(array);
-            if (index < 0) throw new ArgumentOutOfRangeException(nameof(index));
+
+            if (array.Rank != 1)
+                throw new ArgumentException(SR.Arg_RankMultiDimNotSupported);
+
+            ArgumentOutOfRangeException.ThrowIfNegative(index);
+
+            if (array.Length - index < Count)
+                throw new ArgumentException(SR.ArgumentOutOfRange_IndexMustBeLessOrEqual, nameof(index));
+
+            // Array.SetValue currently supports reference arrays only. Preserve the
+            // ordinary object[] path and the DictionaryEntry[] path used by IDictionary.
             if (array is object[] objects)
             {
-                if (index > objects.Length - _count) throw new ArgumentException();
-                var destination = index;
-                for (var current = _head; current is not null; current = current.Next)
-                    objects[destination++] = new DictionaryEntry(current.Key, current.Value);
+                for (DictionaryNode? node = head; node != null; node = node.next)
+                {
+                    objects[index++] = new DictionaryEntry(node.key, node.value);
+                }
                 return;
             }
+
             if (array is DictionaryEntry[] entries)
             {
-                if (index > entries.Length - _count) throw new ArgumentException();
-                var destination = index;
-                for (var current = _head; current is not null; current = current.Next)
-                    entries[destination++] = new DictionaryEntry(current.Key, current.Value);
+                for (DictionaryNode? node = head; node != null; node = node.next)
+                {
+                    entries[index++] = new DictionaryEntry(node.key, node.value);
+                }
                 return;
             }
-            throw new ArgumentException();
+
+            throw new ArgumentException(SR.Argument_IncompatibleArrayType);
         }
 
-        public IDictionaryEnumerator GetEnumerator() => new Enumerator(this);
-        IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
-
-        private Node? Find(object key)
+        public IDictionaryEnumerator GetEnumerator()
         {
-            ValidateKey(key);
-            for (var current = _head; current is not null; current = current.Next)
-                if (object.Equals(current.Key, key)) return current;
-            return null;
+            return new NodeEnumerator(this);
         }
 
-        private void AddNode(Node node)
+        IEnumerator IEnumerable.GetEnumerator()
         {
-            if (_head is null) _head = node;
+            return new NodeEnumerator(this);
+        }
+
+        public void Remove(object key)
+        {
+            ArgumentNullException.ThrowIfNull(key);
+
+            version++;
+            DictionaryNode? last = null;
+            DictionaryNode? node;
+            for (node = head; node != null; node = node.next)
+            {
+                if (node.key.Equals(key))
+                {
+                    break;
+                }
+                last = node;
+            }
+            if (node == null)
+            {
+                return;
+            }
+            if (node == head)
+            {
+                head = node.next;
+            }
             else
             {
-                var tail = _head;
-                while (tail.Next is not null) tail = tail.Next;
-                tail.Next = node;
+                last!.next = node.next;
             }
-            _count++;
+            count--;
         }
 
-        private static void ValidateKey(object key)
-        { if (key is null) throw new ArgumentNullException(nameof(key)); }
-
-        private sealed class Node
+        private sealed class NodeEnumerator : IDictionaryEnumerator
         {
-            internal Node(object key, object? value) { Key = key; Value = value; }
-            internal object Key;
-            internal object? Value;
-            internal Node? Next;
-        }
+            private readonly ListDictionaryInternal list;
+            private DictionaryNode? current;
+            private readonly int version;
+            private bool start;
 
-        private sealed class Enumerator : IDictionaryEnumerator
-        {
-            private readonly ListDictionaryInternal _owner;
-            private readonly int _version;
-            private Node? _current;
-            private bool _started;
+            public NodeEnumerator(ListDictionaryInternal list)
+            {
+                this.list = list;
+                version = list.version;
+                start = true;
+                current = null;
+            }
 
-            internal Enumerator(ListDictionaryInternal owner) { _owner = owner; _version = owner._version; }
             public object Current => Entry;
+
             public DictionaryEntry Entry
             {
                 get
                 {
-                    EnsureCurrent();
-                    return new DictionaryEntry(_current!.Key, _current.Value);
+                    if (current == null)
+                    {
+                        throw new InvalidOperationException(SR.InvalidOperation_EnumOpCantHappen);
+                    }
+                    return new DictionaryEntry(current.key, current.value);
                 }
             }
-            public object Key { get { EnsureCurrent(); return _current!.Key; } }
-            public object? Value { get { EnsureCurrent(); return _current!.Value; } }
+
+            public object Key
+            {
+                get
+                {
+                    if (current == null)
+                    {
+                        throw new InvalidOperationException(SR.InvalidOperation_EnumOpCantHappen);
+                    }
+                    return current.key;
+                }
+            }
+
+            public object? Value
+            {
+                get
+                {
+                    if (current == null)
+                    {
+                        throw new InvalidOperationException(SR.InvalidOperation_EnumOpCantHappen);
+                    }
+                    return current.value;
+                }
+            }
+
             public bool MoveNext()
             {
-                EnsureVersion();
-                _current = !_started ? _owner._head : _current?.Next;
-                _started = true;
-                return _current is not null;
+                if (version != list.version)
+                {
+                    throw new InvalidOperationException(SR.InvalidOperation_EnumFailedVersion);
+                }
+                if (start)
+                {
+                    current = list.head;
+                    start = false;
+                }
+                else
+                {
+                    if (current != null)
+                    {
+                        current = current.next;
+                    }
+                }
+                return current != null;
             }
-            public void Reset() { EnsureVersion(); _current = null; _started = false; }
-            private void EnsureVersion() { if (_version != _owner._version) throw new InvalidOperationException(); }
-            private void EnsureCurrent() { EnsureVersion(); if (_current is null) throw new InvalidOperationException(); }
+
+            public void Reset()
+            {
+                if (version != list.version)
+                {
+                    throw new InvalidOperationException(SR.InvalidOperation_EnumFailedVersion);
+                }
+                start = true;
+                current = null;
+            }
         }
 
-        private sealed class NodeCollection : ICollection
+        private sealed class NodeKeyValueCollection : ICollection
         {
-            private readonly ListDictionaryInternal _owner;
-            private readonly bool _keys;
-            internal NodeCollection(ListDictionaryInternal owner, bool keys) { _owner = owner; _keys = keys; }
-            public int Count => _owner._count;
-            public object SyncRoot => _owner.SyncRoot;
-            public bool IsSynchronized => false;
-            public void CopyTo(Array array, int index)
+            private readonly ListDictionaryInternal list;
+            private readonly bool isKeys;
+
+            public NodeKeyValueCollection(ListDictionaryInternal list, bool isKeys)
+            {
+                this.list = list;
+                this.isKeys = isKeys;
+            }
+
+            void ICollection.CopyTo(Array array, int index)
             {
                 ArgumentNullException.ThrowIfNull(array);
-                if (array is not object[] target || index < 0 || index > target.Length - Count) throw new ArgumentException();
-                var destination = index;
-                for (var current = _owner._head; current is not null; current = current.Next)
-                    target[destination++] = _keys ? current.Key : current.Value!;
+
+                if (array.Rank != 1)
+                    throw new ArgumentException(SR.Arg_RankMultiDimNotSupported);
+                ArgumentOutOfRangeException.ThrowIfNegative(index);
+                if (array.Length - index < list.Count)
+                    throw new ArgumentException(SR.ArgumentOutOfRange_IndexMustBeLessOrEqual, nameof(index));
+
+                // Value-type destination arrays require the unsupported general
+                // Array.SetValue path. Compatible reference arrays retain desktop behavior.
+                if (array is not object[] objects)
+                    throw new ArgumentException(SR.Argument_IncompatibleArrayType);
+
+                for (DictionaryNode? node = list.head; node != null; node = node.next)
+                {
+                    objects[index++] = (isKeys ? node.key : node.value)!;
+                }
             }
-            public IEnumerator GetEnumerator() => new NodeEnumerator(_owner, _keys);
+
+            int ICollection.Count => list.Count;
+
+            bool ICollection.IsSynchronized => false;
+
+            object ICollection.SyncRoot => list.SyncRoot;
+
+            IEnumerator IEnumerable.GetEnumerator()
+            {
+                return new NodeKeyValueEnumerator(list, isKeys);
+            }
+
+            private sealed class NodeKeyValueEnumerator : IEnumerator
+            {
+                private readonly ListDictionaryInternal list;
+                private DictionaryNode? current;
+                private readonly int version;
+                private readonly bool isKeys;
+                private bool start;
+
+                public NodeKeyValueEnumerator(ListDictionaryInternal list, bool isKeys)
+                {
+                    this.list = list;
+                    this.isKeys = isKeys;
+                    version = list.version;
+                    start = true;
+                    current = null;
+                }
+
+                public object? Current
+                {
+                    get
+                    {
+                        if (current == null)
+                        {
+                            throw new InvalidOperationException(SR.InvalidOperation_EnumOpCantHappen);
+                        }
+                        return isKeys ? current.key : current.value;
+                    }
+                }
+
+                public bool MoveNext()
+                {
+                    if (version != list.version)
+                    {
+                        throw new InvalidOperationException(SR.InvalidOperation_EnumFailedVersion);
+                    }
+                    if (start)
+                    {
+                        current = list.head;
+                        start = false;
+                    }
+                    else
+                    {
+                        if (current != null)
+                        {
+                            current = current.next;
+                        }
+                    }
+                    return current != null;
+                }
+
+                public void Reset()
+                {
+                    if (version != list.version)
+                    {
+                        throw new InvalidOperationException(SR.InvalidOperation_EnumFailedVersion);
+                    }
+                    start = true;
+                    current = null;
+                }
+            }
         }
 
-        private sealed class NodeEnumerator : IEnumerator
+        [Serializable]
+        private sealed class DictionaryNode
         {
-            private readonly ListDictionaryInternal _owner;
-            private readonly bool _keys;
-            private readonly int _version;
-            private Node? _current;
-            private bool _started;
-            internal NodeEnumerator(ListDictionaryInternal owner, bool keys) { _owner = owner; _keys = keys; _version = owner._version; }
-            public object Current { get { if (_current is null) throw new InvalidOperationException(); return _keys ? _current.Key : _current.Value!; } }
-            public bool MoveNext() { if (_version != _owner._version) throw new InvalidOperationException(); _current = !_started ? _owner._head : _current?.Next; _started = true; return _current is not null; }
-            public void Reset() { if (_version != _owner._version) throw new InvalidOperationException(); _current = null; _started = false; }
+            public object key = null!;
+            public object? value;
+            public DictionaryNode? next;
         }
     }
 }

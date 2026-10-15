@@ -7,6 +7,8 @@ using NetWasm.Compiler.Core.NativeInterop;
 using NetWasm.Compiler.Core.IntermediateRepresentation.Members;
 using NetWasm.Compiler.Wasm.Emission;
 using NetWasm.Compiler.Wasm.Emission.Planning;
+using NetWasm.Compiler.Wasm.Emission.AddressTakenValues;
+using NetWasm.Compiler.Wasm.Emission.CallLifetimes;
 
 namespace NetWasm.Compiler.Wasm.Tests;
 
@@ -17,7 +19,210 @@ public sealed class ValueFrameLayoutPlannerTests
     [Theory]
     [InlineData(WasmTarget.Wasm32)]
     [InlineData(WasmTarget.Wasm64)]
-    public void MemberCallsReserveDistinctAlignedScratchForTheirLargestResult(WasmTarget target)
+    public void FloatingCallSlotsAreAlignedDisjointAndDoNotPermanentlySpillLocals(WasmTarget target)
+    {
+        var fixture = new PlannerFixture(target);
+        var body = new CilMethodBody(fixture.BodyMethod, 1,
+            [CliValueKind.I4, CliValueKind.F4, CliValueKind.F8],
+            [I(0, CilOperation.LoadLocalAddress, new CilOperand.Index(0)),
+             I(1, CilOperation.StoreLocal, new CilOperand.Index(1)),
+             I(2, CilOperation.StoreLocal, new CilOperand.Index(2))]);
+        var plan = new ScalarCallLifetimePlan(
+            ImmutableDictionary<int, ImmutableArray<int>>.Empty.Add(10, [1, 2]).Add(20, [2]));
+
+        var frame = ThroughContract(fixture.CreatePlanner()).Create(PlanningMethod(body),
+            scalarCallLifetimes: plan);
+
+        Assert.Same(plan, frame.ScalarCallLifetimes);
+        Assert.Equal(2, frame.ScalarCallOffsets.Count);
+        Assert.Equal(0, frame.ScalarCallOffsets[1] % 4);
+        Assert.Equal(0, frame.ScalarCallOffsets[2] % 8);
+        Assert.True(frame.ScalarCallOffsets[1] >= frame.LocalOffsets[0] + 4);
+        Assert.True(frame.ScalarCallOffsets[2] >= frame.ScalarCallOffsets[1] + 4);
+        Assert.True(frame.Size >= frame.ScalarCallOffsets[2] + 8);
+        Assert.Equal([0], frame.SpilledScalarLocals.ToArray());
+        Assert.Equal([0], frame.LocalOffsets.Keys.ToArray());
+    }
+
+    [Theory]
+    [InlineData(-1)]
+    [InlineData(0)]
+    [InlineData(1)]
+    public void FloatingCallSlotsRejectNonFloatingOrInvalidLocals(int local)
+    {
+        var fixture = new PlannerFixture();
+        var body = new CilMethodBody(fixture.BodyMethod, 0, [CliValueKind.I4], []);
+        var plan = new ScalarCallLifetimePlan(
+            ImmutableDictionary<int, ImmutableArray<int>>.Empty.Add(10, [local]));
+
+        Assert.Throws<InvalidOperationException>(() => ThroughContract(fixture.CreatePlanner())
+            .Create(PlanningMethod(body), scalarCallLifetimes: plan));
+    }
+
+    [Theory]
+    [InlineData(WasmTarget.Wasm32)]
+    [InlineData(WasmTarget.Wasm64)]
+    public void MutableByValueArgumentsOwnDistinctStorageWithoutCopyingReceiversOrByrefs(WasmTarget target)
+    {
+        var fixture = new PlannerFixture(target);
+        var value = fixture.ValueType;
+        var other = CliTypeIdentity.Named(Assembly, "Test", "OtherValue", true);
+        var layouts = new MemberValueLayouts(new(value, 16, 8, [0]), new(other, 12, 4, []));
+        var arguments = new IndexedArguments(
+            [CliValueKind.ManagedAddress, CliValueKind.ValueType, CliValueKind.ValueType,
+                CliValueKind.ManagedAddress, CliValueKind.I4, CliValueKind.ManagedReference,
+                CliValueKind.ValueType],
+            [value, value, other, CliTypeIdentity.FromStackKind(CliValueKind.ManagedAddress),
+                CliTypeIdentity.FromStackKind(CliValueKind.I4), fixture.ReferenceType, value]);
+        var body = new CilMethodBody(fixture.BodyMethod, 1, [],
+        [
+            I(0, CilOperation.LoadArgumentAddress, new CilOperand.Index(0)),
+            I(1, CilOperation.LoadArgumentAddress, new CilOperand.Index(1)),
+            I(2, CilOperation.StoreArgument, new CilOperand.Index(2)),
+            I(3, CilOperation.LoadArgumentAddress, new CilOperand.Index(3)),
+            I(4, CilOperation.LoadArgumentAddress, new CilOperand.Index(4)),
+            I(5, CilOperation.LoadArgumentAddress, new CilOperand.Index(5)),
+            I(6, CilOperation.LoadArgumentAddress, new CilOperand.Index(1)),
+            I(7, CilOperation.LoadArgument, new CilOperand.Index(6)),
+        ]);
+        var planner = new ValueFrameLayoutPlanner(fixture, fixture, fixture.Layouts, layouts,
+            fixture.TypeOperands, fixture.TypeIdentities, arguments, arguments,
+            new DirectValueLoadSelector(),
+            EmptyTransientAggregatePromotionPlanner.Instance);
+
+        var frame = ThroughContract(planner).Create(PlanningMethod(body, (2, 1)));
+
+        Assert.Equal([1, 2, 4, 5], frame.ArgumentOffsets.Keys.Order().ToArray());
+        Assert.Equal(0, frame.ArgumentOffsets[1] % 8);
+        Assert.Equal(0, frame.ArgumentOffsets[2] % 4);
+        Assert.True(frame.ArgumentOffsets[2] >= frame.ArgumentOffsets[1] + 16);
+        Assert.True(frame.TemporaryOffsets[7] >= frame.ArgumentOffsets[2] + 12);
+        Assert.Equal(2, layouts.Requests.Count(type => type.Equals(value)));
+        Assert.Equal(1, layouts.Requests.Count(type => type.Equals(other)));
+    }
+
+    [Theory]
+    [InlineData(0, false)]
+    [InlineData(1, true)]
+    [InlineData(2, true)]
+    [InlineData(3, true)]
+    public void AddressTakenValueArgumentsOwnStorageOnlyForProvedEffects(
+        int effectKind,
+        bool expectedOwned)
+    {
+        var fixture = new PlannerFixture();
+        var value = fixture.ValueType;
+        var arguments = new IndexedArguments(
+            [CliValueKind.ValueType],
+            [value]);
+        var body = new CilMethodBody(fixture.BodyMethod, 1, [],
+        [
+            I(0, CilOperation.LoadArgumentAddress, new CilOperand.Index(0)),
+        ]);
+        var planner = new ValueFrameLayoutPlanner(
+            fixture,
+            fixture,
+            fixture.Layouts,
+            new MemberValueLayouts(new ValueLayout(value, 16, 8, [0])),
+            fixture.TypeOperands,
+            fixture.TypeIdentities,
+            arguments,
+            arguments,
+            new DirectValueLoadSelector(),
+            EmptyTransientAggregatePromotionPlanner.Instance);
+        var effect = effectKind switch
+        {
+            1 => new ManagedByRefMethodEffects([0], [], []),
+            2 => new ManagedByRefMethodEffects([], [0], []),
+            3 => new ManagedByRefMethodEffects([], [], [0]),
+            _ => ManagedByRefMethodEffects.Empty,
+        };
+
+        var frame = ThroughContract(planner).Create(
+            PlanningMethod(body),
+            byRefEffects: effect);
+
+        Assert.Equal(expectedOwned, frame.ArgumentOffsets.ContainsKey(0));
+    }
+
+    [Fact]
+    public void StoredValueArgumentsRemainOwnedDespiteAnEmptyEffectSummary()
+    {
+        var fixture = new PlannerFixture();
+        var value = fixture.ValueType;
+        var arguments = new IndexedArguments(
+            [CliValueKind.ValueType],
+            [value]);
+        var body = new CilMethodBody(fixture.BodyMethod, 1, [],
+        [
+            I(0, CilOperation.StoreArgument, new CilOperand.Index(0)),
+        ]);
+        var planner = new ValueFrameLayoutPlanner(
+            fixture,
+            fixture,
+            fixture.Layouts,
+            new MemberValueLayouts(new ValueLayout(value, 16, 8, [0])),
+            fixture.TypeOperands,
+            fixture.TypeIdentities,
+            arguments,
+            arguments,
+            new DirectValueLoadSelector(),
+            EmptyTransientAggregatePromotionPlanner.Instance);
+
+        var frame = ThroughContract(planner).Create(
+            PlanningMethod(body, (0, 1)),
+            byRefEffects: ManagedByRefMethodEffects.Empty);
+
+        Assert.Contains(0, frame.ArgumentOffsets.Keys);
+    }
+
+    [Fact]
+    public void PromotedCallAndLocalDoNotReserveValueFrameStorage()
+    {
+        var fixture = new PlannerFixture();
+        var body = new CilMethodBody(
+            fixture.BodyMethod,
+            1,
+            [CliValueKind.ValueType],
+            [
+                I(0, CilOperation.Call,
+                    new CilOperand.MethodInstance(fixture.ValueStaticInstance)),
+                I(1, CilOperation.StoreLocal, new CilOperand.Index(0)),
+                I(2, CilOperation.LoadLocal, new CilOperand.Index(0)),
+                I(3, CilOperation.Pop),
+            ])
+        {
+            LocalSignatureTypes = [fixture.ValueType],
+        };
+        var promotions = new TransientAggregatePromotionPlan(
+            ImmutableDictionary<int, CliTypeIdentity>.Empty.Add(
+                0,
+                CliTypeIdentity.FromStackKind(CliValueKind.I4)),
+            [],
+            [1, 2],
+            [0]);
+
+        var layout = fixture.CreatePlanner(
+            new FixedTransientAggregatePromotionPlanner(promotions)).Create(
+                PlanningMethod(body, (1, 1), (3, 1)));
+
+        Assert.Equal(0, layout.Size);
+        Assert.Empty(layout.LocalOffsets);
+        Assert.Empty(layout.TemporaryOffsets);
+        Assert.Same(promotions, layout.TransientAggregatePromotions);
+    }
+
+    private sealed class IndexedArguments(CliValueKind[] kinds, CliTypeIdentity[] types) :
+        IArgumentTypeResolver, IArgumentSignatureTypeResolver
+    {
+        CliValueKind IArgumentTypeResolver.Resolve(StructuredMethodHeader header, int index) => kinds[index];
+        CliTypeIdentity IArgumentSignatureTypeResolver.Resolve(StructuredMethodHeader header, int index) => types[index];
+    }
+
+    [Theory]
+    [InlineData(WasmTarget.Wasm32)]
+    [InlineData(WasmTarget.Wasm64)]
+    public void MemberCallsReuseAlignedScratchForTheirLargestResult(WasmTarget target)
     {
         var fixture = new PlannerFixture();
         var layouts = new RecordingLayoutProvider(WasmTargetLayout.For(target));
@@ -30,7 +235,9 @@ public sealed class ValueFrameLayoutPlannerTests
         var plan = MemberPlan(invoker, large, small, small);
         var planner = new ValueFrameLayoutPlanner(
             fixture, fixture, layouts, values, fixture.TypeOperands, fixture.TypeIdentities,
-            fixture.ArgumentTypes, fixture.ArgumentSignatures);
+            fixture.ArgumentTypes, fixture.ArgumentSignatures,
+            new DirectValueLoadSelector(),
+            EmptyTransientAggregatePromotionPlanner.Instance);
         var body = new CilMethodBody(fixture.BodyMethod, 1, [],
         [
             I(0, CilOperation.LocalAllocate),
@@ -39,12 +246,12 @@ public sealed class ValueFrameLayoutPlannerTests
             I(11, CilOperation.Call, new CilOperand.MethodInstance(fixture.ReferenceInstance)),
         ]);
 
-        var frame = ThroughContract(planner).Create(Header(body), memberExecution: plan);
+        var frame = ThroughContract(planner).Create(PlanningMethod(body), memberExecution: plan);
 
         Assert.Equal(2, frame.MemberResultOffsets.Count);
         Assert.Equal(8, frame.MemberResultOffsets[3]);
-        Assert.Equal(24, frame.MemberResultOffsets[7]);
-        Assert.Equal(40, frame.Size);
+        Assert.Equal(8, frame.MemberResultOffsets[7]);
+        Assert.Equal(24, frame.Size);
         Assert.Equal(2, values.Requests.Count(type => type.Equals(small)));
         Assert.Equal(2, values.Requests.Count(type => type.Equals(large)));
         Assert.Empty(frame.TemporaryOffsets);
@@ -81,9 +288,11 @@ public sealed class ValueFrameLayoutPlannerTests
             : [I(3, CilOperation.Call, new CilOperand.MethodInstance(invoker))]);
         var planner = new ValueFrameLayoutPlanner(
             fixture, fixture, fixture.Layouts, values, fixture.TypeOperands, fixture.TypeIdentities,
-            fixture.ArgumentTypes, fixture.ArgumentSignatures);
+            fixture.ArgumentTypes, fixture.ArgumentSignatures,
+            new DirectValueLoadSelector(),
+            EmptyTransientAggregatePromotionPlanner.Instance);
 
-        var frame = ThroughContract(planner).Create(Header(body), memberExecution: plan);
+        var frame = ThroughContract(planner).Create(PlanningMethod(body), memberExecution: plan);
 
         Assert.Equal(0, frame.Size);
         Assert.Empty(frame.MemberResultOffsets);
@@ -102,10 +311,12 @@ public sealed class ValueFrameLayoutPlannerTests
             [I(19, CilOperation.Call, new CilOperand.MethodInstance(invoker))]);
         var planner = new ValueFrameLayoutPlanner(
             fixture, fixture, fixture.Layouts, values, fixture.TypeOperands, fixture.TypeIdentities,
-            fixture.ArgumentTypes, fixture.ArgumentSignatures);
+            fixture.ArgumentTypes, fixture.ArgumentSignatures,
+            new DirectValueLoadSelector(),
+            EmptyTransientAggregatePromotionPlanner.Instance);
 
         var error = Assert.Throws<CompilerException>(() => ThroughContract(planner).Create(
-            Header(body), memberExecution: MemberPlan(invoker, nullable)));
+            PlanningMethod(body), memberExecution: MemberPlan(invoker, nullable)));
 
         Assert.Equal(DiagnosticCode.RuntimeContract, error.Diagnostic.Code);
         Assert.Contains("managed references", error.Diagnostic.Message);
@@ -148,7 +359,7 @@ public sealed class ValueFrameLayoutPlannerTests
     [Theory]
     [InlineData(WasmTarget.Wasm32)]
     [InlineData(WasmTarget.Wasm64)]
-    public void NativeCallsReserveDistinctAlignedCopiesAndResultsFromThePublishedPlan(WasmTarget target)
+    public void NativeCallsReusePerCallCopiesAndStackResultStorage(WasmTarget target)
     {
         var program = new FakeProgram();
         var layouts = new RecordingLayoutProvider(WasmTargetLayout.For(target));
@@ -171,15 +382,16 @@ public sealed class ValueFrameLayoutPlannerTests
             I(7, CilOperation.Call, new CilOperand.MethodInstance(method)),
         ]);
 
-        var frame = ThroughContract(CreateValueFrameLayoutPlanner(program, layouts)).Create(Header(body), imports);
+        var frame = ThroughContract(CreateValueFrameLayoutPlanner(program, layouts)).Create(
+            PlanningMethod(body, (3, 2), (7, 2)), imports);
 
-        Assert.Equal(4, frame.NativeArgumentOffsets[(3, 0)]);
-        Assert.Equal(16, frame.NativeArgumentOffsets[(3, 1)]);
-        Assert.Equal(32, frame.TemporaryOffsets[3]);
-        Assert.Equal(48, frame.NativeArgumentOffsets[(7, 0)]);
-        Assert.Equal(60, frame.NativeArgumentOffsets[(7, 1)]);
-        Assert.Equal(80, frame.TemporaryOffsets[7]);
-        Assert.Equal(96, frame.Size);
+        Assert.Equal(32, frame.NativeArgumentOffsets[(3, 0)]);
+        Assert.Equal(44, frame.NativeArgumentOffsets[(3, 1)]);
+        Assert.Equal(16, frame.TemporaryOffsets[3]);
+        Assert.Equal(32, frame.NativeArgumentOffsets[(7, 0)]);
+        Assert.Equal(44, frame.NativeArgumentOffsets[(7, 1)]);
+        Assert.Equal(16, frame.TemporaryOffsets[7]);
+        Assert.Equal(56, frame.Size);
         Assert.Empty(frame.LocalOffsets);
         Assert.Empty(frame.ArgumentOffsets);
     }
@@ -209,7 +421,8 @@ public sealed class ValueFrameLayoutPlannerTests
         var body = new CilMethodBody(program.GetMethod(EntryKey), 1, [],
             [I(3, CilOperation.Call, new CilOperand.MethodInstance(method))]);
 
-        var frame = ThroughContract(CreateValueFrameLayoutPlanner(program, layouts)).Create(Header(body), imports);
+        var frame = ThroughContract(CreateValueFrameLayoutPlanner(program, layouts)).Create(
+            PlanningMethod(body, (3, 1)), imports);
 
         Assert.Equal(0, Assert.Single(frame.TemporaryOffsets).Value);
         Assert.Equal(layouts.Target.ObjectReferenceAlignment, frame.Size);
@@ -238,7 +451,8 @@ public sealed class ValueFrameLayoutPlannerTests
             [I(3, CilOperation.Call, new CilOperand.MethodInstance(method))]);
 
         var error = Assert.Throws<CompilerException>(() =>
-            ThroughContract(CreateValueFrameLayoutPlanner(program, layouts)).Create(Header(body), imports));
+            ThroughContract(CreateValueFrameLayoutPlanner(program, layouts)).Create(
+                PlanningMethod(body), imports));
 
         Assert.Equal(DiagnosticCode.CompilerInvariant, error.Diagnostic.Code);
     }
@@ -253,9 +467,10 @@ public sealed class ValueFrameLayoutPlannerTests
         var planner = ThroughContract(CreateValueFrameLayoutPlanner(program, new RecordingLayoutProvider()));
 
         Assert.Equal(DiagnosticCode.CompilerInvariant,
-            Assert.Throws<CompilerException>(() => planner.Create(Header(body))).Diagnostic.Code);
+            Assert.Throws<CompilerException>(() => planner.Create(PlanningMethod(body))).Diagnostic.Code);
         Assert.Equal(DiagnosticCode.CompilerInvariant,
-            Assert.Throws<CompilerException>(() => planner.Create(Header(body), NativeImportPlan.Empty)).Diagnostic.Code);
+            Assert.Throws<CompilerException>(() => planner.Create(
+                PlanningMethod(body), NativeImportPlan.Empty)).Diagnostic.Code);
     }
 
     private static MethodInstanceModel NativeMethod(MethodSignatureModel signature)
@@ -277,7 +492,7 @@ public sealed class ValueFrameLayoutPlannerTests
     [InlineData(WasmTarget.Wasm64, 2)]
     [InlineData(WasmTarget.Wasm32, 3)]
     [InlineData(WasmTarget.Wasm64, 3)]
-    public void ArrayValueCopiesReserveDistinctAlignedElementStorage(
+    public void ArrayValueCopiesReuseStorageAtTheSameStackDepth(
         WasmTarget target,
         int rank)
     {
@@ -288,7 +503,9 @@ public sealed class ValueFrameLayoutPlannerTests
         var planner = ThroughContract(new ValueFrameLayoutPlanner(
             program, program, layouts, values,
             CreateTypeOperands(program), CreateTypeIdentities(program),
-            CreateArgumentTypes(program), CreateArgumentSignatureTypes(program)));
+            CreateArgumentTypes(program), CreateArgumentSignatureTypes(program),
+            new DirectValueLoadSelector(),
+            EmptyTransientAggregatePromotionPlanner.Instance));
         var operation = rank == 0
             ? CilOperation.LoadArrayElement
             : CilOperation.LoadRectangularArrayElement;
@@ -301,19 +518,153 @@ public sealed class ValueFrameLayoutPlannerTests
             I(15, operation, Operand(CliTypeIdentity.FromStackKind(CliValueKind.ManagedReference))),
         ]);
 
-        var layout = planner.Create(Header(body));
+        var entryCount = rank == 0 ? 2 : rank + 1;
+        var layout = planner.Create(PlanningMethod(
+            body,
+            (3, entryCount),
+            (7, entryCount)));
 
         var alignment = layouts.Target.ObjectReferenceAlignment;
         Assert.Equal(2, layout.TemporaryOffsets.Count);
         Assert.Equal(alignment, layout.TemporaryOffsets[3]);
-        Assert.Equal(alignment + values.Layout.Size, layout.TemporaryOffsets[7]);
-        Assert.Equal(alignment + 2 * values.Layout.Size, layout.Size);
+        Assert.Equal(alignment, layout.TemporaryOffsets[7]);
+        Assert.Equal(alignment + values.Layout.Size, layout.Size);
         Assert.Equal([valueType, valueType], values.Requests);
         Assert.Empty(layout.LocalOffsets);
         Assert.Empty(layout.ArgumentOffsets);
 
         CilOperand.TypeIdentity Operand(CliTypeIdentity element) => new(
             rank == 0 ? element : CliTypeIdentity.Array(element, rank));
+    }
+
+    [Fact]
+    public void SimultaneouslyLiveStackDepthsKeepDistinctStorage()
+    {
+        var program = new FakeProgram();
+        var layouts = new RecordingLayoutProvider();
+        var valueType = CliTypeIdentity.FromStackKind(CliValueKind.ValueType);
+        var body = new CilMethodBody(
+            program.GetMethod(EntryKey),
+            2,
+            [],
+            [
+                I(3, CilOperation.DefaultValue, new CilOperand.TypeIdentity(valueType)),
+                I(7, CilOperation.DefaultValue, new CilOperand.TypeIdentity(valueType)),
+            ]);
+
+        var frame = ThroughContract(CreateValueFrameLayoutPlanner(program, layouts)).Create(
+            PlanningMethod(body, (3, 0), (7, 1)));
+
+        Assert.NotEqual(frame.TemporaryOffsets[3], frame.TemporaryOffsets[7]);
+        Assert.Equal(2, frame.TemporaryOffsets.Values.Distinct().Count());
+    }
+
+    [Theory]
+    [InlineData(WasmTarget.Wasm32)]
+    [InlineData(WasmTarget.Wasm64)]
+    public void ManagedAggregateResultsDoNotAliasConsumedValues(WasmTarget target)
+    {
+        var fixture = new PlannerFixture(target);
+        var transformSignature = MethodSignatureModel.Create(
+            fixture.ValueType,
+            fixture.ValueType);
+        var transformDefinition = new MethodDefinitionModel(
+            Key(0x06000070),
+            fixture.ValueStatic.DeclaringType,
+            "Transform",
+            true,
+            transformSignature,
+            1);
+        var transform = new MethodInstanceModel(
+            transformDefinition,
+            fixture.ReferenceType,
+            [],
+            transformSignature);
+        var constructorSignature = MethodSignatureModel.Create(
+            CliTypeIdentity.FromStackKind(CliValueKind.Void),
+            fixture.ValueType);
+        var constructorDefinition = new MethodDefinitionModel(
+            Key(0x06000071),
+            fixture.ValueConstructor.DeclaringType,
+            ".ctor",
+            false,
+            constructorSignature,
+            1);
+        var constructor = new MethodInstanceModel(
+            constructorDefinition,
+            fixture.ValueType,
+            [],
+            constructorSignature);
+        var cases = new[]
+        {
+            new CilMethodBody(
+                fixture.BodyMethod,
+                1,
+                [],
+                [
+                    I(3, CilOperation.DefaultValue,
+                        new CilOperand.TypeIdentity(fixture.ValueType)),
+                    I(7, CilOperation.Call,
+                        new CilOperand.MethodInstance(fixture.ValueInstance)),
+                ]),
+            new CilMethodBody(
+                fixture.BodyMethod,
+                1,
+                [],
+                [
+                    I(3, CilOperation.DefaultValue,
+                        new CilOperand.TypeIdentity(fixture.ValueType)),
+                    I(7, CilOperation.Call,
+                        new CilOperand.MethodInstance(transform)),
+                ]),
+            new CilMethodBody(
+                fixture.BodyMethod,
+                1,
+                [],
+                [
+                    I(3, CilOperation.DefaultValue,
+                        new CilOperand.TypeIdentity(fixture.ValueType)),
+                    I(7, CilOperation.NewObject,
+                        new CilOperand.MethodInstance(constructor)),
+                ]),
+        };
+        var valueSize = fixture.Layouts.GetValueLayout(fixture.ValueType).Size;
+
+        foreach (var body in cases)
+        {
+            var frame = ThroughContract(fixture.CreatePlanner()).Create(
+                PlanningMethod(body, (3, 0), (7, 1)));
+            var input = frame.TemporaryOffsets[3];
+            var result = frame.TemporaryOffsets[7];
+
+            Assert.True(
+                input + valueSize <= result || result + valueSize <= input,
+                $"input [{input}, {input + valueSize}) overlaps result " +
+                $"[{result}, {result + valueSize})");
+        }
+    }
+
+    [Fact]
+    public void ScalarReceiverScratchDoesNotOverlapAggregateCallResult()
+    {
+        var fixture = new PlannerFixture();
+        var scalarReceiver = CliTypeIdentity.FromStackKind(CliValueKind.I4);
+        var method = fixture.ValueInstance with
+        {
+            DeclaringType = scalarReceiver,
+        };
+        var body = new CilMethodBody(
+            fixture.BodyMethod,
+            1,
+            [],
+            [I(3, CilOperation.Call, new CilOperand.MethodInstance(method))]);
+
+        var frame = ThroughContract(fixture.CreatePlanner()).Create(
+            PlanningMethod(body, (3, 1)));
+
+        Assert.NotEqual(
+            frame.TemporaryOffsets[3],
+            frame.CallReceiverOffsets[3]);
     }
 
     [Theory]
@@ -327,7 +678,8 @@ public sealed class ValueFrameLayoutPlannerTests
         var body = new CilMethodBody(program.GetMethod(EntryKey), 6, [],
             [I(17, CilOperation.NewBoundedRectangularArray, new CilOperand.TypeIdentity(array))]);
 
-        var layout = ThroughContract(CreateValueFrameLayoutPlanner(program, layouts)).Create(Header(body));
+        var layout = ThroughContract(CreateValueFrameLayoutPlanner(program, layouts)).Create(
+            PlanningMethod(body));
 
         Assert.Equal(24, layout.Size);
         Assert.Equal(0, Assert.Single(layout.TemporaryOffsets).Value);
@@ -352,15 +704,75 @@ public sealed class ValueFrameLayoutPlannerTests
             ]);
 
         Func<IValueFrameLayoutPlanner, ValueFrameLayout> contract = planner =>
-            planner.Create(Header(body));
+            planner.Create(PlanningMethod(body));
         var layout = contract(CreateValueFrameLayoutPlanner(program, layouts));
 
-        Assert.Equal(20, layout.Size);
+        Assert.Equal(16, layout.Size);
         Assert.Equal(4, layout.ArgumentOffsets[0]);
         Assert.Equal(8, layout.LocalOffsets[0]);
-        Assert.Equal(12, layout.LocalOffsets[1]);
-        Assert.Equal(16, layout.TemporaryOffsets[3]);
+        Assert.DoesNotContain(1, layout.LocalOffsets.Keys);
+        Assert.Equal(12, layout.TemporaryOffsets[3]);
         Assert.Equal([0], layout.SpilledScalarLocals);
+    }
+
+    [Fact]
+    public void PromotedAddressTakenScalarKeepsFrameShadowWithoutPermanentSpill()
+    {
+        var program = new FakeProgram();
+        var layouts = new RecordingLayoutProvider();
+        var type = CliTypeIdentity.FromStackKind(CliValueKind.I4);
+        var body = new CilMethodBody(
+            program.GetMethod(EntryKey),
+            1,
+            [CliValueKind.I4],
+            [I(0, CilOperation.LoadLocalAddress, new CilOperand.Index(0))])
+        {
+            LocalSignatureTypes = [type],
+        };
+        var plan = new AddressTakenScalarPromotionPlan(
+            ImmutableDictionary<int, CliTypeIdentity>.Empty.Add(0, type),
+            []);
+
+        var layout = ThroughContract(CreateValueFrameLayoutPlanner(program, layouts)).Create(
+            PlanningMethod(body),
+            addressTakenScalarPromotions: plan);
+
+        Assert.Equal(0, layout.LocalOffsets[0]);
+        Assert.Empty(layout.SpilledScalarLocals);
+        Assert.Same(plan, layout.AddressTakenScalarPromotions);
+    }
+
+    [Fact]
+    public void PromotedAddressTakenAggregateKeepsItsFrameShadow()
+    {
+        var program = new FakeProgram();
+        var layouts = new RecordingLayoutProvider();
+        var type = CliTypeIdentity.Named(
+            Assembly,
+            "Tests",
+            "Buffer",
+            isValueType: true);
+        var body = new CilMethodBody(
+            program.GetMethod(EntryKey),
+            1,
+            [CliValueKind.ValueType],
+            [I(0, CilOperation.LoadLocalAddress, new CilOperand.Index(0))])
+        {
+            LocalSignatureTypes = [type],
+        };
+        var plan = new AddressTakenAggregatePromotionPlan(
+            ImmutableDictionary<int, AddressTakenAggregateLocalPlan>.Empty.Add(
+                0,
+                AddressTakenAggregateLocalPlan.CreateI4Storage(type, 12)),
+            [],
+            []);
+
+        var layout = ThroughContract(CreateValueFrameLayoutPlanner(program, layouts)).Create(
+            PlanningMethod(body),
+            addressTakenAggregatePromotions: plan);
+
+        Assert.Equal(0, layout.LocalOffsets[0]);
+        Assert.Same(plan, layout.AddressTakenAggregatePromotions);
     }
 
     [Fact]
@@ -373,7 +785,7 @@ public sealed class ValueFrameLayoutPlannerTests
             layouts));
         var body = new CilMethodBody(program.GetMethod(EntryKey), 0, [], []);
 
-        var layout = planner.Create(Header(body));
+        var layout = planner.Create(PlanningMethod(body));
 
         Assert.Equal(0, layout.Size);
         Assert.Empty(layout.ArgumentOffsets);
@@ -443,7 +855,14 @@ public sealed class ValueFrameLayoutPlannerTests
                     new CilOperand.Entity(fixture.ReferenceConstructor.Key)),
                     I(28, CilOperation.NewRectangularArray, new CilOperand.TypeIdentity(rectangularArray))]);
 
-        var layout = ThroughContract(fixture.CreatePlanner()).Create(Header(body));
+        var layout = ThroughContract(fixture.CreatePlanner()).Create(PlanningMethod(
+            body,
+            (10, 2),
+            (12, 1),
+            (14, 1),
+            (20, 1),
+            (21, 1),
+            (23, 1)));
 
         Assert.Contains(0, layout.ArgumentOffsets.Keys);
         Assert.Contains(0, layout.LocalOffsets.Keys);
@@ -451,7 +870,7 @@ public sealed class ValueFrameLayoutPlannerTests
         Assert.Contains(0, layout.SpilledScalarLocals);
         foreach (var offset in new[]
         {
-            4, 6, 8, 10, 12, 14, 16, 18, 20, 21, 23, 25, 26, 28,
+            4, 6, 8, 10, 12, 14, 16, 18, 21, 23, 25, 26, 28,
         })
         {
             Assert.Contains(offset, layout.TemporaryOffsets.Keys);
@@ -464,10 +883,13 @@ public sealed class ValueFrameLayoutPlannerTests
         Assert.DoesNotContain(15, layout.TemporaryOffsets.Keys);
         Assert.DoesNotContain(17, layout.TemporaryOffsets.Keys);
         Assert.DoesNotContain(19, layout.TemporaryOffsets.Keys);
+        Assert.DoesNotContain(20, layout.TemporaryOffsets.Keys);
         Assert.DoesNotContain(22, layout.TemporaryOffsets.Keys);
         Assert.DoesNotContain(24, layout.TemporaryOffsets.Keys);
         Assert.DoesNotContain(27, layout.TemporaryOffsets.Keys);
-        Assert.True(layout.Size > layout.TemporaryOffsets.Count * 4);
+        Assert.Equal(20, Assert.Single(layout.CallReceiverOffsets).Key);
+        Assert.True(layout.TemporaryOffsets.Values.Distinct().Count() <
+            layout.TemporaryOffsets.Count);
     }
 
     [Fact]
@@ -486,6 +908,337 @@ public sealed class ValueFrameLayoutPlannerTests
             fixture,
             CilOperation.NewObject,
             "constructor has no method operand");
+        AssertPlannerFailure(
+            fixture,
+            CilOperation.CreateReadOnlySpanFromRva,
+            "RVA span creation has no span data operand");
+    }
+
+    [Fact]
+    public void RvaSpanCreationReservesItsValueResult()
+    {
+        var fixture = new PlannerFixture();
+        var element = CliTypeIdentity.FromStackKind(CliValueKind.I4);
+        var source = new FieldInstanceModel(
+            fixture.ValueField,
+            fixture.ValueType,
+            element);
+        var operand = new CilOperand.ReadOnlySpanData(
+            source,
+            fixture.ValueType,
+            element,
+            1);
+        var body = new CilMethodBody(
+            fixture.BodyMethod,
+            1,
+            [],
+            [I(0, CilOperation.CreateReadOnlySpanFromRva, operand)]);
+
+        var layout = ThroughContract(fixture.CreatePlanner()).Create(
+            PlanningMethod(body));
+
+        Assert.Contains(0, layout.TemporaryOffsets.Keys);
+    }
+
+    [Fact]
+    public void DirectValueLoadsImmediatelyConsumedAreSelectedThroughContract()
+    {
+        var fixture = new PlannerFixture();
+        var selector = ThroughSelector(new DirectValueLoadSelector());
+
+        foreach (var operation in new[]
+                 {
+                     CilOperation.LoadArgument,
+                     CilOperation.LoadLocal,
+                     CilOperation.LoadArrayElement,
+                     CilOperation.LoadRectangularArrayElement,
+                 })
+            foreach (var consumer in new[]
+                     {
+                     CilOperation.Return,
+                     CilOperation.StoreLocal,
+                     CilOperation.StoreArgument,
+                 })
+            {
+                var body = new CilMethodBody(
+                    fixture.BodyMethod,
+                    1,
+                    [],
+                    [
+                        I(0, operation, operation switch
+                    {
+                        CilOperation.LoadArrayElement =>
+                            new CilOperand.TypeIdentity(fixture.ValueType),
+                        CilOperation.LoadRectangularArrayElement =>
+                            new CilOperand.TypeIdentity(CliTypeIdentity.Array(fixture.ValueType, 2)),
+                        _ => new CilOperand.Index(0),
+                    }),
+                    consumer == CilOperation.Return
+                        ? I(1, consumer)
+                        : I(1, consumer, new CilOperand.Index(0)),
+                    ]);
+
+                Assert.Equal([0], selector.Select(
+                    PlanningMethod(body, (0, 0), (1, 1))));
+            }
+
+        var unreachableBody = new CilMethodBody(
+            fixture.BodyMethod,
+            1,
+            [],
+            [
+                I(0, CilOperation.LoadArgument, new CilOperand.Index(0)),
+                I(1, CilOperation.Return),
+            ]);
+        var unreachable = PlanningMethod(unreachableBody) with
+        {
+            InstructionEntryStacks =
+                ImmutableDictionary<int, ImmutableArray<CliValueKind>>.Empty,
+        };
+        Assert.Empty(selector.Select(unreachable));
+
+        Assert.Throws<ArgumentNullException>(() => selector.Select(null!));
+    }
+
+    [Theory]
+    [InlineData(CilOperation.LoadLocal, CilOperation.StoreLocal)]
+    [InlineData(CilOperation.LoadArgument, CilOperation.StoreLocal)]
+    [InlineData(CilOperation.LoadLocal, CilOperation.StoreArgument)]
+    [InlineData(CilOperation.LoadArgument, CilOperation.StoreArgument)]
+    public void SuspendedValueLoadTransfersAfterIndependentArrayArgument(
+        CilOperation load, CilOperation store)
+    {
+        var fixture = new PlannerFixture();
+        var body = new CilMethodBody(fixture.BodyMethod, 3, [],
+        [
+            I(0, load, new CilOperand.Index(0)),
+            I(1, CilOperation.LoadNull),
+            I(2, CilOperation.LoadInt32, new CilOperand.ConstantI4(0)),
+            I(3, CilOperation.LoadArrayElement, new CilOperand.TypeIdentity(fixture.ValueType)),
+            I(4, CilOperation.StoreLocal, new CilOperand.Index(1)),
+            I(5, store, new CilOperand.Index(2)),
+        ]);
+
+        var selected = ThroughSelector(new DirectValueLoadSelector()).Select(
+            PlanningMethod(body, (0, 0), (1, 1), (2, 2), (3, 3), (4, 2), (5, 1)));
+
+        Assert.Equal([0, 3], selected.Order());
+    }
+
+    [Theory]
+    [InlineData(CilOperation.LoadLocal, CilOperation.StoreLocal)]
+    [InlineData(CilOperation.LoadArgument, CilOperation.StoreArgument)]
+    public void SuspendedValueLoadKeepsSnapshotWhenItsSourceIsReassigned(
+        CilOperation load, CilOperation store)
+    {
+        var fixture = new PlannerFixture();
+        var body = new CilMethodBody(fixture.BodyMethod, 2, [],
+        [
+            I(0, load, new CilOperand.Index(0)),
+            I(1, load, new CilOperand.Index(1)),
+            I(2, store, new CilOperand.Index(0)),
+            I(3, store, new CilOperand.Index(2)),
+        ]);
+
+        var selected = ThroughSelector(new DirectValueLoadSelector()).Select(
+            PlanningMethod(body, (0, 0), (1, 1), (2, 2), (3, 1)));
+
+        Assert.Equal([1], selected);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void SuspendedValueLoadKeepsSnapshotAcrossCallsAndAddressExposure(bool address)
+    {
+        var fixture = new PlannerFixture();
+        var body = new CilMethodBody(fixture.BodyMethod, 2, [],
+        [
+            I(0, CilOperation.LoadLocal, new CilOperand.Index(0)),
+            address
+                ? I(1, CilOperation.LoadLocalAddress, new CilOperand.Index(0))
+                : I(1, CilOperation.Call, new CilOperand.MethodInstance(fixture.ValueStaticInstance)),
+            I(2, CilOperation.StoreLocal, new CilOperand.Index(1)),
+            I(3, CilOperation.StoreLocal, new CilOperand.Index(2)),
+        ]);
+
+        var selected = ThroughSelector(new DirectValueLoadSelector()).Select(
+            PlanningMethod(body, (0, 0), (1, 1), (2, 2), (3, 1)));
+
+        Assert.Empty(selected);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(2)]
+    [InlineData(3)]
+    public void DirectValueLoadSelectionRejectsOtherInstructionShapes(int scenario)
+    {
+        var fixture = new PlannerFixture();
+        var instructions = scenario switch
+        {
+            0 => new[]
+            {
+                I(0, CilOperation.LoadArgument, new CilOperand.Index(0)),
+            },
+            1 =>
+            [
+                I(0, CilOperation.LoadArgument, new CilOperand.Index(0)),
+                I(1, CilOperation.Nop),
+            ],
+            2 =>
+            [
+                I(0, CilOperation.LoadArgument, new CilOperand.Index(0)),
+                I(2, CilOperation.Return),
+            ],
+            _ =>
+            [
+                I(0, CilOperation.LoadInt32, new CilOperand.ConstantI4(1)),
+                I(1, CilOperation.Return),
+            ],
+        };
+        var body = new CilMethodBody(
+            fixture.BodyMethod,
+            1,
+            [],
+            [.. instructions]);
+        var selector = ThroughSelector(new DirectValueLoadSelector());
+
+        var selected = selector.Select(PlanningMethod(body));
+
+        Assert.Empty(selected);
+    }
+
+    [Fact]
+    public void DirectArgumentReturnDoesNotReserveAValueTemporary()
+    {
+        var fixture = new PlannerFixture();
+        var body = new CilMethodBody(
+            fixture.BodyMethod,
+            1,
+            [],
+            [
+                I(0, CilOperation.LoadArgument, new CilOperand.Index(1)),
+                I(1, CilOperation.Return),
+            ]);
+
+        var layout = ThroughContract(fixture.CreatePlanner()).Create(
+            PlanningMethod(body, (0, 0), (1, 1)));
+
+        Assert.Equal([0], layout.DirectValueLoadOffsets);
+        Assert.Empty(layout.TemporaryOffsets);
+        Assert.Equal(0, layout.Size);
+
+        var scalarBody = new CilMethodBody(
+            fixture.BodyMethod,
+            1,
+            [],
+            [
+                I(0, CilOperation.LoadArgument, new CilOperand.Index(0)),
+                I(1, CilOperation.Return),
+            ]);
+        var scalarLayout = ThroughContract(fixture.CreatePlanner()).Create(
+            PlanningMethod(scalarBody, (0, 0), (1, 1)));
+        Assert.Empty(scalarLayout.DirectValueLoadOffsets);
+    }
+
+    [Fact]
+    public void DirectLocalReturnKeepsOnlyPersistentLocalStorage()
+    {
+        var fixture = new PlannerFixture();
+        var body = new CilMethodBody(
+            fixture.BodyMethod,
+            1,
+            [CliValueKind.ValueType],
+            [
+                I(0, CilOperation.LoadLocal, new CilOperand.Index(0)),
+                I(1, CilOperation.Return),
+            ])
+        {
+            LocalSignatureTypes = [fixture.ValueType],
+        };
+
+        var layout = ThroughContract(fixture.CreatePlanner()).Create(
+            PlanningMethod(body, (0, 0), (1, 1)));
+
+        Assert.Equal([0], layout.DirectValueLoadOffsets);
+        Assert.Empty(layout.TemporaryOffsets);
+        Assert.Equal([0], layout.LocalOffsets.Keys);
+        Assert.True(layout.Size >= fixture.Layouts.GetValueLayout(
+            fixture.ValueType).Size);
+    }
+
+    [Theory]
+    [InlineData(WasmTarget.Wasm32, false)]
+    [InlineData(WasmTarget.Wasm64, false)]
+    [InlineData(WasmTarget.Wasm32, true)]
+    [InlineData(WasmTarget.Wasm64, true)]
+    public void ImmediateArrayAssignmentKeepsDestinationButOmitsSnapshot(
+        WasmTarget target, bool rectangular)
+    {
+        var fixture = new PlannerFixture(target);
+        var body = new CilMethodBody(
+            fixture.BodyMethod,
+            3,
+            [CliValueKind.ValueType],
+            [
+                I(0, rectangular
+                        ? CilOperation.LoadRectangularArrayElement
+                        : CilOperation.LoadArrayElement,
+                    new CilOperand.TypeIdentity(rectangular
+                        ? CliTypeIdentity.Array(fixture.ValueType, 2)
+                        : fixture.ValueType)),
+                I(1, CilOperation.StoreLocal, new CilOperand.Index(0)),
+            ])
+        {
+            LocalSignatureTypes = [fixture.ValueType],
+        };
+
+        var layout = ThroughContract(fixture.CreatePlanner()).Create(
+            PlanningMethod(body, (0, rectangular ? 3 : 2), (1, 1)));
+
+        Assert.Equal([0], layout.DirectValueLoadOffsets);
+        Assert.Empty(layout.TemporaryOffsets);
+        Assert.Equal([0], layout.LocalOffsets.Keys);
+        Assert.True(layout.Size >= fixture.Layouts.GetValueLayout(fixture.ValueType).Size);
+    }
+
+    [Theory]
+    [InlineData(WasmTarget.Wasm32, CilOperation.LoadLocal, CilOperation.StoreLocal)]
+    [InlineData(WasmTarget.Wasm64, CilOperation.LoadLocal, CilOperation.StoreLocal)]
+    [InlineData(WasmTarget.Wasm32, CilOperation.LoadArgument, CilOperation.StoreLocal)]
+    [InlineData(WasmTarget.Wasm64, CilOperation.LoadArgument, CilOperation.StoreLocal)]
+    [InlineData(WasmTarget.Wasm32, CilOperation.LoadLocal, CilOperation.StoreArgument)]
+    [InlineData(WasmTarget.Wasm64, CilOperation.LoadLocal, CilOperation.StoreArgument)]
+    [InlineData(WasmTarget.Wasm32, CilOperation.LoadArgument, CilOperation.StoreArgument)]
+    [InlineData(WasmTarget.Wasm64, CilOperation.LoadArgument, CilOperation.StoreArgument)]
+    public void ImmediateAggregateAssignmentOmitsSnapshotButKeepsDestinationStorage(
+        WasmTarget target, CilOperation load, CilOperation store)
+    {
+        var fixture = new PlannerFixture(target);
+        var body = new CilMethodBody(
+            fixture.BodyMethod,
+            1,
+            [CliValueKind.ValueType, CliValueKind.ValueType],
+            [
+                I(0, load, new CilOperand.Index(load == CilOperation.LoadArgument ? 1 : 0)),
+                I(1, store, new CilOperand.Index(1)),
+            ])
+        {
+            LocalSignatureTypes = [fixture.ValueType, fixture.ValueType],
+        };
+
+        var frame = ThroughContract(fixture.CreatePlanner()).Create(
+            PlanningMethod(body, (0, 0), (1, 1)));
+
+        Assert.Equal([0], frame.DirectValueLoadOffsets);
+        Assert.Empty(frame.TemporaryOffsets);
+        if (store == CilOperation.StoreLocal)
+            Assert.Contains(1, frame.LocalOffsets.Keys);
+        else
+            Assert.Contains(1, frame.ArgumentOffsets.Keys);
+        Assert.True(frame.Size >= fixture.Layouts.GetValueLayout(fixture.ValueType).Size);
     }
 
     [Fact]
@@ -503,7 +1256,9 @@ public sealed class ValueFrameLayoutPlannerTests
             fixture.TypeOperands,
             fixture.TypeIdentities,
             fixture.ArgumentTypes,
-            fixture.ArgumentSignatures));
+            fixture.ArgumentSignatures,
+            new DirectValueLoadSelector(),
+            EmptyTransientAggregatePromotionPlanner.Instance));
         Assert.Throws<ArgumentNullException>(() => new ValueFrameLayoutPlanner(
             fixture,
             null!,
@@ -512,7 +1267,9 @@ public sealed class ValueFrameLayoutPlannerTests
             fixture.TypeOperands,
             fixture.TypeIdentities,
             fixture.ArgumentTypes,
-            fixture.ArgumentSignatures));
+            fixture.ArgumentSignatures,
+            new DirectValueLoadSelector(),
+            EmptyTransientAggregatePromotionPlanner.Instance));
         Assert.Throws<ArgumentNullException>(() => new ValueFrameLayoutPlanner(
             fixture,
             fixture,
@@ -521,7 +1278,9 @@ public sealed class ValueFrameLayoutPlannerTests
             fixture.TypeOperands,
             fixture.TypeIdentities,
             fixture.ArgumentTypes,
-            fixture.ArgumentSignatures));
+            fixture.ArgumentSignatures,
+            new DirectValueLoadSelector(),
+            EmptyTransientAggregatePromotionPlanner.Instance));
         Assert.Throws<ArgumentNullException>(() => new ValueFrameLayoutPlanner(
             fixture,
             fixture,
@@ -530,7 +1289,31 @@ public sealed class ValueFrameLayoutPlannerTests
             fixture.TypeOperands,
             fixture.TypeIdentities,
             fixture.ArgumentTypes,
-            fixture.ArgumentSignatures));
+            fixture.ArgumentSignatures,
+            new DirectValueLoadSelector(),
+            EmptyTransientAggregatePromotionPlanner.Instance));
+        Assert.Throws<ArgumentNullException>(() => new ValueFrameLayoutPlanner(
+            fixture,
+            fixture,
+            fixture.Layouts,
+            fixture.Layouts,
+            fixture.TypeOperands,
+            fixture.TypeIdentities,
+            fixture.ArgumentTypes,
+            fixture.ArgumentSignatures,
+            null!,
+            EmptyTransientAggregatePromotionPlanner.Instance));
+        Assert.Throws<ArgumentNullException>(() => new ValueFrameLayoutPlanner(
+            fixture,
+            fixture,
+            fixture.Layouts,
+            fixture.Layouts,
+            fixture.TypeOperands,
+            fixture.TypeIdentities,
+            fixture.ArgumentTypes,
+            fixture.ArgumentSignatures,
+            new DirectValueLoadSelector(),
+            null!));
     }
 
     private static void AssertPlannerFailure(
@@ -545,14 +1328,56 @@ public sealed class ValueFrameLayoutPlannerTests
             [I(0, operation)]);
 
         var exception = Assert.Throws<InvalidOperationException>(() =>
-            ThroughContract(fixture.CreatePlanner()).Create(Header(body)));
+            ThroughContract(fixture.CreatePlanner()).Create(PlanningMethod(body)));
 
         Assert.Equal(message, exception.Message);
+    }
+
+    private static StructuredMethod PlanningMethod(
+        CilMethodBody body,
+        params (int InstructionOffset, int EntryCount)[] entryCounts)
+    {
+        var counts = entryCounts.ToImmutableDictionary(
+            entry => entry.InstructionOffset,
+            entry => entry.EntryCount);
+        var entries = body.Instructions.ToImmutableDictionary(
+            instruction => instruction.Offset,
+            instruction => Enumerable.Repeat(
+                    CliValueKind.I4,
+                    counts.GetValueOrDefault(instruction.Offset))
+                .ToImmutableArray());
+        var blockId = new StructuredBlockId(0);
+        var block = new StructuredBlockDefinition(
+            blockId,
+            body.Instructions.IsEmpty ? 0 : body.Instructions[0].Offset,
+            body.Instructions,
+            [],
+            new StructuredFallthroughExit(null))
+        {
+            EndOffset = body.Instructions.IsEmpty ? 0 : body.Instructions[^1].NextOffset,
+        };
+        return new StructuredMethod(
+            Header(body),
+            blockId,
+            ImmutableDictionary<StructuredBlockId, StructuredBlockDefinition>.Empty
+                .Add(blockId, block),
+            new StructuredSequence([
+                new StructuredCode(new StructuredBlockOccurrence(
+                    blockId,
+                    StructuredBlockRole.Owner)),
+            ]),
+            [],
+            ImmutableDictionary<StructuredExceptionGroupId, StructuredExceptionGroup>.Empty,
+            entries);
     }
 
     private static IValueFrameLayoutPlanner ThroughContract(
         ValueFrameLayoutPlanner planner) =>
         new[] { planner }.Cast<IValueFrameLayoutPlanner>().Single();
+
+    private static IDirectValueLoadSelector ThroughSelector(
+        DirectValueLoadSelector selector) =>
+        new[] { selector }.Cast<IDirectValueLoadSelector>().Single();
 
     private sealed class ArrayElementValueLayouts(CliTypeIdentity element, int referenceSize) :
         IValueLayoutProvider
@@ -591,7 +1416,7 @@ public sealed class ValueFrameLayoutPlannerTests
         private readonly Dictionary<EntityKey, MethodDefinitionModel> _methods;
         private readonly Dictionary<EntityKey, FieldDefinitionModel> _fields;
 
-        public PlannerFixture()
+        public PlannerFixture(WasmTarget target = WasmTarget.Wasm32)
         {
             ValueType = CliTypeIdentity.Named(
                 Assembly,
@@ -708,7 +1533,7 @@ public sealed class ValueFrameLayoutPlannerTests
                 [ValueFieldKey] = ValueField,
                 [ScalarFieldKey] = ScalarField,
             };
-            Layouts = new RecordingLayoutProvider();
+            Layouts = new RecordingLayoutProvider(WasmTargetLayout.For(target));
             TypeIdentities = this;
             TypeOperands = this;
             ArgumentTypes = this;
@@ -735,7 +1560,8 @@ public sealed class ValueFrameLayoutPlannerTests
         public IArgumentTypeResolver ArgumentTypes { get; }
         public IArgumentSignatureTypeResolver ArgumentSignatures { get; }
 
-        public ValueFrameLayoutPlanner CreatePlanner() => new(
+        public ValueFrameLayoutPlanner CreatePlanner(
+            ITransientAggregatePromotionPlanner? promotions = null) => new(
             this,
             this,
             Layouts,
@@ -743,7 +1569,9 @@ public sealed class ValueFrameLayoutPlannerTests
             TypeOperands,
             TypeIdentities,
             ArgumentTypes,
-            ArgumentSignatures);
+            ArgumentSignatures,
+            new DirectValueLoadSelector(),
+            promotions ?? EmptyTransientAggregatePromotionPlanner.Instance);
 
         public FieldDefinitionModel GetField(EntityKey key) => _fields[key];
         public void AddMethod(MethodDefinitionModel method) => _methods.Add(method.Key, method);
@@ -769,5 +1597,11 @@ public sealed class ValueFrameLayoutPlannerTests
         CliTypeIdentity IArgumentSignatureTypeResolver.Resolve(
             StructuredMethodHeader header,
             int index) => ResolveSignature(header, index);
+    }
+
+    private sealed class FixedTransientAggregatePromotionPlanner(
+        TransientAggregatePromotionPlan plan) : ITransientAggregatePromotionPlanner
+    {
+        public TransientAggregatePromotionPlan Create(StructuredMethod method) => plan;
     }
 }

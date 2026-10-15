@@ -10,14 +10,18 @@ internal sealed record ControlFlowDispatcherEmissionRequest(
     StructuredDispatcher Dispatcher,
     int ProgramCounterLocal);
 
-internal sealed class ControlFlowDispatcherEmitter : IControlFlowDispatcherEmitter
+internal sealed class ControlFlowDispatcherEmitter(
+    IDispatcherBranchTablePlanner branchTables) : IControlFlowDispatcherEmitter
 {
+    private readonly IDispatcherBranchTablePlanner _branchTables = branchTables ??
+        throw new ArgumentNullException(nameof(branchTables));
+
     public void Emit(
         IWasmInstructionWriter code,
         ControlFlowDispatcherEmissionRequest request,
         Action<StructuredDispatcherBlock> emitBlock,
         Action<StructuredDispatcherBlock> emitCondition,
-        Action<StructuredSequence> emitSequence)
+        Action<StructuredSequence, int> emitSequence)
     {
         ArgumentNullException.ThrowIfNull(code);
         ArgumentNullException.ThrowIfNull(request);
@@ -26,6 +30,7 @@ internal sealed class ControlFlowDispatcherEmitter : IControlFlowDispatcherEmitt
         ArgumentNullException.ThrowIfNull(emitBlock);
         ArgumentNullException.ThrowIfNull(emitCondition);
         ArgumentNullException.ThrowIfNull(emitSequence);
+        ArgumentOutOfRangeException.ThrowIfNegative(request.ProgramCounterLocal);
 
         var dispatcher = request.Dispatcher;
         if (dispatcher.EntryBlock is { } entryBlock)
@@ -35,6 +40,35 @@ internal sealed class ControlFlowDispatcherEmitter : IControlFlowDispatcherEmitt
                 request.ProgramCounterLocal,
                 entryBlock.Value);
         }
+
+        if (_branchTables.Plan(dispatcher) is { } branchTable)
+        {
+            EmitBranchTable(
+                code,
+                request,
+                branchTable,
+                emitBlock,
+                emitCondition,
+                emitSequence);
+            return;
+        }
+
+        EmitLinear(
+            code,
+            request,
+            emitBlock,
+            emitCondition,
+            emitSequence);
+    }
+
+    private static void EmitLinear(
+        IWasmInstructionWriter code,
+        ControlFlowDispatcherEmissionRequest request,
+        Action<StructuredDispatcherBlock> emitBlock,
+        Action<StructuredDispatcherBlock> emitCondition,
+        Action<StructuredSequence, int> emitSequence)
+    {
+        var dispatcher = request.Dispatcher;
         code.Write(WasmInstruction.WithOperand(
             WasmOpcodes.Block,
             WasmInstructionOperand.BlockType(WasmOpcodes.EmptyBlockType)));
@@ -58,7 +92,7 @@ internal sealed class ControlFlowDispatcherEmitter : IControlFlowDispatcherEmitt
             }
             else
             {
-                emitSequence(exit.Body);
+                emitSequence(exit.Body, 1);
                 foreach (var block in dispatcher.Blocks)
                 {
                     EmitProgramCounterEquals(
@@ -112,9 +146,9 @@ internal sealed class ControlFlowDispatcherEmitter : IControlFlowDispatcherEmitt
                         request.ProgramCounterLocal,
                         successor.Value);
                 }
-                else if (request.Method.Blocks[item.Occurrence.Block].Exit is
-                         StructuredTerminalExit terminal &&
-                         terminal.Instruction.Operation == CilOperation.EndFinally)
+                else if (((StructuredTerminalExit)request.Method
+                             .Blocks[item.Occurrence.Block].Exit)
+                         .Instruction.Operation == CilOperation.EndFinally)
                 {
                     code.Write(WasmInstruction.WithOperand(
                         WasmOpcodes.Branch,
@@ -134,6 +168,160 @@ internal sealed class ControlFlowDispatcherEmitter : IControlFlowDispatcherEmitt
         code.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
         code.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
 
+    }
+
+    private static void EmitBranchTable(
+        IWasmInstructionWriter code,
+        ControlFlowDispatcherEmissionRequest request,
+        DispatcherBranchTablePlan plan,
+        Action<StructuredDispatcherBlock> emitBlock,
+        Action<StructuredDispatcherBlock> emitCondition,
+        Action<StructuredSequence, int> emitSequence)
+    {
+        code.Write(WasmInstruction.WithOperand(
+            WasmOpcodes.Block,
+            WasmInstructionOperand.BlockType(WasmOpcodes.EmptyBlockType)));
+        code.Write(WasmInstruction.WithOperand(
+            WasmOpcodes.Loop,
+            WasmInstructionOperand.BlockType(WasmOpcodes.EmptyBlockType)));
+        code.Write(WasmInstruction.WithOperand(
+            WasmOpcodes.Block,
+            WasmInstructionOperand.BlockType(WasmOpcodes.EmptyBlockType)));
+        foreach (var _ in plan.Cases)
+        {
+            code.Write(WasmInstruction.WithOperand(
+                WasmOpcodes.Block,
+                WasmInstructionOperand.BlockType(WasmOpcodes.EmptyBlockType)));
+        }
+
+        code.Write(WasmInstruction.WithOperand(
+            WasmOpcodes.LocalGet,
+            WasmInstructionOperand.Unsigned((uint)request.ProgramCounterLocal)));
+        code.Write(WasmInstruction.WithOperand(
+            WasmOpcodes.BranchTable,
+            WasmInstructionOperand.BranchTable(
+                plan.Targets,
+                checked((uint)plan.Cases.Length))));
+
+        for (var index = plan.Cases.Length - 1; index >= 0; index--)
+        {
+            code.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
+            var loopDepth = checked((uint)(index + 1));
+            var dispatcherExitDepth = checked(loopDepth + 1);
+            EmitBranchTableCase(
+                code,
+                request,
+                plan.Cases[index],
+                loopDepth,
+                dispatcherExitDepth,
+                emitBlock,
+                emitCondition,
+                emitSequence);
+        }
+
+        code.Write(WasmInstruction.NoOperand(WasmOpcodes.Unreachable));
+        code.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
+        code.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
+        code.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
+    }
+
+    private static void EmitBranchTableCase(
+        IWasmInstructionWriter code,
+        ControlFlowDispatcherEmissionRequest request,
+        DispatcherCasePlan item,
+        uint loopDepth,
+        uint dispatcherExitDepth,
+        Action<StructuredDispatcherBlock> emitBlock,
+        Action<StructuredDispatcherBlock> emitCondition,
+        Action<StructuredSequence, int> emitSequence)
+    {
+        if (item.Exit is { } exit)
+        {
+            if (!exit.Body.Regions.IsEmpty)
+            {
+                emitSequence(exit.Body, checked((int)loopDepth));
+                foreach (var dispatcherBlock in request.Dispatcher.Blocks)
+                {
+                    EmitProgramCounterEquals(
+                        code,
+                        request.ProgramCounterLocal,
+                        dispatcherBlock.Occurrence.Block.Value);
+                    code.Write(WasmInstruction.WithOperand(
+                        WasmOpcodes.BranchIf,
+                        WasmInstructionOperand.Unsigned(loopDepth)));
+                }
+            }
+            code.Write(WasmInstruction.WithOperand(
+                WasmOpcodes.Branch,
+                WasmInstructionOperand.Unsigned(dispatcherExitDepth)));
+            return;
+        }
+
+        var block = item.Block!;
+        if (block.WhenFalse is not null)
+        {
+            emitCondition(block);
+            code.Write(WasmInstruction.WithOperand(
+                WasmOpcodes.If,
+                WasmInstructionOperand.BlockType(WasmOpcodes.EmptyBlockType)));
+            EmitTransition(
+                code,
+                item.WhenTrue!,
+                request.ProgramCounterLocal,
+                checked(loopDepth + 1),
+                1);
+            code.Write(WasmInstruction.NoOperand(WasmOpcodes.Else));
+            EmitTransition(
+                code,
+                item.WhenFalse!,
+                request.ProgramCounterLocal,
+                checked(loopDepth + 1),
+                1);
+            code.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
+            return;
+        }
+
+        emitBlock(block);
+        if (item.WhenTrue is { } successor)
+        {
+            EmitTransition(
+                code,
+                successor,
+                request.ProgramCounterLocal,
+                loopDepth,
+                0);
+            return;
+        }
+        if (((StructuredTerminalExit)request.Method
+                 .Blocks[block.Occurrence.Block].Exit)
+             .Instruction.Operation == CilOperation.EndFinally)
+        {
+            code.Write(WasmInstruction.WithOperand(
+                WasmOpcodes.Branch,
+                WasmInstructionOperand.Unsigned(dispatcherExitDepth)));
+            return;
+        }
+        code.Write(WasmInstruction.NoOperand(WasmOpcodes.Unreachable));
+    }
+
+    private static void EmitTransition(
+        IWasmInstructionWriter code,
+        DispatcherTransitionPlan transition,
+        int programCounterLocal,
+        uint redispatchDepth,
+        uint nestedDepth)
+    {
+        if (transition.DirectBranchDepth is { } directDepth)
+        {
+            code.Write(WasmInstruction.WithOperand(
+                WasmOpcodes.Branch,
+                WasmInstructionOperand.Unsigned(checked(directDepth + nestedDepth))));
+            return;
+        }
+        SetProgramCounter(code, programCounterLocal, transition.Target.Value);
+        code.Write(WasmInstruction.WithOperand(
+            WasmOpcodes.Branch,
+            WasmInstructionOperand.Unsigned(redispatchDepth)));
     }
 
     private static void SetProgramCounter(

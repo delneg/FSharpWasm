@@ -19,14 +19,88 @@ internal static class PrimitiveIntegralConversions
 {
     internal delegate bool PartialParser<T>(string value, out T result);
 
-    internal static bool TryParsePartial<T>(string? value, PartialParser<T> parser, out T result, out int consumed)
+    internal static bool IsBuiltInNumber<TOther>() =>
+        typeof(TOther) == typeof(byte) ||
+        typeof(TOther) == typeof(sbyte) ||
+        typeof(TOther) == typeof(short) ||
+        typeof(TOther) == typeof(ushort) ||
+        typeof(TOther) == typeof(int) ||
+        typeof(TOther) == typeof(uint) ||
+        typeof(TOther) == typeof(long) ||
+        typeof(TOther) == typeof(ulong) ||
+        typeof(TOther) == typeof(nint) ||
+        typeof(TOther) == typeof(nuint) ||
+        typeof(TOther) == typeof(char) ||
+        typeof(TOther) == typeof(Half) ||
+        typeof(TOther) == typeof(float) ||
+        typeof(TOther) == typeof(double) ||
+        typeof(TOther) == typeof(decimal) ||
+        typeof(TOther) == typeof(Int128) ||
+        typeof(TOther) == typeof(UInt128);
+
+    internal static bool TryParsePartial<T>(string? value, Globalization.NumberStyles style, PartialParser<T> parser, out T result, out int consumed)
     {
         result = default!;
         if (value is null) { consumed = 0; return false; }
-        for (var length = value.Length; length > 0; length--)
+
+        var radix = (style & Globalization.NumberStyles.AllowHexSpecifier) != 0 ? 16 :
+            (style & Globalization.NumberStyles.AllowBinarySpecifier) != 0 ? 2 : 10;
+        var index = 0;
+        if ((style & Globalization.NumberStyles.AllowLeadingWhite) != 0)
         {
-            if (parser(value.Substring(0, length), out result)) { consumed = length; return true; }
+            while (index < value.Length && char.IsWhiteSpace(value[index])) index++;
         }
+        if ((style & Globalization.NumberStyles.AllowParentheses) != 0 && index < value.Length && value[index] == '(') index++;
+        if ((style & Globalization.NumberStyles.AllowCurrencySymbol) != 0 && index < value.Length && value[index] == '$') index++;
+        if (radix == 10 && (style & Globalization.NumberStyles.AllowLeadingSign) != 0 && index < value.Length && value[index] is '+' or '-') index++;
+        if ((style & Globalization.NumberStyles.AllowCurrencySymbol) != 0 && index < value.Length && value[index] == '$') index++;
+
+        var sawDigit = false;
+        var sawDecimalPoint = false;
+        while (index < value.Length)
+        {
+            var character = value[index];
+            var digit = character is >= '0' and <= '9' ? character - '0' :
+                character is >= 'a' and <= 'f' ? character - 'a' + 10 :
+                character is >= 'A' and <= 'F' ? character - 'A' + 10 : -1;
+            if (digit >= 0 && digit < radix)
+            {
+                sawDigit = true;
+                index++;
+                continue;
+            }
+            if (radix == 10 && (style & Globalization.NumberStyles.AllowThousands) != 0 && character == ',')
+            {
+                index++;
+                continue;
+            }
+            if (radix == 10 && !sawDecimalPoint && (style & Globalization.NumberStyles.AllowDecimalPoint) != 0 && character == '.')
+            {
+                sawDecimalPoint = true;
+                index++;
+                continue;
+            }
+            if (radix == 10 && sawDigit && (style & Globalization.NumberStyles.AllowExponent) != 0 && character is 'e' or 'E')
+            {
+                index++;
+                if (index < value.Length && value[index] is '+' or '-') index++;
+                while (index < value.Length && value[index] is >= '0' and <= '9') index++;
+            }
+            break;
+        }
+
+        if (!sawDigit) { consumed = 0; return false; }
+        if ((style & Globalization.NumberStyles.AllowTrailingSign) != 0 && index < value.Length && value[index] is '+' or '-') index++;
+        if ((style & Globalization.NumberStyles.AllowCurrencySymbol) != 0 && index < value.Length && value[index] == '$') index++;
+        if ((style & Globalization.NumberStyles.AllowParentheses) != 0 && index < value.Length && value[index] == ')') index++;
+        if ((style & Globalization.NumberStyles.AllowTrailingWhite) != 0)
+        {
+            while (index < value.Length && char.IsWhiteSpace(value[index])) index++;
+        }
+
+        consumed = index;
+        if (parser(value.Substring(0, consumed), out result)) return true;
+        result = default!;
         consumed = 0;
         return false;
     }
@@ -165,8 +239,26 @@ internal static class PrimitiveIntegralConversions
     {
         var mask = bits == 64 ? ulong.MaxValue : (1UL << bits) - 1;
         if (double.IsNaN(value)) { result = 0; return kind != PrimitiveIntegralConversionKind.Checked; }
-        var minimum = signed ? -(bits == 64 ? 9.223372036854776E18 : 2147483648d) : 0d;
-        var maximum = signed ? (bits == 64 ? 9.223372036854776E18 : 2147483647d) : (bits == 64 ? 1.8446744073709552E19 : 4294967295d);
+        double minimum = signed ? bits switch
+        {
+            8 => sbyte.MinValue,
+            16 => short.MinValue,
+            32 => int.MinValue,
+            _ => -9.223372036854776E18,
+        } : 0d;
+        double maximum = signed ? bits switch
+        {
+            8 => sbyte.MaxValue,
+            16 => short.MaxValue,
+            32 => int.MaxValue,
+            _ => 9.223372036854776E18,
+        } : bits switch
+        {
+            8 => byte.MaxValue,
+            16 => ushort.MaxValue,
+            32 => uint.MaxValue,
+            _ => 1.8446744073709552E19,
+        };
         var truncated = Math.Truncate(value);
         if (kind == PrimitiveIntegralConversionKind.Checked && (double.IsInfinity(value) || truncated < minimum || truncated > maximum)) { result = 0; return false; }
         if (kind == PrimitiveIntegralConversionKind.Saturating)
@@ -188,8 +280,26 @@ internal static class PrimitiveIntegralConversions
         PrimitiveIntegralConversionKind kind, out ulong result)
     {
         var truncated = decimal.Truncate(value);
-        var minimum = signed ? (bits == 64 ? (decimal)long.MinValue : int.MinValue) : 0m;
-        var maximum = signed ? (bits == 64 ? (decimal)long.MaxValue : int.MaxValue) : (bits == 64 ? (decimal)ulong.MaxValue : uint.MaxValue);
+        decimal minimum = signed ? bits switch
+        {
+            8 => sbyte.MinValue,
+            16 => short.MinValue,
+            32 => int.MinValue,
+            _ => long.MinValue,
+        } : 0m;
+        decimal maximum = signed ? bits switch
+        {
+            8 => sbyte.MaxValue,
+            16 => short.MaxValue,
+            32 => int.MaxValue,
+            _ => long.MaxValue,
+        } : bits switch
+        {
+            8 => byte.MaxValue,
+            16 => ushort.MaxValue,
+            32 => uint.MaxValue,
+            _ => ulong.MaxValue,
+        };
         if (kind == PrimitiveIntegralConversionKind.Checked && (truncated < minimum || truncated > maximum)) { result = 0; return false; }
         if (kind == PrimitiveIntegralConversionKind.Saturating) truncated = truncated < minimum ? minimum : truncated > maximum ? maximum : truncated;
         if (kind == PrimitiveIntegralConversionKind.Truncating && (truncated < minimum || truncated > maximum))
@@ -198,7 +308,7 @@ internal static class PrimitiveIntegralConversions
             truncated %= modulus;
             if (truncated < 0) truncated += modulus;
         }
-        result = unchecked((ulong)truncated);
+        result = signed ? unchecked((ulong)(long)truncated) : (ulong)truncated;
         return true;
     }
 }
@@ -240,17 +350,17 @@ internal static class PrimitiveScalarContracts
 
 public partial struct Int16
 {
-    public string ToString(IFormatProvider? provider) => ToString();
+    public string ToString(IFormatProvider? provider) => Number.FormatInt32(this, 0, null, provider);
 
     public string ToString(string? format, IFormatProvider? provider) =>
-        Number.FormatSigned(this, 16, format);
+        Number.FormatInt32(this, 0x0000FFFF, format, provider);
 
     public bool TryFormat(
         Span<char> destination,
         out int charsWritten,
         ReadOnlySpan<char> format = default(System.ReadOnlySpan<char>),
         IFormatProvider? provider = null) =>
-        PrimitiveScalarContracts.TryFormat(ToString(PrimitiveScalarContracts.Format(format), provider), destination, out charsWritten);
+        Number.TryFormatInt32(this, 0x0000FFFF, format, provider, destination, out charsWritten);
 
     public static short Parse(string value, IFormatProvider? provider) => Parse(value);
 
@@ -263,17 +373,17 @@ public partial struct Int16
 
 public partial struct UInt16
 {
-    public string ToString(IFormatProvider? provider) => ToString();
+    public string ToString(IFormatProvider? provider) => Number.UInt32ToDecStr(this);
 
     public string ToString(string? format, IFormatProvider? provider) =>
-        Number.FormatUnsigned(this, 16, format);
+        Number.FormatUInt32(this, format, provider);
 
     public bool TryFormat(
         Span<char> destination,
         out int charsWritten,
         ReadOnlySpan<char> format = default(System.ReadOnlySpan<char>),
         IFormatProvider? provider = null) =>
-        PrimitiveScalarContracts.TryFormat(ToString(PrimitiveScalarContracts.Format(format), provider), destination, out charsWritten);
+        Number.TryFormatUInt32(this, format, provider, destination, out charsWritten);
 
     public static ushort Parse(string value, IFormatProvider? provider) => Parse(value);
 
@@ -288,7 +398,7 @@ public partial struct Int32
 {
     public TypeCode GetTypeCode() => TypeCode.Int32;
     public bool TryFormat(Span<byte> destination, out int bytesWritten, ReadOnlySpan<char> format = default(System.ReadOnlySpan<char>), IFormatProvider? provider = null) =>
-        PrimitiveGenericMathSmall.TryCopyUtf8(ToString(PrimitiveScalarContracts.Format(format), provider), destination, out bytesWritten);
+        Number.TryFormatInt32(this, ~0, format, provider, destination, out bytesWritten);
     public static long BigMul(int left, int right) => (long)left * right;
     public static int CreateChecked<TOther>(TOther value) where TOther : Numerics.INumberBase<TOther> =>
         (int)PrimitiveIntegralConversions.CreateSigned(value, 32, PrimitiveIntegralConversionKind.Checked);
@@ -299,7 +409,7 @@ public partial struct Int32
     public static bool TryParse(ReadOnlySpan<byte> value, out int result) => TryParse(value, null, out result);
     public static bool TryParsePartial(string? value, Globalization.NumberStyles style, IFormatProvider? provider, out int result, out int consumed)
     {
-        return PrimitiveIntegralConversions.TryParsePartial(value, (string text, out int parsed) => TryParse(text, style, provider, out parsed), out result, out consumed);
+        return PrimitiveIntegralConversions.TryParsePartial(value, style, (string text, out int parsed) => TryParse(text, style, provider, out parsed), out result, out consumed);
     }
     public static bool TryParsePartial(ReadOnlySpan<char> value, Globalization.NumberStyles style, IFormatProvider? provider, out int result, out int consumed) => TryParsePartial(value.ToString(), style, provider, out result, out consumed);
     public static bool TryParsePartial(ReadOnlySpan<byte> value, Globalization.NumberStyles style, IFormatProvider? provider, out int result, out int consumed) => TryParsePartial(PrimitiveScalarContracts.Utf8ToString(value), style, provider, out result, out consumed);
@@ -327,7 +437,7 @@ public readonly partial struct IntPtr
     public static unsafe explicit operator IntPtr(void* value) => new(value);
     public static unsafe explicit operator void*(IntPtr value) => (void*)value._value;
     public unsafe void* ToPointer() => (void*)_value;
-    public string ToString(IFormatProvider? provider) => ToString();
+    public string ToString(IFormatProvider? provider) => Size == 8 ? ((long)_value).ToString(provider) : ((int)_value).ToString(provider);
     public static nint Add(nint value, int offset) => new IntPtr(value._value + offset)._value;
     public static nint Subtract(nint value, int offset) => new IntPtr(value._value - offset)._value;
     public static nint BigMul(nint left, nint right, out nint low)
@@ -351,7 +461,7 @@ public readonly partial struct IntPtr
     public static bool TryParse(ReadOnlySpan<char> value, out nint result) => TryParse(value, null, out result);
     public static bool TryParsePartial(string? value, Globalization.NumberStyles style, IFormatProvider? provider, out nint result, out int consumed)
     {
-        return PrimitiveIntegralConversions.TryParsePartial(value, (string text, out nint parsed) => TryParse(text, style, provider, out parsed), out result, out consumed);
+        return PrimitiveIntegralConversions.TryParsePartial(value, style, (string text, out nint parsed) => TryParse(text, style, provider, out parsed), out result, out consumed);
     }
     public static bool TryParsePartial(ReadOnlySpan<char> value, Globalization.NumberStyles style, IFormatProvider? provider, out nint result, out int consumed) => TryParsePartial(value.ToString(), style, provider, out result, out consumed);
     public static bool TryParsePartial(ReadOnlySpan<byte> value, Globalization.NumberStyles style, IFormatProvider? provider, out nint result, out int consumed) => TryParsePartial(PrimitiveScalarContracts.Utf8ToString(value), style, provider, out result, out consumed);
@@ -367,7 +477,7 @@ public readonly partial struct UIntPtr
     public static unsafe explicit operator UIntPtr(void* value) => new(value);
     public static unsafe explicit operator void*(UIntPtr value) => (void*)value._value;
     public unsafe void* ToPointer() => (void*)_value;
-    public string ToString(IFormatProvider? provider) => ToString();
+    public string ToString(IFormatProvider? provider) => Size == 8 ? ((ulong)_value).ToString(provider) : ((uint)_value).ToString(provider);
     public static nuint Add(nuint value, int offset) => new UIntPtr(value._value + (nuint)offset)._value;
     public static nuint Subtract(nuint value, int offset) => new UIntPtr(value._value - (nuint)offset)._value;
     public static nuint BigMul(nuint left, nuint right, out nuint low)
@@ -391,7 +501,7 @@ public readonly partial struct UIntPtr
     public static bool TryParse(ReadOnlySpan<char> value, out nuint result) => TryParse(value, null, out result);
     public static bool TryParsePartial(string? value, Globalization.NumberStyles style, IFormatProvider? provider, out nuint result, out int consumed)
     {
-        return PrimitiveIntegralConversions.TryParsePartial(value, (string text, out nuint parsed) => TryParse(text, style, provider, out parsed), out result, out consumed);
+        return PrimitiveIntegralConversions.TryParsePartial(value, style, (string text, out nuint parsed) => TryParse(text, style, provider, out parsed), out result, out consumed);
     }
     public static bool TryParsePartial(ReadOnlySpan<char> value, Globalization.NumberStyles style, IFormatProvider? provider, out nuint result, out int consumed) => TryParsePartial(value.ToString(), style, provider, out result, out consumed);
     public static bool TryParsePartial(ReadOnlySpan<byte> value, Globalization.NumberStyles style, IFormatProvider? provider, out nuint result, out int consumed) => TryParsePartial(PrimitiveScalarContracts.Utf8ToString(value), style, provider, out result, out consumed);
@@ -405,7 +515,7 @@ public partial struct UInt32
 {
     public TypeCode GetTypeCode() => TypeCode.UInt32;
     public bool TryFormat(Span<byte> destination, out int bytesWritten, ReadOnlySpan<char> format = default(System.ReadOnlySpan<char>), IFormatProvider? provider = null) =>
-        PrimitiveGenericMathSmall.TryCopyUtf8(ToString(PrimitiveScalarContracts.Format(format), provider), destination, out bytesWritten);
+        Number.TryFormatUInt32(this, format, provider, destination, out bytesWritten);
     public static ulong BigMul(uint left, uint right) => (ulong)left * right;
     public static uint CreateChecked<TOther>(TOther value) where TOther : Numerics.INumberBase<TOther> =>
         (uint)PrimitiveIntegralConversions.CreateUnsigned(value, 32, PrimitiveIntegralConversionKind.Checked);
@@ -416,7 +526,7 @@ public partial struct UInt32
     public static bool TryParse(ReadOnlySpan<byte> value, out uint result) => TryParse(value, null, out result);
     public static bool TryParsePartial(string? value, Globalization.NumberStyles style, IFormatProvider? provider, out uint result, out int consumed)
     {
-        return PrimitiveIntegralConversions.TryParsePartial(value, (string text, out uint parsed) => TryParse(text, style, provider, out parsed), out result, out consumed);
+        return PrimitiveIntegralConversions.TryParsePartial(value, style, (string text, out uint parsed) => TryParse(text, style, provider, out parsed), out result, out consumed);
     }
     public static bool TryParsePartial(ReadOnlySpan<char> value, Globalization.NumberStyles style, IFormatProvider? provider, out uint result, out int consumed) => TryParsePartial(value.ToString(), style, provider, out result, out consumed);
     public static bool TryParsePartial(ReadOnlySpan<byte> value, Globalization.NumberStyles style, IFormatProvider? provider, out uint result, out int consumed) => TryParsePartial(PrimitiveScalarContracts.Utf8ToString(value), style, provider, out result, out consumed);
@@ -442,7 +552,7 @@ public partial struct Int64
 {
     public TypeCode GetTypeCode() => TypeCode.Int64;
     public bool TryFormat(Span<byte> destination, out int bytesWritten, ReadOnlySpan<char> format = default(System.ReadOnlySpan<char>), IFormatProvider? provider = null) =>
-        PrimitiveGenericMathSmall.TryCopyUtf8(ToString(PrimitiveScalarContracts.Format(format), provider), destination, out bytesWritten);
+        Number.TryFormatInt64(this, format, provider, destination, out bytesWritten);
     public static Int128 BigMul(long left, long right) => (Int128)left * right;
     public static long CreateChecked<TOther>(TOther value) where TOther : Numerics.INumberBase<TOther> =>
         PrimitiveIntegralConversions.CreateSigned(value, 64, PrimitiveIntegralConversionKind.Checked);
@@ -455,7 +565,7 @@ public partial struct Int64
     public static bool TryParse(ReadOnlySpan<byte> value, out long result) => TryParse(value, null, out result);
     public static bool TryParsePartial(string? value, Globalization.NumberStyles style, IFormatProvider? provider, out long result, out int consumed)
     {
-        return PrimitiveIntegralConversions.TryParsePartial(value, (string text, out long parsed) => TryParse(text, style, provider, out parsed), out result, out consumed);
+        return PrimitiveIntegralConversions.TryParsePartial(value, style, (string text, out long parsed) => TryParse(text, style, provider, out parsed), out result, out consumed);
     }
     public static bool TryParsePartial(ReadOnlySpan<char> value, Globalization.NumberStyles style, IFormatProvider? provider, out long result, out int consumed) => TryParsePartial(value.ToString(), style, provider, out result, out consumed);
     public static bool TryParsePartial(ReadOnlySpan<byte> value, Globalization.NumberStyles style, IFormatProvider? provider, out long result, out int consumed) => TryParsePartial(PrimitiveScalarContracts.Utf8ToString(value), style, provider, out result, out consumed);
@@ -481,7 +591,7 @@ public partial struct UInt64
 {
     public TypeCode GetTypeCode() => TypeCode.UInt64;
     public bool TryFormat(Span<byte> destination, out int bytesWritten, ReadOnlySpan<char> format = default(System.ReadOnlySpan<char>), IFormatProvider? provider = null) =>
-        PrimitiveGenericMathSmall.TryCopyUtf8(ToString(PrimitiveScalarContracts.Format(format), provider), destination, out bytesWritten);
+        Number.TryFormatUInt64(this, format, provider, destination, out bytesWritten);
     public static UInt128 BigMul(ulong left, ulong right) => (UInt128)left * right;
     public static ulong CreateChecked<TOther>(TOther value) where TOther : Numerics.INumberBase<TOther> =>
         PrimitiveIntegralConversions.CreateUnsigned(value, 64, PrimitiveIntegralConversionKind.Checked);
@@ -492,7 +602,7 @@ public partial struct UInt64
     public static bool TryParse(ReadOnlySpan<byte> value, out ulong result) => TryParse(value, null, out result);
     public static bool TryParsePartial(string? value, Globalization.NumberStyles style, IFormatProvider? provider, out ulong result, out int consumed)
     {
-        return PrimitiveIntegralConversions.TryParsePartial(value, (string text, out ulong parsed) => TryParse(text, style, provider, out parsed), out result, out consumed);
+        return PrimitiveIntegralConversions.TryParsePartial(value, style, (string text, out ulong parsed) => TryParse(text, style, provider, out parsed), out result, out consumed);
     }
     public static bool TryParsePartial(ReadOnlySpan<char> value, Globalization.NumberStyles style, IFormatProvider? provider, out ulong result, out int consumed) => TryParsePartial(value.ToString(), style, provider, out result, out consumed);
     public static bool TryParsePartial(ReadOnlySpan<byte> value, Globalization.NumberStyles style, IFormatProvider? provider, out ulong result, out int consumed) => TryParsePartial(PrimitiveScalarContracts.Utf8ToString(value), style, provider, out result, out consumed);
@@ -520,17 +630,17 @@ public partial struct Int32
         where TOther : Numerics.INumberBase<TOther> =>
         TryConvert(value, out var result) ? result : throw new NotSupportedException();
 
-    public string ToString(IFormatProvider? provider) => ToString();
+    public string ToString(IFormatProvider? provider) => Number.FormatInt32(this, 0, null, provider);
 
     public string ToString(string? format, IFormatProvider? provider) =>
-        Number.FormatSigned(this, 32, format);
+        Number.FormatInt32(this, ~0, format, provider);
 
     public bool TryFormat(
         Span<char> destination,
         out int charsWritten,
         ReadOnlySpan<char> format = default(System.ReadOnlySpan<char>),
         IFormatProvider? provider = null) =>
-        PrimitiveScalarContracts.TryFormat(ToString(PrimitiveScalarContracts.Format(format), provider), destination, out charsWritten);
+        Number.TryFormatInt32(this, ~0, format, provider, destination, out charsWritten);
 
     public static int Parse(string value, IFormatProvider? provider) => Parse(value);
 
@@ -544,17 +654,17 @@ public partial struct UInt32
         where TOther : Numerics.INumberBase<TOther> =>
         TryConvert(value, out var result) ? result : throw new NotSupportedException();
 
-    public string ToString(IFormatProvider? provider) => ToString();
+    public string ToString(IFormatProvider? provider) => Number.UInt32ToDecStr(this);
 
     public string ToString(string? format, IFormatProvider? provider) =>
-        Number.FormatUnsigned(this, 32, format);
+        Number.FormatUInt32(this, format, provider);
 
     public bool TryFormat(
         Span<char> destination,
         out int charsWritten,
         ReadOnlySpan<char> format = default(System.ReadOnlySpan<char>),
         IFormatProvider? provider = null) =>
-        PrimitiveScalarContracts.TryFormat(ToString(PrimitiveScalarContracts.Format(format), provider), destination, out charsWritten);
+        Number.TryFormatUInt32(this, format, provider, destination, out charsWritten);
 
     public static uint Parse(string value, IFormatProvider? provider) => Parse(value);
 
@@ -564,17 +674,17 @@ public partial struct UInt32
 
 public partial struct Int64
 {
-    public string ToString(IFormatProvider? provider) => ToString();
+    public string ToString(IFormatProvider? provider) => Number.FormatInt64(this, null, provider);
 
     public string ToString(string? format, IFormatProvider? provider) =>
-        Number.FormatSigned(this, 64, format);
+        Number.FormatInt64(this, format, provider);
 
     public bool TryFormat(
         Span<char> destination,
         out int charsWritten,
         ReadOnlySpan<char> format = default(System.ReadOnlySpan<char>),
         IFormatProvider? provider = null) =>
-        PrimitiveScalarContracts.TryFormat(ToString(PrimitiveScalarContracts.Format(format), provider), destination, out charsWritten);
+        Number.TryFormatInt64(this, format, provider, destination, out charsWritten);
 
     public static long Parse(string value, IFormatProvider? provider) => Parse(value);
 
@@ -625,17 +735,17 @@ public partial struct UInt64
         return result;
     }
 
-    public string ToString(IFormatProvider? provider) => ToString();
+    public string ToString(IFormatProvider? provider) => Number.UInt64ToDecStr(this);
 
     public string ToString(string? format, IFormatProvider? provider) =>
-        Number.FormatUnsigned(this, 64, format);
+        Number.FormatUInt64(this, format, provider);
 
     public bool TryFormat(
         Span<char> destination,
         out int charsWritten,
         ReadOnlySpan<char> format = default(System.ReadOnlySpan<char>),
         IFormatProvider? provider = null) =>
-        PrimitiveScalarContracts.TryFormat(ToString(PrimitiveScalarContracts.Format(format), provider), destination, out charsWritten);
+        Number.TryFormatUInt64(this, format, provider, destination, out charsWritten);
 
     public static ulong Parse(string value, IFormatProvider? provider) => Parse(value);
 
@@ -655,7 +765,7 @@ public partial struct Single
         out int charsWritten,
         ReadOnlySpan<char> format = default(System.ReadOnlySpan<char>),
         IFormatProvider? provider = null) =>
-        PrimitiveScalarContracts.TryFormat(ToString(PrimitiveScalarContracts.Format(format), provider), destination, out charsWritten);
+        Number.TryFormatFloat(this, format, provider, destination, out charsWritten);
 
     public static float Parse(string value, IFormatProvider? provider) => Parse(value);
 
@@ -707,23 +817,32 @@ public partial struct Single
 
     public bool TryFormat(Span<byte> destination, out int bytesWritten, ReadOnlySpan<char> format = default(System.ReadOnlySpan<char>), IFormatProvider? provider = null)
     {
-        return PrimitiveGenericMathSmall.TryCopyUtf8(ToString(PrimitiveScalarContracts.Format(format), provider), destination, out bytesWritten);
+        return Number.TryFormatFloat(this, format, provider, destination, out bytesWritten);
     }
 
     private const Globalization.NumberStyles SingleParseStyle = Globalization.NumberStyles.AllowDecimalPoint | Globalization.NumberStyles.AllowExponent | Globalization.NumberStyles.AllowLeadingSign | Globalization.NumberStyles.AllowLeadingWhite | Globalization.NumberStyles.AllowThousands | Globalization.NumberStyles.AllowTrailingWhite;
 
     public static float Parse(string value, Globalization.NumberStyles style) => Parse(value.AsSpan(), style, null);
 
-    public static float Parse(ReadOnlySpan<byte> value, System.Globalization.NumberStyles style = System.Globalization.NumberStyles.AllowDecimalPoint | System.Globalization.NumberStyles.AllowExponent | System.Globalization.NumberStyles.AllowLeadingSign | System.Globalization.NumberStyles.AllowLeadingWhite | System.Globalization.NumberStyles.AllowThousands | System.Globalization.NumberStyles.AllowTrailingWhite, IFormatProvider? provider = null) => Number.ParseFloat<byte, float>(value, style, provider);
+    public static float Parse(ReadOnlySpan<byte> value, System.Globalization.NumberStyles style = System.Globalization.NumberStyles.AllowDecimalPoint | System.Globalization.NumberStyles.AllowExponent | System.Globalization.NumberStyles.AllowLeadingSign | System.Globalization.NumberStyles.AllowLeadingWhite | System.Globalization.NumberStyles.AllowThousands | System.Globalization.NumberStyles.AllowTrailingWhite, IFormatProvider? provider = null)
+    {
+        Globalization.NumberFormatInfo.ValidateParseStyleFloatingPoint(style);
+        return Number.ParseFloat<byte, float>(value, style, Globalization.NumberFormatInfo.GetInstance(provider));
+    }
     public static bool TryParse(ReadOnlySpan<char> value, out float result) => TryParse(value, SingleParseStyle, null, out result);
     public static bool TryParse(ReadOnlySpan<byte> value, out float result) => TryParse(value, SingleParseStyle, null, out result);
-    public static bool TryParse(ReadOnlySpan<byte> value, Globalization.NumberStyles style, IFormatProvider? provider, out float result) => TryParseFloat(value, style, provider, out result, out _);
-    public static bool TryParsePartial(string? value, Globalization.NumberStyles style, IFormatProvider? provider, out float result, out int charsConsumed) => TryParseFloat(value.AsSpan(), style, provider, out result, out charsConsumed);
-    public static bool TryParsePartial(ReadOnlySpan<char> value, Globalization.NumberStyles style, IFormatProvider? provider, out float result, out int charsConsumed) => TryParseFloat(value, style, provider, out result, out charsConsumed);
-    public static bool TryParsePartial(ReadOnlySpan<byte> value, Globalization.NumberStyles style, IFormatProvider? provider, out float result, out int bytesConsumed) => TryParseFloat(value, style, provider, out result, out bytesConsumed);
+    public static bool TryParse(ReadOnlySpan<byte> value, Globalization.NumberStyles style, IFormatProvider? provider, out float result) => TryParseFloat(value, style, provider, false, out result, out _);
+    public static bool TryParsePartial(string? value, Globalization.NumberStyles style, IFormatProvider? provider, out float result, out int charsConsumed) => TryParseFloat(value.AsSpan(), style, provider, true, out result, out charsConsumed);
+    public static bool TryParsePartial(ReadOnlySpan<char> value, Globalization.NumberStyles style, IFormatProvider? provider, out float result, out int charsConsumed) => TryParseFloat(value, style, provider, true, out result, out charsConsumed);
+    public static bool TryParsePartial(ReadOnlySpan<byte> value, Globalization.NumberStyles style, IFormatProvider? provider, out float result, out int bytesConsumed) => TryParseFloat(value, style, provider, true, out result, out bytesConsumed);
 
-    private static bool TryParseFloat<TChar>(ReadOnlySpan<TChar> value, Globalization.NumberStyles style, IFormatProvider? provider, out float result, out int consumed)
-        where TChar : unmanaged => Number.TryParseFloat(value, style, provider, out result, out consumed);
+    private static bool TryParseFloat<TChar>(ReadOnlySpan<TChar> value, Globalization.NumberStyles style, IFormatProvider? provider, bool allowTrailingInvalid, out float result, out int consumed)
+        where TChar : unmanaged
+    {
+        Globalization.NumberFormatInfo.ValidateParseStyleFloatingPoint(style);
+        if (allowTrailingInvalid) style |= Number.AllowTrailingInvalidCharacters;
+        return Number.TryParseFloat(value, style, Globalization.NumberFormatInfo.GetInstance(provider), out result, out consumed);
+    }
 
     public static TInteger ConvertToInteger<TInteger>(float value) where TInteger : Numerics.IBinaryInteger<TInteger> => TInteger.CreateSaturating(value);
     public static TInteger ConvertToIntegerNative<TInteger>(float value) where TInteger : Numerics.IBinaryInteger<TInteger> => TInteger.CreateSaturating(value);
@@ -842,7 +961,7 @@ public partial struct Double
         out int charsWritten,
         ReadOnlySpan<char> format = default(System.ReadOnlySpan<char>),
         IFormatProvider? provider = null) =>
-        PrimitiveScalarContracts.TryFormat(ToString(PrimitiveScalarContracts.Format(format), provider), destination, out charsWritten);
+        Number.TryFormatFloat(this, format, provider, destination, out charsWritten);
 
     public static double Parse(string value, IFormatProvider? provider) => Parse(value);
 
@@ -893,22 +1012,31 @@ public partial struct Double
     public TypeCode GetTypeCode() => TypeCode.Double;
 
     public bool TryFormat(Span<byte> destination, out int bytesWritten, ReadOnlySpan<char> format = default(System.ReadOnlySpan<char>), IFormatProvider? provider = null) =>
-        PrimitiveGenericMathSmall.TryCopyUtf8(ToString(PrimitiveScalarContracts.Format(format), provider), destination, out bytesWritten);
+        Number.TryFormatFloat(this, format, provider, destination, out bytesWritten);
 
     private const Globalization.NumberStyles DoubleParseStyle = Globalization.NumberStyles.AllowDecimalPoint | Globalization.NumberStyles.AllowExponent | Globalization.NumberStyles.AllowLeadingSign | Globalization.NumberStyles.AllowLeadingWhite | Globalization.NumberStyles.AllowThousands | Globalization.NumberStyles.AllowTrailingWhite;
 
     public static double Parse(string value, Globalization.NumberStyles style) => Parse(value.AsSpan(), style, null);
 
-    public static double Parse(ReadOnlySpan<byte> value, System.Globalization.NumberStyles style = System.Globalization.NumberStyles.AllowDecimalPoint | System.Globalization.NumberStyles.AllowExponent | System.Globalization.NumberStyles.AllowLeadingSign | System.Globalization.NumberStyles.AllowLeadingWhite | System.Globalization.NumberStyles.AllowThousands | System.Globalization.NumberStyles.AllowTrailingWhite, IFormatProvider? provider = null) => Number.ParseFloat<byte, double>(value, style, provider);
+    public static double Parse(ReadOnlySpan<byte> value, System.Globalization.NumberStyles style = System.Globalization.NumberStyles.AllowDecimalPoint | System.Globalization.NumberStyles.AllowExponent | System.Globalization.NumberStyles.AllowLeadingSign | System.Globalization.NumberStyles.AllowLeadingWhite | System.Globalization.NumberStyles.AllowThousands | System.Globalization.NumberStyles.AllowTrailingWhite, IFormatProvider? provider = null)
+    {
+        Globalization.NumberFormatInfo.ValidateParseStyleFloatingPoint(style);
+        return Number.ParseFloat<byte, double>(value, style, Globalization.NumberFormatInfo.GetInstance(provider));
+    }
     public static bool TryParse(ReadOnlySpan<char> value, out double result) => TryParse(value, DoubleParseStyle, null, out result);
     public static bool TryParse(ReadOnlySpan<byte> value, out double result) => TryParse(value, DoubleParseStyle, null, out result);
-    public static bool TryParse(ReadOnlySpan<byte> value, Globalization.NumberStyles style, IFormatProvider? provider, out double result) => TryParseDouble(value, style, provider, out result, out _);
-    public static bool TryParsePartial(string? value, Globalization.NumberStyles style, IFormatProvider? provider, out double result, out int charsConsumed) => TryParseDouble(value.AsSpan(), style, provider, out result, out charsConsumed);
-    public static bool TryParsePartial(ReadOnlySpan<char> value, Globalization.NumberStyles style, IFormatProvider? provider, out double result, out int charsConsumed) => TryParseDouble(value, style, provider, out result, out charsConsumed);
-    public static bool TryParsePartial(ReadOnlySpan<byte> value, Globalization.NumberStyles style, IFormatProvider? provider, out double result, out int bytesConsumed) => TryParseDouble(value, style, provider, out result, out bytesConsumed);
+    public static bool TryParse(ReadOnlySpan<byte> value, Globalization.NumberStyles style, IFormatProvider? provider, out double result) => TryParseDouble(value, style, provider, false, out result, out _);
+    public static bool TryParsePartial(string? value, Globalization.NumberStyles style, IFormatProvider? provider, out double result, out int charsConsumed) => TryParseDouble(value.AsSpan(), style, provider, true, out result, out charsConsumed);
+    public static bool TryParsePartial(ReadOnlySpan<char> value, Globalization.NumberStyles style, IFormatProvider? provider, out double result, out int charsConsumed) => TryParseDouble(value, style, provider, true, out result, out charsConsumed);
+    public static bool TryParsePartial(ReadOnlySpan<byte> value, Globalization.NumberStyles style, IFormatProvider? provider, out double result, out int bytesConsumed) => TryParseDouble(value, style, provider, true, out result, out bytesConsumed);
 
-    private static bool TryParseDouble<TChar>(ReadOnlySpan<TChar> value, Globalization.NumberStyles style, IFormatProvider? provider, out double result, out int consumed)
-        where TChar : unmanaged => Number.TryParseFloat(value, style, provider, out result, out consumed);
+    private static bool TryParseDouble<TChar>(ReadOnlySpan<TChar> value, Globalization.NumberStyles style, IFormatProvider? provider, bool allowTrailingInvalid, out double result, out int consumed)
+        where TChar : unmanaged
+    {
+        Globalization.NumberFormatInfo.ValidateParseStyleFloatingPoint(style);
+        if (allowTrailingInvalid) style |= Number.AllowTrailingInvalidCharacters;
+        return Number.TryParseFloat(value, style, Globalization.NumberFormatInfo.GetInstance(provider), out result, out consumed);
+    }
 
     public static TInteger ConvertToInteger<TInteger>(double value) where TInteger : Numerics.IBinaryInteger<TInteger> => TInteger.CreateSaturating(value);
     public static TInteger ConvertToIntegerNative<TInteger>(double value) where TInteger : Numerics.IBinaryInteger<TInteger> => TInteger.CreateSaturating(value);
@@ -1169,42 +1297,27 @@ public readonly partial struct IntPtr
     public static nint Log2(nint value)
     {
         if (value < 0) throw new ArgumentOutOfRangeException();
-        var bits = (nuint)value;
-        var result = 0;
-        while (bits > 1) { bits >>= 1; result++; }
-        return (nint)result;
+        return Numerics.BitOperations.Log2((nuint)value);
     }
     public static bool IsPow2(nint value) => value > 0 && (value & (value - 1)) == 0;
     public static nint LeadingZeroCount(nint value)
     {
-        var bits = (nuint)value;
-        var result = 0;
-        for (var bit = Size * 8 - 1; bit >= 0 && (bits & ((nuint)1 << bit)) == 0; bit--) result++;
-        return (nint)result;
+        return Numerics.BitOperations.LeadingZeroCount((nuint)value);
     }
     public static nint PopCount(nint value)
     {
-        var bits = (nuint)value;
-        var result = 0;
-        while (bits != 0) { bits &= bits - 1; result++; }
-        return (nint)result;
+        return Numerics.BitOperations.PopCount((nuint)value);
     }
     public static nint TrailingZeroCount(nint value)
     {
-        if (value == 0) return (nint)(Size * 8);
-        var bits = (nuint)value;
-        var result = 0;
-        while ((bits & 1) == 0) { bits >>= 1; result++; }
-        return (nint)result;
+        return Numerics.BitOperations.TrailingZeroCount((nuint)value);
     }
     public static nint RotateLeft(nint value, int rotateAmount)
     {
-        var bitCount = Size * 8;
-        var amount = rotateAmount & (bitCount - 1);
-        var bits = (nuint)value;
-        return (nint)((bits << amount) | (bits >> ((bitCount - amount) & (bitCount - 1))));
+        return (nint)Numerics.BitOperations.RotateLeft((nuint)value, rotateAmount);
     }
-    public static nint RotateRight(nint value, int rotateAmount) => RotateLeft(value, -rotateAmount);
+    public static nint RotateRight(nint value, int rotateAmount) =>
+        (nint)Numerics.BitOperations.RotateRight((nuint)value, rotateAmount);
     public static (nint Quotient, nint Remainder) DivRem(nint left, nint right)
     {
         var quotient = left / right;
@@ -1270,17 +1383,11 @@ public readonly partial struct IntPtr
         return true;
     }
 
-    public string ToString(string? format, IFormatProvider? provider) => ToString(format);
+    public string ToString(string? format, IFormatProvider? provider) => Size == 8 ? ((long)_value).ToString(format, provider) : ((int)_value).ToString(format, provider);
     public bool TryFormat(Span<char> destination, out int charsWritten, ReadOnlySpan<char> format = default(System.ReadOnlySpan<char>), IFormatProvider? provider = null) =>
-        PrimitiveScalarContracts.TryFormat(ToString(format.Length == 0 ? null : string.Create(format.ToArray())), destination, out charsWritten);
-    public bool TryFormat(Span<byte> destination, out int bytesWritten, ReadOnlySpan<char> format = default(System.ReadOnlySpan<char>), IFormatProvider? provider = null)
-    {
-        var text = ToString(format.Length == 0 ? null : string.Create(format.ToArray()));
-        if (destination.Length < text.Length) { bytesWritten = 0; return false; }
-        for (var index = 0; index < text.Length; index++) destination[index] = (byte)text[index];
-        bytesWritten = text.Length;
-        return true;
-    }
+        Size == 8 ? ((long)_value).TryFormat(destination, out charsWritten, format, provider) : ((int)_value).TryFormat(destination, out charsWritten, format, provider);
+    public bool TryFormat(Span<byte> destination, out int bytesWritten, ReadOnlySpan<char> format = default(System.ReadOnlySpan<char>), IFormatProvider? provider = null) =>
+        Size == 8 ? ((long)_value).TryFormat(destination, out bytesWritten, format, provider) : ((int)_value).TryFormat(destination, out bytesWritten, format, provider);
     public static nint Parse(string value, Globalization.NumberStyles style, IFormatProvider? provider) => Parse(value, style);
     public static bool TryParse(string? value, Globalization.NumberStyles style, IFormatProvider? provider, out nint result) => TryParse(value, out result);
     public static nint Parse(string value, IFormatProvider? provider) => Parse(value);
@@ -1405,39 +1512,18 @@ public readonly partial struct UIntPtr
     public static nuint MinMagnitude(nuint left, nuint right) => Min(left, right);
     public static nuint MinMagnitudeNumber(nuint left, nuint right) => Min(left, right);
 
-    public static nuint Log2(nuint value)
-    {
-        var result = 0;
-        while (value > 1) { value >>= 1; result++; }
-        return (nuint)result;
-    }
+    public static nuint Log2(nuint value) => (nuint)Numerics.BitOperations.Log2(value);
     public static bool IsPow2(nuint value) => value != 0 && (value & (value - 1)) == 0;
-    public static nuint LeadingZeroCount(nuint value)
-    {
-        var result = 0;
-        for (var bit = Size * 8 - 1; bit >= 0 && (value & ((nuint)1 << bit)) == 0; bit--) result++;
-        return (nuint)result;
-    }
-    public static nuint PopCount(nuint value)
-    {
-        var result = 0;
-        while (value != 0) { value &= value - 1; result++; }
-        return (nuint)result;
-    }
-    public static nuint TrailingZeroCount(nuint value)
-    {
-        if (value == 0) return (nuint)(Size * 8);
-        var result = 0;
-        while ((value & 1) == 0) { value >>= 1; result++; }
-        return (nuint)result;
-    }
-    public static nuint RotateLeft(nuint value, int rotateAmount)
-    {
-        var bitCount = Size * 8;
-        var amount = rotateAmount & (bitCount - 1);
-        return (value << amount) | (value >> ((bitCount - amount) & (bitCount - 1)));
-    }
-    public static nuint RotateRight(nuint value, int rotateAmount) => RotateLeft(value, -rotateAmount);
+    public static nuint LeadingZeroCount(nuint value) =>
+        (nuint)Numerics.BitOperations.LeadingZeroCount(value);
+    public static nuint PopCount(nuint value) =>
+        (nuint)Numerics.BitOperations.PopCount(value);
+    public static nuint TrailingZeroCount(nuint value) =>
+        (nuint)Numerics.BitOperations.TrailingZeroCount(value);
+    public static nuint RotateLeft(nuint value, int rotateAmount) =>
+        Numerics.BitOperations.RotateLeft(value, rotateAmount);
+    public static nuint RotateRight(nuint value, int rotateAmount) =>
+        Numerics.BitOperations.RotateRight(value, rotateAmount);
     public static (nuint Quotient, nuint Remainder) DivRem(nuint left, nuint right)
     {
         var quotient = left / right;
@@ -1495,17 +1581,11 @@ public readonly partial struct UIntPtr
         return true;
     }
 
-    public string ToString(string? format, IFormatProvider? provider) => ToString(format);
+    public string ToString(string? format, IFormatProvider? provider) => Size == 8 ? ((ulong)_value).ToString(format, provider) : ((uint)_value).ToString(format, provider);
     public bool TryFormat(Span<char> destination, out int charsWritten, ReadOnlySpan<char> format = default(System.ReadOnlySpan<char>), IFormatProvider? provider = null) =>
-        PrimitiveScalarContracts.TryFormat(ToString(format.Length == 0 ? null : string.Create(format.ToArray())), destination, out charsWritten);
-    public bool TryFormat(Span<byte> destination, out int bytesWritten, ReadOnlySpan<char> format = default(System.ReadOnlySpan<char>), IFormatProvider? provider = null)
-    {
-        var text = ToString(format.Length == 0 ? null : string.Create(format.ToArray()));
-        if (destination.Length < text.Length) { bytesWritten = 0; return false; }
-        for (var index = 0; index < text.Length; index++) destination[index] = (byte)text[index];
-        bytesWritten = text.Length;
-        return true;
-    }
+        Size == 8 ? ((ulong)_value).TryFormat(destination, out charsWritten, format, provider) : ((uint)_value).TryFormat(destination, out charsWritten, format, provider);
+    public bool TryFormat(Span<byte> destination, out int bytesWritten, ReadOnlySpan<char> format = default(System.ReadOnlySpan<char>), IFormatProvider? provider = null) =>
+        Size == 8 ? ((ulong)_value).TryFormat(destination, out bytesWritten, format, provider) : ((uint)_value).TryFormat(destination, out bytesWritten, format, provider);
     public static nuint Parse(string value, Globalization.NumberStyles style, IFormatProvider? provider) => Parse(value, style);
     public static bool TryParse(string? value, Globalization.NumberStyles style, IFormatProvider? provider, out nuint result) => TryParse(value, out result);
     public static nuint Parse(string value, IFormatProvider? provider) => Parse(value);
@@ -1600,18 +1680,12 @@ public readonly partial struct UIntPtr
 public partial struct Byte
 {
     public TypeCode GetTypeCode() => TypeCode.Byte;
-    public static byte CreateChecked<TOther>(TOther value) where TOther : Numerics.INumberBase<TOther> =>
-        (byte)PrimitiveIntegralConversions.CreateUnsigned(value, 8, PrimitiveIntegralConversionKind.Checked);
-    public static byte CreateSaturating<TOther>(TOther value) where TOther : Numerics.INumberBase<TOther> =>
-        (byte)PrimitiveIntegralConversions.CreateUnsigned(value, 8, PrimitiveIntegralConversionKind.Saturating);
-    public static byte CreateTruncating<TOther>(TOther value) where TOther : Numerics.INumberBase<TOther> =>
-        (byte)PrimitiveIntegralConversions.CreateUnsigned(value, 8, PrimitiveIntegralConversionKind.Truncating);
     public static byte Log10(byte value) => (byte)PrimitiveIntegralConversions.Log10(value);
     public static bool TryParse(ReadOnlySpan<char> value, out byte result) => TryParse(value, null, out result);
     public static bool TryParse(ReadOnlySpan<byte> value, out byte result) => TryParse(value, null, out result);
     public static bool TryParsePartial(string? value, Globalization.NumberStyles style, IFormatProvider? provider, out byte result, out int consumed)
     {
-        return PrimitiveIntegralConversions.TryParsePartial(value, (string text, out byte parsed) => TryParse(text, style, provider, out parsed), out result, out consumed);
+        return PrimitiveIntegralConversions.TryParsePartial(value, style, (string text, out byte parsed) => TryParse(text, style, provider, out parsed), out result, out consumed);
     }
     public static bool TryParsePartial(ReadOnlySpan<char> value, Globalization.NumberStyles style, IFormatProvider? provider, out byte result, out int consumed) =>
         TryParsePartial(value.ToString(), style, provider, out result, out consumed);
@@ -1638,18 +1712,12 @@ public partial struct Byte
 public partial struct SByte
 {
     public TypeCode GetTypeCode() => TypeCode.SByte;
-    public static sbyte CreateChecked<TOther>(TOther value) where TOther : Numerics.INumberBase<TOther> =>
-        unchecked((sbyte)PrimitiveIntegralConversions.CreateSigned(value, 8, PrimitiveIntegralConversionKind.Checked));
-    public static sbyte CreateSaturating<TOther>(TOther value) where TOther : Numerics.INumberBase<TOther> =>
-        unchecked((sbyte)PrimitiveIntegralConversions.CreateSigned(value, 8, PrimitiveIntegralConversionKind.Saturating));
-    public static sbyte CreateTruncating<TOther>(TOther value) where TOther : Numerics.INumberBase<TOther> =>
-        unchecked((sbyte)PrimitiveIntegralConversions.CreateSigned(value, 8, PrimitiveIntegralConversionKind.Truncating));
     public static sbyte Log10(sbyte value) => (sbyte)PrimitiveIntegralConversions.Log10Signed(value);
     public static bool TryParse(ReadOnlySpan<char> value, out sbyte result) => TryParse(value, null, out result);
     public static bool TryParse(ReadOnlySpan<byte> value, out sbyte result) => TryParse(value, null, out result);
     public static bool TryParsePartial(string? value, Globalization.NumberStyles style, IFormatProvider? provider, out sbyte result, out int consumed)
     {
-        return PrimitiveIntegralConversions.TryParsePartial(value, (string text, out sbyte parsed) => TryParse(text, style, provider, out parsed), out result, out consumed);
+        return PrimitiveIntegralConversions.TryParsePartial(value, style, (string text, out sbyte parsed) => TryParse(text, style, provider, out parsed), out result, out consumed);
     }
     public static bool TryParsePartial(ReadOnlySpan<char> value, Globalization.NumberStyles style, IFormatProvider? provider, out sbyte result, out int consumed) =>
         TryParsePartial(value.ToString(), style, provider, out result, out consumed);
@@ -1677,7 +1745,7 @@ public partial struct Int16
 {
     public TypeCode GetTypeCode() => TypeCode.Int16;
     public bool TryFormat(Span<byte> destination, out int bytesWritten, ReadOnlySpan<char> format = default(System.ReadOnlySpan<char>), IFormatProvider? provider = null) =>
-        PrimitiveGenericMathSmall.TryCopyUtf8(ToString(PrimitiveScalarContracts.Format(format), provider), destination, out bytesWritten);
+        Number.TryFormatInt32(this, 0x0000FFFF, format, provider, destination, out bytesWritten);
     public static short CreateChecked<TOther>(TOther value) where TOther : Numerics.INumberBase<TOther> =>
         (short)PrimitiveIntegralConversions.CreateSigned(value, 16, PrimitiveIntegralConversionKind.Checked);
     public static short CreateSaturating<TOther>(TOther value) where TOther : Numerics.INumberBase<TOther> =>
@@ -1689,7 +1757,7 @@ public partial struct Int16
     public static bool TryParse(ReadOnlySpan<byte> value, out short result) => TryParse(value, null, out result);
     public static bool TryParsePartial(string? value, Globalization.NumberStyles style, IFormatProvider? provider, out short result, out int consumed)
     {
-        return PrimitiveIntegralConversions.TryParsePartial(value, (string text, out short parsed) => TryParse(text, style, provider, out parsed), out result, out consumed);
+        return PrimitiveIntegralConversions.TryParsePartial(value, style, (string text, out short parsed) => TryParse(text, style, provider, out parsed), out result, out consumed);
     }
     public static bool TryParsePartial(ReadOnlySpan<char> value, Globalization.NumberStyles style, IFormatProvider? provider, out short result, out int consumed) => TryParsePartial(value.ToString(), style, provider, out result, out consumed);
     public static bool TryParsePartial(ReadOnlySpan<byte> value, Globalization.NumberStyles style, IFormatProvider? provider, out short result, out int consumed) => TryParsePartial(PrimitiveScalarContracts.Utf8ToString(value), style, provider, out result, out consumed);
@@ -1715,7 +1783,7 @@ public partial struct UInt16
 {
     public TypeCode GetTypeCode() => TypeCode.UInt16;
     public bool TryFormat(Span<byte> destination, out int bytesWritten, ReadOnlySpan<char> format = default(System.ReadOnlySpan<char>), IFormatProvider? provider = null) =>
-        PrimitiveGenericMathSmall.TryCopyUtf8(ToString(PrimitiveScalarContracts.Format(format), provider), destination, out bytesWritten);
+        Number.TryFormatUInt32(this, format, provider, destination, out bytesWritten);
     public static ushort CreateChecked<TOther>(TOther value) where TOther : Numerics.INumberBase<TOther> =>
         (ushort)PrimitiveIntegralConversions.CreateUnsigned(value, 16, PrimitiveIntegralConversionKind.Checked);
     public static ushort CreateSaturating<TOther>(TOther value) where TOther : Numerics.INumberBase<TOther> =>
@@ -1727,7 +1795,7 @@ public partial struct UInt16
     public static bool TryParse(ReadOnlySpan<byte> value, out ushort result) => TryParse(value, null, out result);
     public static bool TryParsePartial(string? value, Globalization.NumberStyles style, IFormatProvider? provider, out ushort result, out int consumed)
     {
-        return PrimitiveIntegralConversions.TryParsePartial(value, (string text, out ushort parsed) => TryParse(text, style, provider, out parsed), out result, out consumed);
+        return PrimitiveIntegralConversions.TryParsePartial(value, style, (string text, out ushort parsed) => TryParse(text, style, provider, out parsed), out result, out consumed);
     }
     public static bool TryParsePartial(ReadOnlySpan<char> value, Globalization.NumberStyles style, IFormatProvider? provider, out ushort result, out int consumed) => TryParsePartial(value.ToString(), style, provider, out result, out consumed);
     public static bool TryParsePartial(ReadOnlySpan<byte> value, Globalization.NumberStyles style, IFormatProvider? provider, out ushort result, out int consumed) => TryParsePartial(PrimitiveScalarContracts.Utf8ToString(value), style, provider, out result, out consumed);

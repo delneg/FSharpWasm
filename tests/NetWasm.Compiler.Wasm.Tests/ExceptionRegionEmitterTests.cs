@@ -13,6 +13,38 @@ using static EmitterTestSupport;
 public sealed class ExceptionRegionEmitterTests
 {
     [Theory]
+    [InlineData(true, WasmTarget.Wasm32)]
+    [InlineData(false, WasmTarget.Wasm32)]
+    [InlineData(true, WasmTarget.Wasm64)]
+    [InlineData(false, WasmTarget.Wasm64)]
+    public void SharedExceptionOccurrencesExecuteWithoutReclaimingDefinitionOwnership(bool ownsParent, WasmTarget target)
+    {
+        var program = new FakeProgram();
+        var imports = WasmRuntimeImports.CreateCatalog();
+        var layouts = new RecordingLayoutProvider(WasmTargetLayout.For(target));
+        var method = Structure(program, program.GetMethod(EntryKey),
+            I(0, CilOperation.LoadInt32, new CilOperand.ConstantI4(0)), I(1, CilOperation.Return));
+        var body = StructuredSequence.Empty;
+        var group = Group(0, 1, [new StructuredExceptionCode(body)],
+            [Clause(CilExceptionRegionKind.Catch, TypeKey, body)], [Continuation(42, body)]);
+        var context = CreateContext(group) with { RecordOriginalBlockOwnership = ownsParent };
+        var visits = new List<bool>();
+        var emitter = CreateEmitter(program, layouts, imports);
+        for (var occurrence = 0; occurrence < 2; occurrence++)
+        {
+            emitter.Emit(new RecordingInstructionWriter(), WithGroups(method, group),
+                new StructuredExceptionRegion(group.Id, null), context, false, CreateModuleData(group),
+                (sequence, current, _, _, _) =>
+                {
+                    Assert.Same(body, sequence);
+                    visits.Add(current.RecordOriginalBlockOwnership);
+                });
+        }
+        Assert.Equal([ownsParent, ownsParent, ownsParent, false, false, false], visits);
+        Assert.Equal([group.Id], context.EmittedExceptionGroups);
+    }
+
+    [Theory]
     [InlineData(CilExceptionRegionKind.Finally, WasmTarget.Wasm32)]
     [InlineData(CilExceptionRegionKind.Finally, WasmTarget.Wasm64)]
     [InlineData(CilExceptionRegionKind.Catch, WasmTarget.Wasm32)]

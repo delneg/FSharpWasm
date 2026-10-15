@@ -7,6 +7,8 @@ using System.Security.Cryptography;
 using Microsoft.Extensions.DependencyInjection;
 using NetWasm.Compiler.Analysis;
 using NetWasm.Compiler.Caching.Frontend;
+using NetWasm.Compiler.ComponentModel;
+using NetWasm.Compiler.ComponentModel.Optimization;
 using NetWasm.Compiler.ControlFlow;
 using NetWasm.Compiler.ControlFlow.Structured;
 using NetWasm.Compiler.Core;
@@ -19,6 +21,37 @@ namespace NetWasm.Compiler.Tests.Caching.Frontend;
 
 public sealed class FrontendArtifactCacheActorTests
 {
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(2)]
+    [InlineData(3)]
+    public void BodyAffectingOverridesGetIndependentCacheNamespaces(int feature)
+    {
+        var builder = new FrontendArtifactCacheIdentityBuilder(
+            new EntryAssemblyBindingFingerprinter(), new ManagedAssemblyImageReader(),
+            new CompilationInputHasher(), new FrontendArtifactCompilerIdentity(),
+            new WasmOptimizationSettingsResolver());
+        var options = new CompilerOptions(typeof(NetWasmCompiler).Assembly.Location,
+            [typeof(AssemblyIdentity).Assembly.Location], "Program", "Main", [],
+            Optimization: FinalWasmOptimization.O3);
+        var disabled = feature switch
+        {
+            0 => new WasmOptimizationOverrides(ArrayBoundsCheckElimination: ManagedArrayBoundsCheckElimination.Disabled),
+            1 => new WasmOptimizationOverrides(LoopUnrolling: ManagedLoopUnrolling.Disabled),
+            2 => new WasmOptimizationOverrides(ConstantArgumentPropagation: ManagedConstantArgumentPropagation.Disabled),
+            _ => new WasmOptimizationOverrides(StaticArrayPopulationElimination: ManagedStaticArrayPopulationElimination.Disabled),
+        };
+
+        var enabledContext = builder.Build(options);
+        var disabledContext = builder.Build(options with { OptimizationOverrides = disabled });
+        Assert.NotNull(enabledContext);
+        Assert.NotNull(disabledContext);
+        Assert.NotEqual(enabledContext.Namespace, disabledContext.Namespace);
+        Assert.Equal(enabledContext.Namespace, builder.Build(options)!.Namespace);
+        Assert.Equal(disabledContext.Namespace, builder.Build(options with { OptimizationOverrides = disabled })!.Namespace);
+    }
+
     [Fact]
     public void TransportCompositionResolvesOneActionActorsAndFacade()
     {
@@ -301,6 +334,26 @@ public sealed class FrontendArtifactCacheActorTests
     }
 
     [Fact]
+    public void RewrittenBodyBypassesBaselineCacheRestoreAndRecording()
+    {
+        var artifact = FrontendArtifactSnapshotTests.CreateArtifact();
+        var inner = new RecordingAnalyzer(artifact.Analysis);
+        var recorder = new RecordingRecorder();
+        var restorer = new FixedRestorer(artifact);
+        var analyzer = new CachingReachableMethodAnalyzer(inner, restorer, recorder);
+        var request = new ReachableMethodRequest(artifact.Analysis.Method)
+        {
+            RewrittenBody = artifact.Analysis.Body.Body,
+        };
+
+        Assert.Same(artifact.Analysis, analyzer.Analyze(request));
+        Assert.Same(request, inner.Request);
+        Assert.Equal(1, inner.CallCount);
+        Assert.Equal(0, restorer.CallCount);
+        Assert.Null(recorder.Analysis);
+    }
+
+    [Fact]
     public void LowererReturnsHitWithoutCallingInnerOrStager()
     {
         var artifact = FrontendArtifactSnapshotTests.CreateArtifact();
@@ -309,8 +362,11 @@ public sealed class FrontendArtifactCacheActorTests
         var lowerer = new CachingWasmMethodLowerer(inner,
             new FixedStructuredRestorer(artifact.StructuredMethod), stager);
 
-        Assert.Same(artifact.StructuredMethod, lowerer.Lower(artifact.Analysis.Body));
+        Assert.Same(artifact.StructuredMethod, lowerer.Lower(
+            artifact.Analysis.Body,
+            BranchPrefixDuplicationPolicy.Speed));
         Assert.Equal(0, inner.CallCount);
+        Assert.Null(inner.BranchPrefixDuplication);
         Assert.Null(stager.Structured);
     }
 
@@ -323,8 +379,13 @@ public sealed class FrontendArtifactCacheActorTests
         var lowerer = new CachingWasmMethodLowerer(inner,
             new FixedStructuredRestorer(null), stager);
 
-        Assert.Same(artifact.StructuredMethod, lowerer.Lower(artifact.Analysis.Body));
+        Assert.Same(artifact.StructuredMethod, lowerer.Lower(
+            artifact.Analysis.Body,
+            BranchPrefixDuplicationPolicy.Speed));
         Assert.Equal(1, inner.CallCount);
+        Assert.Equal(
+            BranchPrefixDuplicationPolicy.Speed,
+            inner.BranchPrefixDuplication);
         Assert.Same(artifact.StructuredMethod, stager.Structured);
         Assert.Throws<ArgumentNullException>(() => lowerer.Lower(null!));
         Assert.Throws<ArgumentNullException>(() => new CachingWasmMethodLowerer(
@@ -656,7 +717,8 @@ public sealed class FrontendArtifactCacheActorTests
             new EntryAssemblyBindingFingerprinter(),
             new ManagedAssemblyImageReader(),
             new CompilationInputHasher(),
-            new FrontendArtifactCompilerIdentity());
+            new FrontendArtifactCompilerIdentity(),
+            new WasmOptimizationSettingsResolver());
         var intermediate = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
         var wit = Path.GetTempFileName();
         File.WriteAllText(wit, "fixture");
@@ -690,6 +752,56 @@ public sealed class FrontendArtifactCacheActorTests
         });
         Assert.NotNull(memoryOnly);
         Assert.Null(memoryOnly.Directory);
+        var o3 = builder.Build(options with
+        {
+            IntermediateOutputPath = null,
+            ReferenceAssemblyAliases = null,
+            WitPath = null,
+            Optimization = FinalWasmOptimization.O3,
+        });
+        var o2 = builder.Build(options with
+        {
+            IntermediateOutputPath = null,
+            ReferenceAssemblyAliases = null,
+            WitPath = null,
+            Optimization = FinalWasmOptimization.O2,
+        });
+        var o3Disabled = builder.Build(options with
+        {
+            IntermediateOutputPath = null,
+            ReferenceAssemblyAliases = null,
+            WitPath = null,
+            Optimization = FinalWasmOptimization.O3,
+            OptimizationOverrides = new(
+                LoopInvariantFieldHoisting:
+                    ManagedLoopInvariantFieldHoisting.Disabled,
+                StaticDataViewElimination:
+                    ManagedStaticDataViewElimination.Disabled,
+                AddressTakenValuePromotion:
+                    ManagedAddressTakenValuePromotion.Disabled,
+                ManagedMethodInlining:
+                    ManagedMethodInlining.Disabled,
+                ArrayBoundsCheckElimination: ManagedArrayBoundsCheckElimination.Disabled,
+                LoopUnrolling: ManagedLoopUnrolling.Disabled,
+                BranchPrefixDuplication:
+                    ManagedBranchPrefixDuplication.Disabled),
+        });
+        Assert.NotNull(o3);
+        Assert.NotNull(o2);
+        Assert.NotNull(o3Disabled);
+        Assert.NotEqual(o3.Namespace, o2.Namespace);
+        Assert.NotEqual(memoryOnly.Namespace, o3.Namespace);
+        var ozDisabled = builder.Build(options with
+        {
+            IntermediateOutputPath = null,
+            ReferenceAssemblyAliases = null,
+            WitPath = null,
+            OptimizationOverrides = new(
+                BranchPrefixDuplication: ManagedBranchPrefixDuplication.Disabled),
+        });
+        Assert.NotNull(ozDisabled);
+        Assert.NotEqual(memoryOnly.Namespace, ozDisabled.Namespace);
+        Assert.Equal(ozDisabled.Namespace, o3Disabled.Namespace);
         var wasm64 = builder.Build(options with
         {
             IntermediateOutputPath = null,
@@ -701,16 +813,19 @@ public sealed class FrontendArtifactCacheActorTests
         Assert.Throws<ArgumentNullException>(() => builder.Build(null!));
         Assert.Throws<ArgumentNullException>(() => new FrontendArtifactCacheIdentityBuilder(
             null!, new ManagedAssemblyImageReader(), new CompilationInputHasher(),
-            new FrontendArtifactCompilerIdentity()));
+            new FrontendArtifactCompilerIdentity(), new WasmOptimizationSettingsResolver()));
         Assert.Throws<ArgumentNullException>(() => new FrontendArtifactCacheIdentityBuilder(
             new EntryAssemblyBindingFingerprinter(), null!, new CompilationInputHasher(),
-            new FrontendArtifactCompilerIdentity()));
+            new FrontendArtifactCompilerIdentity(), new WasmOptimizationSettingsResolver()));
         Assert.Throws<ArgumentNullException>(() => new FrontendArtifactCacheIdentityBuilder(
             new EntryAssemblyBindingFingerprinter(), new ManagedAssemblyImageReader(), null!,
-            new FrontendArtifactCompilerIdentity()));
+            new FrontendArtifactCompilerIdentity(), new WasmOptimizationSettingsResolver()));
         Assert.Throws<ArgumentNullException>(() => new FrontendArtifactCacheIdentityBuilder(
             new EntryAssemblyBindingFingerprinter(), new ManagedAssemblyImageReader(),
-            new CompilationInputHasher(), null!));
+            new CompilationInputHasher(), null!, new WasmOptimizationSettingsResolver()));
+        Assert.Throws<ArgumentNullException>(() => new FrontendArtifactCacheIdentityBuilder(
+            new EntryAssemblyBindingFingerprinter(), new ManagedAssemblyImageReader(),
+            new CompilationInputHasher(), new FrontendArtifactCompilerIdentity(), null!));
         File.Delete(wit);
     }
 
@@ -729,7 +844,8 @@ public sealed class FrontendArtifactCacheActorTests
                 new EntryAssemblyBindingFingerprinter(),
                 new ManagedAssemblyImageReader(),
                 new CompilationInputHasher(),
-                new FixedCompilerIdentity(identity)).Build(options);
+                new FixedCompilerIdentity(identity),
+                new WasmOptimizationSettingsResolver()).Build(options);
 
         var first = Build("compiler-components-a");
         var repeat = Build("compiler-components-a");
@@ -1481,7 +1597,8 @@ public sealed class FrontendArtifactCacheActorTests
             new FixedAnalyzerFactory(inner), new FixedRestorer(artifact),
             new RecordingRecorder());
 
-        var analyzer = factory.Create(null!, null!, null!, null!, null!, null!, null!);
+        var analyzer = factory.Create(
+            null!, null!, null!, null!, null!, null!, null!, null!);
 
         Assert.Same(artifact.Analysis,
             analyzer.Analyze(new(artifact.Analysis.Method)));
@@ -1563,8 +1680,9 @@ public sealed class FrontendArtifactCacheActorTests
     private sealed class RecordingAnalyzer(ReachableMethodAnalysis result) : IReachableMethodAnalyzer
     {
         public int CallCount { get; private set; }
+        public ReachableMethodRequest? Request { get; private set; }
         public ReachableMethodAnalysis Analyze(ReachableMethodRequest request)
-        { CallCount++; return result; }
+        { CallCount++; Request = request; return result; }
     }
 
     private sealed class FixedAnalyzerFactory(IReachableMethodAnalyzer analyzer) :
@@ -1576,14 +1694,16 @@ public sealed class FrontendArtifactCacheActorTests
             IFieldRepository fields,
             IMethodRepository methods,
             IMethodSpecializer specializer,
+            IManagedMethodOptimizer optimizer,
             IImplicitExceptionDiscovery exceptionDiscovery,
             IReachabilityInstructionAnalyzer instructionAnalyzer) => analyzer;
     }
 
     private sealed class FixedRestorer(FrontendArtifact? artifact) : IFrontendArtifactRestorer
     {
+        public int CallCount { get; private set; }
         public bool TryRestore(MethodInstanceModel method, out FrontendArtifact result)
-        { result = artifact!; return artifact is not null; }
+        { CallCount++; result = artifact!; return artifact is not null; }
     }
 
     private sealed class RecordingRecorder : IFrontendAnalysisRecorder
@@ -1595,7 +1715,17 @@ public sealed class FrontendArtifactCacheActorTests
     private sealed class RecordingLowerer(StructuredMethod result) : IWasmMethodLowerer
     {
         public int CallCount { get; private set; }
-        public StructuredMethod Lower(ManagedMethodBody method) { CallCount++; return result; }
+        public BranchPrefixDuplicationPolicy? BranchPrefixDuplication { get; private set; }
+
+        public StructuredMethod Lower(
+            ManagedMethodBody method,
+            BranchPrefixDuplicationPolicy branchPrefixDuplication =
+                BranchPrefixDuplicationPolicy.SizeAware)
+        {
+            CallCount++;
+            BranchPrefixDuplication = branchPrefixDuplication;
+            return result;
+        }
     }
 
     private sealed class FixedStructuredRestorer(StructuredMethod? structured) : IFrontendStructuredMethodRestorer

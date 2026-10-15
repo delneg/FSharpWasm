@@ -11,6 +11,24 @@ public sealed class NativeRuntimeMaterializationIntegrationTests
 {
     private static readonly JsonSerializerOptions ReceiptOptions = new() { WriteIndented = true };
 
+    [Fact]
+    public void RuntimePolicyAllowsPrunedFinalizationWithoutChangingItsSignature()
+    {
+        using var policy = JsonDocument.Parse(File.ReadAllText(Path.Combine(
+            RepositoryRoot(), "src", "NetWasm.Runtime.Pack", "runtime", "runtime-policy.json")));
+        var finalization = Assert.Single(policy.RootElement.GetProperty("staticNative")
+            .GetProperty("imports").EnumerateArray(), import =>
+                import.GetProperty("module").GetString() == "netwasm.application.v1" &&
+                import.GetProperty("name").GetString() == "netwasm.finalize");
+
+        Assert.False(finalization.GetProperty("required").GetBoolean());
+        Assert.Collection(finalization.GetProperty("parameters").EnumerateArray(),
+            value => Assert.Equal("ptr", value.GetString()),
+            value => Assert.Equal("i32", value.GetString()));
+        Assert.Collection(finalization.GetProperty("results").EnumerateArray(),
+            value => Assert.Equal("i32", value.GetString()));
+    }
+
     [Theory]
     [InlineData("wasm32", false)]
     [InlineData("wasm32", true)]
@@ -61,6 +79,7 @@ public sealed class NativeRuntimeMaterializationIntegrationTests
         File.WriteAllText(layout, JsonSerializer.Serialize(new
         {
             schemaVersion = 3, target, applicationStaticDataEnd = 65_537,
+            runtimeFeatures = Array.Empty<string>(),
             nativeImports = new[]
             {
                 new { libraryName = "mule", entryPoint = "native_mule_probe", parameters = Array.Empty<string>(), returnType = "i32" },

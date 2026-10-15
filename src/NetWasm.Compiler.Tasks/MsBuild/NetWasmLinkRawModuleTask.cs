@@ -2,6 +2,7 @@ using Microsoft.Build.Framework;
 using Microsoft.Build.Utilities;
 using NetWasm.Compiler.ComponentModel;
 using NetWasm.Compiler.ComponentModel.Node;
+using NetWasm.Compiler.ComponentModel.Optimization;
 using NetWasm.Compiler.ComponentModel.Raw;
 using NetWasm.Compiler.Core;
 using NetWasm.Compiler.Tasks.ComponentModel;
@@ -13,16 +14,20 @@ public sealed class NetWasmLinkRawModuleTask : Microsoft.Build.Utilities.Task
 {
     private readonly IRawModuleLinkSessionFactory _sessions;
     private readonly IInternalRuntimeExportReader _exports;
+    private readonly IManagedInliningHintsParser _inlineHints;
 
     public NetWasmLinkRawModuleTask()
-        : this(CompilerTaskComposition.CreateRawModuleLinkSessionFactory(), CompilerTaskComposition.CreateInternalRuntimeExportReader())
+        : this(CompilerTaskComposition.CreateRawModuleLinkSessionFactory(), CompilerTaskComposition.CreateInternalRuntimeExportReader(),
+            new ManagedInliningHintsParser())
     {
     }
 
-    internal NetWasmLinkRawModuleTask(IRawModuleLinkSessionFactory sessions, IInternalRuntimeExportReader exports)
+    internal NetWasmLinkRawModuleTask(IRawModuleLinkSessionFactory sessions, IInternalRuntimeExportReader exports,
+        IManagedInliningHintsParser inlineHints)
     {
         _sessions = sessions ?? throw new ArgumentNullException(nameof(sessions));
         _exports = exports ?? throw new ArgumentNullException(nameof(exports));
+        _inlineHints = inlineHints ?? throw new ArgumentNullException(nameof(inlineHints));
     }
 
     [Required]
@@ -57,6 +62,7 @@ public sealed class NetWasmLinkRawModuleTask : Microsoft.Build.Utilities.Task
     public string Target { get; set; } = string.Empty;
 
     public string Optimization { get; set; } = "Oz";
+    public string ManagedInliningHints { get; set; } = "Auto";
     public string InternalRuntimeExports { get; set; } = string.Empty;
     public string InternalApplicationExports { get; set; } = string.Empty;
 
@@ -76,6 +82,7 @@ public sealed class NetWasmLinkRawModuleTask : Microsoft.Build.Utilities.Task
                     "The NetWasm raw-module target must be wasm32 or wasm64."),
             };
             var optimization = ParseOptimization();
+            var optimizationOverrides = _inlineHints.Parse(ManagedInliningHints);
             var internalExports = _exports.Read(InternalRuntimeExports);
             var internalApplicationExports = _exports.Read(
                 InternalApplicationExports);
@@ -98,6 +105,7 @@ public sealed class NetWasmLinkRawModuleTask : Microsoft.Build.Utilities.Task
                 optimization)
             {
                 InternalRuntimeExports = internalExports,
+                OptimizationOverrides = optimizationOverrides,
                 InternalApplicationExports = internalApplicationExports,
             });
             Modules = [CreateModuleItem()];

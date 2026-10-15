@@ -1,6 +1,8 @@
 // Adapted from dotnet/runtime System.ComponentModel.DescriptionAttribute.
 // The upstream implementation is licensed under MIT.
 
+using System.Diagnostics.CodeAnalysis;
+
 namespace System.ComponentModel
 {
     [AttributeUsage(AttributeTargets.All)]
@@ -21,7 +23,7 @@ namespace System.ComponentModel
 
         protected string DescriptionValue { get; set; }
 
-        public override bool Equals(object? obj) =>
+        public override bool Equals([NotNullWhen(true)] object? obj) =>
             obj is DescriptionAttribute other && other.Description == Description;
 
         public override int GetHashCode() => Description?.GetHashCode() ?? 0;

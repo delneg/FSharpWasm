@@ -89,7 +89,7 @@ internal sealed class NativeCallbackThunkEmitter(
                         callback.Method.Definition.DeclaringType,
                         callback.Method.DeclaringType,
                         moduleData,
-                        IsStaticMethodCall: true),
+                        IsMethodInvocation: true),
                     code.Instructions,
                     functionIndices);
                 for (var index = 0; index < signature.ParameterTypes.Length; index++)

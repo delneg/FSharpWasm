@@ -12,6 +12,7 @@ internal static class WasmOpcodes
     internal const byte ThrowRef = 0x0a;
     internal const byte Branch = 0x0c;
     internal const byte BranchIf = 0x0d;
+    internal const byte BranchTable = 0x0e;
     internal const byte Return = 0x0f;
     internal const byte Call = 0x10;
     internal const byte TryTable = 0x1f;
@@ -50,6 +51,7 @@ internal static class WasmOpcodes
     internal const byte I64LessThanUnsigned = 0x54;
     internal const byte I64GreaterThanSigned = 0x55;
     internal const byte I64GreaterThanUnsigned = 0x56;
+    internal const byte I64GreaterThanOrEqualUnsigned = 0x5a;
     internal const byte F32Equal = 0x5b;
     internal const byte F32LessThan = 0x5d;
     internal const byte F32GreaterThan = 0x5e;
@@ -60,6 +62,9 @@ internal static class WasmOpcodes
     internal const byte F64GreaterThan = 0x64;
     internal const byte F64LessThanOrEqual = 0x65;
     internal const byte F64GreaterThanOrEqual = 0x66;
+    internal const byte I32CountLeadingZeros = 0x67;
+    internal const byte I32CountTrailingZeros = 0x68;
+    internal const byte I32PopulationCount = 0x69;
     internal const byte I32Add = 0x6a;
     internal const byte I32Subtract = 0x6b;
     internal const byte I32Multiply = 0x6c;
@@ -73,6 +78,11 @@ internal static class WasmOpcodes
     internal const byte I32ShiftLeft = 0x74;
     internal const byte I32ShiftRightSigned = 0x75;
     internal const byte I32ShiftRightUnsigned = 0x76;
+    internal const byte I32RotateLeft = 0x77;
+    internal const byte I32RotateRight = 0x78;
+    internal const byte I64CountLeadingZeros = 0x79;
+    internal const byte I64CountTrailingZeros = 0x7a;
+    internal const byte I64PopulationCount = 0x7b;
     internal const byte I64Add = 0x7c;
     internal const byte I64Subtract = 0x7d;
     internal const byte I64Multiply = 0x7e;
@@ -86,6 +96,8 @@ internal static class WasmOpcodes
     internal const byte I64ShiftLeft = 0x86;
     internal const byte I64ShiftRightSigned = 0x87;
     internal const byte I64ShiftRightUnsigned = 0x88;
+    internal const byte I64RotateLeft = 0x89;
+    internal const byte I64RotateRight = 0x8a;
     internal const byte F32Absolute = 0x8b;
     internal const byte F32Negate = 0x8c;
     internal const byte F32Ceiling = 0x8d;

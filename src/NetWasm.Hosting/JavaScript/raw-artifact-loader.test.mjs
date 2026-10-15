@@ -279,6 +279,14 @@ test("accepts schema-three reached native signatures and explicit empty imports"
   }
 });
 
+test("accepts and freezes schema-two runtime feature evidence", async () => {
+  const runtimeFeatures = ["local-time"];
+  const bytes = encoder.encode(JSON.stringify({ ...layout, runtimeFeatures }));
+  const loaded = await loadRawArtifacts(requestWithContent("runtime-layout", bytes));
+  assert.deepEqual(loaded.runtimeLayout.runtimeFeatures, runtimeFeatures);
+  assert.equal(Object.isFrozen(loaded.runtimeLayout.runtimeFeatures), true);
+});
+
 test("rejects noncanonical runtime feature evidence before loading", async () => {
   for (const runtimeFeatures of [
     null,
@@ -323,19 +331,26 @@ test("accepts and freezes schema-four compiler callback evidence", async () => {
     temporaryApplicationExports: [callbacks[0].applicationExportName],
     temporaryRuntimeExports: [callbacks[0].runtimeGetterExportName],
   };
-  const bytes = encoder.encode(JSON.stringify({
-    ...layout,
-    schemaVersion: 4,
-    nativeImports: [],
-    nativeCallbackSupport,
-  }));
+  for (const featureEvidence of [{}, { runtimeFeatures: ["local-time"] }]) {
+    const bytes = encoder.encode(JSON.stringify({
+      ...layout,
+      schemaVersion: 4,
+      nativeImports: [],
+      nativeCallbackSupport,
+      ...featureEvidence,
+    }));
 
-  const loaded = await loadRawArtifacts(requestWithContent("runtime-layout", bytes));
+    const loaded = await loadRawArtifacts(requestWithContent("runtime-layout", bytes));
 
-  assert.deepEqual(loaded.runtimeLayout.nativeCallbackSupport, nativeCallbackSupport);
-  assert.equal(Object.isFrozen(loaded.runtimeLayout.nativeCallbackSupport), true);
-  assert.equal(Object.isFrozen(loaded.runtimeLayout.nativeCallbackSupport.callbacks), true);
-  assert.equal(Object.isFrozen(loaded.runtimeLayout.nativeCallbackSupport.callbacks[0]), true);
+    assert.deepEqual(loaded.runtimeLayout.nativeCallbackSupport, nativeCallbackSupport);
+    assert.equal(Object.isFrozen(loaded.runtimeLayout.nativeCallbackSupport), true);
+    assert.equal(Object.isFrozen(loaded.runtimeLayout.nativeCallbackSupport.callbacks), true);
+    assert.equal(Object.isFrozen(loaded.runtimeLayout.nativeCallbackSupport.callbacks[0]), true);
+    assert.deepEqual(loaded.runtimeLayout.runtimeFeatures, featureEvidence.runtimeFeatures);
+    if (featureEvidence.runtimeFeatures !== undefined) {
+      assert.equal(Object.isFrozen(loaded.runtimeLayout.runtimeFeatures), true);
+    }
+  }
 });
 
 test("rejects incomplete or contradictory schema-four callback evidence before loading", async () => {

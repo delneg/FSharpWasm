@@ -25,7 +25,9 @@ public sealed record WasmInstructionOperand
         uint third = 0,
         byte blockTypeValue = 0,
         uint tagIndex = 0,
-        uint labelDepth = 0)
+        uint labelDepth = 0,
+        ImmutableArray<uint> branchTableTargets = default,
+        uint branchTableDefault = 0)
     {
         Shape = shape;
         ByteValue = byteValue;
@@ -43,6 +45,10 @@ public sealed record WasmInstructionOperand
         BlockTypeValue = blockTypeValue;
         TagIndex = tagIndex;
         LabelDepth = labelDepth;
+        BranchTableTargets = branchTableTargets.IsDefault
+            ? ImmutableArray<uint>.Empty
+            : branchTableTargets;
+        BranchTableDefault = branchTableDefault;
     }
 
     public WasmInstructionOperandShape Shape { get; }
@@ -76,6 +82,10 @@ public sealed record WasmInstructionOperand
     public uint TagIndex { get; }
 
     public uint LabelDepth { get; }
+
+    public ImmutableArray<uint> BranchTableTargets { get; }
+
+    public uint BranchTableDefault { get; }
 
     public static WasmInstructionOperand None { get; } =
         new(WasmInstructionOperandShape.None);
@@ -158,5 +168,22 @@ public sealed record WasmInstructionOperand
             byteValue: 3,
             blockTypeValue: blockType,
             labelDepth: labelDepth);
+
+    public static WasmInstructionOperand BranchTable(
+        ImmutableArray<uint> targets,
+        uint defaultTarget)
+    {
+        if (targets.IsDefault)
+        {
+            throw new ArgumentException(
+                "Branch-table targets must be initialized.",
+                nameof(targets));
+        }
+
+        return new(
+            WasmInstructionOperandShape.BranchTable,
+            branchTableTargets: targets,
+            branchTableDefault: defaultTarget);
+    }
 }
 #pragma warning restore CA1720

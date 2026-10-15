@@ -61,11 +61,6 @@ namespace System.Collections.Immutable
             private int _version;
 
             /// <summary>
-            /// The synchronization root exposed by the legacy non-generic collection interface.
-            /// </summary>
-            private object? _syncRoot;
-
-            /// <summary>
             /// Initializes a new instance of the <see cref="Builder"/> class.
             /// </summary>
             /// <param name="map">A map to act as the basis for a new map.</param>
@@ -181,7 +176,7 @@ namespace System.Collections.Immutable
                     TValue value;
                     if (!this.TryGetValue(key, out value!))
                     {
-                        ImmutableDictionaryThrowHelper.ThrowKeyNotFoundException(key);
+                        ThrowHelper.ThrowKeyNotFoundException(key);
                     }
 
                     return value;
@@ -263,7 +258,7 @@ namespace System.Collections.Immutable
             /// </summary>
             /// <returns>An object that can be used to synchronize access to the <see cref="ICollection"/>.</returns>
             [DebuggerBrowsable(DebuggerBrowsableState.Never)]
-            object ICollection.SyncRoot => _syncRoot ??= new object();
+            object ICollection.SyncRoot => field ??= new object();
 
             /// <summary>
             /// Gets a value indicating whether access to the <see cref="ICollection"/> is synchronized (thread safe).
@@ -453,7 +448,7 @@ namespace System.Collections.Immutable
             /// <summary>
             /// See <see cref="IDictionary{TKey, TValue}"/>
             /// </summary>
-            public bool TryGetValue(TKey key, out TValue value)
+            public bool TryGetValue(TKey key, [MaybeNullWhen(false)] out TValue value)
             {
                 return this.Root.TryGetValue(key, _keyComparer, out value!);
             }

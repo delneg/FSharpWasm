@@ -190,9 +190,9 @@ namespace System.Collections.Frozen
             // Optimize for keys using the default comparer. In such a case, the implementation
             // may use {Equality}Comparer<TKey>.Default.Compare/Equals/GetHashCode directly, with generic specialization enabling
             // the Equals/GetHashCode methods to be devirtualized and possibly inlined.
-            if (typeof(TKey) != typeof(string) && ReferenceEquals(comparer, EqualityComparer<TKey>.Default))
+            if (typeof(TKey).IsValueType && ReferenceEquals(comparer, EqualityComparer<TKey>.Default))
             {
-#if NET || NETWASM_REF_STRUCT_GENERICS
+#if NET
                 if (DenseIntegralFrozenDictionary.CreateIfValid(source) is { } denseResult)
                 {
                     return denseResult;
@@ -519,10 +519,10 @@ namespace System.Collections.Frozen
         {
             if (key is null)
             {
-                ArgumentNullException.ThrowIfNull(key);
+                ThrowHelper.ThrowArgumentNullException(nameof(key));
             }
 
-            return ref GetValueRefOrNullRefCore(key!);
+            return ref GetValueRefOrNullRefCore(key);
         }
 
         /// <inheritdoc cref="GetValueRefOrNullRef" />
@@ -636,7 +636,7 @@ namespace System.Collections.Frozen
         /// otherwise, the default value for the type of the value parameter.
         /// </param>
         /// <returns><see langword="true"/> if the dictionary contains an element with the specified key; otherwise, <see langword="false"/>.</returns>
-        public bool TryGetValue(TKey key, out TValue value)
+        public bool TryGetValue(TKey key, [MaybeNullWhen(false)] out TValue value)
         {
             ref readonly TValue valueRef = ref GetValueRefOrNullRef(key);
 
@@ -646,7 +646,7 @@ namespace System.Collections.Frozen
                 return true;
             }
 
-            value = default!;
+            value = default;
             return false;
         }
 

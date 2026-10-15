@@ -1,4 +1,5 @@
 using NetWasm.Compiler.Cli;
+using NetWasm.Compiler.ComponentModel;
 using NetWasm.Compiler.Core;
 
 namespace NetWasm.Compiler.Cli.Tests;
@@ -76,6 +77,125 @@ public sealed class CompileCliOptionsTests
         Assert.Equal("compiler.jsonl", options.DiagnosticLog);
         Assert.Equal(["Entry.cs", "Helpers.cs"], options.Sources);
         Assert.True(options.UseJavaScriptExportBoundary);
+    }
+
+    [Theory]
+    [InlineData("none", FinalWasmOptimization.None)]
+    [InlineData("None", FinalWasmOptimization.None)]
+    [InlineData("O0", FinalWasmOptimization.O0)]
+    [InlineData("O1", FinalWasmOptimization.O1)]
+    [InlineData("O2", FinalWasmOptimization.O2)]
+    [InlineData("O3", FinalWasmOptimization.O3)]
+    [InlineData("Os", FinalWasmOptimization.Os)]
+    [InlineData("Oz", FinalWasmOptimization.Oz)]
+    public void ParsesCompilerOptimizationPresetAndIndividualSelections(
+        string optimization,
+        FinalWasmOptimization expected)
+    {
+        var options = CompileCliOptions.Parse([
+            "--input", "application.dll",
+            "--output", "application.wasm",
+            "--entry", "Example.Entry::Run",
+            "--optimization", optimization,
+            "--managed-loop-invariant-field-hoisting", "Disabled",
+            "--managed-static-data-view-elimination", "Enabled",
+            "--managed-address-taken-value-promotion", "Enabled",
+            "--managed-method-inlining", "Disabled",
+            "--managed-branch-prefix-duplication", "Disabled",
+            "--managed-scalar-call-preservation", "Enabled",
+            "--managed-array-bounds-check-elimination", "Disabled",
+            "--managed-loop-unrolling", "Enabled",
+            "--managed-constant-argument-propagation", "Enabled",
+            "--managed-static-array-population-elimination", "Disabled",
+        ]);
+
+        Assert.Equal(expected, options.Optimization);
+        Assert.Equal("Disabled", options.ManagedLoopInvariantFieldHoisting);
+        Assert.Equal("Enabled", options.ManagedStaticDataViewElimination);
+        Assert.Equal("Enabled", options.ManagedAddressTakenValuePromotion);
+        Assert.Equal("Disabled", options.ManagedMethodInlining);
+        Assert.Equal("Disabled", options.ManagedBranchPrefixDuplication);
+        Assert.Equal("Enabled", options.ManagedScalarCallPreservation);
+        Assert.Equal("Disabled", options.ManagedArrayBoundsCheckElimination);
+        Assert.Equal("Enabled", options.ManagedLoopUnrolling);
+        Assert.Equal("Enabled", options.ManagedConstantArgumentPropagation);
+        Assert.Equal("Disabled", options.ManagedStaticArrayPopulationElimination);
+    }
+
+    [Fact]
+    public void RejectsUnknownCompilerOptimizationPreset()
+    {
+        var exception = Assert.Throws<CompilerException>(() => CompileCliOptions.Parse([
+            "--input", "application.dll",
+            "--output", "application.wasm",
+            "--entry", "Example.Entry::Run",
+            "--optimization", "O4",
+        ]));
+
+        Assert.Equal(DiagnosticCode.InvalidCommandLine, exception.Diagnostic.Code);
+        Assert.Contains("optimization must be", exception.Message);
+    }
+
+    [Theory]
+    [InlineData("--managed-address-taken-value-promotion")]
+    [InlineData("--managed-method-inlining")]
+    [InlineData("--managed-array-bounds-check-elimination")]
+    [InlineData("--managed-loop-unrolling")]
+    [InlineData("--managed-constant-argument-propagation")]
+    [InlineData("--managed-static-array-population-elimination")]
+    public void RejectsRepeatedPromotionAndInliningSelections(string option)
+    {
+        var exception = Assert.Throws<CompilerException>(() => CompileCliOptions.Parse([
+            "--input", "application.dll",
+            "--output", "application.wasm",
+            "--entry", "Example.Entry::Run",
+            option, "Auto",
+            option, "Enabled",
+        ]));
+
+        Assert.Equal(DiagnosticCode.InvalidCommandLine, exception.Diagnostic.Code);
+        Assert.Contains(option, exception.Message);
+        Assert.Contains("more than once", exception.Message);
+    }
+
+    [Fact]
+    public void DefaultsCompilerOptimizationToOzAndRejectsDuplicateSelections()
+    {
+        var options = CompileCliOptions.Parse([
+            "--input", "application.dll",
+            "--output", "application.wasm",
+            "--entry", "Example.Entry::Run",
+        ]);
+
+        Assert.Equal(FinalWasmOptimization.Oz, options.Optimization);
+        Assert.Null(options.ManagedAddressTakenValuePromotion);
+        Assert.Null(options.ManagedMethodInlining);
+        Assert.Null(options.ManagedScalarCallPreservation);
+        Assert.Null(options.ManagedArrayBoundsCheckElimination);
+        Assert.Null(options.ManagedLoopUnrolling);
+        Assert.Null(options.ManagedConstantArgumentPropagation);
+        Assert.Null(options.ManagedStaticArrayPopulationElimination);
+        Assert.Throws<CompilerException>(() => CompileCliOptions.Parse([
+            "--input", "application.dll",
+            "--output", "application.wasm",
+            "--entry", "Example.Entry::Run",
+            "--managed-scalar-call-preservation", "Auto",
+            "--managed-scalar-call-preservation", "Enabled",
+        ]));
+        Assert.Throws<CompilerException>(() => CompileCliOptions.Parse([
+            "--input", "application.dll",
+            "--output", "application.wasm",
+            "--entry", "Example.Entry::Run",
+            "--managed-static-data-view-elimination", "Auto",
+            "--managed-static-data-view-elimination", "Enabled",
+        ]));
+        Assert.Throws<CompilerException>(() => CompileCliOptions.Parse([
+            "--input", "application.dll",
+            "--output", "application.wasm",
+            "--entry", "Example.Entry::Run",
+            "--managed-branch-prefix-duplication", "Auto",
+            "--managed-branch-prefix-duplication", "Enabled",
+        ]));
     }
 
     [Theory]

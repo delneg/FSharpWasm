@@ -94,6 +94,59 @@ public sealed class ObjectArrayDelegateAdapterPlannerTests
         Assert.Null(f.Resolutions[1].Context);
     }
 
+    [Fact]
+    public void UnrepresentableSignaturesSelectExplicitThrowTarget()
+    {
+        var functionPointer = CliTypeIdentity.FunctionPointer(new(
+            0,
+            0,
+            0,
+            MethodSignatureModel.Create(CliValueKind.I4)));
+        var pointer = CliTypeIdentity.UnmanagedPointer(Scalar);
+        var modifier = Type("Modifier");
+        var signatures = new[]
+        {
+            pointer,
+            functionPointer,
+            CliTypeIdentity.GenericParameter(false, 0),
+            CliTypeIdentity.FromStackKind(CliValueKind.Unknown),
+            CliTypeIdentity.Modified(pointer, modifier, isRequired: true),
+            CliTypeIdentity.Modified(functionPointer, modifier, isRequired: false),
+        };
+
+        foreach (CliTypeIdentity signature in signatures)
+        {
+            AssertUnsupported(parameter: signature, result: Scalar);
+            AssertUnsupported(parameter: Scalar, result: signature);
+        }
+
+        static void AssertUnsupported(
+            CliTypeIdentity parameter,
+            CliTypeIdentity result)
+        {
+            var f = new ExecutionPlannerFixture();
+            var type = Type("Unsupported");
+            var factory = f.Factory(type);
+            var invoke = f.Method(
+                2,
+                "Invoke",
+                type,
+                result,
+                parameters: [parameter]);
+            f.RegisterDelegate(type, invoke);
+            var target = f.UnsupportedSupport();
+
+            var plan = Assert.Single(f.AdapterPlanner().Plan([factory])).Value;
+
+            Assert.False(plan.IsSupported);
+            Assert.Same(target, plan.Target);
+            Assert.DoesNotContain(
+                "System.Runtime.CompilerServices.ObjectArrayDelegateTarget",
+                f.Lookups);
+            Assert.Null(f.Resolutions[1].Context);
+        }
+    }
+
     [Theory]
     [InlineData(0)]
     [InlineData(2)]

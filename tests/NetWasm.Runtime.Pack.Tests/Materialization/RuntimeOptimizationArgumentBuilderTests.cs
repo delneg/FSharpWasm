@@ -6,6 +6,32 @@ namespace NetWasm.Runtime.Pack.Tests.Materialization;
 
 public sealed class RuntimeOptimizationArgumentBuilderTests
 {
+    [Fact]
+    public void RejectsMissingPolicy() =>
+        Assert.Throws<ArgumentNullException>(() => new RuntimeOptimizationArgumentBuilder(null!));
+
+    [Fact]
+    public void UsesResolvedFlagRatherThanItsOwnPresetTable()
+    {
+        var policy = new FixedPolicy();
+        var builder = Assert.IsAssignableFrom<IRuntimeOptimizationArgumentBuilder>(new RuntimeOptimizationArgumentBuilder(policy));
+        var arguments = builder.Build(new(RuntimePackTestData.Target("wasm32"), "/runtime.wasm", RuntimeWasmOptimization.Oz));
+
+        Assert.Equal(RuntimeWasmOptimization.Oz, policy.Mode);
+        Assert.Equal("-O2", Assert.Single(arguments, IsOptimizationFlag));
+    }
+
+    private sealed class FixedPolicy : IRuntimeOptimizationPolicyResolver
+    {
+        public RuntimeWasmOptimization? Mode { get; private set; }
+
+        public RuntimeOptimizationPolicy Resolve(RuntimeWasmOptimization optimization)
+        {
+            Mode = optimization;
+            return new("-O2", false);
+        }
+    }
+
     [Theory]
     [InlineData("wasm32", false, RuntimeWasmOptimization.O0, "-O0")]
     [InlineData("wasm32", false, RuntimeWasmOptimization.O1, "-O1")]
@@ -23,7 +49,7 @@ public sealed class RuntimeOptimizationArgumentBuilderTests
         using var directory = new TemporaryDirectory();
         var output = directory.PathTo("runtime.wasm");
 
-        var arguments = new RuntimeOptimizationArgumentBuilder().Build(new(
+        var arguments = new RuntimeOptimizationArgumentBuilder(new RuntimeOptimizationPolicyResolver()).Build(new(
             RuntimePackTestData.Target(target), output, optimization)
         {
             RuntimeGlobalBase = 1024,
@@ -43,7 +69,7 @@ public sealed class RuntimeOptimizationArgumentBuilderTests
     {
         using var directory = new TemporaryDirectory();
 
-        var arguments = new RuntimeOptimizationArgumentBuilder().Build(new(
+        var arguments = new RuntimeOptimizationArgumentBuilder(new RuntimeOptimizationPolicyResolver()).Build(new(
             RuntimePackTestData.Target("wasm32"),
             directory.PathTo("runtime.wasm"),
             RuntimeWasmOptimization.Oz)
@@ -58,7 +84,7 @@ public sealed class RuntimeOptimizationArgumentBuilderTests
     public void NoneProducesNoOptimizerArguments()
     {
         using var directory = new TemporaryDirectory();
-        Assert.Empty(new RuntimeOptimizationArgumentBuilder().Build(new(
+        Assert.Empty(new RuntimeOptimizationArgumentBuilder(new RuntimeOptimizationPolicyResolver()).Build(new(
             RuntimePackTestData.Target("wasm32"), directory.PathTo("runtime.wasm"),
             RuntimeWasmOptimization.None)));
     }
@@ -66,14 +92,14 @@ public sealed class RuntimeOptimizationArgumentBuilderTests
     [Fact]
     public void RejectsUndefinedOptimization() =>
         Assert.Throws<ArgumentOutOfRangeException>(() =>
-            new RuntimeOptimizationArgumentBuilder().Build(new(
+            new RuntimeOptimizationArgumentBuilder(new RuntimeOptimizationPolicyResolver()).Build(new(
                 RuntimePackTestData.Target("wasm32"), "runtime.wasm",
                 (RuntimeWasmOptimization)42)));
 
     [Fact]
     public void RejectsMissingRequest() =>
         Assert.Throws<ArgumentNullException>(() =>
-            new RuntimeOptimizationArgumentBuilder().Build(null!));
+            new RuntimeOptimizationArgumentBuilder(new RuntimeOptimizationPolicyResolver()).Build(null!));
 
     private static bool IsOptimizationFlag(string argument) =>
         argument is "-O0" or "-O1" or "-O2" or "-O3" or "-Os" or "-Oz";

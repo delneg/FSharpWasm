@@ -17,6 +17,13 @@ namespace System.IO
     {
         public static readonly Stream Null = new NullStream();
 
+        private protected SemaphoreSlim? _asyncActiveSemaphore;
+
+        private protected SemaphoreSlim EnsureAsyncActiveSemaphoreInitialized() =>
+            _asyncActiveSemaphore ??
+            Interlocked.CompareExchange(ref _asyncActiveSemaphore, new SemaphoreSlim(1, 1), null) ??
+            _asyncActiveSemaphore;
+
         public abstract bool CanRead { get; }
         public abstract bool CanWrite { get; }
         public abstract bool CanSeek { get; }
@@ -189,11 +196,16 @@ namespace System.IO
             int count,
             CancellationToken cancellationToken)
         {
+            if (cancellationToken.IsCancellationRequested)
+                return Task.FromCanceled<int>(cancellationToken);
+
             ValidateBufferArguments(buffer, offset, count);
-            return ScheduleAsync(
+            if (!CanRead)
+                throw new NotSupportedException("Stream does not support reading.");
+
+            return ScheduleReadWriteAsync(
                 static state => state.Stream.Read(state.Buffer, state.Offset, state.Count),
-                new ReadWriteOperation(this, buffer, offset, count),
-                cancellationToken);
+                new ReadWriteOperation(this, buffer, offset, count));
         }
 
         public virtual ValueTask<int> ReadAsync(
@@ -359,15 +371,20 @@ namespace System.IO
             int count,
             CancellationToken cancellationToken)
         {
+            if (cancellationToken.IsCancellationRequested)
+                return Task.FromCanceled(cancellationToken);
+
             ValidateBufferArguments(buffer, offset, count);
-            return ScheduleAsync(
+            if (!CanWrite)
+                throw new NotSupportedException("Stream does not support writing.");
+
+            return ScheduleReadWriteAsync(
                 static state =>
                 {
                     state.Stream.Write(state.Buffer, state.Offset, state.Count);
                     return true;
                 },
-                new ReadWriteOperation(this, buffer, offset, count),
-                cancellationToken);
+                new ReadWriteOperation(this, buffer, offset, count));
         }
 
         public virtual ValueTask WriteAsync(
@@ -450,35 +467,44 @@ namespace System.IO
             TState state,
             CancellationToken cancellationToken)
         {
-            if (cancellationToken.IsCancellationRequested)
+            var task = new Task<TResult>(() => operation(state), cancellationToken, TaskCreationOptions.DenyChildAttach);
+            if (!task.IsCompleted)
+                task.Start(TaskScheduler.Default);
+            return task;
+        }
+
+        private Task<TResult> ScheduleReadWriteAsync<TState, TResult>(
+            Func<TState, TResult> operation,
+            TState state)
+        {
+            var semaphore = EnsureAsyncActiveSemaphoreInitialized();
+            var semaphoreTask = semaphore.WaitAsync();
+
+            // Construct the work task at the call site to capture its caller's
+            // context. Once admitted, base Stream ignores later cancellation,
+            // just like the non-APM path of the upstream ReadWriteTask.
+            var task = new Task<TResult>(() =>
             {
-                return Task.FromCanceled<TResult>(cancellationToken);
-            }
-
-            var task = new Task<TResult>();
-            Runtime.InteropServices.PlatformServices.Scheduler.Schedule(
-                () =>
+                try
                 {
-                    if (cancellationToken.IsCancellationRequested)
-                    {
-                        task.TrySetCanceled(new TaskCanceledException());
-                        return;
-                    }
+                    return operation(state);
+                }
+                finally
+                {
+                    semaphore.Release();
+                }
+            }, CancellationToken.None, TaskCreationOptions.DenyChildAttach);
 
-                    try
-                    {
-                        task.TrySetResult(operation(state));
-                    }
-                    catch (OperationCanceledException)
-                    {
-                        task.TrySetCanceled(new TaskCanceledException());
-                    }
-                    catch (Exception exception)
-                    {
-                        task.TrySetException(exception);
-                    }
-                },
-                0);
+            if (semaphoreTask.IsCompleted)
+            {
+                task.Start(TaskScheduler.Default);
+            }
+            else
+            {
+                semaphoreTask.ContinueWith(static (_, state) =>
+                    ((Task)state!).Start(TaskScheduler.Default),
+                    task, default, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+            }
             return task;
         }
 
@@ -666,6 +692,12 @@ namespace System.IO
                         _stream.Dispose();
                     base.Dispose(disposing);
                 }
+            }
+
+            public override ValueTask DisposeAsync()
+            {
+                lock (_stream)
+                    return _stream.DisposeAsync();
             }
 
             public override void Flush()

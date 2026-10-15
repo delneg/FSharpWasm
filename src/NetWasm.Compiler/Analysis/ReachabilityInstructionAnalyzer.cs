@@ -167,6 +167,25 @@ internal sealed class ReachabilityInstructionAnalyzer(
                 fieldDescriptors.Add(descriptor);
                 continue;
             }
+            if (instruction.Operation == CilOperation.CreateReadOnlySpanFromRva)
+            {
+                var span = instruction.Operand as CilOperand.ReadOnlySpanData ??
+                    throw new InvalidOperationException(
+                        "An RVA span instruction requires span data metadata.");
+                fields.Add(span.Field);
+                constructedTypes.Add(span.SpanType);
+                constructedTypes.Add(span.ElementType);
+                continue;
+            }
+            if (instruction.Operation == CilOperation.LoadStaticDataElement)
+            {
+                var data = instruction.Operand as CilOperand.ReadOnlySpanData ??
+                    throw new InvalidOperationException(
+                        "A static data element instruction requires span data metadata.");
+                fields.Add(data.Field);
+                constructedTypes.Add(data.ElementType);
+                continue;
+            }
             if (instruction.Operation == CilOperation.LoadFunction && calledMethod is not null)
             {
                 if (calledMethod.Definition.NativeCallback is not null)

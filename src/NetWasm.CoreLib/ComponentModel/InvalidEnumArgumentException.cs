@@ -25,8 +25,9 @@ public class InvalidEnumArgumentException : ArgumentException
         Type enumClass) :
         base(
             "The value of argument '" + argumentName + "' (" + invalidValue +
-                ") is invalid for Enum type '" + enumClass.Name + "'.",
+                ") is invalid for Enum type '" + enumClass?.Name + "'.",
             argumentName)
     {
+        ArgumentNullException.ThrowIfNull(enumClass);
     }
 }

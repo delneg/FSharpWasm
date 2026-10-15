@@ -156,6 +156,8 @@ namespace System.Diagnostics.CodeAnalysis
         public Type? Type { get; }
         public string? TypeName { get; }
         public string? AssemblyName { get; }
+        [Obsolete("This property is no longer supported.")]
+        [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
         public string? Condition { get; set; }
     }
 
@@ -277,7 +279,7 @@ namespace System.Diagnostics.CodeAnalysis
         public const string TimeOnlyFormat = "TimeOnlyFormat";
         public const string TimeSpanFormat = "TimeSpanFormat";
         public const string Uri = "Uri";
-        public const string VisualBasic = "VisualBasic";
+        public const string VisualBasic = "Visual Basic";
         public const string Xml = "Xml";
     }
 

@@ -7,47 +7,102 @@ namespace NetWasm.Compiler.Wasm.Emission.Instructions.Runtime;
 
 internal sealed class RootPublicationEmitter(
     ITargetLayout layouts,
-    IFilterEnvironmentRootEmitter filterEnvironmentRoots) : IRootPublicationEmitter
+    IFilterEnvironmentRootEmitter filterEnvironmentRoots,
+    IValueFrameAddressEmitter addresses,
+    IStackStorageAnchorValueEmitter anchors) : IRootPublicationEmitter
 {
     public void Emit(InstructionEmissionRequest request, IWasmInstructionWriter code, bool constructorCall = false)
     {
         var context = request.Context;
         if (!context.RootMap.Safepoints.TryGetValue(
                 request.Instruction.Offset,
-                out var safepoint) ||
-            context.RootMap.SlotCount == 0)
+                out var safepoint))
         {
             return;
         }
-        filterEnvironmentRoots.Emit(code, context);
         var roots = constructorCall
             ? safepoint.ConstructorCallRoots
             : safepoint.Roots;
-        if (constructorCall && roots.IsEmpty)
+        if (context.RootMap.SlotCount == 0 && roots.IsEmpty)
         {
             return;
         }
-        ClearSlots(code, context);
+        if (constructorCall && roots.IsEmpty)
+        {
+            filterEnvironmentRoots.Emit(code, context);
+            return;
+        }
+
+        var rootsBySlot = new RootSource?[context.RootMap.SlotCount];
         foreach (var source in roots)
         {
-            var sourceLocal = GetSourceLocal(context, source);
+            if (!context.RootMap.Slots.TryGetValue(source, out var slot) ||
+                slot < 0 || slot >= rootsBySlot.Length)
+            {
+                throw new InvalidOperationException(
+                    $"Root source {source} has no valid physical slot.");
+            }
+            if (rootsBySlot[slot] is not null)
+            {
+                throw new InvalidOperationException(
+                    $"Multiple live root sources use physical slot {slot}.");
+            }
+            rootsBySlot[slot] = source;
+        }
+
+        filterEnvironmentRoots.Emit(code, context);
+        context.RootClearElisions.TryGetValue((request.Instruction.Offset, constructorCall), out var knownZero);
+        for (var rootSlot = 0; rootSlot < rootsBySlot.Length; rootSlot++)
+        {
+            if (!constructorCall && rootsBySlot[rootSlot] is not null &&
+                context.RootValueElisions.TryGetValue(request.Instruction.Offset, out var unchanged) &&
+                unchanged.Contains(rootSlot)) continue;
+            if (rootsBySlot[rootSlot] is null && knownZero?.Contains(rootSlot) == true) continue;
+            if (rootsBySlot[rootSlot] is { } authoritative &&
+                context.AuthoritativeRootSlots.ContainsKey(authoritative))
+                continue;
             code.Write(WasmInstruction.WithOperand(WasmOpcodes.LocalGet, WasmInstructionOperand.Unsigned((uint)(context.RootFrame))));
-            var rootSlot = context.RootMap.Slots[source];
             if (rootSlot != 0)
             {
                 EmitAddressConstant(code, rootSlot * layouts.Target.ObjectReferenceSize);
                 EmitAddressAdd(code);
             }
-            code.Write(WasmInstruction.WithOperand(WasmOpcodes.LocalGet, WasmInstructionOperand.Unsigned((uint)(sourceLocal))));
-            if (source.IsIndirect || source.Kind == RootSourceKind.Local &&
-                context.ValueLayout.SpilledScalarLocals.Contains(source.Index))
+
+            if (rootsBySlot[rootSlot] is { } source)
             {
-                ManagedMemoryEmitter.EmitLoadBySize(
-                    code,
-                    layouts.Target,
-                    source.IsIndirect ? source.ByteOffset : 0,
-                    layouts.Target.ObjectReferenceSize);
+                EmitSourceValue(code, context, source);
+                var guarded = source.IsIndirect &&
+                    (source.Kind is RootSourceKind.StackStorageAnchor or
+                        RootSourceKind.ManagedAddressArgument or RootSourceKind.ManagedAddressLocal ||
+                     source.Kind == RootSourceKind.EvaluationStack && roots.Contains(
+                         new RootSource(RootSourceKind.ManagedAddressEvaluationStack, source.Index)));
+                if (guarded)
+                {
+                    code.Write(WasmInstruction.NoOperand(layouts.Target.UsesMemory64 ? WasmOpcodes.I64EqualZero : WasmOpcodes.I32EqualZero));
+                    code.Write(WasmInstruction.WithOperand(WasmOpcodes.If,
+                        WasmInstructionOperand.BlockType(layouts.Target.UsesMemory64 ? (byte)0x7e : (byte)0x7f)));
+                    EmitAddressConstant(code, 0);
+                    code.Write(WasmInstruction.NoOperand(WasmOpcodes.Else));
+                    EmitSourceValue(code, context, source);
+                    ManagedMemoryEmitter.EmitLoadBySize(code, layouts.Target, source.ByteOffset, layouts.Target.ObjectReferenceSize);
+                    code.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
+                }
+                else if (source.IsIndirect || source.Kind == RootSourceKind.Local &&
+                    !context.FilterEnvironment.Captures.ContainsKey(new(false, source.Index)) &&
+                    context.ValueLayout.SpilledScalarLocals.Contains(source.Index))
+                {
+                    ManagedMemoryEmitter.EmitLoadBySize(
+                        code,
+                        layouts.Target,
+                        source.IsIndirect ? source.ByteOffset : 0,
+                        layouts.Target.ObjectReferenceSize);
+                }
             }
+            else
+            {
+                EmitAddressConstant(code, 0);
+            }
+
             ManagedMemoryEmitter.EmitStoreBySize(
                 code,
                 layouts.Target,
@@ -56,23 +111,28 @@ internal sealed class RootPublicationEmitter(
         }
     }
 
-    private void ClearSlots(IWasmInstructionWriter code, MethodEmissionContext context)
+    private void EmitSourceValue(IWasmInstructionWriter code, MethodEmissionContext context, RootSource source)
     {
-        for (var slot = 0; slot < context.RootMap.SlotCount; slot++)
+        if (source.Kind == RootSourceKind.StackStorageAnchor)
         {
-            code.Write(WasmInstruction.WithOperand(WasmOpcodes.LocalGet, WasmInstructionOperand.Unsigned((uint)(context.RootFrame))));
-            if (slot != 0)
-            {
-                EmitAddressConstant(code, slot * layouts.Target.ObjectReferenceSize);
-                EmitAddressAdd(code);
-            }
-            EmitAddressConstant(code, 0);
-            ManagedMemoryEmitter.EmitStoreBySize(
-                code,
-                layouts.Target,
-                0,
-                layouts.Target.ObjectReferenceSize);
+            anchors.Emit(code, context, source.Index);
+            return;
         }
+        CapturedSlot? slot = source.Kind switch
+        {
+            RootSourceKind.Argument or RootSourceKind.ManagedAddressArgument => new(true, source.Index),
+            RootSourceKind.Local or RootSourceKind.ManagedAddressLocal => new(false, source.Index),
+            _ => null,
+        };
+        if (slot is { } captured && context.FilterEnvironment.Captures.TryGetValue(captured, out var capture))
+        {
+            addresses.Emit(code, context, capture.Offset);
+            if (capture.Type.StackKind != CliValueKind.ValueType)
+                ManagedMemoryEmitter.EmitLoadBySize(code, layouts.Target, 0, layouts.Target.AddressSize);
+            return;
+        }
+        code.Write(WasmInstruction.WithOperand(WasmOpcodes.LocalGet,
+            WasmInstructionOperand.Unsigned(checked((uint)GetSourceLocal(context, source)))));
     }
 
     private int GetSourceLocal(MethodEmissionContext context, RootSource source) =>

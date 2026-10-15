@@ -12,6 +12,30 @@ namespace NetWasm.Compiler.Wasm.Tests;
 public sealed class WasmModuleEmitterContractTests
 {
     [Theory]
+    [InlineData(WasmTarget.Wasm32, 0)]
+    [InlineData(WasmTarget.Wasm64, 0)]
+    [InlineData(WasmTarget.Wasm32, 1)]
+    [InlineData(WasmTarget.Wasm64, 1)]
+    [InlineData(WasmTarget.Wasm32, 2)]
+    [InlineData(WasmTarget.Wasm64, 2)]
+    public void PublishesOnlyTheSelectedOptionalRuntimeFeature(WasmTarget width, int feature)
+    {
+        var fixture = new Fixture(width, false, ephemerons: feature == 0,
+            weakHandles: feature == 1, diagnostics: feature == 2);
+        var expected = feature switch
+        {
+            0 => NetWasmRuntimeFeatureIds.EphemeronHandles,
+            1 => NetWasmRuntimeFeatureIds.WeakHandles,
+            _ => NetWasmRuntimeFeatureIds.StructuredCommandDiagnostics,
+        };
+
+        fixture.Emitter.Emit(fixture.Target);
+
+        var built = Assert.IsType<WasmModuleEmissionBuildRequest>(fixture.Arguments("result")[0]);
+        Assert.Equal(new[] { "feature", expected }.Order(StringComparer.Ordinal), built.RuntimeFeatures);
+    }
+
+    [Theory]
     [InlineData(WasmTarget.Wasm32, false)]
     [InlineData(WasmTarget.Wasm32, true)]
     [InlineData(WasmTarget.Wasm64, false)]
@@ -87,6 +111,23 @@ public sealed class WasmModuleEmitterContractTests
     }
 
     [Fact]
+    public void EmitPublishesSelectedFinalizationRuntimeFeature()
+    {
+        var fixture = new Fixture(
+            WasmTarget.Wasm32,
+            initializes: false,
+            finalization: true);
+
+        fixture.Emitter.Emit(fixture.Target);
+
+        var built = Assert.IsType<WasmModuleEmissionBuildRequest>(
+            fixture.Arguments("result")[0]);
+        Assert.Equal(
+            ["feature", NetWasmRuntimeFeatureIds.Finalization],
+            built.RuntimeFeatures.ToArray());
+    }
+
+    [Fact]
     public void EmitRejectsNamedCallbackCollidingWithAComponentExport()
     {
         var fixture = new Fixture(WasmTarget.Wasm32, false)
@@ -108,13 +149,30 @@ public sealed class WasmModuleEmitterContractTests
     {
         public static readonly string[] SuccessOrder =
         [
-            "entry", "indices", "imports", "managed", "constructed", "delegates", "static",
+            "entry", "indices", "imports", "managed", "constructed", "managedThrow",
+            "delegates", "static",
             "nativeCallbacks", "callbacks", "async", "filters", "runtime", "requested", "exports", "component", "exportValidation", "boundary", "result",
         ];
 
-        public Fixture(WasmTarget width, bool initializes)
+        public Fixture(
+            WasmTarget width,
+            bool initializes,
+            bool finalization = false,
+            bool ephemerons = false,
+            bool weakHandles = false,
+            bool diagnostics = false)
         {
             var (request, plan) = WasmModulePlanInvariantValidatorTests.CreateNativePlan();
+            plan = plan with
+            {
+                RuntimeImportSelection = plan.RuntimeImportSelection with
+                {
+                    IncludeFinalization = finalization,
+                    IncludeEphemeronHandles = ephemerons,
+                    IncludeWeakHandles = weakHandles,
+                },
+            };
+            request = request with { StructuredDiagnostics = diagnostics };
             var data = ModuleDataPlan.Empty with { StaticDataEnd = 96 };
             if (initializes)
             {
@@ -132,6 +190,7 @@ public sealed class WasmModuleEmitterContractTests
                 new RecordingLayoutProvider(width == WasmTarget.Wasm64 ? WasmTargetLayout.Wasm64 : WasmTargetLayout.Wasm32),
                 Capability<IManagedDefinitionSetAppender>("managed"),
                 Capability<IConstructedMethodSetAppender>("constructed"),
+                Capability<IManagedThrowFunctionAppender>("managedThrow"),
                 Capability<IDelegateFunctionAppender>("delegates"),
                 Capability<INativeCallbackFunctionAppender>("nativeCallbacks"),
                 Capability<IHostCallbackSetAppender>("callbacks"),

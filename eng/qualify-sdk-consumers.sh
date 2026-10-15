@@ -369,15 +369,15 @@ from pathlib import Path
 assert not Path(sys.argv[1]).read_text().strip(), 'Default canary must leave the collector property unset'
 manifest = json.loads(Path(sys.argv[2]).read_text())
 assert manifest['defaultGarbageCollector'] == 'Compact'
-assert len(manifest['targets']) == 4
+assert len(manifest['targets']) == 8
 assert {(target['target'], target['garbageCollector']) for target in manifest['targets']} == {
-    (target, collector) for target in ('wasm32', 'wasm64') for collector in ('Compact', 'Boehm')
+    (target, collector) for target in ('wasm32', 'wasm64') for collector in ('Compact', 'NetWasm', 'Boehm', 'Bump')
 }
 PY
   # Keep the first-use default proof above. Switch the same ordinary project
   # without cleaning or changing its package graph, then inspect resolved output.
   sequence=0
-  for selection in Default Compact Boehm Compact; do
+  for selection in Default Compact NetWasm Bump Boehm Compact; do
     sequence=$((sequence + 1))
     collector_arguments=()
     expected_collector=Compact
@@ -448,13 +448,58 @@ import sys
 from pathlib import Path
 
 root = Path(sys.argv[1])
-rows = [json.loads((root / f"collector-{i}.json").read_text()) for i in (1, 2, 3, 4)]
-if rows[0] != rows[1] or rows[1] != rows[3] or rows[1]["runtimeSha256"] == rows[2]["runtimeSha256"]:
+rows = [json.loads((root / f"collector-{i}.json").read_text()) for i in range(1, 7)]
+if (rows[0] != rows[1] or rows[1] != rows[5] or
+        len({row["runtimeSha256"] for row in rows[1:5]}) != 4):
     raise ValueError("Switching collectors did not reproduce the correct runtime bytes.")
-finals = [json.loads((root / f"collector-{i}-final.json").read_text()) for i in (1, 2, 3, 4)]
-if finals[0] != finals[1] or finals[1] != finals[3] or finals[1]["sha256"] == finals[2]["sha256"]:
+finals = [json.loads((root / f"collector-{i}-final.json").read_text()) for i in range(1, 7)]
+if (finals[0] != finals[1] or finals[1] != finals[5] or
+        len({row["sha256"] for row in finals[1:5]}) != 4):
     raise ValueError("Switching collectors did not reproduce the correct runnable artifacts.")
 PY
+  cp "$app_root/Program.cs" "$work_root/collector-original.Program.cs"
+  cp "$source_root/eng/collector-canary/BumpRootFrameCanary.cs" \
+    "$app_root/Program.cs"
+  assert_run_42 "$work_root/collector-bump-root-frame-run.log" \
+    --project "$app_project" -c Release --no-restore \
+    --disable-build-servers -p:NetWasmGarbageCollector=Bump
+  assert_run_42 "$work_root/collector-bump-root-frame-wasm64-run.log" \
+    --project "$app_project" -c Release --no-restore \
+    --disable-build-servers -p:NetWasmGarbageCollector=Bump \
+    -p:NetWasmTarget=wasm64 -p:NetWasmRawWasm=true
+  cp "$work_root/collector-original.Program.cs" "$app_root/Program.cs"
+  # Main receives application arguments, while Environment retains one logical
+  # program-name entry. Exercise the ordinary launcher, not an engine wrapper.
+  cp "$app_project" "$work_root/arguments-original.csproj"
+  cp "$source_root/eng/collector-canary/ManagedArgumentsCanary.cs" "$app_root/Program.cs"
+  python3 - "$app_project" <<'PY'
+import sys
+import xml.etree.ElementTree as ET
+path = sys.argv[1]
+tree = ET.parse(path)
+root = tree.getroot()
+namespace = root.tag.split('}')[0] + '}' if root.tag.startswith('{') else ''
+group = ET.SubElement(root, namespace + 'ItemGroup')
+ET.SubElement(group, namespace + 'NetWasmArgument', Include='configured value')
+tree.write(path, encoding='utf-8', xml_declaration=False)
+PY
+  for target in wasm32 wasm64; do
+    raw_wasm=false
+    if [[ "$target" = wasm64 ]]; then raw_wasm=true; fi
+    run_log "$work_root/arguments-$target-restore.log" \
+      dotnet restore "$app_project" --configfile "$work_root/NuGet.Config" \
+        --disable-build-servers --nologo -p:NetWasmTarget="$target" -p:NetWasmRawWasm="$raw_wasm"
+    assert_run_42 "$work_root/arguments-$target-run.log" \
+      --project "$app_project" -c Release --no-restore --disable-build-servers \
+      -p:NetWasmTarget="$target" -p:NetWasmRawWasm="$raw_wasm" \
+      -- first "" "two words" "λ"
+    assert_run_42 "$work_root/arguments-$target-no-build.log" \
+      --project "$app_project" -c Release --no-build --no-restore --disable-build-servers \
+      -p:NetWasmTarget="$target" -p:NetWasmRawWasm="$raw_wasm" \
+      -- first "" "two words" "λ"
+  done
+  cp "$work_root/arguments-original.csproj" "$app_project"
+  cp "$work_root/collector-original.Program.cs" "$app_root/Program.cs"
   library_root="$consumer_root/library"
   library_project="$library_root/RuntimeLibrary.csproj"
   run_log "$work_root/collector-library-create.log" \
@@ -479,9 +524,8 @@ PY
   expect_failure_contains "$work_root/collector-invalid.log" NWPACK007 \
     dotnet build "$app_project" --no-restore --disable-build-servers \
       -p:NetWasmGarbageCollector=compact -nologo
-  expect_failure_contains "$work_root/collector-custom-conflict.log" NWPACK006 \
+  expect_failure_contains "$work_root/collector-custom-runtime-rejected.log" NWPACK006 \
     dotnet build "$app_project" --no-restore --disable-build-servers \
-      -p:NetWasmGarbageCollector=Compact \
       -p:NetWasmRuntimeModulePath="$consumer_root/custom.wasm" -nologo
   printf 'Collector consumer canary PASS\n'
   exit 0
@@ -791,7 +835,7 @@ fi
 if [[ "$skip_test_consumers" == false ]]; then
 selections=("")
 if [[ "$test_collectors" == true ]]; then
-  selections=(Compact Boehm)
+  selections=(Compact NetWasm Boehm)
   cp "$source_root/eng/qualify-sdk-consumers.sh" "$work_root/qualified-runner.sh"
 fi
 for selection in "${selections[@]}"; do
@@ -969,7 +1013,7 @@ manifest = json.loads(producer.read_text())
 for package in manifest['packages']:
     assert digest(producer.parent / f"{package['id']}.{package['version']}.nupkg") == package['sha256']
 cells = []
-for collector in ['Compact', 'Boehm']:
+for collector in ['Compact', 'NetWasm', 'Boehm']:
     logs = root / ('test-' + collector)
     before = json.loads((logs / 'assets-before.json').read_text())
     after = json.loads((logs / 'assets-after.json').read_text())

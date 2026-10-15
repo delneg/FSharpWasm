@@ -288,6 +288,10 @@ namespace System.Text
         public StringBuilder Append(char value)
         {
             EnsureLength(1);
+            if (m_ChunkLength == m_ChunkChars.Length)
+            {
+                ExpandByABlock(1);
+            }
             m_ChunkChars[m_ChunkLength++] = value;
             return this;
         }
@@ -308,13 +312,21 @@ namespace System.Text
         {
             ValidateNonNegative(repeatCount, nameof(repeatCount));
             EnsureLength(repeatCount);
-            while (repeatCount-- > 0)
+            while (repeatCount > 0)
             {
-                m_ChunkChars[m_ChunkLength++] = value;
-                if (m_ChunkLength == m_ChunkChars.Length && repeatCount > 0)
+                var available = m_ChunkChars.Length - m_ChunkLength;
+                if (available == 0)
                 {
                     ExpandByABlock(repeatCount);
+                    available = m_ChunkChars.Length;
                 }
+                var copy = Math.Min(available, repeatCount);
+                for (var index = 0; index < copy; index++)
+                {
+                    m_ChunkChars[m_ChunkLength + index] = value;
+                }
+                m_ChunkLength += copy;
+                repeatCount -= copy;
             }
             return this;
         }
@@ -340,9 +352,28 @@ namespace System.Text
             return AppendLine();
         }
 
-        public StringBuilder Append(ReadOnlySpan<char> value) => Append(value.ToArray());
+        public StringBuilder Append(ReadOnlySpan<char> value)
+        {
+            EnsureLength(value.Length);
+            var sourceIndex = 0;
+            while (sourceIndex < value.Length)
+            {
+                var available = m_ChunkChars.Length - m_ChunkLength;
+                if (available == 0)
+                {
+                    ExpandByABlock(value.Length - sourceIndex);
+                    available = m_ChunkChars.Length;
+                }
+                var copy = Math.Min(available, value.Length - sourceIndex);
+                for (var index = 0; index < copy; index++)
+                    m_ChunkChars[m_ChunkLength + index] = value[sourceIndex + index];
+                m_ChunkLength += copy;
+                sourceIndex += copy;
+            }
+            return this;
+        }
 
-        public StringBuilder Append(ReadOnlyMemory<char> value) => Append(value.ToArray());
+        public StringBuilder Append(ReadOnlyMemory<char> value) => Append(value.Span);
 
         public StringBuilder AppendJoin(char separator, params string?[] values) => AppendJoin(separator.ToString(), values);
 
@@ -599,12 +630,9 @@ namespace System.Text
                 throw new ArgumentOutOfRangeException(nameof(index));
             }
 
-            var text = ToString();
-            if (Rune.TryGetRuneAt(text, index, out value))
-            {
-                return true;
-            }
-
+            var first = this[index];
+            if (Rune.TryCreate(first, out value)) return true;
+            if (index + 1 < Length && Rune.TryCreate(first, this[index + 1], out value)) return true;
             value = default;
             return false;
         }
@@ -683,7 +711,8 @@ namespace System.Text
 
         internal static string FormatValue(object? value, string? format, IFormatProvider? provider)
         {
-            if (provider?.GetFormat(typeof(ICustomFormatter)) is ICustomFormatter customFormatter)
+            ICustomFormatter? customFormatter = (ICustomFormatter?)provider?.GetFormat(typeof(ICustomFormatter));
+            if (customFormatter is not null)
             {
                 return customFormatter.Format(format, value, provider) ?? string.Empty;
             }
@@ -738,29 +767,11 @@ namespace System.Text
             {
                 throw new ArgumentOutOfRangeException(nameof(additional));
             }
-
-            var required = Length + additional;
-            if (required <= Capacity)
-            {
-                return;
-            }
-
-            var capacity = Capacity == 0 ? DefaultCapacity : Capacity;
-            while (capacity < required && capacity < MaxChunkSize)
-            {
-                var doubled = capacity > MaxChunkSize / 2 ? MaxChunkSize : capacity * 2;
-                capacity = Math.Max(doubled, capacity + 1);
-            }
-            if (capacity < required)
-            {
-                capacity = required;
-            }
-            Capacity = capacity;
         }
 
         private void ExpandByABlock(int minimum)
         {
-            var newSize = Math.Max(minimum, Math.Min(Math.Max(Length, DefaultCapacity), MaxChunkSize));
+            var newSize = Math.Max(minimum, Math.Min(Length, MaxChunkSize));
             newSize = Math.Min(newSize, m_MaxCapacity - Length);
             if (newSize <= 0)
             {
@@ -875,42 +886,73 @@ namespace System.Text
 
         public struct ChunkEnumerator
         {
-            private readonly StringBuilder[] _chunks;
-            private int _index;
+            private readonly StringBuilder _firstChunk;
+            private StringBuilder? _currentChunk;
+            private readonly ManyChunkInfo? _manyChunks;
 
             internal ChunkEnumerator(StringBuilder builder)
             {
-                var count = 0;
-                var current = builder;
-                while (current is not null)
-                {
-                    count++;
-                    current = current.m_ChunkPrevious;
-                }
-
-                _chunks = new StringBuilder[count];
-                current = builder;
-                while (count > 0)
-                {
-                    _chunks[--count] = current!;
-                    current = current!.m_ChunkPrevious;
-                }
-                _index = -1;
+                _firstChunk = builder;
+                _currentChunk = null;
+                _manyChunks = null;
+                var chunkCount = ChunkCount(builder);
+                if (chunkCount > 8) _manyChunks = new ManyChunkInfo(builder, chunkCount);
             }
 
             public ChunkEnumerator GetEnumerator() => this;
-            public bool MoveNext() => ++_index < _chunks.Length;
+            public bool MoveNext()
+            {
+                if (_currentChunk == _firstChunk) return false;
+                if (_manyChunks is not null) return _manyChunks.MoveNext(ref _currentChunk);
+
+                var next = _firstChunk;
+                while (next.m_ChunkPrevious != _currentChunk) next = next.m_ChunkPrevious!;
+                _currentChunk = next;
+                return true;
+            }
 
             public ReadOnlyMemory<char> Current
             {
                 get
                 {
-                    if ((uint)_index >= (uint)_chunks.Length)
+                    if (_currentChunk is null) throw new InvalidOperationException();
+                    return new ReadOnlyMemory<char>(_currentChunk.m_ChunkChars, 0, _currentChunk.m_ChunkLength);
+                }
+            }
+
+            private static int ChunkCount(StringBuilder? builder)
+            {
+                var count = 0;
+                while (builder is not null)
+                {
+                    count++;
+                    builder = builder.m_ChunkPrevious;
+                }
+                return count;
+            }
+
+            private sealed class ManyChunkInfo
+            {
+                private readonly StringBuilder[] _chunks;
+                private int _chunkPosition;
+
+                internal ManyChunkInfo(StringBuilder? builder, int chunkCount)
+                {
+                    _chunks = new StringBuilder[chunkCount];
+                    while (--chunkCount >= 0)
                     {
-                        throw new InvalidOperationException();
+                        _chunks[chunkCount] = builder!;
+                        builder = builder!.m_ChunkPrevious;
                     }
-                    var chunk = _chunks[_index];
-                    return new ReadOnlyMemory<char>(chunk.m_ChunkChars, 0, chunk.m_ChunkLength);
+                    _chunkPosition = -1;
+                }
+
+                internal bool MoveNext(ref StringBuilder? current)
+                {
+                    var position = ++_chunkPosition;
+                    if ((uint)position >= (uint)_chunks.Length) return false;
+                    current = _chunks[position];
+                    return true;
                 }
             }
         }
@@ -947,10 +989,13 @@ namespace System.Text
             public void AppendFormatted(string? value) => AppendFormatted<string?>(value);
             public void AppendFormatted(string? value, int alignment = 0, string? format = null) => AppendFormatted<string?>(value, alignment, format);
             public void AppendFormatted(object? value, int alignment = 0, string? format = null) => AppendFormatted<object?>(value, alignment, format);
-            public void AppendFormatted(ReadOnlySpan<char> value) => AppendAligned(string.Create(value.ToArray()), 0);
-            public void AppendFormatted(ReadOnlySpan<char> value, int alignment = 0, string? format = null) => AppendAligned(string.Create(value.ToArray()), alignment);
+            public void AppendFormatted(ReadOnlySpan<char> value) => AppendAligned(value, 0);
+            public void AppendFormatted(ReadOnlySpan<char> value, int alignment = 0, string? format = null) => AppendAligned(value, alignment);
 
             private void AppendAligned(string text, int alignment)
+                => AppendAligned(text.AsSpan(), alignment);
+
+            private void AppendAligned(ReadOnlySpan<char> text, int alignment)
             {
                 var width = alignment < 0 ? -alignment : alignment;
                 var padding = Math.Max(0, width - text.Length);

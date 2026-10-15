@@ -270,32 +270,6 @@ public sealed class WasmModulePlanInvariantValidatorTests
     }
 
     [Fact]
-    public void AcceptsSequentialOptionalDelegateHelpersAndRejectsDuplicates()
-    {
-        var (request, plan) = CreatePlan();
-        var firstHelper = plan.FunctionIndices.DirectMethods[EntryKey].Value + 1;
-        var valid = plan with
-        {
-            DelegateCountHelperIndex = OptionalFunctionIndex.At(firstHelper),
-            DelegateLeafHelperIndex = OptionalFunctionIndex.At(firstHelper + 1),
-            DelegateEqualityHelperIndex = OptionalFunctionIndex.At(firstHelper + 2),
-            DelegateRemoveHelperIndex = OptionalFunctionIndex.At(firstHelper + 3),
-        };
-
-        Validate(CreateValidator(), request, valid);
-        var exception = Assert.Throws<InvalidOperationException>(() =>
-            Validate(
-                CreateValidator(),
-                request,
-                valid with
-                {
-                    DelegateLeafHelperIndex = OptionalFunctionIndex.At(firstHelper),
-                }));
-
-        Assert.Contains("duplicated, or not the expected index", exception.Message);
-    }
-
-    [Fact]
     public void ValidatesImportsAndConstructedMethodsThroughContract()
     {
         var program = new FakeProgram();
@@ -531,7 +505,7 @@ public sealed class WasmModulePlanInvariantValidatorTests
         var native = new NativeMethodImport(method,
             NativeAbiTestSupport.Plan(definition.NativeImport!, signature, signature),
             new(RuntimeAbi.RuntimeModule, "native", new(signature.ParameterTypes, signature.ReturnType)));
-        var plan = new WasmModulePlan(new(WasmModuleProfile.CoreApplication, false), [], [], [],
+        var plan = new WasmModulePlan(new(WasmModuleProfile.CoreApplication, false), FinalizationPlan.Empty, [], [], [],
             StackTraceMethodPlan.Disabled, [],
             new(ImmutableDictionary<EntityKey, WasmFunctionIndex>.Empty,
                 ImmutableDictionary<string, WasmFunctionIndex>.Empty,
@@ -539,9 +513,7 @@ public sealed class WasmModulePlanInvariantValidatorTests
                 ImmutableDictionary<EntityKey, WasmFunctionIndex>.Empty.Add(definition.Key, new(0))),
             new([], OptionalFunctionIndex.Missing, OptionalFunctionIndex.Missing,
                 OptionalFunctionIndex.Missing, OptionalFunctionIndex.Missing,
-                OptionalFunctionIndex.Missing, OptionalFunctionIndex.Missing),
-            OptionalFunctionIndex.Missing, OptionalFunctionIndex.Missing,
-            OptionalFunctionIndex.Missing, OptionalFunctionIndex.Missing)
+                OptionalFunctionIndex.Missing, OptionalFunctionIndex.Missing))
         {
             NativeImports = new([native]),
         };
@@ -591,5 +563,6 @@ public sealed class WasmModulePlanInvariantValidatorTests
             new DisabledStackTraceMethodPlanBuilder(),
         new WasmModulePlanInvariantValidator(),
         new NativeImportPlanner(NativeAbiTestSupport.ScalarPlanner()),
-        NativeAbiTestSupport.CallbackPlanner());
+        NativeAbiTestSupport.CallbackPlanner(),
+        new FinalizationPlanBuilder(new RecordingLayoutProvider(), new FakeIntrinsics()));
 }

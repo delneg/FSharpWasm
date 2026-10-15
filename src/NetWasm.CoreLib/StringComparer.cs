@@ -149,17 +149,11 @@ namespace System
                 return 1;
             }
 
-            var length = Math.Min(x.Length, y.Length);
-            for (var index = 0; index < length; index++)
+            if (!_ignoreCase)
             {
-                var left = Fold(x[index]);
-                var right = Fold(y[index]);
-                if (left != right)
-                {
-                    return left - right;
-                }
+                return string.CompareOrdinal(x, y);
             }
-            return x.Length - y.Length;
+            return CompareIgnoreCase(x, y);
         }
 
         public override bool Equals(string? x, string? y)
@@ -172,14 +166,11 @@ namespace System
             {
                 return false;
             }
-            for (var index = 0; index < x.Length; index++)
+            if (!_ignoreCase)
             {
-                if (Fold(x[index]) != Fold(y[index]))
-                {
-                    return false;
-                }
+                return string.Equals(x, y);
             }
-            return true;
+            return EqualsIgnoreCase(x, y);
         }
 
         public override int GetHashCode(string obj)
@@ -189,17 +180,11 @@ namespace System
                 throw new ArgumentNullException(nameof(obj));
             }
 
-            var hash = 2_166_136_261u;
-            for (var index = 0; index < obj.Length; index++)
+            if (!_ignoreCase)
             {
-                hash = (hash ^ Fold(obj[index])) * 16_777_619u;
+                return obj.GetHashCode();
             }
-            hash ^= hash >> 16;
-            hash *= 2_246_822_519u;
-            hash ^= hash >> 13;
-            hash *= 3_266_489_917u;
-            hash ^= hash >> 16;
-            return (int)hash;
+            return GetIgnoreCaseHashCode(obj);
         }
 
         public override bool Equals(object? obj) => obj is OrdinalComparer other && _ignoreCase == other._ignoreCase;
@@ -218,42 +203,50 @@ namespace System
             {
                 return false;
             }
-            for (var index = 0; index < alternate.Length; index++)
+            if (!_ignoreCase)
             {
-                if (Fold(alternate[index]) != Fold(target[index]))
+                for (var index = 0; index < alternate.Length; index++)
                 {
-                    return false;
+                    if (alternate[index] != target[index])
+                    {
+                        return false;
+                    }
                 }
+                return true;
             }
-            return true;
+            return EqualsIgnoreCase(alternate, target);
         }
 
         int IAlternateEqualityComparer<ReadOnlySpan<char>, string>.GetHashCode(
             ReadOnlySpan<char> alternate)
         {
-            var hash = 2_166_136_261u;
-            for (var index = 0; index < alternate.Length; index++)
+            if (!_ignoreCase)
             {
-                hash = (hash ^ Fold(alternate[index])) * 16_777_619u;
+                return GetHashCode(alternate);
             }
-            hash ^= hash >> 16;
-            hash *= 2_246_822_519u;
-            hash ^= hash >> 13;
-            hash *= 3_266_489_917u;
-            hash ^= hash >> 16;
-            return (int)hash;
+            return GetIgnoreCaseHashCode(alternate);
         }
+
+        private static int CompareIgnoreCase(string left, string right)
+            => string.Compare(left, right, StringComparison.OrdinalIgnoreCase);
+
+        private static bool EqualsIgnoreCase(string left, string right)
+            => string.Equals(left, right, StringComparison.OrdinalIgnoreCase);
+
+        private static bool EqualsIgnoreCase(ReadOnlySpan<char> alternate, string target)
+            => alternate.Equals(target.AsSpan(), StringComparison.OrdinalIgnoreCase);
+
+        private static int GetHashCode(ReadOnlySpan<char> value)
+            => string.GetNonRandomizedHashCode(value);
+
+        private static int GetIgnoreCaseHashCode(string value)
+            => value.GetHashCode(StringComparison.OrdinalIgnoreCase);
+
+        private static int GetIgnoreCaseHashCode(ReadOnlySpan<char> value)
+            => string.GetHashCode(value, StringComparison.OrdinalIgnoreCase);
 
         string IAlternateEqualityComparer<ReadOnlySpan<char>, string>.Create(
             ReadOnlySpan<char> alternate) => alternate.ToString();
 
-        private char Fold(char value)
-        {
-            if (!_ignoreCase)
-            {
-                return value;
-            }
-            return char.ToUpperInvariant(value);
-        }
     }
 }

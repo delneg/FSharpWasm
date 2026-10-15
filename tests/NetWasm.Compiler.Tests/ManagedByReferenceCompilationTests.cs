@@ -1,4 +1,5 @@
 using NetWasm.Compiler.Core;
+using NetWasm.Compiler.ComponentModel;
 using NetWasm.TestInfrastructure;
 
 namespace NetWasm.Compiler.Tests;
@@ -7,6 +8,216 @@ using static CompilerTestSupport;
 
 public sealed class ManagedByReferenceCompilationTests
 {
+    [Theory]
+    [InlineData(WasmTarget.Wasm32)]
+    [InlineData(WasmTarget.Wasm64)]
+    public void O3DoesNotTreatConditionalRefReturnsAsExactAliases(WasmTarget target)
+    {
+        using var assets = TestAssets.Create();
+        var assembly = assets.CompileOptimizedSource(
+            "ConditionalRefReturnAggregateFixture",
+            """
+            using System.Runtime.CompilerServices;
+
+            public struct Buffer
+            {
+                public int Value;
+            }
+
+            public static class EntryPoint
+            {
+                private static int s_external = 7;
+
+                public static int Run(int input) =>
+                    Probe(new Buffer { Value = input }, input != 0);
+
+                [MethodImpl(MethodImplOptions.NoInlining)]
+                private static int Probe(Buffer value, bool chooseValue)
+                {
+                    ref var selected = ref Choose(ref value.Value, chooseValue);
+                    var before = selected;
+                    value.Value += 100;
+                    return before * 1000 + value.Value;
+                }
+
+                [MethodImpl(MethodImplOptions.NoInlining)]
+                private static ref int Choose(ref int value, bool chooseValue)
+                {
+                    if (chooseValue)
+                    {
+                        return ref value;
+                    }
+                    return ref s_external;
+                }
+            }
+            """);
+
+        var result = NetWasmCompiler.Compile(new CompilerOptions(
+            assembly,
+            [assets.CoreLib],
+            "EntryPoint",
+            "Run",
+            [],
+            Target: target,
+            Optimization: FinalWasmOptimization.O3));
+
+        Assert.NotEmpty(result.ApplicationModule);
+        Assert.Equal(target, result.Layouts.Target.Target);
+        Assert.Equal(5105, ExecuteWithStandardWasiNode(result.ApplicationModule,
+            assets.Directory, 5, target, result.StaticDataEnd));
+        Assert.Equal(7100, ExecuteWithStandardWasiNode(result.ApplicationModule,
+            assets.Directory, 0, target, result.StaticDataEnd));
+    }
+
+    [Theory]
+    [InlineData(WasmTarget.Wasm32)]
+    [InlineData(WasmTarget.Wasm64)]
+    public void O3SynchronizesPromotedAggregateAcrossWholeLocalTransfers(
+        WasmTarget target)
+    {
+        using var assets = TestAssets.Create();
+        var assembly = assets.CompileOptimizedSource(
+            "AddressTakenAggregateWholeLocalFixture",
+            """
+            public struct Buffer
+            {
+                public int Low;
+                public int High;
+            }
+
+            public static class EntryPoint
+            {
+                public static int Run(int input)
+                {
+                    var value = Create(input);
+                    value.Low += 2;
+                    var observed = Read(value);
+                    return observed + value.Low + value.High + value.Low;
+                }
+
+                [System.Runtime.CompilerServices.MethodImpl(
+                    System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+                private static Buffer Create(int input) => new()
+                {
+                    Low = input,
+                    High = 3,
+                };
+
+                [System.Runtime.CompilerServices.MethodImpl(
+                    System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+                private static int Read(Buffer value) =>
+                    value.Low * 100 + value.High;
+            }
+            """);
+
+        var result = NetWasmCompiler.Compile(new CompilerOptions(
+            assembly,
+            [assets.CoreLib],
+            "EntryPoint",
+            "Run",
+            [],
+            Target: target,
+            Optimization: FinalWasmOptimization.O3));
+
+        Assert.NotEmpty(result.ApplicationModule);
+        Assert.Equal(target, result.Layouts.Target.Target);
+        Assert.Equal(4290, ExecuteWithStandardWasiNode(result.ApplicationModule,
+            assets.Directory, 40, target, result.StaticDataEnd));
+    }
+
+    [Theory]
+    [InlineData(WasmTarget.Wasm32)]
+    [InlineData(WasmTarget.Wasm64)]
+    public void O3PromotesReferenceFreeByRefAggregateWithCallerVisibleWrites(
+        WasmTarget target)
+    {
+        using var assets = TestAssets.Create();
+        var assembly = assets.CompileOptimizedSource(
+            "ManagedByRefAggregatePromotionFixture",
+            """
+            public struct Buffer
+            {
+                public int Low;
+                public long High;
+            }
+
+            public static class EntryPoint
+            {
+                public static int Run(int input)
+                {
+                    var value = new Buffer { Low = input, High = 5 };
+                    Mutate(ref value, input);
+                    return value.Low * 100 + (int)value.High;
+                }
+
+                private static void Mutate(ref Buffer value, int count)
+                {
+                    for (var index = 0; index < count; index++)
+                    {
+                        value.Low += index + 1;
+                        value.High += value.Low;
+                    }
+                    value.Low++;
+                    value.High += value.Low;
+                }
+            }
+            """);
+
+        var result = NetWasmCompiler.Compile(new CompilerOptions(
+            assembly,
+            [assets.CoreLib],
+            "EntryPoint",
+            "Run",
+            [],
+            Target: target,
+            Optimization: FinalWasmOptimization.O3));
+
+        Assert.NotEmpty(result.ApplicationModule);
+        Assert.Equal(target, result.Layouts.Target.Target);
+        Assert.Equal(1034, ExecuteWithStandardWasiNode(result.ApplicationModule,
+            assets.Directory, 3, target, result.StaticDataEnd));
+    }
+
+    [Theory]
+    [InlineData(WasmTarget.Wasm32)]
+    [InlineData(WasmTarget.Wasm64)]
+    public void O3PromotesAddressTakenScalarAcrossReadAndWriteCalls(WasmTarget target)
+    {
+        using var assets = TestAssets.Create();
+        var assembly = assets.CompileOptimizedSource(
+            "AddressTakenScalarPromotionFixture",
+            """
+            public static class EntryPoint
+            {
+                public static int Run(int input)
+                {
+                    var value = input;
+                    var before = Read(ref value);
+                    Increment(ref value);
+                    return before * 100 + value;
+                }
+
+                private static int Read(ref int value) => value;
+
+                private static void Increment(ref int value) => value += 2;
+            }
+            """);
+
+        var result = NetWasmCompiler.Compile(new CompilerOptions(
+            assembly,
+            [assets.CoreLib],
+            "EntryPoint",
+            "Run",
+            [],
+            Target: target,
+            Optimization: FinalWasmOptimization.O3));
+
+        Assert.NotEmpty(result.ApplicationModule);
+        Assert.Equal(target, result.Layouts.Target.Target);
+        Assert.Equal(4143, ExecuteWithStandardWasiNode(result.ApplicationModule,
+            assets.Directory, 41, target, result.StaticDataEnd));
+    }
+
     [Fact]
     public void CompilerPreservesScalarReferenceLocalsArgumentsAndReturns()
     {

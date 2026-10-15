@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using NetWasm.Compiler.Core;
+using NetWasm.Compiler.Core.Types;
 using NetWasm.Compiler.Wasm.Emission;
 using NetWasm.Compiler.Wasm.Emission.Instructions;
 using NetWasm.Compiler.Wasm.Emission.Instructions.Calls;
@@ -15,7 +16,8 @@ public sealed class DirectCallEmitterTests
     [InlineData(true, "Method", true)]
     [InlineData(true, ".cctor", false)]
     [InlineData(false, "Method", false)]
-    public void StaticMethodCallsTriggerInitializationButConstructorsAndInstanceCallsDoNot(
+    [InlineData(false, ".ctor", true)]
+    public void StaticMethodsAndConstructorsTriggerInitializationButReferenceInstanceCallsDoNot(
         bool isStatic, string name, bool expected)
     {
         var program = new FakeProgram();
@@ -32,7 +34,8 @@ public sealed class DirectCallEmitterTests
             isStatic ? [] : [CliValueKind.ManagedReference], new CilOperand.Entity(EntryKey));
         var initialization = new RecordingInitialization();
         var emitter = Assert.IsAssignableFrom<ICallEmitter>(new DirectCallEmitter(layouts, layouts,
-            new ImplicitExceptionEmitter(layouts, layouts, 7), initialization));
+            new ImplicitExceptionEmitter(layouts, layouts, 7), initialization,
+            new MethodInitializationTriggerClassifier(program)));
 
         emitter.Emit(new(instruction, method, 0, isStatic ? 0 : 1),
             GetCodeWriter(instruction), CreateIndices(program));
@@ -41,7 +44,7 @@ public sealed class DirectCallEmitterTests
         if (expected)
         {
             Assert.Equal(definition.DeclaringType, initialization.Request!.TypeDefinition);
-            Assert.True(initialization.Request.IsStaticMethodCall);
+            Assert.True(initialization.Request.IsMethodInvocation);
             Assert.Equal(method.DeclaringType, initialization.Request.DeclaringType);
             Assert.Same(instruction.Target.ModuleData, initialization.Request.ModuleData);
             Assert.Equal(0, initialization.PrecedingInstructions);
@@ -350,8 +353,11 @@ public sealed class DirectCallEmitterTests
                 16,
                 [],
                 [],
-                ImmutableDictionary<int, int>.Empty.Add(0, 4),
-                []),
+                [],
+                [])
+            {
+                CallReceiverOffsets = ImmutableDictionary<int, int>.Empty.Add(0, 4),
+            },
         };
         var instruction = CreateInstructionRequest(
             CilOperation.Call,
@@ -388,7 +394,8 @@ public sealed class DirectCallEmitterTests
                 layouts,
                 layouts,
                 new ImplicitExceptionEmitter(layouts, layouts, 7),
-                new RecordingInitialization()),
+                new RecordingInitialization(),
+                new MethodInitializationTriggerClassifier(new FakeProgram())),
         }.Cast<ICallEmitter>().Single();
 
     private sealed class RecordingInitialization : IStaticInitializationEmitter

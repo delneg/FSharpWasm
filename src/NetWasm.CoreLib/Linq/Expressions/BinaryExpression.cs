@@ -96,11 +96,6 @@ namespace System.Linq.Expressions
             ArgumentNullException.ThrowIfNull(right);
             ExpressionValidation.RequiresCanRead(left, nameof(left));
             ExpressionValidation.RequiresCanRead(right, nameof(right));
-            if (method is not null && liftToNull)
-            {
-                throw new NotSupportedException(
-                    "Lifted method-backed equality is outside the NetWasm expression profile.");
-            }
             return MakeBinary(
                 ExpressionType.Equal,
                 left,
@@ -246,24 +241,22 @@ namespace System.Linq.Expressions
             }
             if (nodeType == ExpressionType.Equal)
             {
-                if (!IsEqualityCompatible(left.Type))
+                if (!ExpressionValidation.IsSupportedInterpreterEqualityOperand(
+                        left.Type))
                 {
                     throw new NotSupportedException(
                         "This built-in equality operand type is outside the NetWasm expression profile.");
                 }
-                if (liftToNull && !left.Type.IsNullable)
-                {
-                    throw new ArgumentException(
-                        "Lifted-to-null equality requires nullable operands.");
-                }
+                bool isLifted = left.Type.IsNullable;
+                bool isLiftedToNull = isLifted && liftToNull;
                 return new BinaryExpression(
                     nodeType,
                     left,
                     right,
-                    liftToNull ? typeof(bool?) : typeof(bool),
+                    isLiftedToNull ? typeof(bool?) : typeof(bool),
                     method: null,
-                    isLifted: left.Type.IsNullable,
-                    isLiftedToNull: liftToNull);
+                    isLifted: isLifted,
+                    isLiftedToNull: isLiftedToNull);
             }
             if (!IsArithmetic(left.Type))
             {
@@ -312,17 +305,6 @@ namespace System.Linq.Expressions
                 TypeCode.Int64 or TypeCode.UInt64 or
                 TypeCode.Single or TypeCode.Double or TypeCode.Decimal;
         }
-
-        private static bool IsEqualityCompatible(Type type) =>
-            type.IsNullable ||
-            !type.IsValueType ||
-            !type.IsEnum && Type.GetTypeCode(type) is
-                TypeCode.Boolean or TypeCode.Char or
-                TypeCode.SByte or TypeCode.Byte or
-                TypeCode.Int16 or TypeCode.UInt16 or
-                TypeCode.Int32 or TypeCode.UInt32 or
-                TypeCode.Int64 or TypeCode.UInt64 or
-                TypeCode.Single or TypeCode.Double;
 
         internal static bool IsArithmetic(Type type)
         {

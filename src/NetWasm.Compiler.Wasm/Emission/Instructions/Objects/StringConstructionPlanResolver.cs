@@ -35,6 +35,14 @@ internal sealed class StringConstructionPlanResolver :
                     StringConstructionSourceKind.CharacterArray,
                     1,
                     2),
+            [new SignatureKey(
+                1,
+                ParameterKind.CharacterSpan,
+                ParameterKind.None,
+                ParameterKind.None)] = new(
+                    StringConstructionSourceKind.CharacterSpan,
+                    null,
+                    null),
         }.ToFrozenDictionary();
 
     public StringConstructionPlan Resolve(
@@ -76,6 +84,10 @@ internal sealed class StringConstructionPlanResolver :
         {
             return ParameterKind.CharacterArray;
         }
+        if (IsCharacterSpan(signature.ParameterSignatureTypes[index]))
+        {
+            return ParameterKind.CharacterSpan;
+        }
         return ParameterKind.Other;
     }
 
@@ -83,11 +95,17 @@ internal sealed class StringConstructionPlanResolver :
         type.Shape == CliTypeShape.SzArray &&
         type.ElementType!.CanonicalName == "primitive:char";
 
+    private static bool IsCharacterSpan(CliTypeIdentity type) =>
+        type.Shape == CliTypeShape.GenericInstantiation &&
+        type.ElementType!.FullName == "System.ReadOnlySpan`1" &&
+        type.TypeArguments is [{ CanonicalName: "primitive:char" }];
+
     private enum ParameterKind
     {
         None,
         Integer,
         CharacterArray,
+        CharacterSpan,
         Other,
     }
 

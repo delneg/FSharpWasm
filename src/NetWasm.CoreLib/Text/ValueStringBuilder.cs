@@ -102,6 +102,20 @@ namespace System.Text
         public ReadOnlySpan<char> AsSpan(int start) => _chars.Slice(start, _pos - start);
         public ReadOnlySpan<char> AsSpan(int start, int length) => _chars.Slice(start, length);
 
+        public bool TryCopyTo(Span<char> destination, out int charsWritten)
+        {
+            if (_chars.Slice(0, _pos).TryCopyTo(destination))
+            {
+                charsWritten = _pos;
+                Dispose();
+                return true;
+            }
+
+            charsWritten = 0;
+            Dispose();
+            return false;
+        }
+
         public void Insert(int index, char value, int count)
         {
             if (_pos > _chars.Length - count)

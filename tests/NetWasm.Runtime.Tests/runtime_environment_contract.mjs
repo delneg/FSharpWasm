@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import { createRuntimeContractImports } from './runtime-contract-imports.mjs';
 
 const [modulePath, target, collectionMode = 'normal', configuration = 'debug'] =
   process.argv.slice(2);
@@ -61,12 +62,9 @@ for (const { environment, disabled: requestedDisabled, earlyAllocation } of star
     }
     return address(pointer);
   }
+  const runtimeImports = createRuntimeContractImports(target, () => instance.exports.memory);
   instance = await WebAssembly.instantiate(module, {
-    'netwasm.application.v1': {
-      'netwasm.filter': unexpected,
-      'netwasm.finalize': unexpected,
-    },
-    env: { emscripten_notify_memory_growth() {} },
+    ...runtimeImports,
     [`${prefix}|wasi:cli/environment@0.2`]: {
       'get-environment'(result) {
         ++valueReads;

@@ -25,7 +25,18 @@ internal sealed class RectangularArrayElementLoadEmitter(
         var elementType = arrayType.ElementType!;
         var arraySlot = request.Stack.Count - arrayType.ArrayRank - 1;
         addresses.Emit(new(request, arraySlot), code);
-        if (elementType.StackKind == CliValueKind.ValueType)
+        if (elementType.StackKind == CliValueKind.ValueType &&
+            request.Context.ValueLayout.DirectValueLoadOffsets.Contains(
+                request.Instruction.Offset))
+        {
+            code.Write(WasmInstruction.WithOperand(
+                WasmOpcodes.LocalSet,
+                WasmInstructionOperand.Unsigned((uint)GetStackLocal(
+                    request.Context,
+                    arraySlot,
+                    CliValueKind.ValueType))));
+        }
+        else if (elementType.StackKind == CliValueKind.ValueType)
         {
             var offset = request.Context.ValueLayout.TemporaryOffsets[
                 request.Instruction.Offset];

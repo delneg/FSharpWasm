@@ -89,7 +89,7 @@ public sealed class RootMapTests
         Assert.DoesNotContain(DelegateInvokeKey, capabilities.Methods);
         Assert.Contains(closedCaller.CanonicalName, capabilities.ConstructedMethods);
         var decisions = ThroughContract(new RootDecisionClassifier(program, program, program,
-            dispatch, new RuntimeAllocationSafepointClassifier(), program));
+            dispatch, new RuntimeAllocationSafepointClassifier(), program, new NetWasm.Compiler.Core.Types.MethodInitializationTriggerClassifier(program)));
         Assert.True(decisions.Decide(new(entry, 0, call, new HashSet<EntityKey>(), new HashSet<string>())));
     }
 
@@ -243,7 +243,7 @@ public sealed class RootMapTests
             new Dictionary<EntityKey, StructuredMethod> { [EntryKey] = entry, [AllocatorKey] = caller },
             ImmutableDictionary<string, StructuredMethod>.Empty, dispatch));
         var classifier = ThroughContract(new RootDecisionClassifier(program, program, program,
-            dispatch, new RuntimeAllocationSafepointClassifier(), program));
+            dispatch, new RuntimeAllocationSafepointClassifier(), program, new NetWasm.Compiler.Core.Types.MethodInitializationTriggerClassifier(program)));
 
         Assert.Equal(expected, capabilities.Methods.Contains(EntryKey));
         Assert.Equal(expected, capabilities.Methods.Contains(AllocatorKey));
@@ -362,26 +362,49 @@ public sealed class RootMapTests
                 null!,
                 program,
                 program,
-                new RuntimeAllocationSafepointClassifier(), program));
+                new RuntimeAllocationSafepointClassifier(),
+                EmptyIntrinsics.Instance,
+                program, new NetWasm.Compiler.Core.Types.MethodInitializationTriggerClassifier(program)));
         Assert.Throws<ArgumentNullException>(() =>
             new AllocationCapabilityAnalyzer(
                 program,
                 null!,
                 program,
-                new RuntimeAllocationSafepointClassifier(), program));
+                new RuntimeAllocationSafepointClassifier(),
+                EmptyIntrinsics.Instance,
+                program, new NetWasm.Compiler.Core.Types.MethodInitializationTriggerClassifier(program)));
         Assert.Throws<ArgumentNullException>(() =>
             new AllocationCapabilityAnalyzer(
                 program,
                 program,
                 null!,
-                new RuntimeAllocationSafepointClassifier(), program));
+                new RuntimeAllocationSafepointClassifier(),
+                EmptyIntrinsics.Instance,
+                program, new NetWasm.Compiler.Core.Types.MethodInitializationTriggerClassifier(program)));
         Assert.Throws<ArgumentNullException>(() =>
-            new AllocationCapabilityAnalyzer(program, program, program, null!, program));
+            new AllocationCapabilityAnalyzer(
+                program,
+                program,
+                program,
+                null!,
+                EmptyIntrinsics.Instance,
+                program, new NetWasm.Compiler.Core.Types.MethodInitializationTriggerClassifier(program)));
         Assert.Throws<ArgumentNullException>(() =>
             new AllocationCapabilityAnalyzer(program, program, program,
-                new RuntimeAllocationSafepointClassifier(), null!));
+                new RuntimeAllocationSafepointClassifier(), null!, program, new NetWasm.Compiler.Core.Types.MethodInitializationTriggerClassifier(program)));
+        Assert.Throws<ArgumentNullException>(() =>
+            new AllocationCapabilityAnalyzer(
+                program,
+                program,
+                program,
+                new RuntimeAllocationSafepointClassifier(),
+                EmptyIntrinsics.Instance,
+                null!, new NetWasm.Compiler.Core.Types.MethodInitializationTriggerClassifier(program)));
         Assert.Throws<ArgumentNullException>(() =>
             allocationAnalyzer.Analyze(null!));
+        Assert.Throws<ArgumentNullException>(() =>
+            new AllocationCapabilityAnalyzer(program, program, program,
+                new RuntimeAllocationSafepointClassifier(), EmptyIntrinsics.Instance, program, null!));
         Assert.Throws<ArgumentNullException>(() =>
             allocationAnalyzer.Analyze(new AllocationCapabilityAnalysisRequest(
                 null!,
@@ -392,6 +415,43 @@ public sealed class RootMapTests
                 ImmutableDictionary<EntityKey, StructuredMethod>.Empty,
                 ImmutableDictionary<string, StructuredMethod>.Empty,
                 null!)));
+    }
+
+    [Fact]
+    public void AllocationCapabilityTreatsIntrinsicManagedFallbackBodiesAsOpaque()
+    {
+        var program = new FakeProgram();
+        var intrinsic = Structured(
+            program,
+            Method(LeafKey),
+            I(0, CilOperation.LoadInt32, new CilOperand.ConstantI4(1)),
+            I(1, CilOperation.NewObject, new CilOperand.Entity(ConstructorKey)),
+            I(2, CilOperation.Pop),
+            I(3, CilOperation.Return));
+        var caller = Structured(
+            program,
+            Method(EntryKey),
+            I(0, CilOperation.Call, new CilOperand.Entity(LeafKey)),
+            I(1, CilOperation.Return));
+        var analyzer = new AllocationCapabilityAnalyzer(
+            program,
+            program,
+            program,
+            new RuntimeAllocationSafepointClassifier(),
+            new SingleIntrinsic(LeafKey),
+            program, new NetWasm.Compiler.Core.Types.MethodInitializationTriggerClassifier(program));
+
+        var capabilities = analyzer.Analyze(new AllocationCapabilityAnalysisRequest(
+            new Dictionary<EntityKey, StructuredMethod>
+            {
+                [EntryKey] = caller,
+                [LeafKey] = intrinsic,
+            },
+            ImmutableDictionary<string, StructuredMethod>.Empty,
+            ImmutableDictionary<string, DispatchCallSiteModel>.Empty));
+
+        Assert.DoesNotContain(LeafKey, capabilities.Methods);
+        Assert.DoesNotContain(EntryKey, capabilities.Methods);
     }
 
     [Fact]
@@ -587,6 +647,46 @@ public sealed class RootMapTests
     }
 
     [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(2)]
+    public void BeforeFieldInitStaticCallsDoNotAcquireTheirOwnersInitializerDependency(
+        int operandShape)
+    {
+        var program = new FakeProgram(leafHasInitializer: true, beforeFieldInit: true);
+        var owner = CliTypeIdentity.Named(Assembly, "Roots", "Cache`1", false);
+        if (operandShape == 2)
+        {
+            owner = CliTypeIdentity.GenericInstantiation(owner,
+                [CliTypeIdentity.Primitive("i4", CliValueKind.I4)]);
+        }
+        var leaf = Instance(program.GetMethod(LeafKey), owner);
+        var initializer = Instance(program.GetMethod(StaticInitializerKey), owner);
+        var initializerBody = StructuredInstance(program, initializer,
+            I(0, CilOperation.LoadInt32, new CilOperand.ConstantI4(1)),
+            I(1, CilOperation.NewObject, new CilOperand.Entity(ConstructorKey)),
+            I(2, CilOperation.Pop), I(3, CilOperation.Return));
+        var caller = Structured(program, program.GetMethod(EntryKey),
+            I(0, CilOperation.LoadNull),
+            I(1, CilOperation.Call, operandShape == 0
+                ? new CilOperand.Entity(LeafKey) : new CilOperand.MethodInstance(leaf)),
+            I(2, CilOperation.Return));
+        var direct = new Dictionary<EntityKey, StructuredMethod> { [EntryKey] = caller };
+        var constructed = new Dictionary<string, StructuredMethod>();
+        if (operandShape == 2)
+            constructed.Add(initializer.CanonicalName, initializerBody);
+        else
+            direct.Add(StaticInitializerKey, initializerBody);
+
+        var capabilities = CreateAllocationAnalyzer(program).Analyze(new(
+            direct, constructed, ImmutableDictionary<string, DispatchCallSiteModel>.Empty));
+
+        Assert.DoesNotContain(EntryKey, capabilities.Methods);
+        Assert.Empty(CreateAnalyzer(program).Analyze(new(
+            caller, capabilities.Methods, capabilities.ConstructedMethods)).Safepoints);
+    }
+
+    [Theory]
     [InlineData(false)]
     [InlineData(true)]
     public void InstanceCallsDoNotAcquireTheirOwnersInitializerDependency(bool methodInstance)
@@ -614,6 +714,42 @@ public sealed class RootMapTests
         Assert.DoesNotContain(EntryKey, capabilities.Methods);
         Assert.Empty(CreateAnalyzer(program).Analyze(new(
             caller, capabilities.Methods, capabilities.ConstructedMethods)).Safepoints);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ConstructorAndDispatchedValueCallsIncludeInitializerAllocation(bool dispatch)
+    {
+        var program = new FakeProgram(leafHasInitializer: true, leafIsStatic: false,
+            genericOwnerIsValueType: dispatch, leafName: dispatch ? "Read" : ".ctor");
+        var owner = CliTypeIdentity.Named(Assembly, "Roots", "Cache`1", dispatch);
+        var target = Instance(program.GetMethod(LeafKey), owner);
+        var declaration = Instance(program.GetMethod(ReferenceVirtualKey),
+            CliTypeIdentity.Named(Assembly, "Roots", "Object", false));
+        var call = I(1, dispatch ? CilOperation.CallVirtual : CilOperation.Call,
+            new CilOperand.MethodInstance(dispatch ? declaration : target));
+        var caller = Structured(program, program.GetMethod(EntryKey),
+            I(0, CilOperation.LoadNull), call, I(2, CilOperation.Return));
+        var initializer = Structured(program, program.GetMethod(StaticInitializerKey),
+            I(0, CilOperation.Return));
+        var sites = new Dictionary<string, DispatchCallSiteModel>();
+        if (dispatch)
+            sites.Add(caller.Method.CanonicalName + "@00000001",
+                new(caller.Method.CanonicalName, 1, declaration, [new(owner, target)]));
+        var capabilities = CreateAllocationAnalyzer(program).Analyze(new(
+            new Dictionary<EntityKey, StructuredMethod>
+            {
+                [EntryKey] = caller,
+                [StaticInitializerKey] = initializer,
+            }, ImmutableDictionary<string, StructuredMethod>.Empty, sites));
+        var decisions = ThroughContract(new RootDecisionClassifier(program, program, program,
+            sites, new RuntimeAllocationSafepointClassifier(), program,
+            new NetWasm.Compiler.Core.Types.MethodInitializationTriggerClassifier(program)));
+
+        Assert.Contains(EntryKey, capabilities.Methods);
+        Assert.True(decisions.Decide(new(caller, 0, call,
+            capabilities.Methods, capabilities.ConstructedMethods)));
     }
 
     [Fact]
@@ -679,12 +815,12 @@ public sealed class RootMapTests
                 new RootSource(RootSourceKind.EvaluationStack, 0),
             ]));
         Assert.Empty(call.ConstructorCallRoots);
-        Assert.Equal(4, map.SlotCount);
+        Assert.Equal(2, map.SlotCount);
         Assert.Equal(EntryKey, map.Method);
         Assert.Equal(0, map.Slots[new RootSource(RootSourceKind.Local, 0)]);
-        Assert.Equal(1, map.Slots[new RootSource(RootSourceKind.Local, 1)]);
-        Assert.Equal(2, map.Slots[new RootSource(RootSourceKind.EvaluationStack, 0)]);
-        Assert.Equal(3, map.Slots[new RootSource(RootSourceKind.AllocationTemporary, 0)]);
+        Assert.Equal(0, map.Slots[new RootSource(RootSourceKind.Local, 1)]);
+        Assert.Equal(1, map.Slots[new RootSource(RootSourceKind.EvaluationStack, 0)]);
+        Assert.Equal(1, map.Slots[new RootSource(RootSourceKind.AllocationTemporary, 0)]);
     }
 
     [Fact]
@@ -739,14 +875,26 @@ public sealed class RootMapTests
 
         Assert.Empty(result.Safepoints);
         Assert.Empty(result.Slots);
+        var continuations = new StackStorageContinuationAnalyzer();
+        var anchors = new StackStorageAnchorPlanner(continuations);
+        var storage = new StackStorageTypeAnalyzer(program, program, program, EmptyValueLayouts.Instance, continuations);
         Assert.Throws<ArgumentNullException>(() =>
-            new RootMapAnalyzer(null!, program, EmptyValueLayouts.Instance, CreateRootDecisions(program)));
+            new RootMapAnalyzer(null!, storage, continuations, anchors, CreateRootDecisions(program), new RootSlotAllocator()));
         Assert.Throws<ArgumentNullException>(() =>
-            new RootMapAnalyzer(program, null!, EmptyValueLayouts.Instance, CreateRootDecisions(program)));
+            new RootMapAnalyzer(EmptyValueLayouts.Instance, null!, continuations,
+                anchors, CreateRootDecisions(program), new RootSlotAllocator()));
         Assert.Throws<ArgumentNullException>(() =>
-            new RootMapAnalyzer(program, program, null!, CreateRootDecisions(program)));
+            new RootMapAnalyzer(EmptyValueLayouts.Instance, storage, null!,
+                anchors, CreateRootDecisions(program), new RootSlotAllocator()));
         Assert.Throws<ArgumentNullException>(() =>
-            new RootMapAnalyzer(program, program, EmptyValueLayouts.Instance, null!));
+            new RootMapAnalyzer(EmptyValueLayouts.Instance, storage, continuations, null!,
+                CreateRootDecisions(program), new RootSlotAllocator()));
+        Assert.Throws<ArgumentNullException>(() =>
+            new RootMapAnalyzer(EmptyValueLayouts.Instance, storage, continuations, anchors, null!,
+                new RootSlotAllocator()));
+        Assert.Throws<ArgumentNullException>(() =>
+            new RootMapAnalyzer(EmptyValueLayouts.Instance, storage, continuations,
+                anchors, CreateRootDecisions(program), null!));
         Assert.Throws<ArgumentNullException>(() => analyzer.Analyze(null!));
         Assert.Throws<ArgumentNullException>(() => analyzer.Analyze(
             new RootMapAnalysisRequest(
@@ -771,7 +919,7 @@ public sealed class RootMapTests
             program,
             program,
             null,
-            new RuntimeAllocationSafepointClassifier(), program);
+            new RuntimeAllocationSafepointClassifier(), program, new NetWasm.Compiler.Core.Types.MethodInitializationTriggerClassifier(program));
         IRootDecisionClassifierFactory factory = new RootDecisionClassifierFactory(
             new RuntimeAllocationSafepointClassifier());
 #pragma warning restore CA1859
@@ -824,22 +972,25 @@ public sealed class RootMapTests
         Assert.Throws<ArgumentNullException>(() =>
             new RootDecisionClassifier(
                 null!, program, program, null,
-                new RuntimeAllocationSafepointClassifier(), program));
+                new RuntimeAllocationSafepointClassifier(), program, new NetWasm.Compiler.Core.Types.MethodInitializationTriggerClassifier(program)));
         Assert.Throws<ArgumentNullException>(() =>
             new RootDecisionClassifier(
                 program, null!, program, null,
-                new RuntimeAllocationSafepointClassifier(), program));
+                new RuntimeAllocationSafepointClassifier(), program, new NetWasm.Compiler.Core.Types.MethodInitializationTriggerClassifier(program)));
         Assert.Throws<ArgumentNullException>(() =>
             new RootDecisionClassifier(
                 program, program, null!, null,
-                new RuntimeAllocationSafepointClassifier(), program));
+                new RuntimeAllocationSafepointClassifier(), program, new NetWasm.Compiler.Core.Types.MethodInitializationTriggerClassifier(program)));
         Assert.Throws<ArgumentNullException>(() =>
-            new RootDecisionClassifier(program, program, program, null, null!, program));
+            new RootDecisionClassifier(program, program, program, null, null!, program, new NetWasm.Compiler.Core.Types.MethodInitializationTriggerClassifier(program)));
         Assert.Throws<ArgumentNullException>(() =>
             new RootDecisionClassifier(program, program, program, null,
-                new RuntimeAllocationSafepointClassifier(), null!));
+                new RuntimeAllocationSafepointClassifier(), null!, new NetWasm.Compiler.Core.Types.MethodInitializationTriggerClassifier(program)));
         Assert.Throws<ArgumentNullException>(() =>
             new RootDecisionClassifierFactory(null!));
+        Assert.Throws<ArgumentNullException>(() =>
+            new RootDecisionClassifier(program, program, program, null,
+                new RuntimeAllocationSafepointClassifier(), program, null!));
     }
 
     [Fact]
@@ -857,7 +1008,7 @@ public sealed class RootMapTests
             program,
             program,
             null,
-            runtimeSafepoints, program);
+            runtimeSafepoints, program, new NetWasm.Compiler.Core.Types.MethodInitializationTriggerClassifier(program));
 
         Assert.True(classifier.Decide(new(
             method,
@@ -904,7 +1055,7 @@ public sealed class RootMapTests
                 program,
                 program,
                 dispatch,
-                new RuntimeAllocationSafepointClassifier(), program));
+                new RuntimeAllocationSafepointClassifier(), program, new NetWasm.Compiler.Core.Types.MethodInitializationTriggerClassifier(program)));
         var methods = new HashSet<EntityKey>();
         var instances = new HashSet<string>();
         if (allocates)
@@ -1854,7 +2005,12 @@ public sealed class RootMapTests
     public void RootMapFramesManagedAddressValuesAlreadyOnTheEvaluationStack()
     {
         var program = new FakeProgram();
-        var method = Method(EntryKey, parameters: [CliValueKind.ManagedAddress]);
+        var method = Method(EntryKey) with
+        {
+            Signature = MethodSignatureModel.Create(
+                CliTypeIdentity.FromStackKind(CliValueKind.Void),
+                CliTypeIdentity.ManagedByReference(PairType)),
+        };
         var body = Structured(
             program,
             method,
@@ -1909,10 +2065,12 @@ public sealed class RootMapTests
             I(3, CilOperation.Return));
 
         var map = new RootMapAnalyzer(
-            program,
-            program,
             EmptyValueLayouts.Instance,
-            CreateRootDecisions(program)).Analyze(new RootMapAnalysisRequest(
+            new StackStorageTypeAnalyzer(program, program, program, EmptyValueLayouts.Instance, new StackStorageContinuationAnalyzer()),
+            new StackStorageContinuationAnalyzer(),
+            new StackStorageAnchorPlanner(new StackStorageContinuationAnalyzer()),
+            CreateRootDecisions(program),
+            new RootSlotAllocator()).Analyze(new RootMapAnalysisRequest(
                 body,
                 new HashSet<EntityKey>(),
                 new HashSet<string>()));
@@ -1929,7 +2087,9 @@ public sealed class RootMapTests
             program,
             program,
             program,
-            classifier, program);
+            classifier,
+            EmptyIntrinsics.Instance,
+            program, new NetWasm.Compiler.Core.Types.MethodInitializationTriggerClassifier(program));
         var declaringType = CliTypeIdentity.Named(
             Assembly,
             "Roots",
@@ -2104,10 +2264,12 @@ public sealed class RootMapTests
         var analyzers = new IRootMapAnalyzer[]
         {
             new RootMapAnalyzer(
-                program,
-                program,
                 layouts,
-                CreateRootDecisions(program)),
+                new StackStorageTypeAnalyzer(program, program, program, layouts, new StackStorageContinuationAnalyzer()),
+                new StackStorageContinuationAnalyzer(),
+                new StackStorageAnchorPlanner(new StackStorageContinuationAnalyzer()),
+                CreateRootDecisions(program),
+                new RootSlotAllocator()),
         };
         return analyzers[0];
     }
@@ -2119,7 +2281,7 @@ public sealed class RootMapTests
             program,
             program,
             null,
-            new RuntimeAllocationSafepointClassifier(), program);
+            new RuntimeAllocationSafepointClassifier(), program, new NetWasm.Compiler.Core.Types.MethodInitializationTriggerClassifier(program));
 #pragma warning restore CA1859
 
     private static IAllocationCapabilityAnalyzer CreateAllocationAnalyzer(
@@ -2131,7 +2293,9 @@ public sealed class RootMapTests
                 program,
                 program,
                 program,
-                new RuntimeAllocationSafepointClassifier(), program),
+                new RuntimeAllocationSafepointClassifier(),
+                EmptyIntrinsics.Instance,
+                program, new NetWasm.Compiler.Core.Types.MethodInitializationTriggerClassifier(program)),
         };
         return analyzers[0];
     }
@@ -2142,6 +2306,26 @@ public sealed class RootMapTests
 
         public ValueLayout GetValueLayout(CliTypeIdentity type) =>
             new(type, sizeof(int), sizeof(int), []);
+    }
+
+    private sealed class EmptyIntrinsics : IRuntimeIntrinsicRegistry
+    {
+        public static EmptyIntrinsics Instance { get; } = new();
+
+        public bool TryGetIntrinsic(EntityKey method, out RuntimeIntrinsic intrinsic)
+        {
+            intrinsic = default;
+            return false;
+        }
+    }
+
+    private sealed class SingleIntrinsic(EntityKey key) : IRuntimeIntrinsicRegistry
+    {
+        public bool TryGetIntrinsic(EntityKey method, out RuntimeIntrinsic intrinsic)
+        {
+            intrinsic = RuntimeIntrinsic.StringEqualsOrdinal;
+            return method == key;
+        }
     }
 
     private sealed class AlwaysRuntimeSafepointClassifier :
@@ -2166,7 +2350,9 @@ public sealed class RootMapTests
 
     private sealed class FakeProgram(bool leafHasInitializer = false, bool leafIsStatic = true,
         bool delegateType = false, string delegateMethodName = "Invoke", bool delegateMethodStatic = false,
-        string? enumIntrinsicName = null, bool enumIntrinsicStatic = true, bool externalAccessor = false) :
+        string? enumIntrinsicName = null, bool enumIntrinsicStatic = true, bool externalAccessor = false,
+        bool beforeFieldInit = false, bool genericOwnerIsValueType = false,
+        string leafName = "Method") :
         ITypeRepository,
         IFieldRepository,
         IMethodRepository,
@@ -2187,7 +2373,7 @@ public sealed class RootMapTests
                     isStatic: false,
                     name: ".ctor",
                     parameters: [CliValueKind.I4]),
-                [LeafKey] = Method(LeafKey, isStatic: leafIsStatic,
+                [LeafKey] = Method(LeafKey, isStatic: leafIsStatic, name: leafName,
                     parameters: leafHasInitializer && leafIsStatic ? [CliValueKind.ManagedReference] : []) with
                 {
                     DeclaringType = leafHasInitializer ? GenericTypeKey : TypeKey,
@@ -2237,8 +2423,9 @@ public sealed class RootMapTests
         public TypeDefinitionModel GetTypeDefinition(EntityKey key) => key == EnumTypeKey
             ? new(key, "System", "Enum", false, [], [ExternalKey])
             : key == GenericTypeKey
-            ? new(key, "Roots", "Cache`1", false, [StaticFieldKey],
+            ? new(key, "Roots", "Cache`1", genericOwnerIsValueType, [StaticFieldKey],
                 [StaticInitializerKey])
+            { IsBeforeFieldInit = beforeFieldInit }
             : key == ValueTypeKey
                 ? new(key, "Roots", "Pair", true, [], [PairVirtualKey])
                 : new(key, "Roots", "Object", false, [],

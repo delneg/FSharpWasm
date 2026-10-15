@@ -38,6 +38,7 @@ public enum CilOperation
     CopyBlock,
     InitializeBlock,
     InitializeArrayData,
+    CreateReadOnlySpanFromRva,
     DefaultValue,
     Add,
     Subtract,
@@ -92,10 +93,6 @@ public enum CilOperation
     Switch,
     LoadFunction,
     LoadVirtualFunction,
-    DelegateCombine,
-    DelegateRemove,
-    DelegateEqual,
-    DelegateNotEqual,
     CompareExchange,
     MaterializeType,
     GetObjectType,
@@ -135,6 +132,7 @@ public enum CilOperation
     MaterializeMethod,
     MaterializeField,
     GetTypeFacts,
+    LoadStaticDataElement,
 }
 
 public abstract record CilOperand
@@ -164,6 +162,11 @@ public abstract record CilOperand
         bool Native) : CilOperand;
     public sealed record UserString(string Value) : CilOperand;
     public sealed record ByteData(ImmutableArray<byte> Value) : CilOperand;
+    public sealed record ReadOnlySpanData(
+        FieldInstanceModel Field,
+        CliTypeIdentity SpanType,
+        CliTypeIdentity ElementType,
+        int ElementCount) : CilOperand;
 }
 
 public sealed record CilInstruction(
@@ -183,6 +186,8 @@ public sealed record CilMethodBody(
     ImmutableArray<CliValueKind> Locals,
     ImmutableArray<CilInstruction> Instructions)
 {
+    public ArrayBoundsProof? ArrayBoundsProof { get; init; }
+
     public MethodInstanceModel? MethodInstance { get; init; }
 
     public ImmutableArray<CliTypeIdentity> LocalSignatureTypes { get; init; } =

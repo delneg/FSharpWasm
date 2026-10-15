@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using NetWasm.Compiler;
+using NetWasm.Compiler.ComponentModel;
 using NetWasm.Compiler.Core;
 using NetWasm.Compiler.Diagnostics;
 
@@ -27,7 +28,8 @@ internal sealed record CompilationRequest(
     string? IntermediateOutputPath = null,
     string? RuntimeLayoutPath = null,
     string? InteropManifestPath = null,
-    bool StructuredDiagnostics = false);
+    bool StructuredDiagnostics = false,
+    FinalWasmOptimization Optimization = FinalWasmOptimization.Oz);
 
 internal sealed record CompilationResponse(
     ImmutableDictionary<int, string> TypeNames,

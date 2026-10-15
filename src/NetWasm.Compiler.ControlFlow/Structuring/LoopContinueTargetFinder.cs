@@ -6,9 +6,12 @@ using NetWasm.Compiler.Core;
 
 namespace NetWasm.Compiler.ControlFlow.Structuring;
 
-internal sealed class LoopContinueTargetFinder(ICommonReachableBlockFinder joins) : ILoopContinueTargetFinder
+internal sealed class LoopContinueTargetFinder(
+    ICommonReachableBlockFinder joins,
+    IReachableBlockFinder reachableBlocks) : ILoopContinueTargetFinder
 {
     private readonly ICommonReachableBlockFinder _joins = joins ?? throw new ArgumentNullException(nameof(joins));
+    private readonly IReachableBlockFinder _reachableBlocks = reachableBlocks ?? throw new ArgumentNullException(nameof(reachableBlocks));
 
     public int Find(ControlFlowStructuringState state,
         ControlFlowGraph graph,
@@ -29,9 +32,24 @@ internal sealed class LoopContinueTargetFinder(ICommonReachableBlockFinder joins
         {
             return header;
         }
-        return _joins.Find(state,
+        var candidate = _joins.Find(state,
             internalTargets,
             header,
             component).GetValueOrDefault(header);
+        if (candidate == header)
+        {
+            return header;
+        }
+
+        // A shared exception-leave destination need not be a shared latch for
+        // ordinary back edges. A bypass would re-enter the loop header while
+        // structuring its body, instead of reaching the selected continue point.
+        var stops = ImmutableHashSet.Create(candidate);
+        return state.ContinuationGraph.Successors[header]
+            .Where(component.Contains)
+            .Any(start => _reachableBlocks.Find(state.ContinuationGraph, start, stops, component)
+                .Contains(header))
+            ? header
+            : candidate;
     }
 }

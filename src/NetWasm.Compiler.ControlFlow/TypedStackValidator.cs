@@ -85,6 +85,10 @@ public sealed class TypedStackValidator(
         void Seed(int offset, ImmutableArray<CliValueKind> stack)
         {
             var block = graph.GetBlockAtOffset(offset).Index;
+            if (!graph.ReachableBlocks.Contains(block))
+            {
+                return;
+            }
             if (entryStacks.TryGetValue(block, out var existing))
             {
                 if (!existing.AsSpan().SequenceEqual(stack.AsSpan()))
@@ -284,6 +288,22 @@ public sealed class TypedStackValidator(
                 }
                 PopExpected(body, instruction, stack, CliValueKind.ManagedReference);
                 return;
+            case CilOperation.CreateReadOnlySpanFromRva:
+                if (instruction.Operand is not CilOperand.ReadOnlySpanData)
+                {
+                    throw Invalid(body, instruction, "RVA span creation metadata is missing");
+                }
+                stack.Add(CliValueKind.ValueType);
+                return;
+            case CilOperation.LoadStaticDataElement:
+                var staticData = instruction.Operand as CilOperand.ReadOnlySpanData
+                    ?? throw Invalid(
+                        body,
+                        instruction,
+                        "static data element metadata is missing");
+                PopExpected(body, instruction, stack, CliValueKind.I4);
+                stack.Add(staticData.ElementType.StackKind);
+                return;
             case CilOperation.DefaultValue:
                 stack.Add(GetSignatureType(instruction).StackKind);
                 return;
@@ -356,18 +376,6 @@ public sealed class TypedStackValidator(
                 return;
             case CilOperation.LoadVirtualFunction:
                 ApplyLoadVirtualFunction(body, instruction, stack);
-                return;
-            case CilOperation.DelegateCombine:
-            case CilOperation.DelegateRemove:
-                PopExpected(body, instruction, stack, CliValueKind.ManagedReference);
-                PopExpected(body, instruction, stack, CliValueKind.ManagedReference);
-                stack.Add(CliValueKind.ManagedReference);
-                return;
-            case CilOperation.DelegateEqual:
-            case CilOperation.DelegateNotEqual:
-                PopExpected(body, instruction, stack, CliValueKind.ManagedReference);
-                PopExpected(body, instruction, stack, CliValueKind.ManagedReference);
-                stack.Add(CliValueKind.I4);
                 return;
             case CilOperation.CompareExchange:
                 PopExpected(body, instruction, stack, GetSignatureType(instruction).StackKind);
@@ -790,9 +798,17 @@ public sealed class TypedStackValidator(
         CilInstruction instruction)
     {
         var index = body.Instructions.IndexOf(instruction);
-        if (body.Instructions[index + 1].Operation is not (
+        var next = body.Instructions[index + 1];
+        // ECMA-335 III.2.3 also permits the runtime-provided array Address
+        // call before it is lowered to our rectangular-address operation.
+        var arrayAddressCall = next.Operation == CilOperation.Call &&
+            next.Operand is CilOperand.MethodInstance method &&
+            method.Value.DeclaringType.Shape == CliTypeShape.Array &&
+            method.Value.Definition.Name == "Address" &&
+            !method.Value.Definition.IsStatic;
+        if (next.Operation is not (
                 CilOperation.LoadArrayElementAddress or
-                CilOperation.LoadRectangularArrayElementAddress))
+                CilOperation.LoadRectangularArrayElementAddress) && !arrayAddressCall)
         {
             throw Invalid(
                 body,

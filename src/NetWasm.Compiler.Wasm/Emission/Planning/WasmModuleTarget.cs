@@ -7,6 +7,7 @@ using NetWasm.Compiler.Core;
 using NetWasm.Compiler.Core.IntermediateRepresentation.Calls;
 using NetWasm.Compiler.Core.IntermediateRepresentation.Delegates;
 using NetWasm.Compiler.Core.IntermediateRepresentation.Members;
+using NetWasm.Compiler.Wasm.Emission.Methods;
 
 namespace NetWasm.Compiler.Wasm.Emission.Planning;
 
@@ -29,15 +30,24 @@ internal sealed record WasmModuleTarget(
         Request.JavaScriptAsyncBindings,
         Plan.StackTraceMethods,
         Plan.RuntimeImportSelection,
-        Plan.DelegateRemoveHelperIndex,
-        Plan.DelegateEqualityHelperIndex,
+        Plan.Finalization,
         Request.ManagedCallSites,
         Request.ObjectArrayDelegateAdapters,
         Request.MemberExecution,
-        Request.CollectManagedMethodMemoryMetrics)
+        Request.CollectManagedMethodMemoryMetrics,
+        Request.EnableAddressTakenAggregatePromotion)
     {
         NativeImports = Plan.NativeImports,
         NativeCallbacks = Plan.NativeCallbacks,
+        ManagedByRefEffects = Request.ManagedByRefEffects,
+        EnableBranchValueFramePlacement = Request.EnableBranchValueFramePlacement,
+        EnableArrayMetadataCaching = Request.EnableArrayMetadataCaching,
+        EnableScalarCallPreservation = Request.EnableScalarCallPreservation,
+        RootMaps = Request.Methods.Values.Select(method =>
+                (ManagedMethodBodyKey.Resolve(method), Request.RootMaps[method.Header.Method.Key]))
+            .Concat(Request.ConstructedMethods.Select(pair =>
+                (ManagedMethodBodyKey.Resolve(pair.Value), Request.ConstructedRootMaps[pair.Key])))
+            .ToImmutableDictionary(item => item.Item1, item => item.Item2, StringComparer.Ordinal),
     };
 }
 
@@ -54,16 +64,23 @@ internal sealed record InstructionModuleTarget(
     IReadOnlyDictionary<EntityKey, JavaScriptAsyncMethodBinding> JavaScriptAsyncBindings,
     StackTraceMethodPlan StackTraceMethods,
     RuntimeImportSelection RuntimeImportSelection,
-    OptionalFunctionIndex DelegateRemoveHelperIndex,
-    OptionalFunctionIndex DelegateEqualityHelperIndex,
+    FinalizationPlan Finalization,
     ImmutableDictionary<ManagedCallSiteKey, ManagedCallSite> ManagedCallSites,
     ImmutableDictionary<string, ObjectArrayDelegateAdapterPlan>
         ObjectArrayDelegateAdapters,
     MemberExecutionPlan MemberExecution,
-    bool CollectManagedMethodMemoryMetrics = false)
+    bool CollectManagedMethodMemoryMetrics = false,
+    bool EnableAddressTakenAggregatePromotion = false)
 {
+    public bool EnableBranchValueFramePlacement { get; init; }
+    public bool EnableArrayMetadataCaching { get; init; }
+    public bool EnableScalarCallPreservation { get; init; }
     public NativeImportPlan NativeImports { get; init; } = NativeImportPlan.Empty;
     public NativeCallbackPlan NativeCallbacks { get; init; } = NativeCallbackPlan.Empty;
+    public IReadOnlyDictionary<string, MethodRootMap> RootMaps { get; init; } =
+        ImmutableDictionary<string, MethodRootMap>.Empty;
+    public ManagedByRefEffects ManagedByRefEffects { get; init; } =
+        ManagedByRefEffects.Empty;
 }
 
 internal interface IWasmModuleTargetFactory

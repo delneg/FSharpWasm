@@ -7,6 +7,10 @@ internal sealed class ReachableProgramBuilderFactory : IReachableProgramBuilderF
 {
     public IReachableProgramBuilder Create(
         IAllocationCapabilityAnalyzer allocationCapabilities,
+        IManagedByRefEffectAnalyzer byRefEffects,
         IDelegateBindingPlanner delegateBindings) =>
-        new ReachableProgramBuilder(allocationCapabilities, delegateBindings);
+        new ReachableProgramBuilder(
+            allocationCapabilities,
+            byRefEffects,
+            delegateBindings);
 }

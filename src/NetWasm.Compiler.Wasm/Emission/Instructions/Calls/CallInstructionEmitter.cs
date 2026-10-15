@@ -4,13 +4,17 @@ using NetWasm.Compiler.Wasm.Encoding;
 using NetWasm.Compiler.Wasm.Emission.Planning;
 
 using NetWasm.Compiler.Wasm.Emission.Instructions.Calls.ManagedCallSites;
+using NetWasm.Compiler.Wasm.Emission.AddressTakenValues;
 
 namespace NetWasm.Compiler.Wasm.Emission.Instructions.Calls;
 
 internal sealed class CallInstructionEmitter(
     IManagedCallSiteResolver callSites,
     ICallEmissionKindResolver kinds,
-    ICallEmissionRegistry emitters) : InstructionCommandProvider
+    ICallEmissionRegistry emitters,
+    IAddressTakenScalarSynchronizationEmitter addressTakenScalarSynchronization,
+    IAddressTakenAggregateSynchronizationEmitter addressTakenAggregateSynchronization) :
+    InstructionCommandProvider
 {
     public override ImmutableArray<InstructionCommand> Commands =>
     [
@@ -36,7 +40,43 @@ internal sealed class CallInstructionEmitter(
             instruction.Stack.Count - consumed,
             consumed,
             callSite.ConstrainedType);
+        instruction.Context.AddressTakenScalarPromotions.Plan.CallSynchronizations
+            .TryGetValue(instruction.Instruction.Offset, out var scalarSynchronization);
+        instruction.Context.AddressTakenAggregatePromotions.Plan.CallSynchronizations
+            .TryGetValue(instruction.Instruction.Offset, out var aggregateSynchronization);
+        if (scalarSynchronization is not null)
+        {
+            addressTakenScalarSynchronization.Emit(
+                instruction,
+                code,
+                scalarSynchronization,
+                AddressTakenValueSynchronizationPhase.BeforeCall);
+        }
+        if (aggregateSynchronization is not null)
+        {
+            addressTakenAggregateSynchronization.Emit(
+                instruction,
+                code,
+                aggregateSynchronization,
+                AddressTakenValueSynchronizationPhase.BeforeCall);
+        }
         emitters.Get(kinds.Resolve(request, code)).Emit(request, code, functionIndices);
+        if (aggregateSynchronization is not null)
+        {
+            addressTakenAggregateSynchronization.Emit(
+                instruction,
+                code,
+                aggregateSynchronization,
+                AddressTakenValueSynchronizationPhase.AfterCall);
+        }
+        if (scalarSynchronization is not null)
+        {
+            addressTakenScalarSynchronization.Emit(
+                instruction,
+                code,
+                scalarSynchronization,
+                AddressTakenValueSynchronizationPhase.AfterCall);
+        }
     }
 
 }

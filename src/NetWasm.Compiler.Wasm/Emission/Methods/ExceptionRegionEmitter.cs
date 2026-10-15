@@ -38,6 +38,12 @@ internal sealed class ExceptionRegionEmitter(
                 $"structured exception group '{region.Group.Value}' is not defined");
         }
 
+        var ownsDefinition = context.EmittedExceptionGroups.Add(group.Id);
+        context = context with
+        {
+            RecordOriginalBlockOwnership = context.RecordOriginalBlockOwnership && ownsDefinition,
+        };
+
         code.Write(WasmInstruction.WithOperand(
             WasmOpcodes.I32Constant,
             WasmInstructionOperand.Signed(0)));

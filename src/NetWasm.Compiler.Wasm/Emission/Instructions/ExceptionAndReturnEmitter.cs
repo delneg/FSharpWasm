@@ -14,7 +14,8 @@ internal sealed class ExceptionAndReturnEmitter(
     IImplicitExceptionEmitter exceptions,
     IMethodFrameExitEmitter methodFrameExits,
     IFilterEnvironmentRootEmitter filterEnvironmentRoots,
-    IAddressInstructionEmitter addresses) : InstructionCommandProvider
+    IAddressInstructionEmitter addresses,
+    IValueCopyEmitter valueCopies) : InstructionCommandProvider
 {
     public override ImmutableArray<InstructionCommand> Commands =>
     [
@@ -98,13 +99,19 @@ internal sealed class ExceptionAndReturnEmitter(
         {
             var returnLayout = values.GetValueLayout(
                 returnSignature.ReturnSignatureType);
-            code.Write(WasmInstruction.WithOperand(WasmOpcodes.LocalGet, WasmInstructionOperand.Unsigned((uint)(0))));
-            code.Write(WasmInstruction.WithOperand(WasmOpcodes.LocalGet, WasmInstructionOperand.Unsigned((uint)(GetStackLocal(
+            var source = GetStackLocal(
                 request.Context,
                 0,
-                CliValueKind.ValueType)))));
-            addresses.Emit(code, returnLayout.Size);
-            code.Write(WasmInstruction.WithOperand(WasmOpcodes.Prefixed, WasmInstructionOperand.PrefixedTriple(WasmOpcodes.MemoryCopy, 0, 0)));
+                CliValueKind.ValueType);
+            code.Write(WasmInstruction.WithOperand(WasmOpcodes.LocalGet, WasmInstructionOperand.Unsigned((uint)(0))));
+            valueCopies.Emit(
+                code,
+                0,
+                returnLayout.Size,
+                returnLayout.Alignment,
+                writer => writer.Write(WasmInstruction.WithOperand(
+                    WasmOpcodes.LocalGet,
+                    WasmInstructionOperand.Unsigned((uint)source))));
         }
         methodFrameExits.Emit(code, request.Context);
         if (returnSignature.ReturnType != CliValueKind.Void &&

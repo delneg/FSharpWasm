@@ -32,6 +32,9 @@ public sealed record ReachableProgram(
 
     public ImmutableArray<ManagedDelegateBinding> DelegateBindings { get; init; } = [];
 
+    public ManagedByRefEffects ManagedByRefEffects { get; init; } =
+        ManagedByRefEffects.Empty;
+
     public ImmutableDictionary<string, ManagedMethodBody> ConstructedMethods { get; init; } =
         [];
 

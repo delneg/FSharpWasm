@@ -8,9 +8,15 @@ internal sealed class GcWaitForPendingFinalizersIntrinsicEmitter(IRuntimeImportR
 {
     public void Emit(RuntimeIntrinsicEmissionRequest request, IWasmInstructionWriter code)
     {
+        if (!request.Instruction.Target.RuntimeImportSelection.IncludeFinalization)
+        {
+            return;
+        }
+
         code.Write(WasmInstruction.WithOperand(
             WasmOpcodes.Call,
             WasmInstructionOperand.Unsigned((uint)runtimeImports.Resolve(
-                RuntimeImportSymbol.GcWaitForPendingFinalizers))));
+                RuntimeImportSymbol.GcWaitForPendingFinalizers,
+                request.Instruction.Target.RuntimeImportSelection))));
     }
 }

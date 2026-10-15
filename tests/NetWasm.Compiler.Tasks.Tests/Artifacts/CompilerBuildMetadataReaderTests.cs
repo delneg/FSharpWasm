@@ -12,7 +12,7 @@ public sealed class CompilerBuildMetadataReaderTests
             {
               "schemaVersion": 1,
               "target": "wasm64",
-              "runtimeFeatures": ["ephemeron-handles", "local-time", "structured-command-diagnostics"],
+              "runtimeFeatures": ["ephemeron-handles", "finalization", "local-time", "structured-command-diagnostics", "weak-handles"],
               "functionImports": [
                 {
                   "module": "host",
@@ -30,8 +30,10 @@ public sealed class CompilerBuildMetadataReaderTests
         Assert.Equal("wasm64", metadata.Target);
         Assert.Equal([
             NetWasmRuntimeFeatureIds.EphemeronHandles,
+            NetWasmRuntimeFeatureIds.Finalization,
             NetWasmRuntimeFeatureIds.LocalTime,
             NetWasmRuntimeFeatureIds.StructuredCommandDiagnostics,
+            NetWasmRuntimeFeatureIds.WeakHandles,
         ], metadata.RuntimeFeatures.ToArray());
         var import = Assert.Single(metadata.FunctionImports);
         Assert.Equal("host", import.Module);

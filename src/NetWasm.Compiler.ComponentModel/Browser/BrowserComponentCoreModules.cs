@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
+using NetWasm.Compiler.ComponentModel.Inlining;
+using NetWasm.Compiler.ComponentModel.Optimization;
 using NetWasm.Compiler.ComponentModel.ManagedExecutables;
 using NetWasm.Compiler.Core.ManagedExecutables;
 
@@ -16,7 +18,10 @@ public static class BrowserComponentCoreModules
         ArgumentNullException.ThrowIfNull(workspace);
         ArgumentNullException.ThrowIfNull(request.Target);
         var paths = ValidatePaths(request, workspace);
-        var capture = new BrowserComponentLinkPlanCapture(paths);
+        var capture = new BrowserComponentLinkPlanCapture(
+            paths,
+            request.ApplicationModulePath,
+            request.RuntimeModulePath);
         var modules = new BrowserWasmTextModuleCapture(capture);
         var tools = new BrowserBinaryenInvocationCapture(capture);
         var adapters = new ManagedExecutableComponentAdapterWriter(
@@ -41,14 +46,16 @@ public static class BrowserComponentCoreModules
             new BrowserComponentExportPruningCapture(capture),
             new ComponentCoreModuleOptimizer(tools, new BrowserPlannedFileExistence(capture),
                 new WasmCoreModuleValidator(new BrowserCoreModuleValidationOperationCapture(capture)),
-                new BrowserFileCopyCapture(capture)));
+                new BrowserInlineAnnotationCapture(capture)),
+            new WasmOptimizationSettingsResolver(), new BrowserInlineAnnotationCapture(capture));
         execution.Run(request, new ComponentCoreModuleWorkspace(
             new BrowserCleanupPathCapture(capture),
             workspace.EnvironmentModulePath,
             workspace.HostModulePath,
             workspace.ManagedExecutableAdapterModulePath,
             workspace.MergedModulePath,
-            workspace.SanitizedModulePath));
+            workspace.SanitizedModulePath,
+            workspace.SanitizedRuntimeModulePath));
         return capture.Snapshot();
     }
 
@@ -65,13 +72,13 @@ public static class BrowserComponentCoreModules
         var ownedPaths = ImmutableHashSet.Create(StringComparer.Ordinal,
             workspace.EnvironmentModulePath, workspace.HostModulePath,
             workspace.ManagedExecutableAdapterModulePath, workspace.MergedModulePath,
-            workspace.SanitizedModulePath);
+            workspace.SanitizedModulePath, workspace.SanitizedRuntimeModulePath);
         var allPaths = new[]
         {
             request.ApplicationModulePath, request.RuntimeModulePath, request.OutputPath,
             workspace.EnvironmentModulePath, workspace.HostModulePath,
             workspace.ManagedExecutableAdapterModulePath, workspace.MergedModulePath,
-            workspace.SanitizedModulePath,
+            workspace.SanitizedModulePath, workspace.SanitizedRuntimeModulePath,
         };
         var unique = new HashSet<string>(StringComparer.Ordinal);
         foreach (var path in allPaths)

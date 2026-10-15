@@ -11,6 +11,7 @@ namespace NetWasm.Compiler.Analysis;
 
 internal sealed class ReachableProgramBuilder(
     IAllocationCapabilityAnalyzer allocationCapabilities,
+    IManagedByRefEffectAnalyzer byRefEffects,
     IDelegateBindingPlanner delegateBindings) :
     IReachableProgramBuilder
 {
@@ -39,6 +40,11 @@ internal sealed class ReachableProgramBuilder(
 
         var capabilities = allocationCapabilities.Analyze(
             new AllocationCapabilityAnalysisRequest(
+                methods,
+                constructedMethods,
+                dispatchCallSites));
+        var managedByRefEffects = byRefEffects.Analyze(
+            new ManagedByRefEffectAnalysisRequest(
                 methods,
                 constructedMethods,
                 dispatchCallSites));
@@ -126,6 +132,7 @@ internal sealed class ReachableProgramBuilder(
             JavaScriptAsyncBindings = state.JavaScriptAsyncBindings,
             ManagedCallSites = state.ManagedCallSites,
             DelegateBindings = plannedDelegateBindings,
+            ManagedByRefEffects = managedByRefEffects,
             DelegateTypes = [.. state.AllocatedTypes
                 .Where(delegateTypes.Recognize)
                 .OrderBy(type => type.CanonicalName, StringComparer.Ordinal)],

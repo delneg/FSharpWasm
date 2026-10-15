@@ -24,8 +24,11 @@ internal sealed class ControlFlowStructuringStateBuilder(
     public ControlFlowStructuringState Build(ValidatedControlFlowGraph validated)
     {
         ArgumentNullException.ThrowIfNull(validated);
-        var state = new ControlFlowStructuringState(validated);
         var discoveryGraph = _exceptionContinuations.Project(validated.Graph);
+        var state = new ControlFlowStructuringState(validated)
+        {
+            ContinuationGraph = discoveryGraph,
+        };
         var domains = _domains.Find(discoveryGraph);
         var naturalLoops = domains
             .SelectMany(domain => FindNaturalLoops(discoveryGraph, domain)
@@ -47,18 +50,7 @@ internal sealed class ControlFlowStructuringStateBuilder(
                 }
                 continue;
             }
-            if (loop.Component.SetEquals(candidate.Component) ||
-                !validated.Graph.MethodBody.ExceptionRegions.IsEmpty)
-            {
-                state.LoopsByHeader.Add(loop.Header, loop);
-            }
-            else
-            {
-                foreach (var node in candidate.Component)
-                {
-                    state.DispatchersByNode.TryAdd(node, candidate.Component);
-                }
-            }
+            state.LoopsByHeader.Add(loop.Header, loop);
         }
         foreach (var domain in domains)
         {

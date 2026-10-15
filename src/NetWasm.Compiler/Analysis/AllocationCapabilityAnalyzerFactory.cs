@@ -1,5 +1,6 @@
 using System;
 using NetWasm.Compiler.Core;
+using NetWasm.Compiler.Core.Types;
 using NetWasm.Compiler.GarbageCollection;
 
 namespace NetWasm.Compiler.Analysis;
@@ -15,11 +16,14 @@ internal sealed class AllocationCapabilityAnalyzerFactory(
         ITypeRepository types,
         IFieldRepository fields,
         IMethodRepository methods,
+        IRuntimeIntrinsicRegistry intrinsics,
         ITypeClassifier typeClassifier) =>
         new AllocationCapabilityAnalyzer(
             types,
             fields,
             methods,
             _runtimeSafepoints,
-            typeClassifier);
+            intrinsics,
+            typeClassifier,
+            new MethodInitializationTriggerClassifier(types));
 }

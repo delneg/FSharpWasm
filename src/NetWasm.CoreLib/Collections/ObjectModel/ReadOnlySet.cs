@@ -1,112 +1,74 @@
-// Portions derived from dotnet/runtime System.Private.CoreLib's ReadOnlySet<T>
-// at commit 811225a482702af7ecc35d817966bc70b88a3a23.
-// Licensed to the .NET Foundation under one or more agreements; the .NET
-// Foundation licenses this file to you under the MIT license.
+// Licensed to the .NET Foundation under one or more agreements.
+// The .NET Foundation licenses this file to you under the MIT license.
+// Adapted from dotnet/runtime at commit
+// 811225a482702af7ecc35d817966bc70b88a3a23.
+
+using System.Collections.Generic;
+using System.Runtime.CompilerServices;
 
 namespace System.Collections.ObjectModel
 {
-    public class ReadOnlySet<T> : Collections.Generic.ICollection<T>,
-        Collections.Generic.IEnumerable<T>, Collections.Generic.IReadOnlyCollection<T>,
-        Collections.Generic.IReadOnlySet<T>, Collections.Generic.ISet<T>,
-        Collections.ICollection, Collections.IEnumerable
+    [CollectionBuilder(typeof(ReadOnlyCollection), "CreateSet")]
+    public class ReadOnlySet<T> : IReadOnlySet<T>, ISet<T>, ICollection
     {
-        private readonly Collections.Generic.ISet<T> _set;
+        private readonly ISet<T> _set;
 
-        public ReadOnlySet(Collections.Generic.ISet<T> set)
+        public ReadOnlySet(ISet<T> set)
         {
-            _set = set ?? throw new ArgumentNullException();
+            ArgumentNullException.ThrowIfNull(set);
+            _set = set;
         }
 
-        public static ReadOnlySet<T> Empty { get; } =
-            new(CreateMutableSet());
+        public static ReadOnlySet<T> Empty { get; } = new ReadOnlySet<T>(new HashSet<T>());
 
-        protected Collections.Generic.ISet<T> Set => _set;
-        public int Count { get => _set.Count; }
-        bool Collections.Generic.ICollection<T>.IsReadOnly => true;
+        protected ISet<T> Set => _set;
+
+        public int Count => _set.Count;
+
+        public IEnumerator<T> GetEnumerator() =>
+            _set.Count == 0 ? ((IEnumerable<T>)[]).GetEnumerator() :
+            _set.GetEnumerator();
+
+        IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
+
         public bool Contains(T item) => _set.Contains(item);
-        public void CopyTo(T[] array, int index) => _set.CopyTo(array, index);
-        public Collections.Generic.IEnumerator<T> GetEnumerator() => _set.GetEnumerator();
-        Collections.IEnumerator Collections.IEnumerable.GetEnumerator() => GetEnumerator();
 
-        bool Collections.Generic.ISet<T>.Add(T item) => ThrowReadOnly<bool>();
-        void Collections.Generic.ICollection<T>.Add(T item) => ThrowReadOnly();
-        void Collections.Generic.ICollection<T>.Clear() => ThrowReadOnly();
-        bool Collections.Generic.ICollection<T>.Remove(T item) => ThrowReadOnly<bool>();
-        void Collections.Generic.ISet<T>.UnionWith(Collections.Generic.IEnumerable<T> other) => ThrowReadOnly();
-        void Collections.Generic.ISet<T>.IntersectWith(Collections.Generic.IEnumerable<T> other) => ThrowReadOnly();
-        void Collections.Generic.ISet<T>.ExceptWith(Collections.Generic.IEnumerable<T> other) => ThrowReadOnly();
-        void Collections.Generic.ISet<T>.SymmetricExceptWith(Collections.Generic.IEnumerable<T> other) => ThrowReadOnly();
+        public bool IsProperSubsetOf(IEnumerable<T> other) => _set.IsProperSubsetOf(other);
 
-        public bool IsSubsetOf(Collections.Generic.IEnumerable<T> other) => _set.IsSubsetOf(other);
-        public bool IsSupersetOf(Collections.Generic.IEnumerable<T> other) => _set.IsSupersetOf(other);
-        public bool IsProperSupersetOf(Collections.Generic.IEnumerable<T> other) => _set.IsProperSupersetOf(other);
-        public bool IsProperSubsetOf(Collections.Generic.IEnumerable<T> other) => _set.IsProperSubsetOf(other);
-        public bool Overlaps(Collections.Generic.IEnumerable<T> other) => _set.Overlaps(other);
-        public bool SetEquals(Collections.Generic.IEnumerable<T> other) => _set.SetEquals(other);
+        public bool IsProperSupersetOf(IEnumerable<T> other) => _set.IsProperSupersetOf(other);
 
-        bool Collections.ICollection.IsSynchronized => false;
-        object Collections.ICollection.SyncRoot => this;
-        void Collections.ICollection.CopyTo(Array array, int index)
-        {
-            if (array is T[] typed)
-            {
-                ((Collections.Generic.ICollection<T>)this).CopyTo(typed, index);
-                return;
-            }
-            throw new ArgumentException();
-        }
+        public bool IsSubsetOf(IEnumerable<T> other) => _set.IsSubsetOf(other);
 
-        private static void ThrowReadOnly() => throw new NotSupportedException();
-        private static TResult ThrowReadOnly<TResult>() => throw new NotSupportedException();
+        public bool IsSupersetOf(IEnumerable<T> other) => _set.IsSupersetOf(other);
 
-        internal static Collections.Generic.ISet<T> CreateMutableSet() => new MutableSet();
+        public bool Overlaps(IEnumerable<T> other) => _set.Overlaps(other);
 
-        private sealed class MutableSet : Collections.Generic.ISet<T>
-        {
-            private readonly Collections.Generic.List<T> _items = new();
-            public int Count => _items.Count;
-            public bool IsReadOnly => false;
-            public bool Add(T item)
-            {
-                if (_items.Contains(item)) return false;
-                _items.Add(item);
-                return true;
-            }
-            void Collections.Generic.ICollection<T>.Add(T item) => Add(item);
-            public void Clear() => _items.Clear();
-            public bool Contains(T item) => _items.Contains(item);
-            public void CopyTo(T[] array, int index) => _items.CopyTo(array, index);
-            public bool Remove(T item) => _items.Remove(item);
-            public Collections.Generic.IEnumerator<T> GetEnumerator() => _items.GetEnumerator();
-            Collections.IEnumerator Collections.IEnumerable.GetEnumerator() => GetEnumerator();
-            public void UnionWith(Collections.Generic.IEnumerable<T> other) { foreach (var item in other) Add(item); }
-            public void IntersectWith(Collections.Generic.IEnumerable<T> other)
-            {
-                var keep = new Collections.Generic.List<T>();
-                foreach (var item in other) if (Contains(item)) keep.Add(item);
-                _items.Clear(); foreach (var item in keep) _items.Add(item);
-            }
-            public void ExceptWith(Collections.Generic.IEnumerable<T> other) { foreach (var item in other) Remove(item); }
-            public void SymmetricExceptWith(Collections.Generic.IEnumerable<T> other)
-            {
-                foreach (var item in other) if (!Remove(item)) Add(item);
-            }
-            public bool IsSubsetOf(Collections.Generic.IEnumerable<T> other)
-            {
-                var candidate = new MutableSet(); candidate.UnionWith(other);
-                foreach (var item in _items) if (!candidate.Contains(item)) return false;
-                return true;
-            }
-            public bool IsSupersetOf(Collections.Generic.IEnumerable<T> other)
-            { foreach (var item in other) if (!Contains(item)) return false; return true; }
-            public bool IsProperSupersetOf(Collections.Generic.IEnumerable<T> other)
-            { var candidate = new MutableSet(); candidate.UnionWith(other); return Count > candidate.Count && IsSupersetOf(candidate); }
-            public bool IsProperSubsetOf(Collections.Generic.IEnumerable<T> other)
-            { var candidate = new MutableSet(); candidate.UnionWith(other); return Count < candidate.Count && IsSubsetOf(candidate); }
-            public bool Overlaps(Collections.Generic.IEnumerable<T> other)
-            { foreach (var item in other) if (Contains(item)) return true; return false; }
-            public bool SetEquals(Collections.Generic.IEnumerable<T> other)
-            { var candidate = new MutableSet(); candidate.UnionWith(other); return Count == candidate.Count && IsSubsetOf(candidate); }
-        }
+        public bool SetEquals(IEnumerable<T> other) => _set.SetEquals(other);
+
+        void ICollection<T>.CopyTo(T[] array, int arrayIndex) => _set.CopyTo(array, arrayIndex);
+
+        void ICollection.CopyTo(Array array, int index) => CollectionHelpers.CopyTo(_set, array, index);
+
+        bool ICollection<T>.IsReadOnly => true;
+
+        bool ICollection.IsSynchronized => false;
+
+        object ICollection.SyncRoot => _set is ICollection c ? c.SyncRoot : this;
+
+        bool ISet<T>.Add(T item) => throw new NotSupportedException();
+
+        void ISet<T>.ExceptWith(IEnumerable<T> other) => throw new NotSupportedException();
+
+        void ISet<T>.IntersectWith(IEnumerable<T> other) => throw new NotSupportedException();
+
+        void ISet<T>.SymmetricExceptWith(IEnumerable<T> other) => throw new NotSupportedException();
+
+        void ISet<T>.UnionWith(IEnumerable<T> other) => throw new NotSupportedException();
+
+        void ICollection<T>.Add(T item) => throw new NotSupportedException();
+
+        void ICollection<T>.Clear() => throw new NotSupportedException();
+
+        bool ICollection<T>.Remove(T item) => throw new NotSupportedException();
     }
 }

@@ -9,15 +9,103 @@ namespace NetWasm.Runtime.Pack.Tests.Planning;
 public sealed class RuntimeLinkPlannerTests
 {
     [Theory]
+    [InlineData(RuntimeLinkPlanNativeValueType.I32)]
+    [InlineData(RuntimeLinkPlanNativeValueType.I64)]
+    [InlineData(RuntimeLinkPlanNativeValueType.F32)]
+    [InlineData(RuntimeLinkPlanNativeValueType.F64)]
+    public void MapsNativeContractsAndVoidResults(RuntimeLinkPlanNativeValueType type)
+    {
+        var request = new RuntimeLinkPlanRequest(JsonSerializer.Serialize(RuntimePackTestData.Manifest()), "wasm32", 948,
+            SystemLibraries: SystemLibraries(RuntimePackTestData.Target("wasm32")))
+        {
+            NativeImports = [new("sample", "probe", [type], type), new("sample", "consume", [type], null)],
+            NativeLibraries = [new("sample", "wasm32", "/native/libsample.a", RuntimePackTestData.Digest)],
+        };
+        var plan = RuntimeLinkPlanner.Plan(request);
+        Assert.Contains("--export=probe", plan.Arguments);
+        Assert.Contains("--export=consume", plan.Arguments);
+        Assert.Contains(plan.Inputs, input => input.Path == "/native/libsample.a");
+        Assert.Equal(2, plan.InternalRuntimeExports.Count(export => export.Name is "probe" or "consume"));
+    }
+
+    [Fact]
+    public void RejectsUninitializedOrInvalidNativeContracts()
+    {
+        var request = new RuntimeLinkPlanRequest(JsonSerializer.Serialize(RuntimePackTestData.Manifest()), "wasm32", 948,
+            SystemLibraries: SystemLibraries(RuntimePackTestData.Target("wasm32")));
+        Assert.Equal("The native link-plan inputs must be initialized.",
+            Assert.Throws<InvalidOperationException>(() => RuntimeLinkPlanner.Plan(request with { NativeImports = default })).Message);
+        Assert.Equal("The native link-plan inputs must be initialized.",
+            Assert.Throws<InvalidOperationException>(() => RuntimeLinkPlanner.Plan(request with { NativeLibraries = default })).Message);
+        Assert.Equal("The native link-plan value type is invalid.",
+            Assert.Throws<InvalidOperationException>(() => RuntimeLinkPlanner.Plan(request with
+            {
+                NativeImports = [new("sample", "probe", [(RuntimeLinkPlanNativeValueType)100], null)],
+            })).Message);
+    }
+
+    [Theory]
     [InlineData("wasm32", "Compact")]
+    [InlineData("wasm32", "NetWasm")]
+    [InlineData("wasm32", "Boehm")]
+    [InlineData("wasm32", "Bump")]
+    [InlineData("wasm64", "Compact")]
+    [InlineData("wasm64", "NetWasm")]
+    [InlineData("wasm64", "Boehm")]
+    [InlineData("wasm64", "Bump")]
+    public void NativeProfileControlsInputsFootprintAndCache(string targetName, string collector)
+    {
+        var manifest = RuntimePackTestData.Manifest() with { DefaultGarbageCollector = collector };
+        var original = manifest.TargetLookup[(targetName, collector)];
+        var index = manifest.Targets.IndexOf(original);
+        var speed = original.Speed! with
+        {
+            RuntimeFootprintBytes = original.RuntimeFootprintBytes + 65_536,
+            RuntimeArchive = original.Speed.RuntimeArchive with { Sha256 = new string('b', 64) },
+        };
+        manifest = manifest with { Targets = manifest.Targets.SetItem(index, original with { Speed = speed }) };
+        var request = new RuntimeLinkPlanRequest(JsonSerializer.Serialize(manifest), targetName, 948,
+            SystemLibraries: SystemLibraries(original)) { RuntimeFeatures = [] };
+        var sizePlan = RuntimeLinkPlanner.Plan(request);
+        var speedPlan = RuntimeLinkPlanner.Plan(request with { Optimization = RuntimeWasmOptimization.O3 });
+
+        Assert.Equal("/runtime/" + speed.RuntimeArchive.Path, speedPlan.Inputs[0].Path);
+        Assert.Equal(speed.RuntimeArchive.Sha256, speedPlan.Inputs[0].Sha256);
+        Assert.Equal("/runtime/" + speed.CollectorArchive.Path, speedPlan.Inputs[1].Path);
+        Assert.Equal(sizePlan.HeapBase + 65_536, speedPlan.HeapBase);
+        Assert.NotEqual(sizePlan.Cache.Key, speedPlan.Cache.Key);
+        Assert.NotEqual(sizePlan.Cache.Slot, speedPlan.Cache.Slot);
+        Assert.Equal(speedPlan.Cache, RuntimeLinkPlanner.Plan(request with
+        {
+            Optimization = RuntimeWasmOptimization.O3,
+            GarbageCollector = collector,
+        }).Cache);
+
+        var changedSpeed = speed with { CollectorArchive = speed.CollectorArchive with { Sha256 = new string('c', 64) } };
+        var changedManifest = manifest with { Targets = manifest.Targets.SetItem(index, original with { Speed = changedSpeed }) };
+        var changedRequest = request with { ManifestJson = JsonSerializer.Serialize(changedManifest) };
+        Assert.Equal(sizePlan.Cache, RuntimeLinkPlanner.Plan(changedRequest).Cache);
+        Assert.NotEqual(speedPlan.Cache.Key,
+            RuntimeLinkPlanner.Plan(changedRequest with { Optimization = RuntimeWasmOptimization.O3 }).Cache.Key);
+    }
+
+    [Theory]
+    [InlineData("wasm32", "Compact")]
+    [InlineData("wasm32", "NetWasm")]
     [InlineData("wasm32", "Boehm")]
     [InlineData("wasm64", "Compact")]
+    [InlineData("wasm64", "NetWasm")]
     [InlineData("wasm64", "Boehm")]
+    [InlineData("wasm32", "Bump")]
+    [InlineData("wasm64", "Bump")]
     public void SelectsMatchedPairAndTracksResolvedDefault(string target, string collector)
     {
         var manifest = RuntimePackTestData.Manifest() with { DefaultGarbageCollector = collector };
         var request = new RuntimeLinkPlanRequest(JsonSerializer.Serialize(manifest), target, 948,
-            SystemLibraries: SystemLibraries(RuntimePackTestData.Target(target)));
+            SystemLibraries: SystemLibraries(RuntimePackTestData.Target(target)))
+        {
+            RuntimeFeatures = collector == "Bump" ? [] : default,
+        };
         var defaultPlan = RuntimeLinkPlanner.Plan(request);
         var explicitPlan = RuntimeLinkPlanner.Plan(request with { GarbageCollector = collector });
         var other = collector == "Compact" ? "Boehm" : "Compact";
@@ -78,8 +166,10 @@ public sealed class RuntimeLinkPlannerTests
 
     [Theory]
     [InlineData("wasm32", "Compact")]
+    [InlineData("wasm32", "NetWasm")]
     [InlineData("wasm32", "Boehm")]
     [InlineData("wasm64", "Compact")]
+    [InlineData("wasm64", "NetWasm")]
     [InlineData("wasm64", "Boehm")]
     public void SelectsOptionalRuntimeExportsFromCompilerFeatureEvidence(
         string targetName, string collector)
@@ -93,6 +183,8 @@ public sealed class RuntimeLinkPlannerTests
                 "ephemeron_handle_get_value",
                 "ephemeron_handle_new",
                 "ephemeron_handle_release",
+                "ephemeron_handle_set_target_to_null",
+                "ephemeron_handle_set_value",
             ],
         };
         var manifest = JsonSerializer.Serialize(manifestModel);

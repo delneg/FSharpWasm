@@ -10,9 +10,11 @@ internal static class RuntimePackTestData
     public static RuntimePackManifest Manifest()
     {
         var targets = ImmutableArray.Create(Target("wasm32"), Target("wasm64"),
-            Target("wasm32", "Compact"), Target("wasm64", "Compact"));
+            Target("wasm32", "Compact"), Target("wasm64", "Compact"),
+            Target("wasm32", "NetWasm"), Target("wasm64", "NetWasm"),
+            Target("wasm32", "Bump"), Target("wasm64", "Bump"));
         return new(
-        5,
+        6,
         "netwasm.runtime.v1",
         "6.0.7",
         65_536,
@@ -27,6 +29,7 @@ internal static class RuntimePackTestData
         targets)
         {
             DefaultGarbageCollector = "Boehm",
+            InlineIntents = [new("initialize", RuntimeFunctionInlinePreference.Aggressive)],
             TargetLookup = targets.ToImmutableDictionary(target => (target.Target, target.GarbageCollector)),
         };
     }
@@ -44,7 +47,12 @@ internal static class RuntimePackTestData
             Asset($"wasm64/{collector.ToLowerInvariant()}/libnetwasm-runtime.a"),
             Asset($"wasm64/{collector.ToLowerInvariant()}/libgc.a"),
             Asset("wasm64/allowed-undefined-symbols.txt"),
-            new(["libc.a"], [Asset("wasm64/system-libraries/libc.a")])) { GarbageCollector = collector, NativeValidation = NativeProfile(target) }
+            new(["libc.a"], [Asset("wasm64/system-libraries/libc.a")]))
+        {
+            GarbageCollector = collector,
+            NativeValidation = NativeProfile(target),
+            Speed = SpeedAssets(target, collector, 114_352),
+        }
         : new(
             target,
             4,
@@ -57,7 +65,17 @@ internal static class RuntimePackTestData
             Asset($"wasm32/{collector.ToLowerInvariant()}/libnetwasm-runtime.a"),
             Asset($"wasm32/{collector.ToLowerInvariant()}/libgc.a"),
             Asset("wasm32/allowed-undefined-symbols.txt"),
-            new(["libc.a"], [Asset("wasm32/system-libraries/libc.a")])) { GarbageCollector = collector, NativeValidation = NativeProfile(target) };
+            new(["libc.a"], [Asset("wasm32/system-libraries/libc.a")]))
+        {
+            GarbageCollector = collector,
+            NativeValidation = NativeProfile(target),
+            Speed = SpeedAssets(target, collector, 91_968),
+        };
+
+    public static RuntimePackSpeedAssets SpeedAssets(string target, string collector, long footprint) => new(
+        footprint,
+        Asset($"{target}/{collector.ToLowerInvariant()}/speed/libnetwasm-runtime.a"),
+        Asset($"{target}/{collector.ToLowerInvariant()}/speed/libgc.a"));
 
     public static RuntimeNativeValidationProfile NativeProfile(string target = "wasm32") => new(1,
         ["mvp", "mutable-global", "saturating-float-to-int", "sign-extension", "reference-types", "multi-value", "bulk-memory",

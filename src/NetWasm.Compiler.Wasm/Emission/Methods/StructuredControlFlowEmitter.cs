@@ -3,13 +3,15 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using NetWasm.Compiler.ControlFlow.Structured;
 using NetWasm.Compiler.Core;
+using NetWasm.Compiler.Wasm.Emission.Arrays;
 using NetWasm.Compiler.Wasm.Encoding;
 
 namespace NetWasm.Compiler.Wasm.Emission.Methods;
 
 internal sealed class StructuredControlFlowEmitter(
-    ITargetLayout layouts,
+    IStructuredConditionValueEmitter conditions,
     IControlFlowDispatcherEmitter dispatchers,
+    IArrayMetadataSnapshotEmitter arraySnapshots,
     ILogger<WasmModuleEmitterFactory>? diagnosticLogger = null) :
     IStructuredControlFlowEmitter
 {
@@ -136,7 +138,7 @@ internal sealed class StructuredControlFlowEmitter(
                                 block.Occurrence,
                                 true,
                                 block.Occurrence.Role == StructuredBlockRole.Owner)),
-                        body => Emit(
+                        (body, dispatcherLoopDepth) => Emit(
                             code,
                             method,
                             body,
@@ -144,17 +146,17 @@ internal sealed class StructuredControlFlowEmitter(
                             emitBlock,
                             emitExceptionRegion,
                             loopBreakDepth: loopBreakDepth is int dispatcherBreakDepth
-                                ? dispatcherBreakDepth + 3
+                                ? dispatcherBreakDepth + dispatcherLoopDepth + 2
                                 : null,
                             loopContinueDepth:
                                 loopContinueDepth is int dispatcherContinueLoopDepth
-                                    ? dispatcherContinueLoopDepth + 3
+                                    ? dispatcherContinueLoopDepth + dispatcherLoopDepth + 2
                                     : null,
                             exceptionLeaveDepth:
                                 exceptionLeaveDepth is int dispatcherLeaveDepth
-                                    ? dispatcherLeaveDepth + 3
+                                    ? dispatcherLeaveDepth + dispatcherLoopDepth + 2
                                     : null,
-                            dispatcherContinueDepth: 1));
+                            dispatcherContinueDepth: dispatcherLoopDepth));
                     break;
                 case StructuredIf conditional:
                     EmitConditional(
@@ -170,6 +172,7 @@ internal sealed class StructuredControlFlowEmitter(
                         dispatcherContinueDepth);
                     break;
                 case StructuredLoop loop:
+                    arraySnapshots.Emit(code, context, loop.Condition.Block);
                     EmitLoop(
                         code,
                         loop,
@@ -183,6 +186,7 @@ internal sealed class StructuredControlFlowEmitter(
                         dispatcherContinueDepth);
                     break;
                 case StructuredPostTestLoop loop:
+                    arraySnapshots.Emit(code, context, loop.Condition.Block);
                     EmitPostTestLoop(
                         code,
                         loop,
@@ -465,31 +469,5 @@ internal sealed class StructuredControlFlowEmitter(
         IWasmInstructionWriter code,
         MethodEmissionContext context,
         ConditionValue condition)
-    {
-        code.Write(WasmInstruction.WithOperand(
-            WasmOpcodes.LocalGet,
-            WasmInstructionOperand.Unsigned((uint)WasmLocalLayoutPlanner.GetEvaluationStackLocal(
-                context.StackLocals,
-                condition.Slot,
-                condition.Type,
-                layouts.Target))));
-        if (condition.Type is CliValueKind.ManagedReference or CliValueKind.ManagedAddress)
-        {
-            if (layouts.Target.UsesMemory64)
-            {
-                code.Write(WasmInstruction.NoOperand(WasmOpcodes.I64EqualZero));
-            }
-            else
-            {
-                code.Write(WasmInstruction.NoOperand(WasmOpcodes.I32EqualZero));
-            }
-            code.Write(WasmInstruction.NoOperand(WasmOpcodes.I32EqualZero));
-        }
-        else if (condition.Type == CliValueKind.I8 ||
-                 condition.Type == CliValueKind.NativeInt && layouts.Target.UsesMemory64)
-        {
-            code.Write(WasmInstruction.NoOperand(WasmOpcodes.I64EqualZero));
-            code.Write(WasmInstruction.NoOperand(WasmOpcodes.I32EqualZero));
-        }
-    }
+        => conditions.Emit(code, context, condition);
 }

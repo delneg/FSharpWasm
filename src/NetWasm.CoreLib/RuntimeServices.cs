@@ -21,15 +21,128 @@ namespace System
 
     public static class Console
     {
-        public static IO.TextWriter Out => StandardOutput.Writer;
+        private static IO.TextWriter? s_out;
+        private static IO.TextWriter? s_error;
 
-        public static IO.TextWriter Error => StandardError.Writer;
+        public static IO.TextWriter Out => s_out ?? StandardOutput.Writer;
+
+        public static IO.TextWriter Error => s_error ?? StandardError.Writer;
+
+        public static void SetOut(IO.TextWriter newOut)
+        {
+            ArgumentNullException.ThrowIfNull(newOut);
+            // TODO(netwasm-threading)
+            s_out = newOut;
+        }
+
+        public static void SetError(IO.TextWriter newError)
+        {
+            ArgumentNullException.ThrowIfNull(newError);
+            // TODO(netwasm-threading)
+            s_error = newError;
+        }
+
+        public static void WriteLine() => Out.WriteLine();
+
+        public static void WriteLine(bool value) => Out.WriteLine(value);
+
+        public static void WriteLine(char value) => Out.WriteLine(value);
+
+        public static void WriteLine(char[]? buffer) => Out.WriteLine(buffer);
+
+        public static void WriteLine(char[] buffer, int index, int count) => Out.WriteLine(buffer, index, count);
+
+        public static void WriteLine(decimal value) => Out.WriteLine(value);
+
+        public static void WriteLine(double value) => Out.WriteLine(value);
+
+        public static void WriteLine(float value) => Out.WriteLine(value);
 
         public static void WriteLine(int value) => Out.WriteLine(value);
 
+        [CLSCompliant(false)]
+        public static void WriteLine(uint value) => Out.WriteLine(value);
+
+        public static void WriteLine(long value) => Out.WriteLine(value);
+
+        [CLSCompliant(false)]
+        public static void WriteLine(ulong value) => Out.WriteLine(value);
+
+        public static void WriteLine(object? value) => Out.WriteLine(value);
+
         public static void WriteLine(string? value) => Out.WriteLine(value);
 
-        public static void WriteLine(bool value) => Out.WriteLine(value);
+        public static void WriteLine(ReadOnlySpan<char> value) => Out.WriteLine(value);
+
+        public static void WriteLine(string format, object? arg0) => Out.WriteLine(format, arg0);
+
+        public static void WriteLine(string format, object? arg0, object? arg1) => Out.WriteLine(format, arg0, arg1);
+
+        public static void WriteLine(string format, object? arg0, object? arg1, object? arg2) => Out.WriteLine(format, arg0, arg1, arg2);
+
+        public static void WriteLine(string format, params object?[]? arg)
+        {
+            if (arg is null)
+            {
+                Out.WriteLine(format, null, null);
+            }
+            else
+            {
+                Out.WriteLine(format, arg);
+            }
+        }
+
+        public static void WriteLine(string format, params ReadOnlySpan<object?> arg) => Out.WriteLine(format, arg);
+
+        public static void Write(string format, object? arg0) => Out.Write(format, arg0);
+
+        public static void Write(string format, object? arg0, object? arg1) => Out.Write(format, arg0, arg1);
+
+        public static void Write(string format, object? arg0, object? arg1, object? arg2) => Out.Write(format, arg0, arg1, arg2);
+
+        public static void Write(string format, params object?[]? arg)
+        {
+            if (arg is null)
+            {
+                Out.Write(format, null, null);
+            }
+            else
+            {
+                Out.Write(format, arg);
+            }
+        }
+
+        public static void Write(string format, params ReadOnlySpan<object?> arg) => Out.Write(format, arg);
+
+        public static void Write(bool value) => Out.Write(value);
+
+        public static void Write(char value) => Out.Write(value);
+
+        public static void Write(char[]? buffer) => Out.Write(buffer);
+
+        public static void Write(char[] buffer, int index, int count) => Out.Write(buffer, index, count);
+
+        public static void Write(double value) => Out.Write(value);
+
+        public static void Write(decimal value) => Out.Write(value);
+
+        public static void Write(float value) => Out.Write(value);
+
+        public static void Write(int value) => Out.Write(value);
+
+        [CLSCompliant(false)]
+        public static void Write(uint value) => Out.Write(value);
+
+        public static void Write(long value) => Out.Write(value);
+
+        [CLSCompliant(false)]
+        public static void Write(ulong value) => Out.Write(value);
+
+        public static void Write(object? value) => Out.Write(value);
+
+        public static void Write(string? value) => Out.Write(value);
+
+        public static void Write(ReadOnlySpan<char> value) => Out.Write(value);
 
         private static class StandardOutput
         {

@@ -24,10 +24,13 @@ public sealed class ManagedIoCompatibilityCorpusTests(CorrectnessTestRunner runn
                     result = Mix(result, ExerciseStreamCopy());
                     result = Mix(result, ExerciseBufferedStream());
                     result = Mix(result, ExerciseStringWriter());
+                    result = Mix(result, ExerciseBroadcastingWriter());
                     result = Mix(result, ExerciseStringReader());
                     result = Mix(result, ExerciseEncodedText());
                     result = Mix(result, ExerciseBinaryRoundTrip());
+                    result = Mix(result, ExerciseDerivedMemoryStreamBinaryReader());
                     result = Mix(result, ExerciseLexicalPaths());
+                    result = Mix(result, ExercisePathComposition());
                     result = Mix(result, ExerciseIoExceptionData());
                     try
                     {
@@ -93,6 +96,46 @@ public sealed class ManagedIoCompatibilityCorpusTests(CorrectnessTestRunner runn
                     return first + rest.Length * 100 + final.Length * 1000;
                 }
 
+                private static int ExerciseBroadcastingWriter()
+                {
+                    using var first = new StringWriter();
+                    using var second = new StringWriter();
+                    var inputs = new TextWriter[] { first, second };
+                    using var writer = TextWriter.CreateBroadcasting(inputs);
+                    inputs[0] = TextWriter.Null;
+                    writer.NewLine = "|";
+                    writer.Write(12);
+                    writer.WriteLine("x");
+                    writer.Flush();
+
+                    var rejectsNullArray = false;
+                    try
+                    {
+                        _ = TextWriter.CreateBroadcasting((TextWriter[])null!);
+                    }
+                    catch (ArgumentNullException)
+                    {
+                        rejectsNullArray = true;
+                    }
+
+                    var rejectsNullWriter = false;
+                    try
+                    {
+                        _ = TextWriter.CreateBroadcasting(first, null!);
+                    }
+                    catch (ArgumentNullException)
+                    {
+                        rejectsNullWriter = true;
+                    }
+
+                    return first.ToString() == "12x|" &&
+                        second.ToString() == "12x|" &&
+                        ReferenceEquals(TextWriter.CreateBroadcasting(), TextWriter.Null) &&
+                        rejectsNullArray && rejectsNullWriter
+                            ? 1
+                            : 0;
+                }
+
                 private static int ExerciseEncodedText()
                 {
                     using var stream = new MemoryStream();
@@ -137,6 +180,14 @@ public sealed class ManagedIoCompatibilityCorpusTests(CorrectnessTestRunner runn
                         reader.ReadInt32() + reader.ReadString().Length;
                 }
 
+                private static int ExerciseDerivedMemoryStreamBinaryReader()
+                {
+                    using var stream = new TrackingMemoryStream(
+                        new byte[] { 0x78, 0x56, 0x34, 0x12 });
+                    using var reader = new BinaryReader(stream);
+                    return reader.ReadInt32() == 0x12345678 && stream.ReadCount > 0 ? 1 : 0;
+                }
+
                 private static int ExerciseLexicalPaths()
                 {
                     var combined = Path.Combine("root", "folder", "file.txt");
@@ -146,6 +197,28 @@ public sealed class ManagedIoCompatibilityCorpusTests(CorrectnessTestRunner runn
                     var changed = Path.ChangeExtension(combined, ".bin")!;
                     return directory.Length * 1000 + name.Length * 100 +
                         extension.Length * 10 + (changed.EndsWith(".bin") ? 1 : 0);
+                }
+
+                private static int ExercisePathComposition()
+                {
+                    var full = Path.GetFullPath("../d/./file", "/a/b/c");
+                    var combined = Path.Combine("ignored", "/root", "child", "file");
+                    var joined = Path.Join("a", null, "b", "c");
+                    var relative = Path.GetRelativePath("/a/b/c", "/a/d/");
+                    var invalidFile = Path.GetInvalidFileNameChars();
+                    var invalidPath = Path.GetInvalidPathChars();
+                #pragma warning disable CS0618
+                    var legacyInvalidPath = Path.InvalidPathChars;
+                #pragma warning restore CS0618
+                    return full == "/a/b/d/file" &&
+                        combined == "/root/child/file" &&
+                        joined == "a/b/c" &&
+                        relative == "../../d/" &&
+                        invalidFile.Length == 2 && invalidFile[0] == '\0' && invalidFile[1] == '/' &&
+                        invalidPath.Length == 1 && invalidPath[0] == '\0' &&
+                        legacyInvalidPath.Length == 1 && legacyInvalidPath[0] == '\0'
+                            ? 1
+                            : 0;
                 }
 
                 private static int ExerciseIoExceptionData()
@@ -160,6 +233,19 @@ public sealed class ManagedIoCompatibilityCorpusTests(CorrectnessTestRunner runn
                     using var stream = new MemoryStream(new byte[] { 1, 2 });
                     using var reader = new BinaryReader(stream);
                     return reader.ReadInt32();
+                }
+
+                private sealed class TrackingMemoryStream : MemoryStream
+                {
+                    public int ReadCount;
+
+                    public TrackingMemoryStream(byte[] bytes) : base(bytes) { }
+
+                    public override int Read(Span<byte> buffer)
+                    {
+                        ReadCount++;
+                        return base.Read(buffer);
+                    }
                 }
 
                 public static int Trace() => 0;

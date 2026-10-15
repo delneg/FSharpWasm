@@ -18,11 +18,13 @@ ITargetLayout layouts,
     public FilterFuncletEmission Emit(
         FilterFunclet filter,
         FilterEnvironmentLayout environment,
+        MethodRootMap rootMap,
         IFilterSequenceEmitter emitSequence,
         MemberExecutionPlan? memberExecution = null)
     {
         ArgumentNullException.ThrowIfNull(filter);
         ArgumentNullException.ThrowIfNull(environment);
+        ArgumentNullException.ThrowIfNull(rootMap);
         ArgumentNullException.ThrowIfNull(emitSequence);
 
         var header = filter.Method.Header;
@@ -41,16 +43,20 @@ ITargetLayout layouts,
         var interopHandle = checked(interopResult + 1);
         var numericTemporaryI4 = checked(interopHandle + 1);
         var numericTemporaryI8 = checked(numericTemporaryI4 + 1);
-        var valueLayout = valueFrames.Create(header, memberExecution: memberExecution) with
+        var valueLayout = valueFrames.Create(filter.Method, memberExecution: memberExecution) with
         {
             Size = environment.Size,
         };
-        var emptyRootMap = new MethodRootMap(
-            header.Method.Key,
-            [],
-            []);
+        var localTypes = WasmLocalLayoutPlanner.CreateFilterLocals(header);
+        var anchorLocals = ImmutableDictionary.CreateBuilder<int, int>();
+        for (var index = 0; index < rootMap.AnchorPlan.Anchors.Length; index++)
+        {
+            if (environment.AnchorOffsets.ContainsKey(index)) continue;
+            anchorLocals.Add(index, checked(parameterCount + localTypes.Length));
+            localTypes = localTypes.Add(CliValueKind.ManagedAddress);
+        }
         var context = new MethodEmissionContext(
-            emptyRootMap,
+            rootMap,
             localBase,
             stackBase,
             stackLocals,
@@ -73,12 +79,15 @@ ITargetLayout layouts,
             LeaveFrameOnRethrow: false,
             LeaveFrameOnExceptionalExit: false,
             IsFilterFunclet: true,
-            CallerIdentity: filter.CallerIdentity);
+            CallerIdentity: filter.CallerIdentity)
+        {
+            AnchorLocals = anchorLocals.ToImmutable(),
+        };
         var output = writers.Create();
         var code = output.Instructions;
         WasmLocalDeclarationWriter.Write(
             output.Bytes,
-            WasmLocalLayoutPlanner.CreateFilterLocals(header),
+            localTypes,
             layouts.Target);
         WriteLocalGet(code, 1);
         if (environment.RootFrameOffset != 0)
@@ -88,6 +97,14 @@ ITargetLayout layouts,
         }
         EmitReferenceLoad(code);
         WriteLocalSet(code, filterRootFrame);
+        WriteLocalGet(code, 1);
+        if (environment.ParentRootFrameOffset != 0)
+        {
+            EmitAddressConstant(code, environment.ParentRootFrameOffset);
+            EmitAddressAdd(code);
+        }
+        EmitReferenceLoad(code);
+        WriteLocalSet(code, rootFrame);
         exceptions.Emit(code);
         WriteTryTableCatch(code, 0, 0);
         WriteLocalGet(code, 0);

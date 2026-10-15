@@ -30,6 +30,10 @@ namespace System.Linq.Expressions
             TailCall = tailCall;
         }
 
+        public static bool CanCompileToIL => false;
+
+        public static bool CanInterpret => true;
+
         public sealed override ExpressionType NodeType => ExpressionType.Lambda;
 
         public sealed override Type Type => TypeCore;

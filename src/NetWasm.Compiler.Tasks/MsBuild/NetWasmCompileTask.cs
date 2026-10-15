@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using Microsoft.Build.Framework;
+using NetWasm.Compiler.ComponentModel.Optimization;
 using NetWasm.Compiler.Core;
 using NetWasm.Compiler.Tasks.Artifacts;
 using NetWasm.Compiler.Tasks.Compilation;
@@ -15,6 +16,7 @@ public sealed class NetWasmCompileTask : CompilerArtifactManifestTaskBase
     private readonly ICompilerArtifactManifestBuilder _manifestBuilder;
     private readonly ICompilerArtifactManifestWriter _manifestWriter;
     private readonly ICompilerBuildMessageWriter _messages;
+    private readonly IManagedCompilerOptimizationOverridesParser _optimizationOverrides;
 
     public NetWasmCompileTask()
     {
@@ -26,6 +28,7 @@ public sealed class NetWasmCompileTask : CompilerArtifactManifestTaskBase
             CompilerTaskComposition.CreateArtifactManifestTaskRequestBuilder();
         _manifestBuilder = CompilerTaskComposition.CreateArtifactManifestBuilder();
         _manifestWriter = CompilerTaskComposition.CreateArtifactManifestWriter();
+        _optimizationOverrides = new ManagedCompilerOptimizationOverridesParser();
     }
 
     internal NetWasmCompileTask(
@@ -34,7 +37,8 @@ public sealed class NetWasmCompileTask : CompilerArtifactManifestTaskBase
         ICompilerArtifactManifestTaskRequestBuilder manifestRequestBuilder,
         ICompilerArtifactManifestBuilder manifestBuilder,
         ICompilerArtifactManifestWriter manifestWriter,
-        ICompilerBuildMessageWriter messages)
+        ICompilerBuildMessageWriter messages,
+        IManagedCompilerOptimizationOverridesParser optimizationOverrides)
     {
         _compilers = compilers ?? throw new ArgumentNullException(nameof(compilers));
         _artifacts = artifacts ?? throw new ArgumentNullException(nameof(artifacts));
@@ -42,6 +46,8 @@ public sealed class NetWasmCompileTask : CompilerArtifactManifestTaskBase
         _manifestBuilder = manifestBuilder ?? throw new ArgumentNullException(nameof(manifestBuilder));
         _manifestWriter = manifestWriter ?? throw new ArgumentNullException(nameof(manifestWriter));
         _messages = messages ?? throw new ArgumentNullException(nameof(messages));
+        _optimizationOverrides = optimizationOverrides ??
+            throw new ArgumentNullException(nameof(optimizationOverrides));
     }
 
     [Required]
@@ -68,6 +74,16 @@ public sealed class NetWasmCompileTask : CompilerArtifactManifestTaskBase
     public bool CompileAsLibrary { get; set; }
     public bool UseJavaScriptExportBoundary { get; set; }
     public string Optimization { get; set; } = "Oz";
+    public string ManagedLoopInvariantFieldHoisting { get; set; } = "Auto";
+    public string ManagedStaticDataViewElimination { get; set; } = "Auto";
+    public string ManagedAddressTakenValuePromotion { get; set; } = "Auto";
+    public string ManagedMethodInlining { get; set; } = "Auto";
+    public string ManagedBranchPrefixDuplication { get; set; } = "Auto";
+    public string ManagedScalarCallPreservation { get; set; } = "Auto";
+    public string ManagedArrayBoundsCheckElimination { get; set; } = "Auto";
+    public string ManagedLoopUnrolling { get; set; } = "Auto";
+    public string ManagedConstantArgumentPropagation { get; set; } = "Auto";
+    public string ManagedStaticArrayPopulationElimination { get; set; } = "Auto";
     public string? StackTraceSymbolsPath { get; set; }
     public string? ExceptionTypeMapPath { get; set; }
     public bool NoLogo { get; set; }
@@ -98,6 +114,17 @@ public sealed class NetWasmCompileTask : CompilerArtifactManifestTaskBase
                     WasmToolsNodePath,
                     WasmToolsCommandPath,
                     WasmToolsModulePath));
+            var optimizationOverrides = _optimizationOverrides.Parse(
+                ManagedLoopInvariantFieldHoisting,
+                ManagedStaticDataViewElimination,
+                ManagedAddressTakenValuePromotion,
+                ManagedMethodInlining,
+                ManagedBranchPrefixDuplication,
+                ManagedScalarCallPreservation,
+                ManagedArrayBoundsCheckElimination,
+                ManagedLoopUnrolling,
+                ManagedConstantArgumentPropagation,
+                ManagedStaticArrayPopulationElimination);
             var compilation = compiler.Compile(new(
                 InputAssemblyPath,
                 References.Select(static item => item.ItemSpec).ToImmutableArray(),
@@ -114,7 +141,8 @@ public sealed class NetWasmCompileTask : CompilerArtifactManifestTaskBase
                 UseJavaScriptExportBoundary,
                 ProjectDirectory,
                 PathMap,
-                StructuredDiagnostics));
+                StructuredDiagnostics,
+                optimizationOverrides));
             _artifacts.Write(new(
                 compilation,
                 CoreModulePath,

@@ -12,5 +12,5 @@ internal sealed record ManagedTypeLayouts(
     WasmTargetLayout Target,
     int DelegateTargetOffset,
     int DelegateMethodIdOffset,
-    int DelegateLeftOffset,
-    int DelegateRightOffset);
+    int DelegateInvocationListOffset,
+    int DelegateInvocationCountOffset);

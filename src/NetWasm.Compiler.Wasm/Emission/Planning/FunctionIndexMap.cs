@@ -24,6 +24,9 @@ internal sealed record FunctionIndexMap(
     ImmutableDictionary<string, WasmFunctionIndex> DelegateInvokeHelpers,
     ImmutableDictionary<EntityKey, WasmFunctionIndex> ImportedMethods)
 {
+    public OptionalFunctionIndex ManagedThrowFunctionIndex { get; init; } =
+        OptionalFunctionIndex.Missing;
+
     public bool TryGetMethod(EntityKey method, out WasmFunctionIndex index) =>
         DirectMethods.TryGetValue(method, out index) ||
         ImportedMethods.TryGetValue(method, out index);

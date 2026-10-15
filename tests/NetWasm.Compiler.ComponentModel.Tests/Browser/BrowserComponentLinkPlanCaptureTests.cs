@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using NetWasm.Compiler.ComponentModel.Inlining;
 using NetWasm.Compiler.ComponentModel.Browser;
 using NetWasm.Compiler.ComponentModel.Node;
 
@@ -6,11 +7,58 @@ namespace NetWasm.Compiler.ComponentModel.Tests.Browser;
 
 public sealed class BrowserComponentLinkPlanCaptureTests
 {
+    [Theory]
+    [InlineData(WasmInlineAnnotationSelection.Preserve)]
+    [InlineData(WasmInlineAnnotationSelection.SizeAware)]
+    public void InlineSelectionRejectsWrongInputsAndPoliciesWithoutAdvancingTheStage(
+        WasmInlineAnnotationSelection selection)
+    {
+        var capture = CreateCapture();
+        capture.AddText("(module)", "environment");
+        Assert.Throws<InvalidOperationException>(() =>
+            capture.AddManagedInlining("runtime", "sanitized", selection));
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            capture.AddManagedInlining("application", "sanitized", WasmInlineAnnotationSelection.Remove));
+        Assert.True(capture.ManagedInliningPending);
+        capture.AddManagedInlining("application", "sanitized", selection);
+        Assert.False(capture.ManagedInliningPending);
+        Assert.Throws<InvalidOperationException>(() =>
+            capture.AddRuntimeInlining("application", "runtime-sanitized", selection));
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            capture.AddRuntimeInlining("runtime", "runtime-sanitized", WasmInlineAnnotationSelection.Remove));
+        capture.AddRuntimeInlining("runtime", "runtime-sanitized", selection);
+        capture.AddInvocation(BinaryenToolIds.WasmMerge, []);
+        capture.AddExportPruning("merged", "sanitized", "cm32p2");
+        capture.AddValidation(Validation("sanitized"));
+        capture.AddInlineAnnotationCleanup("sanitized", "output");
+        foreach (var path in new[] { "environment", "host", "adapter", "merged", "sanitized", "runtime-sanitized" })
+            capture.AddCleanup(path);
+
+        var plan = capture.Snapshot();
+
+        Assert.Equal(selection, plan.ManagedInlining.Selection);
+        Assert.Equal(selection, plan.RuntimeInlining.Selection);
+    }
+
+    [Fact]
+    public void MergeRequiresCapturedSupportModulesEvenAfterInlineSelection()
+    {
+        var capture = CreateCapture();
+        capture.AddManagedInlining("application", "sanitized", WasmInlineAnnotationSelection.SizeAware);
+        capture.AddRuntimeInlining("runtime", "runtime-sanitized", WasmInlineAnnotationSelection.SizeAware);
+
+        Assert.Throws<InvalidOperationException>(() => capture.AddInvocation(BinaryenToolIds.WasmMerge, []));
+        capture.AddCleanup("environment");
+        Assert.Throws<InvalidOperationException>(() => capture.Snapshot());
+    }
+
     [Fact]
     public void ExportCaptureAcceptsOnlyAnInitializedComponentRetentionPolicy()
     {
         var capture = CreateCapture();
         capture.AddText("(module)", "environment");
+        capture.AddManagedInlining("application", "sanitized", WasmInlineAnnotationSelection.SizeAware);
+        capture.AddRuntimeInlining("runtime", "runtime-sanitized", WasmInlineAnnotationSelection.SizeAware);
         capture.AddInvocation(BinaryenToolIds.WasmMerge, []);
         var editor = Assert.IsAssignableFrom<IWasmCoreModuleExportEditor>(new BrowserComponentExportPruningCapture(capture));
 
@@ -64,6 +112,8 @@ public sealed class BrowserComponentLinkPlanCaptureTests
         Assert.Throws<InvalidOperationException>(() => capture.AddText("(module)", "unowned"));
         capture.AddText("(module)", "environment");
         Assert.Throws<InvalidOperationException>(() => capture.AddText("(module)", "environment"));
+        capture.AddManagedInlining("application", "sanitized", WasmInlineAnnotationSelection.SizeAware);
+        capture.AddRuntimeInlining("runtime", "runtime-sanitized", WasmInlineAnnotationSelection.SizeAware);
         capture.AddInvocation(BinaryenToolIds.WasmMerge, []);
         Assert.Throws<InvalidOperationException>(() => capture.AddInvocation(BinaryenToolIds.WasmMerge, []));
         Assert.Throws<InvalidOperationException>(() => capture.AddText("(module)", "host"));
@@ -82,6 +132,8 @@ public sealed class BrowserComponentLinkPlanCaptureTests
     {
         var capture = CreateCapture();
         capture.AddText("(module)", "environment");
+        capture.AddManagedInlining("application", "sanitized", WasmInlineAnnotationSelection.SizeAware);
+        capture.AddRuntimeInlining("runtime", "runtime-sanitized", WasmInlineAnnotationSelection.SizeAware);
         capture.AddInvocation(BinaryenToolIds.WasmMerge, []);
         capture.AddExportPruning("merged", "sanitized", "cm32p2");
         capture.AddInvocation(BinaryenToolIds.WasmOpt, []);
@@ -95,11 +147,14 @@ public sealed class BrowserComponentLinkPlanCaptureTests
     {
         var capture = CreateCapture();
         capture.AddText("(module)", "environment");
+        capture.AddManagedInlining("application", "sanitized", WasmInlineAnnotationSelection.SizeAware);
+        capture.AddRuntimeInlining("runtime", "runtime-sanitized", WasmInlineAnnotationSelection.SizeAware);
         capture.AddInvocation(BinaryenToolIds.WasmMerge, ["original"]);
         capture.AddExportPruning("merged", "sanitized", "cm32p2");
         capture.AddInvocation(BinaryenToolIds.WasmOpt, ["optimized"]);
+        capture.AddInlineAnnotationCleanup("optimized", "optimized");
         capture.AddValidation(Validation("optimized"));
-        foreach (var path in new[] { "environment", "host", "adapter", "merged", "sanitized" }) capture.AddCleanup(path);
+        foreach (var path in new[] { "environment", "host", "adapter", "merged", "sanitized", "runtime-sanitized" }) capture.AddCleanup(path);
         var plan = capture.Snapshot();
         Assert.Equal("(module)", Assert.Single(plan.TextModules).Text);
         Assert.Equal("original", Assert.Single(plan.Merge.Arguments));
@@ -107,7 +162,7 @@ public sealed class BrowserComponentLinkPlanCaptureTests
         Assert.Throws<InvalidOperationException>(() => capture.AddCleanup("unowned"));
         Assert.Throws<InvalidOperationException>(() => capture.AddText("changed", "environment"));
         Assert.Equal("(module)", Assert.Single(plan.TextModules).Text);
-        Assert.Equal(5, plan.CleanupPaths.Length);
+        Assert.Equal(6, plan.CleanupPaths.Length);
     }
 
     [Fact]
@@ -115,18 +170,21 @@ public sealed class BrowserComponentLinkPlanCaptureTests
     {
         var capture = CreateCapture();
         capture.AddText("(module)", "environment");
+        capture.AddManagedInlining("application", "sanitized", WasmInlineAnnotationSelection.SizeAware);
+        capture.AddRuntimeInlining("runtime", "runtime-sanitized", WasmInlineAnnotationSelection.SizeAware);
         capture.AddInvocation(BinaryenToolIds.WasmMerge, []);
         capture.AddExportPruning("merged", "sanitized", "cm32p2");
         capture.AddValidation(Validation("sanitized"));
-        capture.AddCopy("sanitized", "output");
-        foreach (var path in new[] { "environment", "host", "adapter", "merged", "sanitized" }) capture.AddCleanup(path);
+        capture.AddInlineAnnotationCleanup("sanitized", "output");
+        foreach (var path in new[] { "environment", "host", "adapter", "merged", "sanitized", "runtime-sanitized" }) capture.AddCleanup(path);
 
         var plan = capture.Snapshot();
 
         Assert.Null(plan.Optimization);
         Assert.Equal("sanitized", plan.Validation!.Path);
         Assert.Equal(Validation("sanitized").Arguments, plan.Validation.Arguments);
-        Assert.Equal(new BrowserFileCopy("sanitized", "output"), plan.Copy);
+        Assert.Equal(new BrowserInlineAnnotationEdit("sanitized", "output",
+            WasmInlineAnnotationSelection.Remove), plan.InlineAnnotationCleanup);
     }
 
     [Fact]
@@ -134,18 +192,20 @@ public sealed class BrowserComponentLinkPlanCaptureTests
     {
         var capture = CreateCapture();
         capture.AddText("(module)", "environment");
+        capture.AddManagedInlining("application", "sanitized", WasmInlineAnnotationSelection.SizeAware);
+        capture.AddRuntimeInlining("runtime", "runtime-sanitized", WasmInlineAnnotationSelection.SizeAware);
         capture.AddInvocation(BinaryenToolIds.WasmMerge, []);
         capture.AddExportPruning("merged", "sanitized", "cm32p2");
 
         Assert.Throws<InvalidOperationException>(() =>
-            capture.AddCopy("sanitized", "output"));
+            capture.AddInlineAnnotationCleanup("sanitized", "output"));
         Assert.Throws<InvalidOperationException>(() =>
             capture.AddValidation(Validation("merged")));
 
         capture.AddValidation(Validation("sanitized"));
         Assert.Throws<InvalidOperationException>(() =>
             capture.AddValidation(Validation("sanitized")));
-        capture.AddCopy("sanitized", "output");
+        capture.AddInlineAnnotationCleanup("sanitized", "output");
     }
 
     [Fact]
@@ -153,23 +213,27 @@ public sealed class BrowserComponentLinkPlanCaptureTests
     {
         var capture = CreateCapture();
         capture.AddText("(module)", "environment");
+        capture.AddManagedInlining("application", "sanitized", WasmInlineAnnotationSelection.SizeAware);
+        capture.AddRuntimeInlining("runtime", "runtime-sanitized", WasmInlineAnnotationSelection.SizeAware);
         capture.AddInvocation(BinaryenToolIds.WasmMerge, []);
         capture.AddExportPruning("merged", "sanitized", "cm32p2");
         capture.AddInvocation(BinaryenToolIds.WasmOpt, ["--output", "output"]);
 
         Assert.Throws<ArgumentNullException>(() => capture.AddValidation(null!));
         Assert.Throws<InvalidOperationException>(() => capture.AddValidation(Validation("sanitized")));
-        Assert.Throws<InvalidOperationException>(() => capture.AddCopy("sanitized", "output"));
+        Assert.Throws<InvalidOperationException>(() => capture.AddInlineAnnotationCleanup("sanitized", "output"));
+        capture.AddInlineAnnotationCleanup("output", "output");
         capture.AddValidation(Validation("output"));
         Assert.Throws<InvalidOperationException>(() => capture.AddValidation(Validation("output")));
-        foreach (var path in new[] { "environment", "host", "adapter", "merged", "sanitized" }) capture.AddCleanup(path);
+        foreach (var path in new[] { "environment", "host", "adapter", "merged", "sanitized", "runtime-sanitized" }) capture.AddCleanup(path);
 
         var plan = capture.Snapshot();
 
         Assert.Equal("output", plan.Validation!.Path);
         Assert.Equal(Validation("output").Arguments, plan.Validation.Arguments);
         Assert.NotNull(plan.Optimization);
-        Assert.Null(plan.Copy);
+        Assert.Equal(new BrowserInlineAnnotationEdit("output", "output", WasmInlineAnnotationSelection.Remove),
+            plan.InlineAnnotationCleanup);
     }
 
     [Fact]
@@ -177,10 +241,12 @@ public sealed class BrowserComponentLinkPlanCaptureTests
     {
         var capture = CreateCapture();
         capture.AddText("(module)", "environment");
+        capture.AddManagedInlining("application", "sanitized", WasmInlineAnnotationSelection.SizeAware);
+        capture.AddRuntimeInlining("runtime", "runtime-sanitized", WasmInlineAnnotationSelection.SizeAware);
         capture.AddInvocation(BinaryenToolIds.WasmMerge, []);
         capture.AddExportPruning("merged", "sanitized", "cm32p2");
         capture.AddInvocation(BinaryenToolIds.WasmOpt, ["--output", "output"]);
-        foreach (var path in new[] { "environment", "host", "adapter", "merged", "sanitized" }) capture.AddCleanup(path);
+        foreach (var path in new[] { "environment", "host", "adapter", "merged", "sanitized", "runtime-sanitized" }) capture.AddCleanup(path);
 
         Assert.Throws<InvalidOperationException>(() => capture.Snapshot());
     }
@@ -190,6 +256,8 @@ public sealed class BrowserComponentLinkPlanCaptureTests
     {
         var capture = CreateCapture();
         capture.AddText("(module)", "environment");
+        capture.AddManagedInlining("application", "sanitized", WasmInlineAnnotationSelection.SizeAware);
+        capture.AddRuntimeInlining("runtime", "runtime-sanitized", WasmInlineAnnotationSelection.SizeAware);
         capture.AddInvocation(BinaryenToolIds.WasmMerge, []);
         capture.AddExportPruning("merged", "sanitized", "cm32p2");
         var operations = Assert.IsAssignableFrom<IComponentPackageOperationRunner>(
@@ -203,8 +271,8 @@ public sealed class BrowserComponentLinkPlanCaptureTests
         }) Assert.Throws<InvalidOperationException>(() => operations.Run(arguments, "validate"));
         Assert.Throws<ArgumentException>(() => operations.Run(["validate", "sanitized", "--features", " "], "validate"));
         operations.Run(["validate", "sanitized", "--features", "mvp"], "validate");
-        capture.AddCopy("sanitized", "output");
-        foreach (var path in new[] { "environment", "host", "adapter", "merged", "sanitized" }) capture.AddCleanup(path);
+        capture.AddInlineAnnotationCleanup("sanitized", "output");
+        foreach (var path in new[] { "environment", "host", "adapter", "merged", "sanitized", "runtime-sanitized" }) capture.AddCleanup(path);
 
         Assert.Equal(Validation("sanitized").Arguments, capture.Snapshot().Validation!.Arguments);
     }
@@ -213,5 +281,8 @@ public sealed class BrowserComponentLinkPlanCaptureTests
         new(path, ["validate", path, "--features", "mvp"]);
 
     private static BrowserComponentLinkPlanCapture CreateCapture() => new(
-        ImmutableHashSet.Create(StringComparer.Ordinal, "environment", "host", "adapter", "merged", "sanitized"));
+        ImmutableHashSet.Create(StringComparer.Ordinal, "environment", "host", "adapter", "merged", "sanitized",
+            "runtime-sanitized"),
+        "application",
+        "runtime");
 }

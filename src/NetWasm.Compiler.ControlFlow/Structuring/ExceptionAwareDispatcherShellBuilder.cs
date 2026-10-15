@@ -7,12 +7,16 @@ using NetWasm.Compiler.Core;
 namespace NetWasm.Compiler.ControlFlow.Structuring;
 
 internal sealed class ExceptionAwareDispatcherShellBuilder(
-    IWholeRegionDispatcherBuilder wholeRegionDispatchers, IExceptionAwareDispatcherBlockSelector blocks) : IExceptionAwareDispatcherShellBuilder
+    IWholeRegionDispatcherBuilder wholeRegionDispatchers,
+    IExceptionAwareDispatcherBlockSelector blocks,
+    IDispatcherLoopIslandSelector loopIslands) : IExceptionAwareDispatcherShellBuilder
 {
     private readonly IWholeRegionDispatcherBuilder _wholeRegionDispatchers =
         wholeRegionDispatchers ?? throw new ArgumentNullException(nameof(wholeRegionDispatchers));
     private readonly IExceptionAwareDispatcherBlockSelector _blocks = blocks ??
         throw new ArgumentNullException(nameof(blocks));
+    private readonly IDispatcherLoopIslandSelector _loopIslands = loopIslands ??
+        throw new ArgumentNullException(nameof(loopIslands));
 
     public ExceptionAwareDispatcherShell Build(ControlFlowStructuringState state,
         int? entry,
@@ -20,7 +24,14 @@ internal sealed class ExceptionAwareDispatcherShellBuilder(
         ImmutableHashSet<int> allowed,
         int? exitStop)
     {
-        var owned = _blocks.Select(state, component, allowed);
+        var exceptionFiltered = _blocks.Select(state, component, allowed);
+        var islands = _loopIslands.Select(
+            state,
+            entry,
+            component,
+            allowed,
+            exceptionFiltered);
+        var owned = exceptionFiltered.Except(islands);
         var shell = _wholeRegionDispatchers.Build(state, entry, owned);
 
         return new ExceptionAwareDispatcherShell(shell, owned);

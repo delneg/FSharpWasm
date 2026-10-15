@@ -46,10 +46,10 @@ public sealed class RuntimeNativeModuleMaterializerTests
         Assert.Contains(
             Path.Combine(fixture.Workspace.DirectoryPath,
                 "application.callbacks.o"),
-            fixture.PublishedPaths);
+            fixture.WrittenPaths);
         Assert.Equal(
             "runtime_symbol\n__netwasm_native_callback_0\n",
-            System.Text.Encoding.UTF8.GetString(fixture.PublishedArtifacts[
+            System.Text.Encoding.UTF8.GetString(fixture.WrittenArtifacts[
                 Path.Combine(fixture.Workspace.DirectoryPath,
                     "combined.allow-undefined")]));
         Assert.Equal(
@@ -156,7 +156,7 @@ public sealed class RuntimeNativeModuleMaterializerTests
 
         Assert.Equal(
             expected,
-            System.Text.Encoding.UTF8.GetString(fixture.PublishedArtifacts[
+            System.Text.Encoding.UTF8.GetString(fixture.WrittenArtifacts[
                 Path.Combine(fixture.Workspace.DirectoryPath,
                     "combined.allow-undefined")]));
     }
@@ -224,7 +224,8 @@ public sealed class RuntimeNativeModuleMaterializerTests
         Assert.Equal(1, fixture.WorkspaceCreations);
         Assert.Equal(1, fixture.ImportChecks);
         Assert.Equal("/owned/native-link/cached-runtime.wasm", Assert.Single(fixture.ValidationRequests).Path);
-        Assert.Equal(["/owned/native-link/cached-runtime.wasm", "/output/runtime.wasm"], fixture.PublishedPaths);
+        Assert.Equal(["/owned/native-link/cached-runtime.wasm"], fixture.WrittenPaths);
+        Assert.Equal(["/output/runtime.wasm"], fixture.PublishedPaths);
         Assert.True(fixture.Workspace.Disposed);
         Assert.Equal(1, fixture.ModulesRead);
         Assert.Equal(2, fixture.LayoutChecks.Count);
@@ -299,7 +300,8 @@ public sealed class RuntimeNativeModuleMaterializerTests
 
         Assert.Single(fixture.Commands);
         Assert.Single(fixture.LinkRequests); // Key identity only, no link invocation.
-        Assert.Equal(["/owned/native-link/cached-runtime.wasm"], fixture.PublishedPaths);
+        Assert.Equal(["/owned/native-link/cached-runtime.wasm"], fixture.WrittenPaths);
+        Assert.Empty(fixture.PublishedPaths);
         Assert.Null(fixture.WrittenEvidence);
         Assert.True(fixture.Workspace.Disposed);
     }
@@ -454,7 +456,9 @@ public sealed class RuntimeNativeModuleMaterializerTests
         IRuntimeNativeArchiveValidationArgumentBuilder, IRuntimeLinkArgumentBuilder, IRuntimeOptimizationArgumentBuilder,
         ILinkedRuntimeModuleReader, ILinkedMemoryLayoutCalculator, ILinkedMemoryLayoutValidator, ILinkerSymbolTraceReader,
         IRuntimeNativeBindingValidator, IRuntimeMaterializationCacheKeyBuilder, IRuntimeMaterializationCacheReader,
-        IRuntimeMaterializationCacheWriter, IRuntimeArtifactPublisher, IRuntimeArtifactReader, IRuntimeNativeArchiveSnapshotter,
+        IRuntimeMaterializationCacheWriter, IRuntimeArtifactPublisher, IRuntimeArtifactWriter,
+        IRuntimeInlineIntentWriter, IRuntimeArtifactReader,
+        IRuntimeNativeArchiveSnapshotter,
         ICommandInvoker, IRuntimeNativeLinkWorkspaceFactory
         , IRuntimeLinkExportPlanBuilder, IRuntimeLinkedImportValidator, IRuntimeNativeModuleValidator, IRuntimeNativeValidationProfileValidator
     {
@@ -492,11 +496,13 @@ public sealed class RuntimeNativeModuleMaterializerTests
         public List<RuntimeNativeModuleValidationRequest> ValidationRequests { get; } = [];
         public List<string> PublishedPaths { get; } = [];
         public Dictionary<string, byte[]> PublishedArtifacts { get; } = [];
+        public List<string> WrittenPaths { get; } = [];
+        public Dictionary<string, byte[]> WrittenArtifacts { get; } = [];
         public WorkspaceStub Workspace { get; } = new();
 
         public IRuntimeNativeModuleMaterializer Create() => Assert.IsAssignableFrom<IRuntimeNativeModuleMaterializer>(
             new RuntimeNativeModuleMaterializer(this, this, this, this,
-                this, this, this, this, this, this, this, this, this, this, this, this, this, this, this, this, this, this, this));
+                this, this, this, this, this, this, this, this, this, this, this, this, this, this, this, this, this, this, this, this, this));
         public void Validate(RuntimeNativeValidationProfile profile, string target)
         {
             if (InvalidProfile) throw Failure;
@@ -566,6 +572,14 @@ public sealed class RuntimeNativeModuleMaterializerTests
             PublishedBytes = bytes;
             PublishedDigest = sha256;
         }
+        public void Write(string path, ReadOnlyMemory<byte> bytes)
+        {
+            WrittenPaths.Add(path);
+            WrittenArtifacts[path] = bytes.ToArray();
+        }
+        public byte[] Write(
+            ReadOnlyMemory<byte> module,
+            ImmutableArray<RuntimeFunctionInlineIntent> intents) => module.ToArray();
         public void Validate(
             RuntimeNativeValidationProfile profile,
             RuntimeLinkedModule module,

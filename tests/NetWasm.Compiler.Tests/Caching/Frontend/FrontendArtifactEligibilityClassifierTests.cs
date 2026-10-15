@@ -16,6 +16,30 @@ public sealed class FrontendArtifactEligibilityClassifierTests
     private static readonly AssemblyIdentity Dependency = new("Dependency");
 
     [Theory]
+    [InlineData("field", true)]
+    [InlineData("span", true)]
+    [InlineData("element", true)]
+    [InlineData("none", false)]
+    public void ClassifyChecksEveryReadOnlySpanDataReference(string entryLocation,
+        bool referencesEntry)
+    {
+        var scalar = CliTypeIdentity.FromStackKind(CliValueKind.I4);
+        var fieldAssembly = entryLocation == "field" ? Entry : Dependency;
+        var owner = CliTypeIdentity.Named(fieldAssembly, "Fixture", "Data", false);
+        var field = new FieldInstanceModel(new(Key(fieldAssembly, 0x04000001),
+            Key(fieldAssembly, 0x02000001), "Values", scalar, true), owner, scalar);
+        var span = CliTypeIdentity.Named(entryLocation == "span" ? Entry : Dependency,
+            "Fixture", "Span", true);
+        var element = entryLocation == "element"
+            ? CliTypeIdentity.Named(Entry, "Fixture", "Element", true)
+            : scalar;
+        var request = CreateRequest(instructionOperand: new CilOperand.ReadOnlySpanData(field, span, element, 1));
+
+        Assert.Equal(referencesEntry ? FrontendArtifactEligibility.ReferencesEntryAssembly
+            : FrontendArtifactEligibility.Eligible, Classifier().Classify(request));
+    }
+
+    [Theory]
     [InlineData(false)]
     [InlineData(true)]
     public void ClassifyRejectsEntryTypesNestedInCatchIdentity(bool structured)

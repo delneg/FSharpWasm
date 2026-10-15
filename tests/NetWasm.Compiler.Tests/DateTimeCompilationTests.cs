@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using NetWasm.Compiler.Tests.Correctness;
 using NetWasm.TestInfrastructure;
 using NetWasm.Compiler.Core;
 using System.Security.Cryptography;
@@ -10,6 +11,769 @@ using static CompilerTestSupport;
 
 public sealed class DateTimeCompilationTests
 {
+    [Fact]
+    public void CompilerParsesInvariantDateOnlyAndTimeOnlyContracts()
+    {
+        using var assets = TestAssets.Create();
+        const string source =
+            """
+            using System;
+
+            namespace DateOnlyTimeOnlyParsingFixture;
+
+            public static class EntryPoint
+            {
+                public static int Run(int input)
+                {
+                    if (!global::System.DateOnly.TryParse("02/29/2024", null, out var shortDate) ||
+                        shortDate != new global::System.DateOnly(2024, 2, 29) ||
+                        !global::System.DateOnly.TryParse("29 February 2024", null, out var namedDate) ||
+                        namedDate != shortDate ||
+                        !global::System.DateOnly.TryParse("Thu, 29 Feb 2024", null, out var rfcDate) ||
+                        rfcDate != shortDate)
+                    {
+                        return 1;
+                    }
+
+                    if (!global::System.DateOnly.TryParse("2/9/2024", null, out var flexibleDate) ||
+                        flexibleDate != new global::System.DateOnly(2024, 2, 9) ||
+                        !global::System.DateOnly.TryParse(" 02/29/2024 ", null, out flexibleDate) ||
+                        flexibleDate != shortDate ||
+                        !global::System.DateOnly.TryParse("2024/02/29", null, out flexibleDate) ||
+                        flexibleDate != shortDate ||
+                        !global::System.DateOnly.TryParse("February 29 2024", null, out flexibleDate) ||
+                        flexibleDate != shortDate ||
+                        !global::System.DateOnly.TryParse("02/29/24", null, out flexibleDate) ||
+                        flexibleDate != shortDate)
+                    {
+                        return 11;
+                    }
+
+                    if (!global::System.DateOnly.TryParse(
+                            "02/29/2024 Thursday", null, out flexibleDate) ||
+                        flexibleDate != shortDate)
+                    {
+                        return 16;
+                    }
+
+                    if (!global::System.DateOnly.TryParse(
+                            "Feb 29, 2024", null, out flexibleDate) ||
+                        flexibleDate != shortDate ||
+                        !global::System.DateOnly.TryParse(
+                            "February 29, 2024", null, out flexibleDate) ||
+                        flexibleDate != shortDate ||
+                        !global::System.DateOnly.TryParse(
+                            "Feb, 29, 2024", null, out flexibleDate) ||
+                        flexibleDate != shortDate ||
+                        !global::System.DateOnly.TryParse(
+                            "2,29,2024", null, out flexibleDate) ||
+                        flexibleDate != shortDate)
+                    {
+                        return 17;
+                    }
+
+                    if (!global::System.DateOnly.TryParse(
+                            "02/29/2024\0", null, out flexibleDate) ||
+                        flexibleDate != shortDate)
+                    {
+                        return 18;
+                    }
+
+                    if (
+                        global::System.DateOnly.TryParse("2024", null, out _) ||
+                        global::System.DateOnly.TryParse("February", null, out _) ||
+                        global::System.DateOnly.TryParse("February 2024", null, out _) ||
+                        global::System.DateOnly.TryParse("2024/02", null, out _) ||
+                        global::System.DateOnly.TryParse("02/2024", null, out _) ||
+                        global::System.DateOnly.TryParse("29 2024 Feb", null, out _) ||
+                        global::System.DateOnly.TryParse("February 2024 29", null, out _) ||
+                        global::System.DateOnly.TryParse("Feb 2024 29", null, out _) ||
+                        global::System.DateOnly.TryParse("Feb29 2024", null, out _) ||
+                        global::System.DateOnly.TryParse("29Feb2024", null, out _) ||
+                        global::System.DateOnly.TryParse("2024-02-29 AD", null, out _) ||
+                        global::System.DateOnly.TryParse("AD 2024-02-29", null, out _) ||
+                        global::System.DateOnly.TryParse("2024年2月29日", null, out _) ||
+                        global::System.DateOnly.TryParse("February 99 1", null, out _) ||
+                        global::System.DateOnly.TryParse("99 February 1", null, out _) ||
+                        global::System.DateOnly.TryParse(",2024-2-29", null, out _) ||
+                        global::System.DateOnly.TryParse("2024-2-29,", null, out _) ||
+                        global::System.DateOnly.TryParse("2024-02-29/", null, out _) ||
+                        global::System.DateOnly.TryParse("2024--02--29", null, out _) ||
+                        global::System.DateOnly.TryParse("02/29/2024\0x", null, out _))
+                    {
+                        return 19;
+                    }
+
+                    if (!global::System.TimeOnly.TryParse("1:04 PM", null, out var meridiem) ||
+                        meridiem != new global::System.TimeOnly(13, 4) ||
+                        !global::System.TimeOnly.TryParse("24:00:00", null, out var midnight) ||
+                        midnight != global::System.TimeOnly.MinValue ||
+                        global::System.TimeOnly.TryParse("24:00:01", null, out _) ||
+                        global::System.TimeOnly.TryParse("24:00:00.0000001", null, out _))
+                    {
+                        return 2;
+                    }
+
+                    if (!global::System.TimeOnly.TryParse("1 PM", null, out var flexibleTime) ||
+                        flexibleTime != new global::System.TimeOnly(13, 0) ||
+                        !global::System.TimeOnly.TryParse("13:4", null, out flexibleTime) ||
+                        flexibleTime != new global::System.TimeOnly(13, 4) ||
+                        !global::System.TimeOnly.TryParse(" 13:04 ", null, out flexibleTime) ||
+                        flexibleTime != new global::System.TimeOnly(13, 4) ||
+                        !global::System.TimeOnly.TryParse(
+                            "13:04:05.12345678", null, out flexibleTime) ||
+                        flexibleTime != new global::System.TimeOnly(13, 4, 5).Add(
+                            global::System.TimeSpan.FromTicks(1234568)) ||
+                        !global::System.TimeOnly.TryParse(
+                            "13:04:59.99999995", null, out flexibleTime) ||
+                        flexibleTime != new global::System.TimeOnly(13, 5) ||
+                        !global::System.TimeOnly.TryParse(
+                            "13:59:59.99999995", null, out flexibleTime) ||
+                        flexibleTime != new global::System.TimeOnly(14, 0) ||
+                        !global::System.TimeOnly.TryParse(
+                            "23:59:59.99999995", null, out flexibleTime) ||
+                        flexibleTime != global::System.TimeOnly.MinValue ||
+                        !global::System.TimeOnly.TryParse(
+                            "13:04:05.", null, out flexibleTime) ||
+                        flexibleTime != new global::System.TimeOnly(13, 4, 5) ||
+                        !global::System.TimeOnly.TryParse(
+                            "13:04:05.12345685", null, out flexibleTime) ||
+                        flexibleTime != new global::System.TimeOnly(13, 4, 5).Add(
+                            global::System.TimeSpan.FromTicks(1234568)) ||
+                        global::System.TimeOnly.TryParse("13", null, out _) ||
+                        global::System.TimeOnly.TryParse("13 AM", null, out _) ||
+                        global::System.TimeOnly.TryParse("13:04 AM", null, out _) ||
+                        global::System.TimeOnly.TryParse("24:00 AM", null, out _) ||
+                        global::System.TimeOnly.TryParse("24:00 PM", null, out _) ||
+                        global::System.TimeOnly.TryParse("1 P", null, out _) ||
+                        global::System.TimeOnly.TryParse("13:04.", null, out _) ||
+                        global::System.TimeOnly.TryParse("1 AM,", null, out _) ||
+                        global::System.TimeOnly.TryParse("1:02:03.4,PM", null, out _) ||
+                        !global::System.TimeOnly.TryParse(
+                            "13:04\0", null, out flexibleTime) ||
+                        flexibleTime != new global::System.TimeOnly(13, 4) ||
+                        global::System.TimeOnly.TryParse("13:04\0x", null, out _) ||
+                        global::System.TimeOnly.TryParse(
+                            "24:00:00.00000004", null, out _) ||
+                        global::System.TimeOnly.TryParse(
+                            "24:00:00.00000005", null, out _))
+                    {
+                        return 12;
+                    }
+
+                    if (global::System.DateOnly.TryParseExact("2024-02-29", "d", out _) ||
+                        !global::System.DateOnly.TryParseExact("2024-02-29", "O", out var exactDate) ||
+                        exactDate != shortDate ||
+                        !global::System.DateOnly.TryParseExact("20240229", "yyyyMMdd", out exactDate) ||
+                        exactDate != shortDate ||
+                        !global::System.TimeOnly.TryParseExact("13:04", "HH:mm", out var exactTime) ||
+                        exactTime != new global::System.TimeOnly(13, 4) ||
+                        global::System.TimeOnly.TryParseExact("13:04", "T", out _) ||
+                        !global::System.TimeOnly.TryParseExact(
+                            "13:04:05.1200000", "O", out exactTime) ||
+                        exactTime != new global::System.TimeOnly(13, 4, 5, 120))
+                    {
+                        return 3;
+                    }
+
+                    var leading = global::System.Globalization.DateTimeStyles.AllowLeadingWhite;
+                    var trailing = global::System.Globalization.DateTimeStyles.AllowTrailingWhite;
+                    var inner = global::System.Globalization.DateTimeStyles.AllowInnerWhite;
+                    if (!global::System.DateOnly.TryParseExact(
+                            "\u00a02024-02-29".AsSpan(),
+                            "O".AsSpan(),
+                            null,
+                            leading,
+                            out _) ||
+                        global::System.DateOnly.TryParseExact(
+                            " 2024-02-29".AsSpan(),
+                            "O".AsSpan(),
+                            null,
+                            trailing,
+                            out _) ||
+                        !global::System.DateOnly.TryParseExact(
+                            "2024 - 02 - 29".AsSpan(),
+                            "yyyy - MM - dd".AsSpan(),
+                            null,
+                            inner,
+                            out _))
+                    {
+                        return 4;
+                    }
+
+                    var provider = new CountingProvider();
+                    if (!global::System.DateOnly.TryParse("02/29/2024", provider, out _) ||
+                        provider.Calls != 1 ||
+                        !global::System.DateOnly.TryParseExact("2024-02-29", "O", provider,
+                            global::System.Globalization.DateTimeStyles.None, out _) ||
+                        provider.Calls != 1 ||
+                        !global::System.DateOnly.TryParseExact(
+                            "2024-02-29".AsSpan(),
+                            new[] { "O" },
+                            provider,
+                            global::System.Globalization.DateTimeStyles.None,
+                            out _) ||
+                        provider.Calls != 2)
+                    {
+                        return 5;
+                    }
+
+                    try
+                    {
+                        _ = global::System.DateOnly.TryParseExact(
+                            "2024-02-29".AsSpan(),
+                            new string[] { "O", null! },
+                            null,
+                            global::System.Globalization.DateTimeStyles.None,
+                            out _);
+                        return 6;
+                    }
+                    catch (global::System.FormatException)
+                    {
+                    }
+
+                    if (global::System.DateOnly.TryParseExact(
+                            "2024-02-29".AsSpan(),
+                            new[] { "q", "O" },
+                            null,
+                            global::System.Globalization.DateTimeStyles.None,
+                            out _))
+                    {
+                        return 7;
+                    }
+
+                    if (!global::System.DateOnly.TryParseExact(
+                            "2024-02-29 13:04:05",
+                            "yyyy-MM-dd HH:mm:ss",
+                            out var dateWithTime) ||
+                        dateWithTime != shortDate ||
+                        global::System.DateOnly.TryParseExact(
+                            "2024-02-29 24:00:01",
+                            "yyyy-MM-dd HH:mm:ss",
+                            out _) ||
+                        !global::System.TimeOnly.TryParseExact(
+                            "2024-02-29 13:04",
+                            "yyyy-MM-dd HH:mm",
+                            out var timeWithDate) ||
+                        timeWithDate != new global::System.TimeOnly(13, 4) ||
+                        global::System.TimeOnly.TryParseExact(
+                            "2023-02-29 13:04",
+                            "yyyy-MM-dd HH:mm",
+                            out _) ||
+                        !global::System.DateOnly.TryParseExact(
+                            "2024 2024-02-29",
+                            "yyyy yyyy-MM-dd",
+                            out _) ||
+                        global::System.DateOnly.TryParseExact(
+                            "2024 2025-02-29",
+                            "yyyy yyyy-MM-dd",
+                            out _))
+                    {
+                        return 8;
+                    }
+
+                    if (!global::System.DateOnly.TryParseExact(
+                            "Thursday, 29 February 002024",
+                            "ddddd, dd MMMMM yyyyyy",
+                            out var repeatedDate) ||
+                        repeatedDate != shortDate ||
+                        !global::System.TimeOnly.TryParseExact(
+                            "13:04", "HHH:mm", out var repeatedTime) ||
+                        repeatedTime != new global::System.TimeOnly(13, 4) ||
+                        !global::System.TimeOnly.TryParseExact(
+                            "13:04 PM", "HH:mm tt", out repeatedTime) ||
+                        repeatedTime != new global::System.TimeOnly(13, 4) ||
+                        !global::System.TimeOnly.TryParseExact(
+                            "00:04 AM", "hh:mm tt", out repeatedTime) ||
+                        repeatedTime != new global::System.TimeOnly(0, 4))
+                    {
+                        return 13;
+                    }
+
+                    var allWhite = global::System.Globalization.DateTimeStyles.AllowWhiteSpaces;
+                    if (!global::System.DateOnly.TryParseExact(
+                            "2024-02-29".AsSpan(),
+                            "yyyy - MM - dd".AsSpan(),
+                            null,
+                            inner,
+                            out _) ||
+                        !global::System.DateOnly.TryParseExact(
+                            "2024 -02-29".AsSpan(),
+                            "yyyy-MM-dd".AsSpan(),
+                            null,
+                            inner,
+                            out _) ||
+                        !global::System.DateOnly.TryParseExact(
+                            "2024-02-29".AsSpan(),
+                            " yyyy-MM-dd ".AsSpan(),
+                            null,
+                            allWhite,
+                            out _) ||
+                        global::System.DateOnly.TryParseExact("", "''", out _) ||
+                        global::System.TimeOnly.TryParseExact("", "''", out _))
+                    {
+                        return 14;
+                    }
+
+                    try
+                    {
+                        _ = global::System.DateOnly.TryParse(
+                            "02/29/2024",
+                            new ThrowingProvider(),
+                            out _);
+                        return 9;
+                    }
+                    catch (global::System.InvalidOperationException)
+                    {
+                    }
+
+                    if (!global::System.DateOnly.TryParseExact(
+                            "2024-02-29",
+                            "O",
+                            new ThrowingProvider(),
+                            global::System.Globalization.DateTimeStyles.None,
+                            out _))
+                    {
+                        return 10;
+                    }
+
+                    return input;
+                }
+
+                private sealed class CountingProvider : global::System.IFormatProvider
+                {
+                    public int Calls;
+
+                    public object? GetFormat(global::System.Type? formatType)
+                    {
+                        Calls++;
+                        return null;
+                    }
+                }
+
+                private sealed class ThrowingProvider : global::System.IFormatProvider
+                {
+                    public object? GetFormat(global::System.Type? formatType) =>
+                        throw new global::System.InvalidOperationException();
+                }
+            }
+            """;
+
+        ICompilationScenarioExecutor executor = new CompilationScenarioExecutor(assets);
+        foreach (var optimize in new[] { false, true })
+        {
+            foreach (var target in new[] { WasmTarget.Wasm32, WasmTarget.Wasm64 })
+            {
+                var result = executor.Execute(new CompilationScenario(
+                    $"DateOnlyTimeOnlyParsing{(optimize ? "Release" : "Debug")}{target}",
+                    source,
+                    "DateOnlyTimeOnlyParsingFixture.EntryPoint",
+                    optimize,
+                    target,
+                    42,
+                    [])
+                {
+                    Exports = [new RequestedExport(
+                        "run",
+                        "DateOnlyTimeOnlyParsingFixture.EntryPoint",
+                        "Run")],
+                    WitPath = PlatformWitPath(assets),
+                    WitWorld = "netwasm:platform@1.0.0/platform",
+                });
+
+                Assert.Equal(42, result);
+            }
+        }
+    }
+
+    [Theory(Skip = KnownNonBugSkipReasons.InvariantDateTimeGeneralGrammar)]
+    [InlineData("February 2024")]
+    [InlineData("2024/02")]
+    [InlineData("02/2024")]
+    [InlineData("29 2024 Feb")]
+    [InlineData("February 2024 29")]
+    [InlineData("Feb29 2024")]
+    [InlineData("29Feb2024")]
+    [InlineData("2024-02-29 AD")]
+    [InlineData("AD 2024-02-29")]
+    [InlineData("2024年2月29日")]
+    [InlineData("February 99 1")]
+    [InlineData("99 February 1")]
+    [InlineData(",2024-2-29")]
+    [InlineData("2024-2-29,")]
+    public void DesktopDateOnlyGeneralGrammarOutsideTheInvariantProfile(string value) =>
+        Assert.True(global::System.DateOnly.TryParse(
+            value,
+            global::System.Globalization.CultureInfo.InvariantCulture,
+            global::System.Globalization.DateTimeStyles.None,
+            out _));
+
+    [Theory(Skip = KnownNonBugSkipReasons.InvariantDateTimeGeneralGrammar)]
+    [InlineData("13:04.")]
+    [InlineData("1 AM,")]
+    [InlineData("1:02:03.4,PM")]
+    public void DesktopTimeOnlyGeneralGrammarOutsideTheInvariantProfile(string value) =>
+        Assert.True(global::System.TimeOnly.TryParse(
+            value,
+            global::System.Globalization.CultureInfo.InvariantCulture,
+            global::System.Globalization.DateTimeStyles.None,
+            out _));
+
+    [Fact]
+    public void CompilerFormatsInvariantDateOnlyAndTimeOnlyContracts()
+    {
+        using var assets = TestAssets.Create();
+        const string source =
+            """
+            namespace DateOnlyTimeOnlyFormattingFixture;
+
+            public static class EntryPoint
+            {
+                public static int Run(int input)
+                {
+                    var date = new global::System.DateOnly(2024, 2, 29);
+                    if (date.ToString() != "02/29/2024" ||
+                        date.ToString("d") != "02/29/2024" ||
+                        date.ToString("D") != "Thursday, 29 February 2024" ||
+                        date.ToString("M") != "February 29" ||
+                        date.ToString("Y") != "2024 February" ||
+                        date.ToString("O") != "2024-02-29" ||
+                        date.ToString("R") != "Thu, 29 Feb 2024" ||
+                        date.ToString("yyyyMMdd") != "20240229" ||
+                        date.ToString("ddddd MMMMM yyyyyy") !=
+                            "Thursday February 002024")
+                    {
+                        return 1;
+                    }
+
+                    var time = new global::System.TimeOnly(13, 4, 5, 120);
+                    if (time.ToString() != "13:04" ||
+                        time.ToString("t") != "13:04" ||
+                        time.ToString("T") != "13:04:05" ||
+                        time.ToString("R") != "13:04:05" ||
+                        time.ToString("O") != "13:04:05.1200000" ||
+                        time.ToString("HH-mm-ss.FFF") != "13-04-05.12" ||
+                        time.ToString("HHH:mmm:sss ttt") != "13:04:05 PM")
+                    {
+                        return 2;
+                    }
+
+                    if (!ThrowsFormat(() => date.ToString("HH:mm")) ||
+                        !ThrowsFormat(() => time.ToString("g")) ||
+                        !ThrowsFormat(() => date.ToString("HH:mm", new ThrowingProvider())) ||
+                        !ThrowsFormat(() => time.ToString("yyyy", new ThrowingProvider())))
+                    {
+                        return 3;
+                    }
+
+                    var provider = new CountingProvider();
+                    _ = date.ToString("d", provider);
+                    _ = date.ToString("O", provider);
+                    _ = time.ToString("t", provider);
+                    _ = time.ToString("R", provider);
+                    if (provider.Calls != 2)
+                    {
+                        return 4;
+                    }
+
+                    global::System.Span<char> chars = stackalloc char[32];
+                    chars.Fill('!');
+                    if (date.TryFormat(chars[..9], out var charsWritten, "O") ||
+                        charsWritten != 0 || chars[0] != '!')
+                    {
+                        return 5;
+                    }
+
+                    if (!date.TryFormat(chars, out charsWritten, "R", provider) ||
+                        new string(chars[..charsWritten]) != "Thu, 29 Feb 2024" ||
+                        provider.Calls != 2)
+                    {
+                        return 6;
+                    }
+
+                    if (!date.TryFormat(chars, out charsWritten, "ddddd MMMMM yyyyyy") ||
+                        new string(chars[..charsWritten]) != "Thursday February 002024" ||
+                        !time.TryFormat(chars, out charsWritten, "HHH:mmm:sss ttt") ||
+                        new string(chars[..charsWritten]) != "13:04:05 PM")
+                    {
+                        return 12;
+                    }
+
+                    global::System.Span<byte> bytes = stackalloc byte[32];
+                    if (!time.TryFormat(bytes, out var bytesWritten, "'λ'HH") ||
+                        global::System.Text.Encoding.UTF8.GetString(bytes[..bytesWritten]) != "λ13")
+                    {
+                        return 7;
+                    }
+
+                    bytes.Fill((byte)'!');
+                    if (time.TryFormat(bytes[..3], out bytesWritten, "'λ'HH") ||
+                        bytesWritten != 0 || bytes[0] != (byte)'!')
+                    {
+                        return 8;
+                    }
+
+                    if (!time.TryFormat(bytes, out bytesWritten, "R", provider) ||
+                        global::System.Text.Encoding.UTF8.GetString(bytes[..bytesWritten]) != "13:04:05" ||
+                        provider.Calls != 2)
+                    {
+                        return 9;
+                    }
+
+                    if (!date.TryFormat(bytes, out bytesWritten, "ddddd MMMMM yyyyyy") ||
+                        global::System.Text.Encoding.UTF8.GetString(bytes[..bytesWritten]) !=
+                            "Thursday February 002024" ||
+                        !time.TryFormat(bytes, out bytesWritten, "HHH:mmm:sss ttt") ||
+                        global::System.Text.Encoding.UTF8.GetString(bytes[..bytesWritten]) !=
+                            "13:04:05 PM")
+                    {
+                        return 13;
+                    }
+
+                    if (!date.TryFormat(chars, out charsWritten, "d", provider) ||
+                        new string(chars[..charsWritten]) != "02/29/2024" ||
+                        !time.TryFormat(chars, out charsWritten, "T", provider) ||
+                        new string(chars[..charsWritten]) != "13:04:05" ||
+                        provider.Calls != 4)
+                    {
+                        return 10;
+                    }
+
+                    try
+                    {
+                        _ = date.ToString("d", new ThrowingProvider());
+                        return 11;
+                    }
+                    catch (global::System.InvalidOperationException)
+                    {
+                    }
+
+                    try
+                    {
+                        _ = date.TryFormat(
+                            chars,
+                            out _,
+                            "HH:mm",
+                            new ThrowingProvider());
+                        return 14;
+                    }
+                    catch (global::System.FormatException)
+                    {
+                    }
+
+                    try
+                    {
+                        _ = time.TryFormat(
+                            bytes,
+                            out _,
+                            "yyyy",
+                            new ThrowingProvider());
+                        return 15;
+                    }
+                    catch (global::System.FormatException)
+                    {
+                    }
+
+                    return input;
+                }
+
+                private static bool ThrowsFormat(global::System.Func<string> action)
+                {
+                    try
+                    {
+                        _ = action();
+                        return false;
+                    }
+                    catch (global::System.FormatException)
+                    {
+                        return true;
+                    }
+                }
+
+                private sealed class CountingProvider : global::System.IFormatProvider
+                {
+                    public int Calls;
+
+                    public object? GetFormat(global::System.Type? formatType)
+                    {
+                        Calls++;
+                        return null;
+                    }
+                }
+
+                private sealed class ThrowingProvider : global::System.IFormatProvider
+                {
+                    public object? GetFormat(global::System.Type? formatType) =>
+                        throw new global::System.InvalidOperationException();
+                }
+            }
+            """;
+
+        ICompilationScenarioExecutor executor = new CompilationScenarioExecutor(assets);
+        foreach (var optimize in new[] { false, true })
+        {
+            foreach (var target in new[] { WasmTarget.Wasm32, WasmTarget.Wasm64 })
+            {
+                var result = executor.Execute(new CompilationScenario(
+                    $"DateOnlyTimeOnlyFormatting{(optimize ? "Release" : "Debug")}{target}",
+                    source,
+                    "DateOnlyTimeOnlyFormattingFixture.EntryPoint",
+                    optimize,
+                    target,
+                    42,
+                    [])
+                {
+                    Exports = [new RequestedExport(
+                        "run",
+                        "DateOnlyTimeOnlyFormattingFixture.EntryPoint",
+                        "Run")],
+                    WitPath = PlatformWitPath(assets),
+                    WitWorld = "netwasm:platform@1.0.0/platform",
+                });
+
+                Assert.Equal(42, result);
+            }
+        }
+    }
+
+    [Fact]
+    public void CompilerPreservesDateOnlyAndTimeOnlyExceptionState()
+    {
+        using var assets = TestAssets.Create();
+        const string source =
+            """
+            namespace DateOnlyTimeOnlyContractFixture;
+
+            public static class EntryPoint
+            {
+                public static int Run(int input)
+                {
+                    if (!global::System.DateOnly.TryParse(s: "2024-02-29", out _) ||
+                        !global::System.TimeOnly.TryParse(s: "13:04", out _) ||
+                        !global::System.DateOnly.TryParseExact(
+                            s: "2024-02-29", format: "O", out _))
+                    {
+                        return 1;
+                    }
+
+                    try
+                    {
+                        global::System.DateOnly.MinValue.AddMonths(-1);
+                        return 2;
+                    }
+                    catch (global::System.ArgumentOutOfRangeException exception)
+                    {
+                        if (exception.ParamName != "months") return 2;
+                    }
+
+                    try
+                    {
+                        global::System.DateOnly.MinValue.AddYears(-1);
+                        return 3;
+                    }
+                    catch (global::System.ArgumentOutOfRangeException exception)
+                    {
+                        if (exception.ParamName != "value") return 3;
+                    }
+
+                    try
+                    {
+                        global::System.DateOnly.FromDayNumber(-1);
+                        return 4;
+                    }
+                    catch (global::System.ArgumentOutOfRangeException exception)
+                    {
+                        if (exception.ParamName != "dayNumber" ||
+                            (int)exception.ActualValue! != -1) return 4;
+                    }
+
+                    try
+                    {
+                        global::System.DateOnly.MinValue.ToDateTime(
+                            global::System.TimeOnly.MinValue,
+                            (global::System.DateTimeKind)3);
+                        return 5;
+                    }
+                    catch (global::System.ArgumentException exception)
+                    {
+                        if (exception.ParamName != "kind") return 5;
+                    }
+
+                    try
+                    {
+                        _ = new global::System.TimeOnly(0, 0, 0, 1000);
+                        return 6;
+                    }
+                    catch (global::System.ArgumentOutOfRangeException exception)
+                    {
+                        if (exception.ParamName != "millisecond") return 6;
+                    }
+
+                    try
+                    {
+                        _ = new global::System.TimeOnly(0, 0, 0, 0, 1000);
+                        return 7;
+                    }
+                    catch (global::System.ArgumentOutOfRangeException exception)
+                    {
+                        if (exception.ParamName != "microsecond") return 7;
+                    }
+
+                    if (global::System.DateOnly.TryParse(
+                            s: null,
+                            provider: null,
+                            style: global::System.Globalization.DateTimeStyles.AssumeUniversal,
+                            out _))
+                    {
+                        return 8;
+                    }
+
+                    try
+                    {
+                        global::System.DateOnly.TryParse(
+                            default(global::System.ReadOnlySpan<char>),
+                            null,
+                            global::System.Globalization.DateTimeStyles.AssumeUniversal,
+                            out _);
+                        return 9;
+                    }
+                    catch (global::System.ArgumentException exception)
+                    {
+                        if (exception.ParamName != "style") return 9;
+                    }
+
+                    return 0;
+                }
+            }
+            """;
+
+        ICompilationScenarioExecutor executor = new CompilationScenarioExecutor(assets);
+        foreach (var optimize in new[] { false, true })
+        {
+            foreach (var target in new[] { WasmTarget.Wasm32, WasmTarget.Wasm64 })
+            {
+                var result = executor.Execute(new CompilationScenario(
+                    $"DateOnlyTimeOnlyContract{(optimize ? "Release" : "Debug")}{target}",
+                    source,
+                    "DateOnlyTimeOnlyContractFixture.EntryPoint",
+                    optimize,
+                    target,
+                    0,
+                    [])
+                {
+                    Exports = [new RequestedExport(
+                        "run",
+                        "DateOnlyTimeOnlyContractFixture.EntryPoint",
+                        "Run")],
+                    WitPath = PlatformWitPath(assets),
+                    WitWorld = "netwasm:platform@1.0.0/platform",
+                });
+
+                Assert.Equal(0, result);
+            }
+        }
+    }
+
     [Fact]
     public void CompilerFormatsRoundTripDateTextAcrossTargets()
     {
@@ -43,6 +807,31 @@ public sealed class DateTimeCompilationTests
                         return -1;
                     }
 
+                    if (!global::System.Buffers.Text.Utf8Formatter.TryFormat(
+                            utc,
+                            bytes,
+                            out written,
+                            new global::System.Buffers.StandardFormat('R'))
+                        || global::System.Text.Encoding.UTF8.GetString(bytes[..written])
+                            != "Thu, 02 Jan 2020 03:04:05 GMT"
+                        || !global::System.Buffers.Text.Utf8Formatter.TryFormat(
+                            utc,
+                            bytes,
+                            out written,
+                            new global::System.Buffers.StandardFormat('l'))
+                        || global::System.Text.Encoding.UTF8.GetString(bytes[..written])
+                            != "thu, 02 jan 2020 03:04:05 gmt"
+                        || !global::System.Buffers.Text.Utf8Formatter.TryFormat(
+                            utc,
+                            bytes,
+                            out written,
+                            new global::System.Buffers.StandardFormat('G'))
+                        || global::System.Text.Encoding.UTF8.GetString(bytes[..written])
+                            != "01/02/2020 03:04:05")
+                    {
+                        return -3;
+                    }
+
                     var offset = new global::System.DateTimeOffset(
                         2020,
                         1,
@@ -61,6 +850,37 @@ public sealed class DateTimeCompilationTests
                             != "2020-01-02T03:04:05.6780000+10:30")
                     {
                         return -2;
+                    }
+
+                    if (!global::System.Buffers.Text.Utf8Formatter.TryFormat(
+                            offset,
+                            bytes,
+                            out written,
+                            new global::System.Buffers.StandardFormat('R'))
+                        || global::System.Text.Encoding.UTF8.GetString(bytes[..written])
+                            != "Wed, 01 Jan 2020 16:34:05 GMT"
+                        || !global::System.Buffers.Text.Utf8Formatter.TryFormat(
+                            offset,
+                            bytes,
+                            out written,
+                            new global::System.Buffers.StandardFormat('l'))
+                        || global::System.Text.Encoding.UTF8.GetString(bytes[..written])
+                            != "wed, 01 jan 2020 16:34:05 gmt"
+                        || !global::System.Buffers.Text.Utf8Formatter.TryFormat(
+                            offset,
+                            bytes,
+                            out written,
+                            new global::System.Buffers.StandardFormat('G'))
+                        || global::System.Text.Encoding.UTF8.GetString(bytes[..written])
+                            != "01/02/2020 03:04:05"
+                        || !global::System.Buffers.Text.Utf8Formatter.TryFormat(
+                            offset,
+                            bytes,
+                            out written)
+                        || global::System.Text.Encoding.UTF8.GetString(bytes[..written])
+                            != "01/02/2020 03:04:05 +10:30")
+                    {
+                        return -4;
                     }
 
                     return input + 1;
@@ -602,8 +1422,7 @@ public sealed class DateTimeCompilationTests
     public void CompilerExecutesInvariantDateTimeTextRoundTrips()
     {
         using var assets = TestAssets.Create();
-        var assembly = assets.CompileSource(
-            "DateTimeTextFixture",
+        const string source =
             """
             namespace DateTimeTextFixture;
 
@@ -622,27 +1441,38 @@ public sealed class DateTimeCompilationTests
                     return span.ToString() == "-2.03:04:05.0060070"
                         && minimumSpan == System.TimeSpan.MinValue
                         && minimumSpan.ToString() == "-10675199.02:48:05.4775808"
-                        && date.ToString() == "2000-02-29"
-                        && time.ToString() == "23:59:58.1234567"
+                        && date.ToString() == "02/29/2000"
+                        && time.ToString() == "23:59"
                         && System.DateOnly.FromDateTime(combined) == date
                         && System.TimeOnly.FromDateTime(combined) == time
-                        && utc.ToString() == "2024-02-29T23:59:58.1234567Z"
-                        && offset.ToString() == "2024-02-29T23:59:58.1234567+10:30"
-                        && offset.UtcDateTime.ToString() == "2024-02-29T13:29:58.1234567Z"
+                        && utc.ToString() == "02/29/2024 23:59:58"
+                        && offset.ToString() == "02/29/2024 23:59:58 +10:30"
+                        && offset.UtcDateTime.ToString() == "02/29/2024 13:29:58"
                         ? input + 1
                         : -1;
                 }
             }
-            """);
+            """;
 
-        var result = NetWasmCompiler.Compile(new CompilerOptions(
-            assembly,
-            [assets.CoreLib],
+        ICompilationScenarioExecutor executor = new CompilationScenarioExecutor(assets);
+        var result = executor.Execute(new CompilationScenario(
+            "DateTimeTextFixture",
+            source,
             "DateTimeTextFixture.EntryPoint",
-            "Run",
-            []));
+            Optimize: false,
+            WasmTarget.Wasm32,
+            41,
+            [])
+        {
+            Exports = [new RequestedExport(
+                "run",
+                "DateTimeTextFixture.EntryPoint",
+                "Run")],
+            WitPath = PlatformWitPath(assets),
+            WitWorld = "netwasm:platform@1.0.0/platform",
+        });
 
-        Assert.Equal(42, ExecuteWithNode(result.ApplicationModule, assets.Directory, 41));
+        Assert.Equal(42, result);
     }
 
     [Fact]
@@ -795,6 +1625,10 @@ public sealed class DateTimeCompilationTests
                     var nextYear = leap.AddYears(1);
                     var time = new System.TimeOnly(23, 59, 30).AddMinutes(2);
                     var parsed = System.DateOnly.Parse("1970-01-01");
+                    var morning = new System.TimeOnly(8, 0);
+                    var noon = new System.TimeOnly(12, 0);
+                    var overnightStart = new System.TimeOnly(23, 0);
+                    var overnightEnd = new System.TimeOnly(1, 0);
                     return nextYear.Year == 2025
                         && nextYear.Month == 2
                         && nextYear.Day == 28
@@ -803,6 +1637,12 @@ public sealed class DateTimeCompilationTests
                         && time.Second == 30
                         && parsed.DayNumber == 719162
                         && leap.DayOfWeek == System.DayOfWeek.Thursday
+                        && new System.TimeOnly(10, 0).IsBetween(morning, noon)
+                        && !new System.TimeOnly(7, 0).IsBetween(morning, noon)
+                        && new System.TimeOnly(23, 30).IsBetween(overnightStart, overnightEnd)
+                        && new System.TimeOnly(0, 30).IsBetween(overnightStart, overnightEnd)
+                        && !new System.TimeOnly(12, 0).IsBetween(overnightStart, overnightEnd)
+                        && !morning.IsBetween(morning, morning)
                         ? input + 1
                         : -1;
                 }

@@ -8,6 +8,164 @@ namespace NetWasm.Compiler.ControlFlow.Tests.Structuring;
 
 public sealed class LoopRegionFactoryTests
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void MethodEntryLoopsUseTheEntryHeaderForBothConditionPlacements(bool bottomTest)
+    {
+        var template = CreateState();
+        var blocks = Enumerable.Range(0, 3).Select(index => new BasicBlock(index, index, [])).ToImmutableArray();
+        var successors = ImmutableDictionary<int, ImmutableArray<int>>.Empty
+            .Add(0, bottomTest ? [1] : [1, 2]).Add(1, bottomTest ? [0, 2] : [0]).Add(2, []);
+        var predecessors = ImmutableDictionary<int, ImmutableArray<int>>.Empty
+            .Add(0, [1]).Add(1, [0]).Add(2, bottomTest ? [1] : [0]);
+        var empty = Enumerable.Range(0, 3).ToImmutableDictionary(index => index, _ => ImmutableArray<int>.Empty);
+        var graph = new ControlFlowGraph(template.Graph.MethodBody, blocks, successors, predecessors,
+            empty, empty, [0, 1, 2]);
+        var state = new ControlFlowStructuringState(new ValidatedControlFlowGraph(graph,
+            ImmutableDictionary<int, ImmutableArray<CliValueKind>>.Empty,
+            ImmutableDictionary<int, ImmutableArray<CliValueKind>>.Empty));
+        var overlaps = new RecordingOverlapClassifier(false);
+        var continues = new RecordingContinueTargetFinder(0);
+        var factory = new LoopRegionFactory(overlaps, new FixedLoopConditionChooser(bottomTest ? 1 : 0),
+            new FixedCommonReachableBlockFinder(2), new EmptyReachableBlockFinder(),
+            new UnexpectedIrreducibleControlFlowExceptionFactory(),
+            new LoopExitPartitioner(new OrderedExitExtensionCollector([], []), overlaps),
+            continues, CreateEligibilityClassifier());
+
+        var result = Create(factory, state, graph, [0, 1], new(0, graph.ReachableBlocks), [new(0, graph.ReachableBlocks)]);
+
+        var loop = Assert.IsType<LoopRegion>(result.Region);
+        Assert.Equal(0, loop.Header);
+        Assert.Equal(bottomTest ? 1 : 0, loop.Condition);
+        Assert.Equal(0, loop.Continue);
+        Assert.Equal(2, loop.Exit);
+        Assert.Empty(result.DispatcherOwnedBlocks);
+        Assert.Equal(bottomTest ? 0 : 1, continues.CallCount);
+    }
+
+    [Fact]
+    public void AComponentWithoutASelectedConditionRemainsDispatcherOwned()
+    {
+        var state = CreateState();
+        var partitions = new RecordingExitPartitioner();
+        var continues = new RecordingContinueTargetFinder(1);
+        var factory = new LoopRegionFactory(new RecordingOverlapClassifier(false), new FixedLoopConditionChooser(null),
+            new FixedCommonReachableBlockFinder(5), new EmptyReachableBlockFinder(),
+            new UnexpectedIrreducibleControlFlowExceptionFactory(), partitions, continues, CreateEligibilityClassifier());
+
+        var result = Create(factory, state, state.Graph, [1, 2], new(0, state.Graph.ReachableBlocks), [new(0, state.Graph.ReachableBlocks)]);
+
+        Assert.Null(result.Region);
+        Assert.Equal(ImmutableHashSet.Create(1, 2), result.DispatcherOwnedBlocks);
+        Assert.Null(partitions.Graph);
+        Assert.Equal(0, continues.CallCount);
+    }
+
+    [Fact]
+    public void AnIneligibleNaturalRegionRetainsTheOriginalDispatcherComponent()
+    {
+        var state = CreateState();
+        var eligibility = new DecliningEligibility();
+        var overlaps = new RecordingOverlapClassifier(false);
+        var factory = new LoopRegionFactory(overlaps, new FixedLoopConditionChooser(1),
+            new FixedCommonReachableBlockFinder(5), new EmptyReachableBlockFinder(),
+            new UnexpectedIrreducibleControlFlowExceptionFactory(),
+            new LoopExitPartitioner(new OrderedExitExtensionCollector([4], [3]), overlaps),
+            new RecordingContinueTargetFinder(1), eligibility);
+
+        var result = Create(factory, state, state.Graph, [1, 2], new(0, state.Graph.ReachableBlocks), [new(0, state.Graph.ReachableBlocks)]);
+
+        Assert.Null(result.Region);
+        Assert.Equal(ImmutableHashSet.Create(1, 2), result.DispatcherOwnedBlocks);
+        Assert.Equal(1, eligibility.Request!.Region.Header);
+        Assert.Contains(4, eligibility.Request.Region.BodyComponent);
+    }
+
+    private sealed class DecliningEligibility : ILoopRegionEligibilityClassifier
+    {
+        public LoopRegionEligibilityRequest? Request { get; private set; }
+        public bool Classify(LoopRegionEligibilityRequest request)
+        {
+            Request = request;
+            return false;
+        }
+    }
+
+    [Fact]
+    public void UnreachablePredecessorDoesNotCreateAnAdditionalLoopEntry()
+    {
+        var original = CreateState();
+        var graph = new ControlFlowGraph(original.Graph.MethodBody,
+            original.Graph.Blocks.Add(new BasicBlock(6, 6, [])),
+            original.Graph.Successors.Add(6, [2]),
+            original.Graph.Predecessors.Add(6, []).SetItem(2, [1, 6]),
+            original.Graph.ExceptionalSuccessors.Add(6, []),
+            original.Graph.ExceptionalPredecessors.Add(6, []),
+            original.Graph.ReachableBlocks);
+        var state = new ControlFlowStructuringState(new ValidatedControlFlowGraph(
+            graph, ImmutableDictionary<int, ImmutableArray<CliValueKind>>.Empty,
+            ImmutableDictionary<int, ImmutableArray<CliValueKind>>.Empty));
+        var overlaps = new RecordingOverlapClassifier(false);
+        var factory = new LoopRegionFactory(overlaps,
+            new FixedLoopConditionChooser(1), new FixedCommonReachableBlockFinder(5),
+            new EmptyReachableBlockFinder(), new UnexpectedIrreducibleControlFlowExceptionFactory(),
+            new LoopExitPartitioner(new OrderedExitExtensionCollector([4], [3]), overlaps),
+            new RecordingContinueTargetFinder(2), CreateEligibilityClassifier());
+
+        var result = Create(factory, state, graph, [1, 2],
+            new ControlFlowDomain(0, graph.ReachableBlocks),
+            [new ControlFlowDomain(0, graph.ReachableBlocks)]);
+
+        Assert.Equal(1, Assert.IsType<LoopRegion>(result.Region).Header);
+        Assert.Empty(result.DispatcherOwnedBlocks);
+    }
+
+    [Fact]
+    public void ExitPlanningIncludesExceptionContinuationSummaryEdges()
+    {
+        var original = CreateState();
+        var successors = original.Graph.Successors.SetItem(2, [1, 4, 5]);
+        var summary = new ControlFlowGraph(original.Graph.MethodBody, original.Graph.Blocks,
+            successors, original.Graph.Predecessors.SetItem(5, [2, 3, 4]),
+            original.Graph.ExceptionalSuccessors, original.Graph.ExceptionalPredecessors,
+            original.Graph.ReachableBlocks);
+        var state = new ControlFlowStructuringState(original.Validated) { ContinuationGraph = summary };
+        var partitions = new RecordingExitPartitioner();
+        var factory = new LoopRegionFactory(new RecordingOverlapClassifier(false),
+            new FixedLoopConditionChooser(1), new FixedCommonReachableBlockFinder(5),
+            new EmptyReachableBlockFinder(), new UnexpectedIrreducibleControlFlowExceptionFactory(),
+            partitions, new RecordingContinueTargetFinder(1), CreateEligibilityClassifier());
+
+        var result = Create(factory, state, state.Graph, [1, 2],
+            new ControlFlowDomain(0, state.Graph.ReachableBlocks),
+            [new ControlFlowDomain(0, state.Graph.ReachableBlocks)]);
+
+        Assert.NotNull(result.Region);
+        Assert.Same(summary, partitions.Graph);
+        Assert.Equal(ImmutableHashSet.Create(4, 5), partitions.AdditionalExits);
+        Assert.Equal(3, partitions.ConditionExit);
+        Assert.Equal(5, partitions.Exit);
+    }
+
+    private sealed class RecordingExitPartitioner : ILoopExitPartitioner
+    {
+        public ControlFlowGraph? Graph { get; private set; }
+        public ImmutableHashSet<int> AdditionalExits { get; private set; } = [];
+        public int ConditionExit { get; private set; }
+        public int Exit { get; private set; }
+
+        public LoopExitPartition Partition(ControlFlowGraph graph, ImmutableHashSet<int> component,
+            int exit, int conditionExit, ImmutableHashSet<int> additionalExits)
+        {
+            Graph = graph;
+            AdditionalExits = additionalExits;
+            ConditionExit = conditionExit;
+            Exit = exit;
+            return new([3], component.Union([4]), false);
+        }
+    }
+
     [Fact]
     public void CreateRejectsOverlappingBodyAndConditionExitDomains()
     {
@@ -24,7 +182,8 @@ public sealed class LoopRegionFactoryTests
             new EmptyReachableBlockFinder(),
             new UnexpectedIrreducibleControlFlowExceptionFactory(),
             new LoopExitPartitioner(extensions, overlaps),
-            continues);
+            continues,
+            CreateEligibilityClassifier());
 
         var result = Create(
             factory,
@@ -57,7 +216,8 @@ public sealed class LoopRegionFactoryTests
             new LoopExitPartitioner(
                 new OrderedExitExtensionCollector([], []),
                 overlaps),
-            new RecordingContinueTargetFinder(1));
+            new RecordingContinueTargetFinder(1),
+            CreateEligibilityClassifier());
 
         Assert.Throws<InvalidOperationException>(() => Create(
             factory,
@@ -82,7 +242,8 @@ public sealed class LoopRegionFactoryTests
             new LoopExitPartitioner(
                 new OrderedExitExtensionCollector([], []),
                 overlaps),
-            new RecordingContinueTargetFinder(1));
+            new RecordingContinueTargetFinder(1),
+            CreateEligibilityClassifier());
         var component = ImmutableHashSet.Create(1, 2);
 
         var result = Create(
@@ -113,7 +274,8 @@ public sealed class LoopRegionFactoryTests
             new EmptyReachableBlockFinder(),
             new UnexpectedIrreducibleControlFlowExceptionFactory(),
             new LoopExitPartitioner(extensions, overlaps),
-            continues);
+            continues,
+            CreateEligibilityClassifier());
 
         var creation = Create(
             factory,
@@ -185,21 +347,32 @@ public sealed class LoopRegionFactoryTests
                 ImmutableHashSet<int>.Empty),
             overlaps);
         var continues = new RecordingContinueTargetFinder(result: 1);
+        var eligibility = CreateEligibilityClassifier();
 
         Assert.Throws<ArgumentNullException>(() => new LoopRegionFactory(
-            null!, conditions, joins, reachable, errors, partitions, continues));
+            null!, conditions, joins, reachable, errors, partitions, continues,
+            eligibility));
         Assert.Throws<ArgumentNullException>(() => new LoopRegionFactory(
-            overlaps, null!, joins, reachable, errors, partitions, continues));
+            overlaps, null!, joins, reachable, errors, partitions, continues,
+            eligibility));
         Assert.Throws<ArgumentNullException>(() => new LoopRegionFactory(
-            overlaps, conditions, null!, reachable, errors, partitions, continues));
+            overlaps, conditions, null!, reachable, errors, partitions, continues,
+            eligibility));
         Assert.Throws<ArgumentNullException>(() => new LoopRegionFactory(
-            overlaps, conditions, joins, null!, errors, partitions, continues));
+            overlaps, conditions, joins, null!, errors, partitions, continues,
+            eligibility));
         Assert.Throws<ArgumentNullException>(() => new LoopRegionFactory(
-            overlaps, conditions, joins, reachable, null!, partitions, continues));
+            overlaps, conditions, joins, reachable, null!, partitions, continues,
+            eligibility));
         Assert.Throws<ArgumentNullException>(() => new LoopRegionFactory(
-            overlaps, conditions, joins, reachable, errors, null!, continues));
+            overlaps, conditions, joins, reachable, errors, null!, continues,
+            eligibility));
         Assert.Throws<ArgumentNullException>(() => new LoopRegionFactory(
-            overlaps, conditions, joins, reachable, errors, partitions, null!));
+            overlaps, conditions, joins, reachable, errors, partitions, null!,
+            eligibility));
+        Assert.Throws<ArgumentNullException>(() => new LoopRegionFactory(
+            overlaps, conditions, joins, reachable, errors, partitions, continues,
+            null!));
     }
 
     private static LoopRegionCreation Create<TFactory>(
@@ -211,6 +384,12 @@ public sealed class LoopRegionFactoryTests
         ImmutableArray<ControlFlowDomain> orderedChildDomains)
         where TFactory : ILoopRegionFactory
         => factory.Create(state, graph, component, domain, orderedChildDomains);
+
+    private static LoopRegionEligibilityClassifier
+        CreateEligibilityClassifier() =>
+        new(new ControlFlowSubgraphCycleClassifier(
+            new ControlFlowComponentAnalyzer(),
+            new ControlFlowCycleClassifier()));
 
     private sealed class RecordingOverlapClassifier(bool result) :
         IReachableSetOverlapClassifier
@@ -227,7 +406,7 @@ public sealed class LoopRegionFactoryTests
         }
     }
 
-    private sealed class FixedLoopConditionChooser(int condition) :
+    private sealed class FixedLoopConditionChooser(int? condition) :
         ILoopConditionChooser
     {
         public int? Choose(LoopConditionSelection selection) => condition;

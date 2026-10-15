@@ -9,43 +9,49 @@ namespace System.Collections
 {
     internal sealed class CompatibleComparer : IEqualityComparer
     {
-        private readonly IHashCodeProvider? _hashCodeProvider;
+        private readonly IHashCodeProvider? _hcp;
         private readonly IComparer? _comparer;
 
         internal CompatibleComparer(IHashCodeProvider? hashCodeProvider, IComparer? comparer)
         {
-            _hashCodeProvider = hashCodeProvider;
+            _hcp = hashCodeProvider;
             _comparer = comparer;
         }
 
-        internal IHashCodeProvider? HashCodeProvider => _hashCodeProvider;
+        internal IHashCodeProvider? HashCodeProvider => _hcp;
 
         internal IComparer? Comparer => _comparer;
 
-        public new bool Equals(object? first, object? second) => Compare(first, second) == 0;
+        public new bool Equals(object? a, object? b) => Compare(a, b) == 0;
 
-        public int Compare(object? first, object? second)
+        public int Compare(object? a, object? b)
         {
-            if (first == second)
+            if (a == b)
                 return 0;
-            if (first == null)
+            if (a == null)
                 return -1;
-            if (second == null)
+            if (b == null)
                 return 1;
 
             if (_comparer != null)
-                return _comparer.Compare(first, second);
+            {
+                return _comparer.Compare(a, b);
+            }
 
-            if (first is IComparable comparable)
-                return comparable.CompareTo(second);
+            if (a is IComparable ia)
+            {
+                return ia.CompareTo(b);
+            }
 
-            throw new ArgumentException("At least one object must implement IComparable.");
+            throw new ArgumentException(SR.Argument_ImplementIComparable);
         }
 
         public int GetHashCode(object obj)
         {
             ArgumentNullException.ThrowIfNull(obj);
-            return _hashCodeProvider?.GetHashCode(obj) ?? obj.GetHashCode();
+            return _hcp != null ?
+                _hcp.GetHashCode(obj) :
+                obj.GetHashCode();
         }
     }
 }

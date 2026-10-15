@@ -1,14 +1,21 @@
-// Adapted from dotnet/runtime System.Collections LinkedList<T>.
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using System.Collections;
+using System.Diagnostics;
+
 namespace System.Collections.Generic
 {
-    public class LinkedList<T> : ICollection<T>, IReadOnlyCollection<T>
+    [DebuggerDisplay("Count = {Count}")]
+    [Serializable]
+    [System.Runtime.CompilerServices.TypeForwardedFrom("System, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089")]
+    public class LinkedList<T> : ICollection<T>, ICollection, IReadOnlyCollection<T>
     {
-        internal LinkedListNode<T>? Head;
-        internal int Version;
-        private int _count;
+        // This LinkedList is a doubly-Linked circular list.
+        internal LinkedListNode<T>? head;
+        internal int count;
+        internal int version;
+
 
         public LinkedList()
         {
@@ -16,352 +23,539 @@ namespace System.Collections.Generic
 
         public LinkedList(IEnumerable<T> collection)
         {
-            if (collection == null)
-            {
-                throw new System.ArgumentNullException();
-            }
-            foreach (var item in collection)
+            ArgumentNullException.ThrowIfNull(collection);
+
+            foreach (T item in collection)
             {
                 AddLast(item);
             }
         }
 
-        public int Count => _count;
-        public LinkedListNode<T>? First => Head;
-        public LinkedListNode<T>? Last => Head?.PreviousInternal;
-        bool ICollection<T>.IsReadOnly => false;
-        void ICollection<T>.Add(T value) => AddLast(value);
 
-        public LinkedListNode<T> AddFirst(T value)
+        public int Count
         {
-            var node = new LinkedListNode<T>(this, value);
-            if (Head == null)
-            {
-                InsertIntoEmptyList(node);
-            }
-            else
-            {
-                InsertBefore(Head, node);
-                Head = node;
-            }
-            return node;
+            get { return count; }
         }
 
-        public void AddFirst(LinkedListNode<T> node)
+        public LinkedListNode<T>? First
         {
-            ValidateNewNode(node);
-            if (Head == null)
-            {
-                InsertIntoEmptyList(node);
-            }
-            else
-            {
-                InsertBefore(Head, node);
-                Head = node;
-            }
-            node.ListInternal = this;
+            get { return head; }
         }
 
-        public LinkedListNode<T> AddLast(T value)
+        public LinkedListNode<T>? Last
         {
-            var node = new LinkedListNode<T>(this, value);
-            if (Head == null)
-            {
-                InsertIntoEmptyList(node);
-            }
-            else
-            {
-                InsertBefore(Head, node);
-            }
-            return node;
+            get { return head?.prev; }
         }
 
-        public void AddLast(LinkedListNode<T> node)
+        bool ICollection<T>.IsReadOnly
         {
-            ValidateNewNode(node);
-            if (Head == null)
-            {
-                InsertIntoEmptyList(node);
-            }
-            else
-            {
-                InsertBefore(Head, node);
-            }
-            node.ListInternal = this;
+            get { return false; }
         }
 
-        public LinkedListNode<T> AddBefore(LinkedListNode<T> node, T value)
+        void ICollection<T>.Add(T value)
         {
-            ValidateNode(node);
-            var result = new LinkedListNode<T>(this, value);
-            InsertBefore(node, result);
-            if (node == Head)
-            {
-                Head = result;
-            }
-            return result;
+            AddLast(value);
         }
 
         public LinkedListNode<T> AddAfter(LinkedListNode<T> node, T value)
         {
             ValidateNode(node);
-            var result = new LinkedListNode<T>(this, value);
-            InsertBefore(node.NextInternal!, result);
+            LinkedListNode<T> result = new LinkedListNode<T>(node.list!, value);
+            InternalInsertNodeBefore(node.next!, result);
             return result;
         }
 
-        public bool Contains(T value) => Find(value) != null;
+        public void AddAfter(LinkedListNode<T> node, LinkedListNode<T> newNode)
+        {
+            ValidateNode(node);
+            ValidateNewNode(newNode);
+            InternalInsertNodeBefore(node.next!, newNode);
+            newNode.list = this;
+        }
+
+        public LinkedListNode<T> AddBefore(LinkedListNode<T> node, T value)
+        {
+            ValidateNode(node);
+            LinkedListNode<T> result = new LinkedListNode<T>(node.list!, value);
+            InternalInsertNodeBefore(node, result);
+            if (node == head)
+            {
+                head = result;
+            }
+            return result;
+        }
+
+        public void AddBefore(LinkedListNode<T> node, LinkedListNode<T> newNode)
+        {
+            ValidateNode(node);
+            ValidateNewNode(newNode);
+            InternalInsertNodeBefore(node, newNode);
+            newNode.list = this;
+            if (node == head)
+            {
+                head = newNode;
+            }
+        }
+
+        public LinkedListNode<T> AddFirst(T value)
+        {
+            LinkedListNode<T> result = new LinkedListNode<T>(this, value);
+            if (head == null)
+            {
+                InternalInsertNodeToEmptyList(result);
+            }
+            else
+            {
+                InternalInsertNodeBefore(head, result);
+                head = result;
+            }
+            return result;
+        }
+
+        public void AddFirst(LinkedListNode<T> node)
+        {
+            ValidateNewNode(node);
+
+            if (head == null)
+            {
+                InternalInsertNodeToEmptyList(node);
+            }
+            else
+            {
+                InternalInsertNodeBefore(head, node);
+                head = node;
+            }
+            node.list = this;
+        }
+
+        public LinkedListNode<T> AddLast(T value)
+        {
+            LinkedListNode<T> result = new LinkedListNode<T>(this, value);
+            if (head == null)
+            {
+                InternalInsertNodeToEmptyList(result);
+            }
+            else
+            {
+                InternalInsertNodeBefore(head, result);
+            }
+            return result;
+        }
+
+        public void AddLast(LinkedListNode<T> node)
+        {
+            ValidateNewNode(node);
+
+            if (head == null)
+            {
+                InternalInsertNodeToEmptyList(node);
+            }
+            else
+            {
+                InternalInsertNodeBefore(head, node);
+            }
+            node.list = this;
+        }
+
+        public void Clear()
+        {
+            LinkedListNode<T>? current = head;
+            while (current != null)
+            {
+                LinkedListNode<T> temp = current;
+                current = current.Next;
+                temp.Invalidate();
+            }
+
+            head = null;
+            count = 0;
+            version++;
+        }
+
+        public bool Contains(T value)
+        {
+            return Find(value) != null;
+        }
+
+        public void CopyTo(T[] array, int index)
+        {
+            ArgumentNullException.ThrowIfNull(array);
+
+            ArgumentOutOfRangeException.ThrowIfNegative(index);
+
+            if (index > array.Length)
+            {
+                throw new ArgumentOutOfRangeException(nameof(index), index, System.Collections.SR.ArgumentOutOfRange_BiggerThanCollection);
+            }
+
+            if (array.Length - index < Count)
+            {
+                throw new ArgumentException(System.Collections.SR.Arg_InsufficientSpace);
+            }
+
+            LinkedListNode<T>? node = head;
+            if (node != null)
+            {
+                do
+                {
+                    array[index++] = node!.item;
+                    node = node.next;
+                } while (node != head);
+            }
+        }
 
         public LinkedListNode<T>? Find(T value)
         {
-            var node = Head;
-            if (node == null)
+            LinkedListNode<T>? node = head;
+            EqualityComparer<T> c = EqualityComparer<T>.Default;
+            if (node != null)
             {
-                return null;
-            }
-            do
-            {
-                if (EqualityComparer<T>.Default.Equals(node!.Value, value))
+                if (value != null)
                 {
-                    return node;
+                    do
+                    {
+                        if (c.Equals(node!.item, value))
+                        {
+                            return node;
+                        }
+                        node = node.next;
+                    } while (node != head);
                 }
-                node = node.NextInternal;
+                else
+                {
+                    do
+                    {
+                        if (node!.item == null)
+                        {
+                            return node;
+                        }
+                        node = node.next;
+                    } while (node != head);
+                }
             }
-            while (node != Head);
             return null;
         }
 
         public LinkedListNode<T>? FindLast(T value)
         {
-            var last = Last;
-            var node = last;
-            if (node == null)
+            if (head == null) return null;
+
+            LinkedListNode<T>? last = head.prev;
+            LinkedListNode<T>? node = last;
+            EqualityComparer<T> c = EqualityComparer<T>.Default;
+            if (node != null)
             {
-                return null;
-            }
-            do
-            {
-                if (EqualityComparer<T>.Default.Equals(node!.Value, value))
+                if (value != null)
                 {
-                    return node;
+                    do
+                    {
+                        if (c.Equals(node!.item, value))
+                        {
+                            return node;
+                        }
+
+                        node = node.prev;
+                    } while (node != last);
                 }
-                node = node.PreviousInternal;
+                else
+                {
+                    do
+                    {
+                        if (node!.item == null)
+                        {
+                            return node;
+                        }
+                        node = node.prev;
+                    } while (node != last);
+                }
             }
-            while (node != last);
             return null;
         }
 
+        public Enumerator GetEnumerator() => new Enumerator(this);
+
+        IEnumerator<T> IEnumerable<T>.GetEnumerator() =>
+            Count == 0 ? EnumerableHelpers.GetEmptyEnumerator<T>() :
+            GetEnumerator();
+
         public bool Remove(T value)
         {
-            var node = Find(value);
-            if (node == null)
+            LinkedListNode<T>? node = Find(value);
+            if (node != null)
             {
-                return false;
+                InternalRemoveNode(node);
+                return true;
             }
-            Remove(node);
-            return true;
+            return false;
         }
 
         public void Remove(LinkedListNode<T> node)
         {
             ValidateNode(node);
-            if (node.NextInternal == node)
-            {
-                Head = null;
-            }
-            else
-            {
-                node.NextInternal!.PreviousInternal = node.PreviousInternal;
-                node.PreviousInternal!.NextInternal = node.NextInternal;
-                if (Head == node)
-                {
-                    Head = node.NextInternal;
-                }
-            }
-            node.Invalidate();
-            _count--;
-            Version++;
+            InternalRemoveNode(node);
         }
 
         public void RemoveFirst()
         {
-            if (Head == null)
-            {
-                throw new System.InvalidOperationException();
-            }
-            Remove(Head);
+            if (head == null) { throw new InvalidOperationException(System.Collections.SR.LinkedListEmpty); }
+            InternalRemoveNode(head);
         }
 
         public void RemoveLast()
         {
-            if (Last == null)
-            {
-                throw new System.InvalidOperationException();
-            }
-            Remove(Last);
+            if (head == null) { throw new InvalidOperationException(System.Collections.SR.LinkedListEmpty); }
+            InternalRemoveNode(head.prev!);
         }
 
-        public void Clear()
+
+        private void InternalInsertNodeBefore(LinkedListNode<T> node, LinkedListNode<T> newNode)
         {
-            var node = Head;
-            while (node != null)
-            {
-                var next = node.Next;
-                node.Invalidate();
-                node = next;
-            }
-            Head = null;
-            _count = 0;
-            Version++;
+            newNode.next = node;
+            newNode.prev = node.prev;
+            node.prev!.next = newNode;
+            node.prev = newNode;
+            version++;
+            count++;
         }
 
-        public void CopyTo(T[] array, int arrayIndex)
+        private void InternalInsertNodeToEmptyList(LinkedListNode<T> newNode)
         {
-            if (array == null)
-            {
-                throw new System.ArgumentNullException();
-            }
-            if (arrayIndex < 0 || arrayIndex > array.Length - _count)
-            {
-                throw new System.ArgumentOutOfRangeException();
-            }
-            var node = Head;
-            if (node == null)
-            {
-                return;
-            }
-            do
-            {
-                array[arrayIndex++] = node!.Value;
-                node = node.NextInternal;
-            }
-            while (node != Head);
+            Debug.Assert(head == null && count == 0, "LinkedList must be empty when this method is called!");
+            newNode.next = newNode;
+            newNode.prev = newNode;
+            head = newNode;
+            version++;
+            count++;
         }
 
-        public Enumerator GetEnumerator() => new(this);
-        IEnumerator<T> IEnumerable<T>.GetEnumerator() => GetEnumerator();
-        System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() =>
-            GetEnumerator();
-
-        private void InsertBefore(LinkedListNode<T> node, LinkedListNode<T> newNode)
+        internal void InternalRemoveNode(LinkedListNode<T> node)
         {
-            newNode.NextInternal = node;
-            newNode.PreviousInternal = node.PreviousInternal;
-            node.PreviousInternal!.NextInternal = newNode;
-            node.PreviousInternal = newNode;
-            Version++;
-            _count++;
+            Debug.Assert(node.list == this, "Deleting the node from another list!");
+            Debug.Assert(head != null, "This method shouldn't be called on empty list!");
+            if (node.next == node)
+            {
+                Debug.Assert(count == 1 && head == node, "this should only be true for a list with only one node");
+                head = null;
+            }
+            else
+            {
+                node.next!.prev = node.prev;
+                node.prev!.next = node.next;
+                if (head == node)
+                {
+                    head = node.next;
+                }
+            }
+            node.Invalidate();
+            count--;
+            version++;
         }
 
-        private void InsertIntoEmptyList(LinkedListNode<T> node)
+        internal static void ValidateNewNode(LinkedListNode<T> node)
         {
-            node.NextInternal = node;
-            node.PreviousInternal = node;
-            Head = node;
-            Version++;
-            _count++;
+            ArgumentNullException.ThrowIfNull(node);
+
+            if (node.list != null)
+            {
+                throw new InvalidOperationException(System.Collections.SR.LinkedListNodeIsAttached);
+            }
         }
 
-        private void ValidateNode(LinkedListNode<T> node)
+        internal void ValidateNode(LinkedListNode<T> node)
         {
-            if (node == null)
+            ArgumentNullException.ThrowIfNull(node);
+
+            if (node.list != this)
             {
-                throw new System.ArgumentNullException();
-            }
-            if (node.ListInternal != this)
-            {
-                throw new System.InvalidOperationException();
+                throw new InvalidOperationException(System.Collections.SR.ExternalLinkedListNode);
             }
         }
 
-        private static void ValidateNewNode(LinkedListNode<T> node)
+        bool ICollection.IsSynchronized
         {
-            if (node == null)
+            get { return false; }
+        }
+
+        object ICollection.SyncRoot => this;
+
+        void ICollection.CopyTo(Array array, int index)
+        {
+            ArgumentNullException.ThrowIfNull(array);
+
+            if (array.Rank != 1)
             {
-                throw new System.ArgumentNullException();
+                throw new ArgumentException(System.Collections.SR.Arg_RankMultiDimNotSupported, nameof(array));
             }
-            if (node.ListInternal != null)
+
+            if (array.GetLowerBound(0) != 0)
             {
-                throw new System.InvalidOperationException();
+                throw new ArgumentException(System.Collections.SR.Arg_NonZeroLowerBound, nameof(array));
+            }
+
+            ArgumentOutOfRangeException.ThrowIfNegative(index);
+
+            if (array.Length - index < Count)
+            {
+                throw new ArgumentException(System.Collections.SR.Arg_InsufficientSpace);
+            }
+
+            T[]? tArray = array as T[];
+            if (tArray != null)
+            {
+                CopyTo(tArray, index);
+            }
+            else
+            {
+                // No need to use reflection to verify that the types are compatible because it isn't 100% correct and we can rely
+                // on the runtime validation during the cast that happens below (i.e. we will get an ArrayTypeMismatchException).
+                object?[]? objects = array as object[];
+                if (objects == null)
+                {
+                    throw new ArgumentException(System.Collections.SR.Argument_IncompatibleArrayType, nameof(array));
+                }
+                LinkedListNode<T>? node = head;
+                try
+                {
+                    if (node != null)
+                    {
+                        do
+                        {
+                            objects[index++] = node!.item;
+                            node = node.next;
+                        } while (node != head);
+                    }
+                }
+                catch (ArrayTypeMismatchException)
+                {
+                    throw new ArgumentException(System.Collections.SR.Argument_IncompatibleArrayType, nameof(array));
+                }
             }
         }
 
-        public struct Enumerator : IEnumerator<T>
+        IEnumerator IEnumerable.GetEnumerator() => ((IEnumerable<T>)this).GetEnumerator();
+
+        public struct Enumerator : IEnumerator<T>, IEnumerator
         {
             private readonly LinkedList<T> _list;
-            private readonly int _version;
             private LinkedListNode<T>? _node;
-            private T _current;
+            private readonly int _version;
+            private T? _current;
+            private int _index;
 
             internal Enumerator(LinkedList<T> list)
             {
                 _list = list;
-                _version = list.Version;
-                _node = list.Head;
-                _current = default!;
+                _version = list.version;
+                _node = list.head;
+                _current = default;
+                _index = 0;
             }
 
-            public T Current => _current;
-            object System.Collections.IEnumerator.Current => _current!;
+            public T Current => _current!;
+
+            object? IEnumerator.Current
+            {
+                get
+                {
+                    if (_index == 0 || (_index == _list.Count + 1))
+                    {
+                        throw new InvalidOperationException(System.Collections.SR.InvalidOperation_EnumOpCantHappen);
+                    }
+
+                    return Current;
+                }
+            }
 
             public bool MoveNext()
             {
-                if (_version != _list.Version)
+                if (_version != _list.version)
                 {
-                    throw new System.InvalidOperationException();
+                    throw new InvalidOperationException(System.Collections.SR.InvalidOperation_EnumFailedVersion);
                 }
+
                 if (_node == null)
                 {
-                    _current = default!;
+                    _index = _list.Count + 1;
                     return false;
                 }
-                _current = _node.Value;
-                _node = _node.NextInternal;
-                if (_node == _list.Head)
+
+                ++_index;
+                _current = _node.item;
+                _node = _node.next;
+                if (_node == _list.head)
                 {
                     _node = null;
                 }
                 return true;
             }
 
+            void IEnumerator.Reset()
+            {
+                if (_version != _list.version)
+                {
+                    throw new InvalidOperationException(System.Collections.SR.InvalidOperation_EnumFailedVersion);
+                }
+
+                _current = default;
+                _node = _list.head;
+                _index = 0;
+            }
+
             public void Dispose()
             {
             }
 
-            void System.Collections.IEnumerator.Reset() =>
-                throw new System.NotSupportedException();
         }
     }
 
+    // Note following class is not serializable since we customized the serialization of LinkedList.
     public sealed class LinkedListNode<T>
     {
-        internal LinkedList<T>? ListInternal;
-        internal LinkedListNode<T>? NextInternal;
-        internal LinkedListNode<T>? PreviousInternal;
+        internal LinkedList<T>? list;
+        internal LinkedListNode<T>? next;
+        internal LinkedListNode<T>? prev;
+        internal T item;
 
         public LinkedListNode(T value)
         {
-            Value = value;
+            item = value;
         }
 
         internal LinkedListNode(LinkedList<T> list, T value)
         {
-            ListInternal = list;
-            Value = value;
+            this.list = list;
+            item = value;
         }
 
-        public LinkedList<T>? List => ListInternal;
-        public LinkedListNode<T>? Next =>
-            NextInternal == null || NextInternal == ListInternal!.Head ? null : NextInternal;
-        public LinkedListNode<T>? Previous =>
-            PreviousInternal == null || this == ListInternal!.Head ? null : PreviousInternal;
-        public T Value { get; set; }
+        public LinkedList<T>? List
+        {
+            get { return list; }
+        }
+
+        public LinkedListNode<T>? Next
+        {
+            get { return next == null || next == list!.head ? null : next; }
+        }
+
+        public LinkedListNode<T>? Previous
+        {
+            get { return prev == null || this == list!.head ? null : prev; }
+        }
+
+        public T Value
+        {
+            get { return item; }
+            set { item = value; }
+        }
+
+        /// <summary>Gets a reference to the value held by the node.</summary>
+        public ref T ValueRef => ref item;
 
         internal void Invalidate()
         {
-            ListInternal = null;
-            NextInternal = null;
-            PreviousInternal = null;
+            list = null;
+            next = null;
+            prev = null;
         }
     }
 }

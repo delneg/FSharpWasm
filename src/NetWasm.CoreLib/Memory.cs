@@ -1,5 +1,6 @@
 using System.Buffers;
 using System.Collections.Generic;
+using System.Numerics;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -9,40 +10,46 @@ namespace System
     // Portions derived from dotnet/runtime System.Private.CoreLib (MIT).
     public readonly struct Memory<T> : IEquatable<Memory<T>>
     {
-        internal readonly T[]? _array;
-        internal readonly MemoryManager<T>? _manager;
-        internal readonly int _start;
+        internal readonly object? _object;
+        internal readonly int _index;
         internal readonly int _length;
 
         public Memory(T[]? array)
         {
-            _array = array;
-            _manager = null;
-            _start = 0;
+            if (array != null &&
+                !typeof(T).IsValueType && array.GetType() != typeof(T[]))
+            {
+                throw new ArrayTypeMismatchException();
+            }
+            _object = array;
+            _index = 0;
             _length = array?.Length ?? 0;
         }
 
-        public Memory(T[] array, int start, int length)
+        public Memory(T[]? array, int start, int length)
         {
             if (array == null)
             {
-                throw new ArgumentNullException();
+                if (start != 0 || length != 0)
+                {
+                    throw new ArgumentOutOfRangeException();
+                }
+                _object = null;
+                _index = 0;
+                _length = 0;
+                return;
             }
-            if (start < 0)
+            if (!typeof(T).IsValueType && array.GetType() != typeof(T[]))
+            {
+                throw new ArrayTypeMismatchException();
+            }
+            if ((uint)start > (uint)array.Length ||
+                (uint)length > (uint)(array.Length - start))
             {
                 throw new ArgumentOutOfRangeException();
             }
-            if (length < 0)
-            {
-                throw new ArgumentOutOfRangeException();
-            }
-            if (start > array.Length - length)
-            {
-                throw new ArgumentOutOfRangeException();
-            }
-            _array = array;
-            _manager = null;
-            _start = start;
+            _object = array;
+            _index = start;
             _length = length;
         }
 
@@ -56,14 +63,20 @@ namespace System
             {
                 throw new ArgumentOutOfRangeException();
             }
-            _array = null;
-            _manager = manager;
-            _start = start;
+            _object = manager;
+            _index = start;
             _length = length;
         }
 
         internal Memory(MemoryManager<T> manager, int length)
             : this(manager, 0, length) { }
+
+        internal Memory(object? owner, int start, int length)
+        {
+            _object = owner;
+            _index = start;
+            _length = length;
+        }
 
         public int Length
         {
@@ -81,13 +94,23 @@ namespace System
         {
             get
             {
-                if (_manager != null)
+                var owner = _object;
+                if (owner is null)
                 {
-                    return _manager.GetSpan().Slice(_start, _length);
+                    return default;
                 }
-                return _array == null
-                    ? new Span<T>((T[]?)null)
-                    : new Span<T>(_array, _start, _length);
+                var start = _index & ReadOnlyMemory<T>.RemoveFlagsBitMask;
+                if (typeof(T) == typeof(char) && owner is string text)
+                {
+                    ref var data = ref Unsafe.As<char, T>(ref text.GetRawStringData());
+                    return new Span<T>(ref Unsafe.Add(ref data, start), _length);
+                }
+                if (owner is MemoryManager<T> manager)
+                {
+                    return manager.GetSpan().Slice(start, _length);
+                }
+                ref var arrayData = ref MemoryMarshal.GetArrayDataReference((T[])owner);
+                return new Span<T>(ref Unsafe.Add(ref arrayData, start), _length);
             }
         }
 
@@ -107,11 +130,9 @@ namespace System
             {
                 throw new ArgumentOutOfRangeException();
             }
-            return _manager != null
-                ? new Memory<T>(_manager, _start + start, length)
-                : _array == null
-                    ? default
-                    : new Memory<T>(_array, _start + start, length);
+            return _object is null
+                ? default
+                : new Memory<T>(_object, _index + start, length);
         }
 
         public void CopyTo(Memory<T> destination) => Span.CopyTo(destination.Span);
@@ -120,19 +141,58 @@ namespace System
 
         public T[] ToArray() => Span.ToArray();
 
-        public unsafe MemoryHandle Pin() =>
-            _manager != null ? _manager.Pin(_start) : throw new PlatformNotSupportedException();
+        public unsafe MemoryHandle Pin()
+        {
+            var owner = _object;
+            if (owner is null)
+            {
+                return default;
+            }
+
+            var start = _index & ReadOnlyMemory<T>.RemoveFlagsBitMask;
+            if (typeof(T) == typeof(char) && owner is string text)
+            {
+                var handle = GCHandle.Alloc(owner, GCHandleType.Pinned);
+                ref var data = ref Unsafe.Add(ref text.GetRawStringData(), start);
+                return new MemoryHandle(Unsafe.AsPointer(ref data), handle);
+            }
+            if (owner is MemoryManager<T> manager)
+            {
+                return manager.Pin(start);
+            }
+
+            var array = (T[])owner;
+            ref var arrayData = ref MemoryMarshal.GetArrayDataReference(array);
+            if (_index < 0)
+            {
+                return new MemoryHandle(Unsafe.AsPointer(ref Unsafe.Add(ref arrayData, start)));
+            }
+            if (RuntimeHelpers.IsReferenceOrContainsReferences<T>())
+            {
+                throw new ArgumentException();
+            }
+            var arrayHandle = GCHandle.Alloc(owner, GCHandleType.Pinned);
+            return new MemoryHandle(
+                Unsafe.AsPointer(ref Unsafe.Add(ref arrayData, start)),
+                arrayHandle);
+        }
 
         public bool Equals(Memory<T> other) =>
-            ReferenceEquals(_array, other._array) &&
-            ReferenceEquals(_manager, other._manager) &&
-            _start == other._start && _length == other._length;
+            ReferenceEquals(_object, other._object) &&
+            _index == other._index && _length == other._length;
 
         public override bool Equals(object? value) =>
-            value is Memory<T> other && Equals(other);
+            value is ReadOnlyMemory<T> readOnly
+                ? readOnly.Equals(this)
+                : value is Memory<T> memory && Equals(memory);
 
         public override int GetHashCode() =>
-            unchecked((_array?.GetHashCode() ?? _manager?.GetHashCode() ?? 0) * 31 + _start * 17 + _length);
+            _object is null
+                ? 0
+                : HashCode.Combine(
+                    RuntimeHelpers.GetHashCode(_object),
+                    _index,
+                    _length);
 
         public override string ToString() =>
             typeof(T) == typeof(char)
@@ -144,9 +204,7 @@ namespace System
             new(segment.Array!, segment.Offset, segment.Count);
 
         public static implicit operator ReadOnlyMemory<T>(Memory<T> memory) =>
-            memory._manager != null
-                ? new ReadOnlyMemory<T>(memory._manager!, memory._start, memory._length)
-                : new ReadOnlyMemory<T>(memory._array!, memory._start, memory._length);
+            new(memory._object, memory._index, memory._length);
 
     }
 }
@@ -234,26 +292,120 @@ namespace System.Buffers
     {
         private sealed class SharedPool : ArrayPool<T>
         {
-            private T[]? _cached;
-            private readonly int _maxArrayLength;
+            private const int DefaultMaxArrayLength = 1024 * 1024;
+            private const int DefaultMaxArraysPerBucket = 50;
+            private readonly Bucket[] _buckets;
 
-            public SharedPool(int maxArrayLength = int.MaxValue) => _maxArrayLength = maxArrayLength;
+            public SharedPool() : this(DefaultMaxArrayLength, DefaultMaxArraysPerBucket)
+            {
+            }
+
+            public SharedPool(int maxArrayLength, int maxArraysPerBucket)
+            {
+                const int minimumArrayLength = 0x10;
+                const int maximumArrayLength = 0x40000000;
+                maxArrayLength = Math.Max(minimumArrayLength,
+                    Math.Min(maximumArrayLength, maxArrayLength));
+                _buckets = new Bucket[SelectBucketIndex(maxArrayLength) + 1];
+                for (var index = 0; index < _buckets.Length; index++)
+                {
+                    _buckets[index] = new Bucket(
+                        GetMaxSizeForBucket(index), maxArraysPerBucket);
+                }
+            }
 
             public override T[] Rent(int minimumLength)
             {
-                if (minimumLength < 0) throw new ArgumentOutOfRangeException();
-                var cached = System.Threading.Interlocked.Exchange(ref _cached, null);
-                return cached is not null && cached.Length >= minimumLength
-                    ? cached
-                    : new T[minimumLength];
+                if (minimumLength < 0)
+                {
+                    throw new ArgumentOutOfRangeException(nameof(minimumLength));
+                }
+                if (minimumLength == 0)
+                {
+                    return Array.Empty<T>();
+                }
+
+                var bucketIndex = SelectBucketIndex(minimumLength);
+                if (bucketIndex >= _buckets.Length)
+                {
+                    return new T[minimumLength];
+                }
+                var limit = Math.Min(bucketIndex + 2, _buckets.Length);
+                for (var index = bucketIndex; index < limit; index++)
+                {
+                    var buffer = _buckets[index].Rent();
+                    if (buffer is not null)
+                    {
+                        return buffer;
+                    }
+                }
+                return new T[_buckets[bucketIndex].BufferLength];
             }
 
             public override void Return(T[] array, bool clearArray = false)
             {
-                if (array == null) throw new ArgumentNullException();
-                if (array.Length > _maxArrayLength) return;
-                if (clearArray) Array.Clear(array, 0, array.Length);
-                System.Threading.Interlocked.CompareExchange(ref _cached, array, null);
+                if (array is null)
+                {
+                    throw new ArgumentNullException(nameof(array));
+                }
+                if (array.Length == 0)
+                {
+                    return;
+                }
+
+                var bucketIndex = SelectBucketIndex(array.Length);
+                if (bucketIndex >= _buckets.Length)
+                {
+                    return;
+                }
+                if (clearArray)
+                {
+                    Array.Clear(array, 0, array.Length);
+                }
+                _buckets[bucketIndex].Return(array);
+            }
+
+            private static int SelectBucketIndex(int bufferSize) =>
+                BitOperations.Log2((uint)bufferSize - 1 | 15) - 3;
+
+            private static int GetMaxSizeForBucket(int bucketIndex) =>
+                16 << bucketIndex;
+
+            private sealed class Bucket
+            {
+                private readonly T[]?[] _buffers;
+                private int _index;
+
+                public Bucket(int bufferLength, int numberOfBuffers)
+                {
+                    BufferLength = bufferLength;
+                    _buffers = new T[numberOfBuffers][];
+                }
+
+                public int BufferLength { get; }
+
+                public T[]? Rent()
+                {
+                    if (_index >= _buffers.Length)
+                    {
+                        return null;
+                    }
+                    var buffer = _buffers[_index];
+                    _buffers[_index++] = null;
+                    return buffer ?? new T[BufferLength];
+                }
+
+                public void Return(T[] array)
+                {
+                    if (array.Length != BufferLength)
+                    {
+                        throw new ArgumentException(null, nameof(array));
+                    }
+                    if (_index != 0)
+                    {
+                        _buffers[--_index] = array;
+                    }
+                }
             }
         }
 
@@ -267,124 +419,13 @@ namespace System.Buffers
         {
             if (maxArrayLength <= 0 || maxArraysPerBucket <= 0)
                 throw new ArgumentOutOfRangeException();
-            return new SharedPool(maxArrayLength);
+            return new SharedPool(maxArrayLength, maxArraysPerBucket);
         }
 
         public abstract T[] Rent(int minimumLength);
         public abstract void Return(T[] array, bool clearArray = false);
     }
 
-    public class SearchValues<T> where T : IEquatable<T>
-    {
-        private readonly T[] _values;
-        private readonly StringComparison _stringComparison;
-
-        internal SearchValues(T[] values, StringComparison stringComparison = StringComparison.Ordinal)
-        {
-            _values = values;
-            _stringComparison = stringComparison;
-        }
-
-        public static SearchValues<T> Create(ReadOnlySpan<T> values) => new(values.ToArray());
-
-        public bool Contains(T value)
-        {
-            for (var index = 0; index < _values.Length; index++)
-            {
-                if (typeof(T) == typeof(string))
-                {
-                    if (String.Equals(
-                        (string?)(object?)_values[index],
-                        (string?)(object?)value,
-                        _stringComparison))
-                    {
-                        return true;
-                    }
-                }
-                else if (EqualityComparer<T>.Default.Equals(_values[index], value))
-                {
-                    return true;
-                }
-            }
-
-            return false;
-        }
-
-        internal int IndexOfAny(ReadOnlySpan<char> span)
-        {
-            if (typeof(T) != typeof(string))
-            {
-                return -1;
-            }
-
-            var values = (string[])(object)_values;
-            for (var valueIndex = 0; valueIndex < values.Length; valueIndex++)
-            {
-                if (values[valueIndex].Length == 0) return 0;
-            }
-            for (var index = 0; index < span.Length; index++)
-            {
-                for (var valueIndex = 0; valueIndex < values.Length; valueIndex++)
-                {
-                    var value = values[valueIndex];
-                    if (index + value.Length > span.Length)
-                    {
-                        continue;
-                    }
-
-                    var matched = true;
-                    for (var offset = 0; offset < value.Length; offset++)
-                    {
-                        var source = span[index + offset];
-                        var expected = value[offset];
-                        if (_stringComparison == StringComparison.OrdinalIgnoreCase)
-                        {
-                            source = char.ToLowerInvariant(source);
-                            expected = char.ToLowerInvariant(expected);
-                        }
-                        if (source != expected)
-                        {
-                            matched = false;
-                            break;
-                        }
-                    }
-                    if (matched)
-                    {
-                        return index;
-                    }
-                }
-            }
-
-            return -1;
-        }
-    }
-
-    public static class SearchValues
-    {
-        public static SearchValues<byte> Create(params ReadOnlySpan<byte> values) =>
-            SearchValues<byte>.Create(values);
-
-        public static SearchValues<char> Create(params ReadOnlySpan<char> values) =>
-            SearchValues<char>.Create(values);
-
-        public static SearchValues<string> Create(ReadOnlySpan<string> values, StringComparison comparisonType)
-        {
-            if (comparisonType is not StringComparison.Ordinal and not StringComparison.OrdinalIgnoreCase)
-            {
-                throw new ArgumentException();
-            }
-
-            var copy = values.ToArray();
-            for (var index = 0; index < copy.Length; index++)
-            {
-                if (copy[index] is null)
-                {
-                    throw new ArgumentNullException();
-                }
-            }
-            return new SearchValues<string>(copy, comparisonType);
-        }
-    }
 }
 
 namespace System
@@ -427,12 +468,10 @@ namespace System
             var offsets = range.GetOffsetAndLength(segment.Count);
             return AsSpan(segment, offsets.Item1, offsets.Item2);
         }
-        // The upstream implementation projects the string's raw UTF-16 storage directly.
-        // NetWasm's scalar string profile exposes character storage through String's
-        // ordinary character-access contract, so materialize that immutable storage before
-        // constructing the read-only view while preserving the upstream API semantics.
         public static ReadOnlySpan<char> AsSpan(this string? text) =>
-            text is null ? default : new ReadOnlySpan<char>(text.ToCharArray());
+            text is null
+                ? default
+                : new ReadOnlySpan<char>(ref text.GetRawStringData(), text.Length);
 
         public static ReadOnlySpan<char> AsSpan(this string? text, int start)
         {
@@ -450,7 +489,9 @@ namespace System
                 throw new ArgumentOutOfRangeException(nameof(start));
             }
 
-            return new ReadOnlySpan<char>(text.ToCharArray(), start, text.Length - start);
+            return new ReadOnlySpan<char>(
+                ref Unsafe.Add(ref text.GetRawStringData(), start),
+                text.Length - start);
         }
 
         public static ReadOnlySpan<char> AsSpan(this string? text, int start, int length)
@@ -470,7 +511,9 @@ namespace System
                 throw new ArgumentOutOfRangeException(nameof(start));
             }
 
-            return new ReadOnlySpan<char>(text.ToCharArray(), start, length);
+            return new ReadOnlySpan<char>(
+                ref Unsafe.Add(ref text.GetRawStringData(), start),
+                length);
         }
 
         public static ReadOnlySpan<char> AsSpan(this string? text, Index startIndex)
@@ -490,7 +533,9 @@ namespace System
                 throw new ArgumentOutOfRangeException(nameof(startIndex));
             }
 
-            return new ReadOnlySpan<char>(text.ToCharArray(), actualIndex, text.Length - actualIndex);
+            return new ReadOnlySpan<char>(
+                ref Unsafe.Add(ref text.GetRawStringData(), actualIndex),
+                text.Length - actualIndex);
         }
 
         public static ReadOnlySpan<char> AsSpan(this string? text, Range range)
@@ -505,7 +550,9 @@ namespace System
             }
 
             var offsets = range.GetOffsetAndLength(text.Length);
-            return new ReadOnlySpan<char>(text.ToCharArray(), offsets.Item1, offsets.Item2);
+            return new ReadOnlySpan<char>(
+                ref Unsafe.Add(ref text.GetRawStringData(), offsets.Item1),
+                offsets.Item2);
         }
 
         public static Memory<T> AsMemory<T>(this T[]? array) => new(array);
@@ -708,7 +755,18 @@ namespace System
         public static int Count<T>(this Span<T> span, ReadOnlySpan<T> value) where T : IEquatable<T> => ((ReadOnlySpan<T>)span).Count(value);
         public static int CountAny<T>(this ReadOnlySpan<T> span, params ReadOnlySpan<T> values) where T : IEquatable<T> { var count = 0; for (var i = 0; i < span.Length; i++) for (var j = 0; j < values.Length; j++) if (Equal(span[i], values[j], null)) { count++; break; } return count; }
         public static int CountAny<T>(this ReadOnlySpan<T> span, ReadOnlySpan<T> values, IEqualityComparer<T>? comparer = null) { var count = 0; for (var i = 0; i < span.Length; i++) for (var j = 0; j < values.Length; j++) if (Equal(span[i], values[j], comparer)) { count++; break; } return count; }
-        public static int CountAny<T>(this ReadOnlySpan<T> span, System.Buffers.SearchValues<T> values) where T : IEquatable<T> { var count = 0; for (var i = 0; i < span.Length; i++) if (values.Contains(span[i])) count++; return count; }
+        public static int CountAny<T>(this ReadOnlySpan<T> span, System.Buffers.SearchValues<T> values) where T : IEquatable<T>
+        {
+            if (values is null) throw new ArgumentNullException(nameof(values));
+            var count = 0;
+            int position;
+            while ((position = span.IndexOfAny(values)) >= 0)
+            {
+                count++;
+                span = span.Slice(position + 1);
+            }
+            return count;
+        }
 
         public static int IndexOfAny<T>(this ReadOnlySpan<T> span, T value0, T value1) where T : IEquatable<T> => AnyIndex(span, value0, value1, default, 2, false);
         public static int IndexOfAny<T>(this Span<T> span, T value0, T value1) where T : IEquatable<T> => ((ReadOnlySpan<T>)span).IndexOfAny(value0, value1);
@@ -717,12 +775,16 @@ namespace System
         public static int IndexOfAny<T>(this ReadOnlySpan<T> span, ReadOnlySpan<T> values) where T : IEquatable<T> => AnyIndex(span, values, false);
         public static int IndexOfAny<T>(this Span<T> span, ReadOnlySpan<T> values) where T : IEquatable<T> => ((ReadOnlySpan<T>)span).IndexOfAny(values);
         public static int IndexOfAny<T>(this ReadOnlySpan<T> span, ReadOnlySpan<T> values, IEqualityComparer<T>? comparer = null) => AnyIndex(span, values, false, comparer);
-        public static int IndexOfAny<T>(this ReadOnlySpan<T> span, System.Buffers.SearchValues<T> values) where T : IEquatable<T> { for (var i = 0; i < span.Length; i++) if (values.Contains(span[i])) return i; return -1; }
+        public static int IndexOfAny<T>(this ReadOnlySpan<T> span, System.Buffers.SearchValues<T> values) where T : IEquatable<T>
+        {
+            if (values is null) throw new ArgumentNullException(nameof(values));
+            return values.IndexOfAny(span);
+        }
         public static int IndexOfAny<T>(this Span<T> span, System.Buffers.SearchValues<T> values) where T : IEquatable<T> => ((ReadOnlySpan<T>)span).IndexOfAny(values);
         public static int IndexOfAny(this ReadOnlySpan<char> span, System.Buffers.SearchValues<string> values)
         {
             if (values is null) throw new ArgumentNullException(nameof(values));
-            return values.IndexOfAny(span);
+            return values.IndexOfAnyMultiString(span);
         }
         public static int IndexOfAny(this Span<char> span, System.Buffers.SearchValues<string> values) =>
             ((ReadOnlySpan<char>)span).IndexOfAny(values);
@@ -738,7 +800,11 @@ namespace System
         public static int LastIndexOfAny<T>(this ReadOnlySpan<T> span, ReadOnlySpan<T> values) where T : IEquatable<T> => AnyIndex(span, values, true);
         public static int LastIndexOfAny<T>(this Span<T> span, ReadOnlySpan<T> values) where T : IEquatable<T> => ((ReadOnlySpan<T>)span).LastIndexOfAny(values);
         public static int LastIndexOfAny<T>(this ReadOnlySpan<T> span, ReadOnlySpan<T> values, IEqualityComparer<T>? comparer = null) => AnyIndex(span, values, true, comparer);
-        public static int LastIndexOfAny<T>(this ReadOnlySpan<T> span, System.Buffers.SearchValues<T> values) where T : IEquatable<T> { for (var i = span.Length - 1; i >= 0; i--) if (values.Contains(span[i])) return i; return -1; }
+        public static int LastIndexOfAny<T>(this ReadOnlySpan<T> span, System.Buffers.SearchValues<T> values) where T : IEquatable<T>
+        {
+            if (values is null) throw new ArgumentNullException(nameof(values));
+            return values.LastIndexOfAny(span);
+        }
         public static int LastIndexOfAny<T>(this Span<T> span, System.Buffers.SearchValues<T> values) where T : IEquatable<T> => ((ReadOnlySpan<T>)span).LastIndexOfAny(values);
         public static int LastIndexOfAny<T>(this ReadOnlySpan<T> span, T value0, T value1, IEqualityComparer<T>? comparer = null) => AnyIndex(span, value0, value1, default(T)!, 2, true, comparer);
         public static int LastIndexOfAny<T>(this ReadOnlySpan<T> span, T value0, T value1, T value2, IEqualityComparer<T>? comparer = null) => AnyIndex(span, value0, value1, value2, 3, true, comparer);
@@ -763,7 +829,11 @@ namespace System
         public static bool ContainsAny<T>(this ReadOnlySpan<T> span, ReadOnlySpan<T> values) where T : IEquatable<T> => span.IndexOfAny(values) >= 0;
         public static bool ContainsAny<T>(this Span<T> span, ReadOnlySpan<T> values) where T : IEquatable<T> => ((ReadOnlySpan<T>)span).ContainsAny(values);
         public static bool ContainsAny<T>(this ReadOnlySpan<T> span, ReadOnlySpan<T> values, IEqualityComparer<T>? comparer = null) => span.IndexOfAny(values, comparer) >= 0;
-        public static bool ContainsAny<T>(this ReadOnlySpan<T> span, System.Buffers.SearchValues<T> values) where T : IEquatable<T> => span.IndexOfAny(values) >= 0;
+        public static bool ContainsAny<T>(this ReadOnlySpan<T> span, System.Buffers.SearchValues<T> values) where T : IEquatable<T>
+        {
+            if (values is null) throw new ArgumentNullException(nameof(values));
+            return values.ContainsAny(span);
+        }
         public static bool ContainsAny<T>(this Span<T> span, System.Buffers.SearchValues<T> values) where T : IEquatable<T> => span.IndexOfAny(values) >= 0;
         public static bool ContainsAny(this ReadOnlySpan<char> span, System.Buffers.SearchValues<string> values) => span.IndexOfAny(values) >= 0;
         public static bool ContainsAny(this Span<char> span, System.Buffers.SearchValues<string> values) => span.IndexOfAny(values) >= 0;
@@ -784,7 +854,11 @@ namespace System
         public static int IndexOfAnyExcept<T>(this ReadOnlySpan<T> span, ReadOnlySpan<T> values) where T : IEquatable<T> { for (var i = 0; i < span.Length; i++) if (span.Slice(i, 1).IndexOfAny(values) < 0) return i; return -1; }
         public static int IndexOfAnyExcept<T>(this Span<T> span, ReadOnlySpan<T> values) where T : IEquatable<T> => ((ReadOnlySpan<T>)span).IndexOfAnyExcept(values);
         public static int IndexOfAnyExcept<T>(this ReadOnlySpan<T> span, ReadOnlySpan<T> values, IEqualityComparer<T>? comparer = null) { for (var i = 0; i < span.Length; i++) if (span.Slice(i, 1).IndexOfAny(values, comparer) < 0) return i; return -1; }
-        public static int IndexOfAnyExcept<T>(this ReadOnlySpan<T> span, System.Buffers.SearchValues<T> values) where T : IEquatable<T> { for (var i = 0; i < span.Length; i++) if (!values.Contains(span[i])) return i; return -1; }
+        public static int IndexOfAnyExcept<T>(this ReadOnlySpan<T> span, System.Buffers.SearchValues<T> values) where T : IEquatable<T>
+        {
+            if (values is null) throw new ArgumentNullException(nameof(values));
+            return values.IndexOfAnyExcept(span);
+        }
         public static int IndexOfAnyExcept<T>(this Span<T> span, System.Buffers.SearchValues<T> values) where T : IEquatable<T> => ((ReadOnlySpan<T>)span).IndexOfAnyExcept(values);
         public static int LastIndexOfAnyExcept<T>(this ReadOnlySpan<T> span, T value) where T : IEquatable<T> { for (var i = span.Length - 1; i >= 0; i--) if (!Equal(span[i], value, null)) return i; return -1; }
         public static int LastIndexOfAnyExcept<T>(this Span<T> span, T value) where T : IEquatable<T> => ((ReadOnlySpan<T>)span).LastIndexOfAnyExcept(value);
@@ -798,7 +872,11 @@ namespace System
         public static int LastIndexOfAnyExcept<T>(this ReadOnlySpan<T> span, ReadOnlySpan<T> values) where T : IEquatable<T> { for (var i = span.Length - 1; i >= 0; i--) if (span.Slice(i, 1).IndexOfAny(values) < 0) return i; return -1; }
         public static int LastIndexOfAnyExcept<T>(this Span<T> span, ReadOnlySpan<T> values) where T : IEquatable<T> => ((ReadOnlySpan<T>)span).LastIndexOfAnyExcept(values);
         public static int LastIndexOfAnyExcept<T>(this ReadOnlySpan<T> span, ReadOnlySpan<T> values, IEqualityComparer<T>? comparer = null) { for (var i = span.Length - 1; i >= 0; i--) if (span.Slice(i, 1).IndexOfAny(values, comparer) < 0) return i; return -1; }
-        public static int LastIndexOfAnyExcept<T>(this ReadOnlySpan<T> span, System.Buffers.SearchValues<T> values) where T : IEquatable<T> { for (var i = span.Length - 1; i >= 0; i--) if (!values.Contains(span[i])) return i; return -1; }
+        public static int LastIndexOfAnyExcept<T>(this ReadOnlySpan<T> span, System.Buffers.SearchValues<T> values) where T : IEquatable<T>
+        {
+            if (values is null) throw new ArgumentNullException(nameof(values));
+            return values.LastIndexOfAnyExcept(span);
+        }
         public static int LastIndexOfAnyExcept<T>(this Span<T> span, System.Buffers.SearchValues<T> values) where T : IEquatable<T> => ((ReadOnlySpan<T>)span).LastIndexOfAnyExcept(values);
         private static int AnyExceptIndex<T>(ReadOnlySpan<T> span, T value0, T value1, T value2, int count, bool reverse, IEqualityComparer<T>? comparer)
         {
@@ -818,7 +896,11 @@ namespace System
         public static bool ContainsAnyExcept<T>(this ReadOnlySpan<T> span, ReadOnlySpan<T> values) where T : IEquatable<T> => span.IndexOfAnyExcept(values) >= 0;
         public static bool ContainsAnyExcept<T>(this Span<T> span, ReadOnlySpan<T> values) where T : IEquatable<T> => ((ReadOnlySpan<T>)span).ContainsAnyExcept(values);
         public static bool ContainsAnyExcept<T>(this ReadOnlySpan<T> span, ReadOnlySpan<T> values, IEqualityComparer<T>? comparer = null) => span.IndexOfAnyExcept(values, comparer) >= 0;
-        public static bool ContainsAnyExcept<T>(this ReadOnlySpan<T> span, System.Buffers.SearchValues<T> values) where T : IEquatable<T> => span.IndexOfAnyExcept(values) >= 0;
+        public static bool ContainsAnyExcept<T>(this ReadOnlySpan<T> span, System.Buffers.SearchValues<T> values) where T : IEquatable<T>
+        {
+            if (values is null) throw new ArgumentNullException(nameof(values));
+            return values.ContainsAnyExcept(span);
+        }
         public static bool ContainsAnyExcept<T>(this Span<T> span, System.Buffers.SearchValues<T> values) where T : IEquatable<T> => span.IndexOfAnyExcept(values) >= 0;
         public static bool ContainsAnyExcept<T>(this ReadOnlySpan<T> span, T value0, T value1) where T : IEquatable<T> => span.IndexOfAnyExcept(value0, value1) >= 0;
         public static bool ContainsAnyExcept<T>(this Span<T> span, T value0, T value1) where T : IEquatable<T> => span.IndexOfAnyExcept(value0, value1) >= 0;
@@ -885,10 +967,57 @@ namespace System
         public static void Replace<T>(this Span<T> span, T oldValue, T newValue, IEqualityComparer<T>? comparer = null) { for (var i = 0; i < span.Length; i++) if (Equal(span[i], oldValue, comparer)) span[i] = newValue; }
         public static void Replace<T>(this ReadOnlySpan<T> source, Span<T> destination, T oldValue, T newValue) where T : IEquatable<T> => Replace(source, destination, oldValue, newValue, null);
         public static void Replace<T>(this ReadOnlySpan<T> source, Span<T> destination, T oldValue, T newValue, IEqualityComparer<T>? comparer = null) { if (destination.Length < source.Length) throw new ArgumentException(); for (var i = 0; i < source.Length; i++) destination[i] = Equal(source[i], oldValue, comparer) ? newValue : source[i]; }
-        public static void ReplaceAny<T>(this Span<T> span, System.Buffers.SearchValues<T> values, T newValue) where T : IEquatable<T> { for (var i = 0; i < span.Length; i++) if (values.Contains(span[i])) span[i] = newValue; }
-        public static void ReplaceAny<T>(this ReadOnlySpan<T> source, Span<T> destination, System.Buffers.SearchValues<T> values, T newValue) where T : IEquatable<T> { if (destination.Length < source.Length) throw new ArgumentException(); for (var i = 0; i < source.Length; i++) destination[i] = values.Contains(source[i]) ? newValue : source[i]; }
-        public static void ReplaceAnyExcept<T>(this Span<T> span, System.Buffers.SearchValues<T> values, T newValue) where T : IEquatable<T> { for (var i = 0; i < span.Length; i++) if (!values.Contains(span[i])) span[i] = newValue; }
-        public static void ReplaceAnyExcept<T>(this ReadOnlySpan<T> source, Span<T> destination, System.Buffers.SearchValues<T> values, T newValue) where T : IEquatable<T> { if (destination.Length < source.Length) throw new ArgumentException(); for (var i = 0; i < source.Length; i++) destination[i] = values.Contains(source[i]) ? source[i] : newValue; }
+        public static void ReplaceAny<T>(this Span<T> span, System.Buffers.SearchValues<T> values, T newValue) where T : IEquatable<T>
+        {
+            int position;
+            while ((position = span.IndexOfAny(values)) >= 0)
+            {
+                span[position] = newValue;
+                span = span.Slice(position + 1);
+            }
+        }
+
+        public static void ReplaceAny<T>(this ReadOnlySpan<T> source, Span<T> destination, System.Buffers.SearchValues<T> values, T newValue) where T : IEquatable<T>
+        {
+            if (source.Length > destination.Length)
+            {
+                throw new ArgumentException();
+            }
+
+            if (source.Overlaps(destination, out var elementOffset) && elementOffset != 0)
+            {
+                throw new ArgumentException();
+            }
+
+            source.CopyTo(destination);
+            destination.Slice(0, source.Length).ReplaceAny(values, newValue);
+        }
+
+        public static void ReplaceAnyExcept<T>(this Span<T> span, System.Buffers.SearchValues<T> values, T newValue) where T : IEquatable<T>
+        {
+            int position;
+            while ((position = span.IndexOfAnyExcept(values)) >= 0)
+            {
+                span[position] = newValue;
+                span = span.Slice(position + 1);
+            }
+        }
+
+        public static void ReplaceAnyExcept<T>(this ReadOnlySpan<T> source, Span<T> destination, System.Buffers.SearchValues<T> values, T newValue) where T : IEquatable<T>
+        {
+            if (source.Length > destination.Length)
+            {
+                throw new ArgumentException();
+            }
+
+            if (source.Overlaps(destination, out var elementOffset) && elementOffset != 0)
+            {
+                throw new ArgumentException();
+            }
+
+            source.CopyTo(destination);
+            destination.Slice(0, source.Length).ReplaceAnyExcept(values, newValue);
+        }
 
         public static void Sort<T>(this Span<T> span) => Sort(span, Comparer<T>.Default);
         public static void Sort<T>(this Span<T> span, Comparison<T> comparison) { for (var i = 1; i < span.Length; i++) { var value = span[i]; var j = i - 1; while (j >= 0 && comparison(span[j], value) > 0) { span[j + 1] = span[j]; j--; } span[j + 1] = value; } }
@@ -967,13 +1096,37 @@ namespace System
         private static int ToCase(ReadOnlySpan<char> source, Span<char> destination, bool upper)
         {
             if (destination.Length < source.Length) throw new ArgumentException();
-            for (var i = 0; i < source.Length; i++)
+            var readIndex = 0;
+            var writeIndex = 0;
+            while (readIndex < source.Length)
             {
-                destination[i] = upper
-                    ? char.ToUpperInvariant(source[i])
-                    : char.ToLowerInvariant(source[i]);
+                var first = source[readIndex++];
+                uint scalar = first;
+                if (first is >= '\uD800' and <= '\uDBFF' && readIndex < source.Length)
+                {
+                    var second = source[readIndex];
+                    if (second is >= '\uDC00' and <= '\uDFFF')
+                    {
+                        readIndex++;
+                        scalar = (uint)(((first - 0xD800) << 10) + second - 0xDC00 + 0x10000);
+                    }
+                }
+
+                var mapped = upper
+                    ? Globalization.CharUnicodeInfo.ToUpper(scalar)
+                    : Globalization.CharUnicodeInfo.ToLower(scalar);
+                if (mapped <= 0xFFFF)
+                {
+                    destination[writeIndex++] = (char)mapped;
+                }
+                else
+                {
+                    mapped -= 0x10000;
+                    destination[writeIndex++] = (char)(0xD800 + (mapped >> 10));
+                    destination[writeIndex++] = (char)(0xDC00 + (mapped & 0x3FF));
+                }
             }
-            return source.Length;
+            return writeIndex;
         }
 
         public ref struct SpanSplitEnumerator<T> : IEnumerator<Range>, System.Collections.IEnumerator, IDisposable where T : IEquatable<T>
@@ -1243,35 +1396,230 @@ namespace System
         public static int SplitAny(this ReadOnlySpan<char> source, Span<Range> destination, ReadOnlySpan<char> separators, StringSplitOptions options = System.StringSplitOptions.None) => SplitInto(source, destination, separators, true, options);
         public static int SplitAny(this ReadOnlySpan<char> source, Span<Range> destination, ReadOnlySpan<string> separators, StringSplitOptions options = System.StringSplitOptions.None) => SplitInto(source, destination, separators, options);
 
-        public static ReadOnlySpan<T> Trim<T>(this ReadOnlySpan<T> span, T value) where T : IEquatable<T> => Trim(span, new ReadOnlySpan<T>(new[] { value }));
-        public static ReadOnlySpan<T> Trim<T>(this ReadOnlySpan<T> span, ReadOnlySpan<T> values) where T : IEquatable<T> { TrimBounds(span, values, out var start, out var length); return span.Slice(start, length); }
-        public static ReadOnlySpan<T> Trim<T>(this ReadOnlySpan<T> span) where T : IEquatable<T> => TrimWhitespace(span);
-        public static ReadOnlySpan<T> TrimStart<T>(this ReadOnlySpan<T> span, T value) where T : IEquatable<T> => TrimStart(span, new ReadOnlySpan<T>(new[] { value }));
-        public static ReadOnlySpan<T> TrimStart<T>(this ReadOnlySpan<T> span, ReadOnlySpan<T> values) where T : IEquatable<T> { var start = 0; while (start < span.Length && span.Slice(start, 1).IndexOfAny(values) >= 0) start++; return span.Slice(start); }
-        public static ReadOnlySpan<T> TrimStart<T>(this ReadOnlySpan<T> span) where T : IEquatable<T> => TrimWhitespaceStart(span);
-        public static ReadOnlySpan<T> TrimEnd<T>(this ReadOnlySpan<T> span, T value) where T : IEquatable<T> => TrimEnd(span, new ReadOnlySpan<T>(new[] { value }));
-        public static ReadOnlySpan<T> TrimEnd<T>(this ReadOnlySpan<T> span, ReadOnlySpan<T> values) where T : IEquatable<T> { var end = span.Length; while (end > 0 && span.Slice(end - 1, 1).IndexOfAny(values) >= 0) end--; return span.Slice(0, end); }
-        public static ReadOnlySpan<T> TrimEnd<T>(this ReadOnlySpan<T> span) where T : IEquatable<T> => TrimWhitespaceEnd(span);
-        public static Span<T> Trim<T>(this Span<T> span, T value) where T : IEquatable<T> => Trim(span, new ReadOnlySpan<T>(new[] { value }));
-        public static Span<T> Trim<T>(this Span<T> span, ReadOnlySpan<T> values) where T : IEquatable<T> { TrimBounds((ReadOnlySpan<T>)span, values, out var start, out var length); return span.Slice(start, length); }
-        public static Span<T> Trim<T>(this Span<T> span) where T : IEquatable<T> => throw new PlatformNotSupportedException();
-        public static Span<T> TrimStart<T>(this Span<T> span, T value) where T : IEquatable<T> => TrimStart(span, new ReadOnlySpan<T>(new[] { value }));
-        public static Span<T> TrimStart<T>(this Span<T> span, ReadOnlySpan<T> values) where T : IEquatable<T> { var start = 0; while (start < span.Length && span.Slice(start, 1).IndexOfAny(values) >= 0) start++; return span.Slice(start); }
-        public static Span<T> TrimStart<T>(this Span<T> span) where T : IEquatable<T> => throw new PlatformNotSupportedException();
-        public static Span<T> TrimEnd<T>(this Span<T> span, T value) where T : IEquatable<T> => TrimEnd(span, new ReadOnlySpan<T>(new[] { value }));
-        public static Span<T> TrimEnd<T>(this Span<T> span, ReadOnlySpan<T> values) where T : IEquatable<T> { var end = span.Length; while (end > 0 && span.Slice(end - 1, 1).IndexOfAny(values) >= 0) end--; return span.Slice(0, end); }
-        public static Span<T> TrimEnd<T>(this Span<T> span) where T : IEquatable<T> => throw new PlatformNotSupportedException();
-
-        private static ReadOnlySpan<T> TrimWhitespace<T>(ReadOnlySpan<T> span) where T : IEquatable<T> => throw new PlatformNotSupportedException();
-        private static ReadOnlySpan<T> TrimWhitespaceStart<T>(ReadOnlySpan<T> span) where T : IEquatable<T> => throw new PlatformNotSupportedException();
-        private static ReadOnlySpan<T> TrimWhitespaceEnd<T>(ReadOnlySpan<T> span) where T : IEquatable<T> => throw new PlatformNotSupportedException();
-        private static void TrimBounds<T>(ReadOnlySpan<T> span, ReadOnlySpan<T> values, out int start, out int length) where T : IEquatable<T>
+        public static Memory<T> Trim<T>(this Memory<T> memory, T trimElement) where T : IEquatable<T>
         {
-            start = 0;
-            var end = span.Length;
-            while (start < end && span.Slice(start, 1).IndexOfAny(values) >= 0) start++;
-            while (end > start && span.Slice(end - 1, 1).IndexOfAny(values) >= 0) end--;
-            length = end - start;
+            ReadOnlySpan<T> span = memory.Span;
+            var start = ClampStart(span, trimElement);
+            var length = ClampEnd(span, start, trimElement);
+            return memory.Slice(start, length);
+        }
+
+        public static Memory<T> TrimStart<T>(this Memory<T> memory, T trimElement) where T : IEquatable<T> =>
+            memory.Slice(ClampStart(memory.Span, trimElement));
+
+        public static Memory<T> TrimEnd<T>(this Memory<T> memory, T trimElement) where T : IEquatable<T> =>
+            memory.Slice(0, ClampEnd(memory.Span, 0, trimElement));
+
+        public static ReadOnlyMemory<T> Trim<T>(this ReadOnlyMemory<T> memory, T trimElement) where T : IEquatable<T>
+        {
+            var span = memory.Span;
+            var start = ClampStart(span, trimElement);
+            var length = ClampEnd(span, start, trimElement);
+            return memory.Slice(start, length);
+        }
+
+        public static ReadOnlyMemory<T> TrimStart<T>(this ReadOnlyMemory<T> memory, T trimElement) where T : IEquatable<T> =>
+            memory.Slice(ClampStart(memory.Span, trimElement));
+
+        public static ReadOnlyMemory<T> TrimEnd<T>(this ReadOnlyMemory<T> memory, T trimElement) where T : IEquatable<T> =>
+            memory.Slice(0, ClampEnd(memory.Span, 0, trimElement));
+
+        public static Span<T> Trim<T>(this Span<T> span, T trimElement) where T : IEquatable<T>
+        {
+            var start = ClampStart(span, trimElement);
+            var length = ClampEnd(span, start, trimElement);
+            return span.Slice(start, length);
+        }
+
+        public static Span<T> TrimStart<T>(this Span<T> span, T trimElement) where T : IEquatable<T> =>
+            span.Slice(ClampStart(span, trimElement));
+
+        public static Span<T> TrimEnd<T>(this Span<T> span, T trimElement) where T : IEquatable<T> =>
+            span.Slice(0, ClampEnd(span, 0, trimElement));
+
+        public static ReadOnlySpan<T> Trim<T>(this ReadOnlySpan<T> span, T trimElement) where T : IEquatable<T>
+        {
+            var start = ClampStart(span, trimElement);
+            var length = ClampEnd(span, start, trimElement);
+            return span.Slice(start, length);
+        }
+
+        public static ReadOnlySpan<T> TrimStart<T>(this ReadOnlySpan<T> span, T trimElement) where T : IEquatable<T> =>
+            span.Slice(ClampStart(span, trimElement));
+
+        public static ReadOnlySpan<T> TrimEnd<T>(this ReadOnlySpan<T> span, T trimElement) where T : IEquatable<T> =>
+            span.Slice(0, ClampEnd(span, 0, trimElement));
+
+        private static int ClampStart<T>(ReadOnlySpan<T> span, T trimElement) where T : IEquatable<T>
+        {
+            var start = 0;
+            if (trimElement is not null)
+            {
+                for (; start < span.Length; start++)
+                {
+                    if (!trimElement.Equals(span[start]))
+                    {
+                        break;
+                    }
+                }
+            }
+            else
+            {
+                for (; start < span.Length; start++)
+                {
+                    if (span[start] is not null)
+                    {
+                        break;
+                    }
+                }
+            }
+
+            return start;
+        }
+
+        private static int ClampEnd<T>(ReadOnlySpan<T> span, int start, T trimElement) where T : IEquatable<T>
+        {
+            var end = span.Length - 1;
+            if (trimElement is not null)
+            {
+                for (; end >= start; end--)
+                {
+                    if (!trimElement.Equals(span[end]))
+                    {
+                        break;
+                    }
+                }
+            }
+            else
+            {
+                for (; end >= start; end--)
+                {
+                    if (span[end] is not null)
+                    {
+                        break;
+                    }
+                }
+            }
+
+            return end - start + 1;
+        }
+
+        public static Memory<T> Trim<T>(this Memory<T> memory, ReadOnlySpan<T> trimElements) where T : IEquatable<T>
+        {
+            if (trimElements.Length > 1)
+            {
+                var span = memory.Span;
+                var start = ClampStart(span, trimElements);
+                var length = ClampEnd(span, start, trimElements);
+                return memory.Slice(start, length);
+            }
+
+            return trimElements.Length == 1 ? Trim(memory, trimElements[0]) : memory;
+        }
+
+        public static Memory<T> TrimStart<T>(this Memory<T> memory, ReadOnlySpan<T> trimElements) where T : IEquatable<T> =>
+            trimElements.Length > 1
+                ? memory.Slice(ClampStart(memory.Span, trimElements))
+                : trimElements.Length == 1 ? TrimStart(memory, trimElements[0]) : memory;
+
+        public static Memory<T> TrimEnd<T>(this Memory<T> memory, ReadOnlySpan<T> trimElements) where T : IEquatable<T> =>
+            trimElements.Length > 1
+                ? memory.Slice(0, ClampEnd(memory.Span, 0, trimElements))
+                : trimElements.Length == 1 ? TrimEnd(memory, trimElements[0]) : memory;
+
+        public static ReadOnlyMemory<T> Trim<T>(this ReadOnlyMemory<T> memory, ReadOnlySpan<T> trimElements) where T : IEquatable<T>
+        {
+            if (trimElements.Length > 1)
+            {
+                var span = memory.Span;
+                var start = ClampStart(span, trimElements);
+                var length = ClampEnd(span, start, trimElements);
+                return memory.Slice(start, length);
+            }
+
+            return trimElements.Length == 1 ? Trim(memory, trimElements[0]) : memory;
+        }
+
+        public static ReadOnlyMemory<T> TrimStart<T>(this ReadOnlyMemory<T> memory, ReadOnlySpan<T> trimElements) where T : IEquatable<T> =>
+            trimElements.Length > 1
+                ? memory.Slice(ClampStart(memory.Span, trimElements))
+                : trimElements.Length == 1 ? TrimStart(memory, trimElements[0]) : memory;
+
+        public static ReadOnlyMemory<T> TrimEnd<T>(this ReadOnlyMemory<T> memory, ReadOnlySpan<T> trimElements) where T : IEquatable<T> =>
+            trimElements.Length > 1
+                ? memory.Slice(0, ClampEnd(memory.Span, 0, trimElements))
+                : trimElements.Length == 1 ? TrimEnd(memory, trimElements[0]) : memory;
+
+        public static Span<T> Trim<T>(this Span<T> span, ReadOnlySpan<T> trimElements) where T : IEquatable<T>
+        {
+            if (trimElements.Length > 1)
+            {
+                var start = ClampStart(span, trimElements);
+                var length = ClampEnd(span, start, trimElements);
+                return span.Slice(start, length);
+            }
+
+            return trimElements.Length == 1 ? Trim(span, trimElements[0]) : span;
+        }
+
+        public static Span<T> TrimStart<T>(this Span<T> span, ReadOnlySpan<T> trimElements) where T : IEquatable<T> =>
+            trimElements.Length > 1
+                ? span.Slice(ClampStart(span, trimElements))
+                : trimElements.Length == 1 ? TrimStart(span, trimElements[0]) : span;
+
+        public static Span<T> TrimEnd<T>(this Span<T> span, ReadOnlySpan<T> trimElements) where T : IEquatable<T> =>
+            trimElements.Length > 1
+                ? span.Slice(0, ClampEnd(span, 0, trimElements))
+                : trimElements.Length == 1 ? TrimEnd(span, trimElements[0]) : span;
+
+        public static ReadOnlySpan<T> Trim<T>(this ReadOnlySpan<T> span, ReadOnlySpan<T> trimElements) where T : IEquatable<T>
+        {
+            if (trimElements.Length > 1)
+            {
+                var start = ClampStart(span, trimElements);
+                var length = ClampEnd(span, start, trimElements);
+                return span.Slice(start, length);
+            }
+
+            return trimElements.Length == 1 ? Trim(span, trimElements[0]) : span;
+        }
+
+        public static ReadOnlySpan<T> TrimStart<T>(this ReadOnlySpan<T> span, ReadOnlySpan<T> trimElements) where T : IEquatable<T> =>
+            trimElements.Length > 1
+                ? span.Slice(ClampStart(span, trimElements))
+                : trimElements.Length == 1 ? TrimStart(span, trimElements[0]) : span;
+
+        public static ReadOnlySpan<T> TrimEnd<T>(this ReadOnlySpan<T> span, ReadOnlySpan<T> trimElements) where T : IEquatable<T> =>
+            trimElements.Length > 1
+                ? span.Slice(0, ClampEnd(span, 0, trimElements))
+                : trimElements.Length == 1 ? TrimEnd(span, trimElements[0]) : span;
+
+        private static int ClampStart<T>(ReadOnlySpan<T> span, ReadOnlySpan<T> trimElements) where T : IEquatable<T>
+        {
+            var start = 0;
+            for (; start < span.Length; start++)
+            {
+                if (!trimElements.Contains(span[start]))
+                {
+                    break;
+                }
+            }
+
+            return start;
+        }
+
+        private static int ClampEnd<T>(ReadOnlySpan<T> span, int start, ReadOnlySpan<T> trimElements) where T : IEquatable<T>
+        {
+            var end = span.Length - 1;
+            for (; end >= start; end--)
+            {
+                if (!trimElements.Contains(span[end]))
+                {
+                    break;
+                }
+            }
+
+            return end - start + 1;
         }
         public static ReadOnlySpan<char> Trim(this ReadOnlySpan<char> span) => TrimChar(span, true, true, default);
         public static ReadOnlySpan<char> Trim(this ReadOnlySpan<char> span, char value) => TrimChar(span, true, true, new[] { value });
@@ -1315,19 +1663,6 @@ namespace System
         public static ReadOnlyMemory<char> Trim(this ReadOnlyMemory<char> memory) { TrimCharBounds(memory.Span, true, true, default, out var start, out var length); return memory.Slice(start, length); }
         public static ReadOnlyMemory<char> TrimStart(this ReadOnlyMemory<char> memory) { TrimCharBounds(memory.Span, true, false, default, out var start, out var length); return memory.Slice(start, length); }
         public static ReadOnlyMemory<char> TrimEnd(this ReadOnlyMemory<char> memory) { TrimCharBounds(memory.Span, false, true, default, out var start, out var length); return memory.Slice(start, length); }
-        public static Memory<T> Trim<T>(this Memory<T> memory, T value) where T : IEquatable<T> => Trim(memory, new ReadOnlySpan<T>(new[] { value }));
-        public static Memory<T> Trim<T>(this Memory<T> memory, ReadOnlySpan<T> values) where T : IEquatable<T> { TrimBounds(memory.Span, values, out var start, out var length); return memory.Slice(start, length); }
-        public static Memory<T> TrimStart<T>(this Memory<T> memory, T value) where T : IEquatable<T> => TrimStart(memory, new ReadOnlySpan<T>(new[] { value }));
-        public static Memory<T> TrimStart<T>(this Memory<T> memory, ReadOnlySpan<T> values) where T : IEquatable<T> { var start = 0; while (start < memory.Length && memory.Span.Slice(start, 1).IndexOfAny(values) >= 0) start++; return memory.Slice(start); }
-        public static Memory<T> TrimEnd<T>(this Memory<T> memory, T value) where T : IEquatable<T> => TrimEnd(memory, new ReadOnlySpan<T>(new[] { value }));
-        public static Memory<T> TrimEnd<T>(this Memory<T> memory, ReadOnlySpan<T> values) where T : IEquatable<T> { var end = memory.Length; while (end > 0 && memory.Span.Slice(end - 1, 1).IndexOfAny(values) >= 0) end--; return memory.Slice(0, end); }
-        public static ReadOnlyMemory<T> Trim<T>(this ReadOnlyMemory<T> memory, T value) where T : IEquatable<T> => Trim(memory, new ReadOnlySpan<T>(new[] { value }));
-        public static ReadOnlyMemory<T> Trim<T>(this ReadOnlyMemory<T> memory, ReadOnlySpan<T> values) where T : IEquatable<T> { TrimBounds(memory.Span, values, out var start, out var length); return memory.Slice(start, length); }
-        public static ReadOnlyMemory<T> TrimStart<T>(this ReadOnlyMemory<T> memory, T value) where T : IEquatable<T> => TrimStart(memory, new ReadOnlySpan<T>(new[] { value }));
-        public static ReadOnlyMemory<T> TrimStart<T>(this ReadOnlyMemory<T> memory, ReadOnlySpan<T> values) where T : IEquatable<T> { var start = 0; while (start < memory.Length && memory.Span.Slice(start, 1).IndexOfAny(values) >= 0) start++; return memory.Slice(start); }
-        public static ReadOnlyMemory<T> TrimEnd<T>(this ReadOnlyMemory<T> memory, T value) where T : IEquatable<T> => TrimEnd(memory, new ReadOnlySpan<T>(new[] { value }));
-        public static ReadOnlyMemory<T> TrimEnd<T>(this ReadOnlyMemory<T> memory, ReadOnlySpan<T> values) where T : IEquatable<T> { var end = memory.Length; while (end > 0 && memory.Span.Slice(end - 1, 1).IndexOfAny(values) >= 0) end--; return memory.Slice(0, end); }
-
         public static bool IsWhiteSpace(char value) => value is
             '\u0009' or '\u000a' or '\u000b' or '\u000c' or '\u000d' or
             '\u0020' or '\u0085' or '\u00a0' or '\u1680' or
@@ -1342,12 +1677,23 @@ namespace System
         public static int CompareTo(this ReadOnlySpan<char> left, ReadOnlySpan<char> right, StringComparison comparisonType)
         {
             ValidateOrdinalComparison(comparisonType);
+            if (comparisonType == StringComparison.OrdinalIgnoreCase)
+            {
+                var leftIndex = 0;
+                var rightIndex = 0;
+                while (leftIndex < left.Length && rightIndex < right.Length)
+                {
+                    var leftScalar = ReadFoldedOrdinalScalar(left, ref leftIndex, left.Length);
+                    var rightScalar = ReadFoldedOrdinalScalar(right, ref rightIndex, right.Length);
+                    if (leftScalar != rightScalar) return leftScalar < rightScalar ? -1 : 1;
+                }
+                return (left.Length - leftIndex) - (right.Length - rightIndex);
+            }
+
             var length = left.Length < right.Length ? left.Length : right.Length;
             for (var index = 0; index < length; index++)
             {
-                var leftValue = FoldOrdinal(left[index], comparisonType);
-                var rightValue = FoldOrdinal(right[index], comparisonType);
-                if (leftValue != rightValue) return leftValue - rightValue;
+                if (left[index] != right[index]) return left[index] - right[index];
             }
             return left.Length - right.Length;
         }
@@ -1526,18 +1872,40 @@ namespace System
             int start,
             StringComparison comparisonType)
         {
-            for (var index = 0; index < value.Length; index++)
+            if (comparisonType == StringComparison.Ordinal)
             {
-                if (FoldOrdinal(source[start + index], comparisonType) !=
-                    FoldOrdinal(value[index], comparisonType))
-                    return false;
+                for (var index = 0; index < value.Length; index++)
+                {
+                    if (source[start + index] != value[index]) return false;
+                }
+                return true;
             }
-            return true;
+
+            var sourceIndex = start;
+            var sourceEnd = start + value.Length;
+            var valueIndex = 0;
+            while (sourceIndex < sourceEnd && valueIndex < value.Length)
+            {
+                if (ReadFoldedOrdinalScalar(source, ref sourceIndex, sourceEnd) !=
+                    ReadFoldedOrdinalScalar(value, ref valueIndex, value.Length)) return false;
+            }
+            return sourceIndex == sourceEnd && valueIndex == value.Length;
         }
 
-        private static char FoldOrdinal(char value, StringComparison comparisonType) =>
-            comparisonType == StringComparison.OrdinalIgnoreCase
-                ? char.ToUpperInvariant(value)
-                : value;
+        private static uint ReadFoldedOrdinalScalar(ReadOnlySpan<char> value, ref int index, int end)
+        {
+            var first = value[index++];
+            uint scalar = first;
+            if (first is >= '\uD800' and <= '\uDBFF' && index < end)
+            {
+                var second = value[index];
+                if (second is >= '\uDC00' and <= '\uDFFF')
+                {
+                    index++;
+                    scalar = (uint)(((first - 0xD800) << 10) + second - 0xDC00 + 0x10000);
+                }
+            }
+            return Globalization.CharUnicodeInfo.ToUpper(scalar);
+        }
     }
 }

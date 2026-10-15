@@ -58,8 +58,8 @@ internal sealed class ManagedTypeLayoutCompiler : IManagedTypeLayoutCompiler
             _target,
             offsets.Target,
             offsets.MethodId,
-            offsets.Left,
-            offsets.Right);
+            offsets.InvocationList,
+            offsets.InvocationCount);
     }
 
     internal static int Align(int value, int alignment) =>

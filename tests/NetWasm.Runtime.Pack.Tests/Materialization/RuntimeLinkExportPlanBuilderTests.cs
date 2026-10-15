@@ -43,7 +43,15 @@ public sealed class RuntimeLinkExportPlanBuilderTests
             "ephemeron_handle_get_key",
             "ephemeron_handle_get_value",
             "ephemeron_handle_new",
-            "ephemeron_handle_release");
+            "ephemeron_handle_release",
+            "ephemeron_handle_set_target_to_null",
+            "ephemeron_handle_set_value",
+            "allocate_finalizable",
+            "finalizer_safepoint",
+            "gc_wait_for_pending_finalizers",
+            "initialize_finalization",
+            "reregister_for_finalize",
+            "suppress_finalize");
 
         var ordinary = builder.Build(new(manifestExports, [])
         {
@@ -53,6 +61,8 @@ public sealed class RuntimeLinkExportPlanBuilderTests
             argument => argument.Contains("ephemeron_handle", StringComparison.Ordinal));
         Assert.DoesNotContain(ordinary.Arguments,
             argument => argument.Contains("command_exception", StringComparison.Ordinal));
+        Assert.DoesNotContain(ordinary.Arguments,
+            argument => argument.Contains("finaliz", StringComparison.Ordinal));
 
         var ephemerons = builder.Build(new(manifestExports, [])
         {
@@ -73,9 +83,21 @@ public sealed class RuntimeLinkExportPlanBuilderTests
         Assert.Contains("--export=command_exception_release", diagnostics.Arguments);
         Assert.Contains("--export=command_exception_write", diagnostics.Arguments);
 
+        var finalization = builder.Build(new(manifestExports, [])
+        {
+            RuntimeFeatures = ["finalization"],
+        });
+        Assert.Contains("--export=allocate_finalizable", finalization.Arguments);
+        Assert.Contains("--export=finalizer_safepoint", finalization.Arguments);
+        Assert.Contains("--export=gc_wait_for_pending_finalizers", finalization.Arguments);
+        Assert.Contains("--export=initialize_finalization", finalization.Arguments);
+        Assert.Contains("--export=reregister_for_finalize", finalization.Arguments);
+        Assert.Contains("--export=suppress_finalize", finalization.Arguments);
+
         var legacy = builder.Build(new(manifestExports, []));
         Assert.Contains("--export=ephemeron_handle_new", legacy.Arguments);
         Assert.Contains("--export=command_exception_capture", legacy.Arguments);
+        Assert.Contains("--export=allocate_finalizable", legacy.Arguments);
     }
 
     [Fact]

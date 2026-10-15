@@ -4,6 +4,7 @@ internal enum StringConstructionSourceKind
 {
     RepeatedCharacter,
     CharacterArray,
+    CharacterSpan,
 }
 
 internal sealed record StringConstructionPlan(

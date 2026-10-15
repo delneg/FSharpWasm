@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using NetWasm.Compiler.ComponentModel.Optimization;
 
 namespace NetWasm.Compiler.Tasks.Compilation;
 
@@ -18,4 +19,5 @@ internal sealed record ManagedModuleCompileRequest(
     bool UseJavaScriptExportBoundary = false,
     string? ProjectDirectory = null,
     string? PathMap = null,
-    bool StructuredDiagnostics = false);
+    bool StructuredDiagnostics = false,
+    WasmOptimizationOverrides? OptimizationOverrides = null);

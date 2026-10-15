@@ -25,6 +25,7 @@ namespace System.Collections.Frozen
         {
             Debug.Assert(default(T) is IComparable<T>);
             Debug.Assert(default(T) is not null);
+            Debug.Assert(typeof(T).IsValueType);
 
             Debug.Assert(source.Count != 0);
             Debug.Assert(ReferenceEquals(source.Comparer, EqualityComparer<T>.Default));

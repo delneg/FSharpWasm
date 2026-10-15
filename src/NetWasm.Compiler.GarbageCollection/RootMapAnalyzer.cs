@@ -8,20 +8,26 @@ using NetWasm.Compiler.Core;
 namespace NetWasm.Compiler.GarbageCollection;
 
 public sealed class RootMapAnalyzer(
-    ITypeRepository types,
-    IMethodRepository methods,
     IValueLayoutProvider layouts,
-    IRootDecisionClassifier rootDecisions) :
+    IStackStorageTypeAnalyzer stackStorage,
+    IStackStorageContinuationAnalyzer continuations,
+    IStackStorageAnchorPlanner anchors,
+    IRootDecisionClassifier rootDecisions,
+    IRootSlotAllocator rootSlots) :
     IRootMapAnalyzer
 {
-    private readonly ITypeRepository _types =
-        types ?? throw new ArgumentNullException(nameof(types));
-    private readonly IMethodRepository _methods =
-        methods ?? throw new ArgumentNullException(nameof(methods));
     private readonly IValueLayoutProvider _layouts =
         layouts ?? throw new ArgumentNullException(nameof(layouts));
+    private readonly IStackStorageTypeAnalyzer _stackStorage =
+        stackStorage ?? throw new ArgumentNullException(nameof(stackStorage));
+    private readonly IStackStorageContinuationAnalyzer _continuations =
+        continuations ?? throw new ArgumentNullException(nameof(continuations));
+    private readonly IStackStorageAnchorPlanner _anchors =
+        anchors ?? throw new ArgumentNullException(nameof(anchors));
     private readonly IRootDecisionClassifier _rootDecisions =
         rootDecisions ?? throw new ArgumentNullException(nameof(rootDecisions));
+    private readonly IRootSlotAllocator _rootSlots =
+        rootSlots ?? throw new ArgumentNullException(nameof(rootSlots));
 
     public MethodRootMap Analyze(RootMapAnalysisRequest request)
     {
@@ -52,7 +58,7 @@ public sealed class RootMapAnalyzer(
         var persistentManagedAddressArguments =
             GetPersistentManagedAddressArgumentRoots(method);
         var safepoints = new List<SafepointRootMap>();
-
+        var selected = new List<(CilInstruction Instruction, ImmutableArray<CliValueKind> Stack)>();
         foreach (var instruction in method.Body.Instructions)
         {
             if (!method.ControlFlow.InstructionEntryStacks.TryGetValue(
@@ -68,10 +74,60 @@ public sealed class RootMapAnalyzer(
                 continue;
             }
 
+            selected.Add((instruction, entryStack));
+        }
+        var storage = selected.Count == 0
+            ? StackStorageAnalysis.Empty
+            : _stackStorage.Analyze(method);
+        var pending = new List<(CilInstruction Instruction, ImmutableHashSet<RootSource> Roots)>();
+        var demands = ImmutableDictionary.CreateBuilder<int, ImmutableHashSet<StackStorageAnchor>>();
+        foreach (var (instruction, entryStack) in selected)
+        {
             var roots = liveAfter[instruction.Offset].ToBuilder();
+            var demanded = ImmutableHashSet.CreateBuilder<StackStorageAnchor>();
             roots.UnionWith(persistentManagedAddressArguments);
+            if (storage.Locals.TryGetValue(instruction.Offset, out var localTypes))
+            {
+                foreach (var localIndex in roots
+                             .Where(source => source.Kind == RootSourceKind.ManagedAddressLocal && !source.IsIndirect)
+                             .Select(source => source.Index).ToArray())
+                {
+                    AddBackingOwners(localTypes[localIndex], roots);
+                    AddAnchorDemands(method, instruction, localTypes[localIndex],
+                        new(StackStorageLocationKind.Local, localIndex), demanded);
+                }
+            }
             AddStackRoots(roots, entryStack);
-            AddEmbeddedStackRoots(method, instruction, entryStack, roots);
+            if (storage.Entries.TryGetValue(instruction.Offset, out var stackTypes))
+            {
+                AddEmbeddedStackRoots(method, instruction, entryStack, stackTypes, roots);
+                for (var index = 0; index < stackTypes.Length; index++)
+                {
+                    AddAnchorDemands(method, instruction, stackTypes[index],
+                        new(StackStorageLocationKind.EvaluationStack, index), demanded);
+                }
+            }
+            pending.Add((instruction, roots.ToImmutable()));
+            if (demanded.Count != 0) demands.Add(instruction.Offset, demanded.ToImmutable());
+        }
+
+        var anchorPlan = demands.Count == 0 ? StackStorageAnchorPlan.Empty :
+            _anchors.Plan(new(method, storage, demands.ToImmutable()));
+        var anchorSlots = anchorPlan.Anchors.Select((anchor, index) => (anchor, index))
+            .ToDictionary(item => item.anchor, item => item.index);
+        foreach (var (instruction, ordinaryRoots) in pending)
+        {
+            var roots = ordinaryRoots.ToBuilder();
+            if (demands.TryGetValue(instruction.Offset, out var demanded))
+            {
+                foreach (var anchor in demanded)
+                {
+                    var index = anchorSlots[anchor];
+                    roots.Add(new(RootSourceKind.StackStorageAnchor, index));
+                    roots.UnionWith(ReferenceSourcesForStorage(RootSourceKind.StackStorageAnchor,
+                        index, anchor.BackingType, referenceIsIndirect: true));
+                }
+            }
             var orderedRoots = Order(roots);
             var constructorRoots = ImmutableArray<RootSource>.Empty;
             if (instruction.Operation == CilOperation.NewObject &&
@@ -90,20 +146,13 @@ public sealed class RootMapAnalyzer(
                 constructorRoots));
         }
 
-        var sources = safepoints
-            .SelectMany(safepoint => safepoint.Roots.Concat(safepoint.ConstructorCallRoots))
-            .Distinct()
-            .OrderBy(source => source.Kind)
-            .ThenBy(source => source.Index)
-            .ThenBy(source => source.ByteOffset)
-            .ToArray();
-        var slots = sources
-            .Select((source, index) => (source, index))
-            .ToImmutableDictionary(item => item.source, item => item.index);
         return new MethodRootMap(
             method.Method.Definition.Key,
-            slots,
-            safepoints.ToImmutableDictionary(safepoint => safepoint.IlOffset));
+            _rootSlots.Allocate(safepoints),
+            safepoints.ToImmutableDictionary(safepoint => safepoint.IlOffset))
+        {
+            AnchorPlan = anchorPlan,
+        };
     }
 
     private ImmutableDictionary<int, ImmutableHashSet<RootSource>>
@@ -112,6 +161,7 @@ public sealed class RootMapAnalyzer(
             ImmutableDictionary<int, ImmutableArray<CilInstruction>> blockInstructions)
     {
         var graph = method.ControlFlow.Graph;
+        var flow = _continuations.Analyze(method);
         var blockLiveIn = graph.Blocks.ToDictionary(
             block => block.Index,
             _ => ImmutableHashSet<RootSource>.Empty);
@@ -119,32 +169,14 @@ public sealed class RootMapAnalyzer(
         var blocks = graph.Blocks
             .OrderByDescending(block => block.Index)
             .ToArray();
-        var blockByOffset = graph.Blocks.ToDictionary(block => block.StartOffset, block => block.Index);
-        // Filter execution can resume in its handler or continue exception search
-        // through sibling and outer clauses. These are liveness dependencies,
-        // not normal CFG edges: their evaluation-stack entry contracts differ.
-        var filterContinuations = graph.Blocks.ToDictionary(
-            block => block.Index,
-            block => method.Body.ExceptionRegions
-                .Where(region => region.FilterOffset is int filterOffset &&
-                    block.StartOffset >= filterOffset && block.StartOffset < region.HandlerOffset)
-                .SelectMany(filter => method.Body.ExceptionRegions.Where(candidate =>
-                    candidate.TryOffset <= filter.TryOffset &&
-                    candidate.TryOffset + candidate.TryLength >= filter.TryOffset + filter.TryLength))
-                .SelectMany(region => region.FilterOffset is int filterOffset
-                    ? new[] { blockByOffset[filterOffset], blockByOffset[region.HandlerOffset] }
-                    : [blockByOffset[region.HandlerOffset]])
-                .Distinct()
-                .ToImmutableArray());
         bool changed;
         do
         {
             changed = false;
             foreach (var block in blocks)
             {
-                var live = graph.Successors[block.Index]
-                    .Concat(filterContinuations[block.Index])
-                    .SelectMany(successor => blockLiveIn[successor])
+                var live = flow.Normal[block.Index]
+                    .SelectMany(successor => blockLiveIn[successor.Block])
                     .ToImmutableHashSet();
                 var instructions = blockInstructions[block.Index];
                 for (var index = instructions.Length - 1; index >= 0; index--)
@@ -153,9 +185,8 @@ public sealed class RootMapAnalyzer(
                     if (CilSafepointClassifier.MayTransferControlExceptionally(instruction))
                     {
                         // A throwing filter is rejected before later stores run.
-                        live = live.Union(graph.ExceptionalSuccessors[block.Index]
-                            .Concat(filterContinuations[block.Index])
-                            .SelectMany(successor => blockLiveIn[successor]));
+                        live = live.Union(flow.Exceptional[block.Index]
+                            .SelectMany(successor => blockLiveIn[successor.Block]));
                     }
                     liveAfter[instruction.Offset] = live;
                     live = Transfer(method, instruction, live);
@@ -275,46 +306,24 @@ public sealed class RootMapAnalyzer(
     private void AddEmbeddedStackRoots(
         ManagedMethodBody method,
         CilInstruction instruction,
-        ImmutableArray<CliValueKind> entryStack,
+        ImmutableArray<CliValueKind> stack,
+        ImmutableArray<StackStorageType> stackTypes,
         ImmutableHashSet<RootSource>.Builder roots)
     {
-        if (instruction.Operation == CilOperation.Box)
+        for (var stackIndex = 0; stackIndex < stackTypes.Length; stackIndex++)
         {
-            AddEmbedded(entryStack.Length - 1, GetTypeOperand(instruction));
-            return;
-        }
-        if (instruction.Operation is not (
-                CilOperation.Call or CilOperation.CallVirtual or CilOperation.NewObject))
-        {
-            return;
-        }
-        (var target, var signature) = instruction.Operand is CilOperand.MethodInstance methodInstance
-            ? (methodInstance.Value.Definition, methodInstance.Value.Signature)
-            : GetEntityMethod((CilOperand.Entity)instruction.Operand);
-        var consumed = signature.ParameterSignatureTypes.Length +
-                       (instruction.Operation == CilOperation.NewObject || target.IsStatic ? 0 : 1);
-        var first = entryStack.Length - consumed;
-        var parameterBase = instruction.Operation == CilOperation.NewObject ? first :
-            first + (target.IsStatic ? 0 : 1);
-        for (var index = 0; index < signature.ParameterSignatureTypes.Length; index++)
-        {
-            AddEmbedded(parameterBase + index, signature.ParameterSignatureTypes[index]);
-        }
-        if (!target.IsStatic && instruction.Operation != CilOperation.NewObject &&
-            first >= 0 &&
-            entryStack[first] is (CliValueKind.ValueType or CliValueKind.ManagedAddress))
-        {
-            var declaringType = instruction.Operand is CilOperand.MethodInstance receiverMethodInstance
-                ? receiverMethodInstance.Value.DeclaringType
-                : GetNamedTypeIdentity(target.DeclaringType);
-            if (declaringType.IsValueType)
+            AddBackingOwners(stackTypes[stackIndex], roots);
+            if (stackTypes[stackIndex].Type is not { } type)
             {
-                AddEmbedded(first, declaringType);
+                if (!stackTypes[stackIndex].BackingCovered && !stackTypes[stackIndex].CompleteBackingKnown &&
+                    stack[stackIndex] is CliValueKind.ValueType or CliValueKind.ManagedAddress)
+                {
+                    throw new CompilerException(new CompilerDiagnostic(DiagnosticCode.InvalidCil,
+                        "live stack storage identity is unresolved at a collection safepoint",
+                        method.Method.Definition.Name, instruction.Offset));
+                }
+                continue;
             }
-        }
-
-        void AddEmbedded(int stackIndex, CliTypeIdentity type)
-        {
             var storageType = type;
             var referenceIsIndirect = false;
             if (type.StackKind == CliValueKind.ManagedAddress)
@@ -332,27 +341,53 @@ public sealed class RootMapAnalyzer(
                 roots.Add(source);
             }
         }
+    }
 
-        (MethodDefinitionModel Definition, MethodSignatureModel Signature) GetEntityMethod(
-            CilOperand.Entity entity)
+    private void AddAnchorDemands(
+        ManagedMethodBody method,
+        CilInstruction instruction,
+        StackStorageType storage,
+        StackStorageLocation location,
+        ImmutableHashSet<StackStorageAnchor>.Builder demands)
+    {
+        if (location.Kind == StackStorageLocationKind.Local && storage.Type is null &&
+            !storage.BackingCovered && !storage.CompleteBackingKnown)
         {
-            var definition = _methods.GetMethod(entity.Key);
-            return (definition, definition.Signature);
+            throw new CompilerException(new CompilerDiagnostic(DiagnosticCode.InvalidCil,
+                "live storage identity is unresolved at a collection safepoint",
+                method.Method.Definition.Name, instruction.Offset));
+        }
+        foreach (var backing in storage.CapturedBackings)
+        {
+            var pointee = storage.Type?.StackKind == CliValueKind.ManagedAddress
+                ? storage.Type.ElementType : storage.Type;
+            if (backing.Equals(pointee) || ReferenceSourcesForStorage(
+                    RootSourceKind.StackStorageAnchor, 0, backing, referenceIsIndirect: true).IsEmpty)
+                continue;
+            if (!storage.CompleteBackingKnown)
+            {
+                throw new CompilerException(new CompilerDiagnostic(DiagnosticCode.InvalidCil,
+                    "live storage backing is incomplete at a collection safepoint",
+                    method.Method.Definition.Name, instruction.Offset));
+            }
+            demands.Add(new(location, backing));
         }
     }
 
-    private CliTypeIdentity GetNamedTypeIdentity(EntityKey key)
+    private void AddBackingOwners(StackStorageType storage, ImmutableHashSet<RootSource>.Builder roots)
     {
-        var definition = _types.GetTypeDefinition(key);
-        return CliTypeIdentity.Named(
-            key.Assembly,
-            definition.Namespace,
-            definition.Name,
-            definition.IsValueType);
+        foreach (var owner in storage.BackingOwners)
+        {
+            if (storage.Type is { StackKind: CliValueKind.ManagedAddress } address &&
+                address.ElementType!.Equals(owner.Type.StackKind == CliValueKind.ManagedAddress
+                    ? owner.Type.ElementType! : owner.Type))
+            {
+                continue;
+            }
+            roots.UnionWith(SourcesFor(owner.IsArgument ? RootSourceKind.Argument : RootSourceKind.Local,
+                owner.Index, owner.Type));
+        }
     }
-
-    private static CliTypeIdentity GetTypeOperand(CilInstruction instruction) =>
-        ((CilOperand.TypeIdentity)instruction.Operand).Value;
 
     private ImmutableArray<RootSource> ReferenceSourcesForStorage(
         RootSourceKind kind,

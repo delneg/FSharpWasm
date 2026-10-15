@@ -8,6 +8,7 @@ using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 using System.Security.Cryptography;
 using System.Text;
+using NetWasm.Compiler.ComponentModel.Optimization;
 using System.Threading;
 using NetWasm.Compiler.ControlFlow.Structured;
 using NetWasm.Compiler.Core;
@@ -232,10 +233,11 @@ internal sealed class FrontendArtifactCacheIdentityBuilder(
     IEntryAssemblyBindingFingerprinter bindingFingerprints,
     IManagedAssemblyImageReader images,
     ICompilationInputHasher inputHasher,
-    IFrontendArtifactCompilerIdentity compilerIdentity) :
+    IFrontendArtifactCompilerIdentity compilerIdentity,
+    IWasmOptimizationSettingsResolver optimizationSettings) :
     IFrontendArtifactCacheIdentityBuilder
 {
-    internal const string Schema = "frontend-artifact-cache-v4";
+    internal const string Schema = "frontend-artifact-cache-v5";
     private readonly IEntryAssemblyBindingFingerprinter _bindingFingerprints =
         bindingFingerprints ?? throw new ArgumentNullException(nameof(bindingFingerprints));
     private readonly IManagedAssemblyImageReader _images = images ??
@@ -244,6 +246,8 @@ internal sealed class FrontendArtifactCacheIdentityBuilder(
         throw new ArgumentNullException(nameof(inputHasher));
     private readonly IFrontendArtifactCompilerIdentity _compilerIdentity =
         compilerIdentity ?? throw new ArgumentNullException(nameof(compilerIdentity));
+    private readonly IWasmOptimizationSettingsResolver _optimizationSettings =
+        optimizationSettings ?? throw new ArgumentNullException(nameof(optimizationSettings));
 
     public FrontendArtifactCacheContext? Build(CompilerOptions options)
     {
@@ -254,9 +258,21 @@ internal sealed class FrontendArtifactCacheIdentityBuilder(
             var references = options.ReferencePaths.Select(path => ReadAssembly(path, false)).ToArray();
             var hashes = references.Append(entry).ToImmutableDictionary(static item => item.Identity.Name, static item => item.ContentHash, StringComparer.Ordinal);
             var aliases = options.ReferenceAssemblyAliases ?? ImmutableDictionary<string, string>.Empty;
+            var frontendOptimization = _optimizationSettings.Resolve(
+                options.Optimization,
+                options.OptimizationOverrides);
             var optionsIdentity = string.Join('|', Schema, options.Target, options.EntryPointKind,
                 options.EntryTypeName, options.EntryMethodName, options.EntryMethodToken,
                 options.EmitExceptionTypeMap, options.EmitStackTrace, options.WitWorld,
+                frontendOptimization.LoopInvariantFieldHoisting,
+                frontendOptimization.StaticDataViewElimination,
+                frontendOptimization.AddressTakenValuePromotion,
+                frontendOptimization.ManagedMethodInlining,
+                frontendOptimization.BranchPrefixDuplication,
+                frontendOptimization.ArrayBoundsCheckElimination,
+                frontendOptimization.LoopUnrolling,
+                frontendOptimization.ConstantArgumentPropagation,
+                frontendOptimization.StaticArrayPopulationElimination,
                 HashOptionalInput(options.WitPath),
                 string.Join('\n', options.Exports.OrderBy(static value => value.Name, StringComparer.Ordinal).Select(static value => $"{value.Name}|{value.TypeName}|{value.MethodName}")),
                 string.Join('\n', aliases.OrderBy(static value => value.Key, StringComparer.Ordinal).Select(static value => $"{value.Key}={value.Value}")),

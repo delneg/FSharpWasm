@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "caseId": "memory.value-frame-initialization",
+  "featureIds": [
+    "S04",
+    "S14"
+  ],
+  "inputKind": "Emitted",
+  "sourceFiles": [],
+  "name": "ValueFrameInitializationFixture",
+  "namespace": "ValueFrameInitializationFixture",
+  "entryMethod": "Run",
+  "inputs": [
+    0
+  ],
+  "expectations": [
+    {
+      "input": 0,
+      "returnValue": 42,
+      "exceptionType": null
+    }
+  ],
+  "referencePaths": [],
+  "referenceAssemblyAliases": {
+    "System.Runtime": "NetWasm.CoreLib",
+    "System.Private.CoreLib": "NetWasm.CoreLib"
+  },
+  "oracleMode": "SameIl",
+  "matrixProfile": "Family",
+  "executionBackend": "Linked",
+  "supportsBatchedOracle": false,
+  "reportAllMismatches": true,
+  "exposesLegacyTrace": false,
+  "testMethod": "NetWasm.Compiler.Tests.Correctness.ValueFrameInitializationTests.ReusedValueFramesPreserveInitializedLocalSemantics"
+}

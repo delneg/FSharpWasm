@@ -50,3 +50,4 @@ void *collector_allocate_exact_zeroed(size_t count, size_t size, NetWasmCollecto
     return allocate(count, size, descriptor);
 }
 void *collector_allocate_atomic(size_t size) { return allocate(1, size, 0); }
+bool collector_atomic_allocation_is_zeroed(void) { return true; }

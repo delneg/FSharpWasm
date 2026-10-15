@@ -10,6 +10,44 @@ namespace NetWasm.Compiler.Wasm.Tests;
 
 public sealed class ManagedFunctionAppenderTests
 {
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    public void BothAppendersCarryInliningFlags(bool aggressive, bool never)
+    {
+        var fixture = new Fixture();
+        var body = new RecordingBodyEmitter();
+        var method = fixture.CreateMethodInstance();
+        method = method with
+        {
+            Definition = method.Definition with { IsAggressiveInlining = aggressive, IsNoInlining = never },
+        };
+        var ordinary = AsDefinition(new ManagedDefinitionFunctionAppender(
+            new FixedMethods(method.Definition), fixture.Program, body, new FixedFunctionTypeResolver()));
+        var constructed = AsConstructed(new ConstructedMethodFunctionAppender(
+            body, new FixedFunctionTypeResolver()));
+        ordinary.Append(fixture.Functions, fixture.Environments, fixture.Emissions,
+            new ManagedMethodIdentity("test-caller"), EmitterTestSupport.EntryKey,
+            fixture.Structured, fixture.RootMap, fixture.Target, fixture.FunctionIndices);
+        constructed.Append(fixture.Functions, fixture.Environments, fixture.Emissions,
+            new ManagedMethodIdentity("test-caller"), method,
+            fixture.Structured, fixture.RootMap, fixture.Target, fixture.FunctionIndices);
+
+        Assert.Equal(2, fixture.Functions.Count);
+        Assert.All(fixture.Functions, function =>
+        {
+            Assert.Equal(aggressive, function.IsAggressiveInlining);
+            Assert.Equal(never, function.IsNoInlining);
+        });
+    }
+
+    private sealed class FixedMethods(MethodDefinitionModel method) : IMethodRepository
+    {
+        public MethodDefinitionModel GetMethod(EntityKey key) => method;
+    }
+
     [Fact]
     public void AppendsDefinitionFunctionEnvironmentAndMetricRecord()
     {

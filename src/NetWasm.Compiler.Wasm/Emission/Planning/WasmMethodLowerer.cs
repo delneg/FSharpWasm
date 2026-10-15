@@ -1,4 +1,5 @@
 using System;
+using NetWasm.Compiler.ComponentModel.Optimization;
 using NetWasm.Compiler.ControlFlow;
 using NetWasm.Compiler.ControlFlow.Structured;
 using NetWasm.Compiler.ControlFlow.Structuring;
@@ -11,9 +12,13 @@ internal sealed class WasmMethodLowerer(
     private readonly IValidatedStructuredMethodBuilderFactory _structuredMethods =
         structuredMethods ?? throw new ArgumentNullException(nameof(structuredMethods));
 
-    public StructuredMethod Lower(ManagedMethodBody method)
+    public StructuredMethod Lower(
+        ManagedMethodBody method,
+        BranchPrefixDuplicationPolicy branchPrefixDuplication =
+            BranchPrefixDuplicationPolicy.SizeAware)
     {
         ArgumentNullException.ThrowIfNull(method);
-        return _structuredMethods.Create().Build(method.ControlFlow);
+        return _structuredMethods.Create(branchPrefixDuplication)
+            .Build(method.ControlFlow);
     }
 }

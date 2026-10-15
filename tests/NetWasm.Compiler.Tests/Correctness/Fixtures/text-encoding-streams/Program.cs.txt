@@ -1,6 +1,9 @@
 using System;
+using System.Buffers;
 using System.IO;
+using System.Globalization;
 using System.Text;
+using System.Text.Unicode;
 
 namespace NetWasm.Correctness.EncodingStreams;
 
@@ -18,6 +21,26 @@ public static class EntryPoint
             case 7: ShortTextReader(); break;
             case 8: ExactRead(); break;
             case 9: WriterOwnership(); break;
+            case 10: AsciiValidation(); break;
+            case 11: FinalHighSurrogate(); break;
+            case 12: EncoderScalarBoundary(); break;
+            case 13: DecoderScalarBoundary(); break;
+            case 14: SplitUtf16Scalar(); break;
+            case 15: SplitUtf32Scalar(); break;
+            case 16: MixedCaseEncodingAliases(); break;
+            case 17: SingleSurrogateFallback(); break;
+            case 18: Utf8ByteAlignment(); break;
+            case 19: FallbackPayloadsAndCounts(); break;
+            case 20: RuneUnicodeProperties(); break;
+            case 21: CharUnicodeProperties(); break;
+            case 22: SurrogateConversionContracts(); break;
+            case 23: CompositeFormattingContracts(); break;
+            case 24: InvariantProviderBridge(); break;
+            case 25: CustomFormatterDispatch(); break;
+            case 26: LineEnumerationContracts(); break;
+            case 27: UnicodeWhiteSpaceSplitContracts(); break;
+            case 28: DirectSpanCodecContracts(); break;
+            case 29: RuneTraversalContracts(); break;
             default: throw new ArgumentOutOfRangeException(nameof(input));
         }
         return 42;
@@ -126,6 +149,362 @@ public static class EntryPoint
         var owned = new MemoryStream();
         using (var writer = new StreamWriter(owned, new UTF8Encoding(false), 128, false)) writer.Write('A');
         Require(!owned.CanWrite);
+    }
+
+    private static void AsciiValidation()
+    {
+        var chars = new char[2];
+        var status = Ascii.ToUtf16([65, 0x80], chars, out var written);
+        Require(status == OperationStatus.InvalidData && written == 1 && chars[0] == 'A');
+    }
+
+    private static void FinalHighSurrogate()
+    {
+        var bytes = new byte[3];
+        var source = new ReadOnlySpan<char>(['\uD83D']);
+        var status = Utf8.FromUtf16(source, bytes, out var read, out var written, false, true);
+        Require(status == OperationStatus.InvalidData && read == 0 && written == 0);
+        status = Utf8.FromUtf16(source, bytes, out read, out written, true, false);
+        Require(status == OperationStatus.NeedMoreData && read == 0 && written == 0);
+        status = Utf8.FromUtf16(source, bytes, out read, out written, true, true);
+        Require(status == OperationStatus.Done && read == 1 && written == 3);
+        Require(bytes[0] == 0xEF && bytes[1] == 0xBF && bytes[2] == 0xBD);
+    }
+
+    private static void EncoderScalarBoundary()
+    {
+        var encoder = Encoding.UTF8.GetEncoder();
+        char[] chars = ['\uD83D', '\uDE00', 'A'];
+        var shortBytes = new byte[3];
+        var threw = false;
+        try { encoder.Convert(chars, 0, chars.Length, shortBytes, 0, shortBytes.Length, true, out _, out _, out _); }
+        catch (ArgumentException) { threw = true; }
+        Require(threw);
+        var bytes = new byte[4];
+        encoder.Convert(chars, 0, chars.Length, bytes, 0, bytes.Length, true, out var charsUsed, out var bytesUsed, out var completed);
+        Require(charsUsed == 2 && bytesUsed == 4 && !completed);
+        Require(bytes[0] == 0xF0 && bytes[1] == 0x9F && bytes[2] == 0x98 && bytes[3] == 0x80);
+
+        encoder.Reset();
+        encoder.Convert(['\uD83D'], 0, 1, [], 0, 0, false, out charsUsed, out bytesUsed, out completed);
+        Require(charsUsed == 1 && bytesUsed == 0 && completed);
+        encoder.Convert(['\uDE00'], 0, 1, bytes, 0, bytes.Length, true, out charsUsed, out bytesUsed, out completed);
+        Require(charsUsed == 1 && bytesUsed == 4 && completed);
+    }
+
+    private static void DecoderScalarBoundary()
+    {
+        var decoder = Encoding.UTF8.GetDecoder();
+        byte[] bytes = [0xF0, 0x9F, 0x98, 0x80, 65];
+        var shortChars = new char[1];
+        var threw = false;
+        try { decoder.Convert(bytes, 0, bytes.Length, shortChars, 0, shortChars.Length, true, out _, out _, out _); }
+        catch (ArgumentException) { threw = true; }
+        Require(threw);
+        var chars = new char[2];
+        decoder.Convert(bytes, 0, bytes.Length, chars, 0, chars.Length, true, out var bytesUsed, out var charsUsed, out var completed);
+        Require(bytesUsed == 4 && charsUsed == 2 && !completed);
+        Require(chars[0] == '\uD83D' && chars[1] == '\uDE00');
+    }
+
+    private static void SplitUtf16Scalar()
+    {
+        var decoder = Encoding.Unicode.GetDecoder();
+        var chars = new char[2];
+        decoder.Convert([0x3D, 0xD8], 0, 2, chars, 0, chars.Length, false, out var used, out var written, out var completed);
+        Require(used == 2 && written == 0 && completed);
+        decoder.Convert([0x00, 0xDE], 0, 2, chars, 0, chars.Length, true, out used, out written, out completed);
+        Require(used == 2 && written == 2 && completed && chars[0] == '\uD83D' && chars[1] == '\uDE00');
+    }
+
+    private static void SplitUtf32Scalar()
+    {
+        var decoder = Encoding.UTF32.GetDecoder();
+        var chars = new char[2];
+        decoder.Convert([0x00, 0xF6, 0x01], 0, 3, chars, 0, chars.Length, false, out var used, out var written, out var completed);
+        Require(used == 3 && written == 0 && completed);
+        decoder.Convert([0x00], 0, 1, chars, 0, chars.Length, true, out used, out written, out completed);
+        Require(used == 1 && written == 2 && completed && chars[0] == '\uD83D' && chars[1] == '\uDE00');
+    }
+
+    private static void MixedCaseEncodingAliases()
+    {
+        Require(Encoding.GetEncoding("uTf-8").CodePage == 65001);
+        Require(Encoding.GetEncoding("Us-AsCiI").CodePage == 20127);
+        Require(Encoding.GetEncoding("UnIcOdEfFfE").CodePage == 1201);
+        Require(Encoding.GetEncoding("uTf-32Be").CodePage == 12001);
+    }
+
+    private static void SingleSurrogateFallback()
+    {
+        try
+        {
+            new UTF8Encoding(false, true).GetBytes(['\uD83D']);
+            Require(false);
+        }
+        catch (EncoderFallbackException exception)
+        {
+            Require(!exception.IsUnknownSurrogate() && exception.CharUnknown == '\uD83D');
+        }
+    }
+
+    private static void Utf8ByteAlignment()
+    {
+        ReadOnlySpan<byte> value = [65, 66];
+        var bytes = new byte[8];
+        Require(Utf8.TryWrite(bytes, $"{value,4}", out var written));
+        Require(written == 4 && bytes[0] == 32 && bytes[1] == 32 && bytes[2] == 65 && bytes[3] == 66);
+        Require(Utf8.TryWrite(bytes, $"{value,-4}", out written));
+        Require(written == 4 && bytes[0] == 65 && bytes[1] == 66 && bytes[2] == 32 && bytes[3] == 32);
+    }
+
+    private static void FallbackPayloadsAndCounts()
+    {
+        try
+        {
+            new UTF8Encoding(false, true).GetChars([0xE1, 0x80, 0x41]);
+            Require(false);
+        }
+        catch (DecoderFallbackException exception)
+        {
+            var unknown = exception.BytesUnknown;
+            Require(exception.Index == 0 && unknown is { Length: 2 });
+            Require(unknown![0] == 0xE1 && unknown[1] == 0x80);
+        }
+
+        try
+        {
+            new UnicodeEncoding(false, false, true).GetChars([0x00, 0xD8]);
+            Require(false);
+        }
+        catch (DecoderFallbackException exception)
+        {
+            var unknown = exception.BytesUnknown;
+            Require(exception.Index == 0 && unknown is { Length: 2 });
+            Require(unknown![0] == 0x00 && unknown[1] == 0xD8);
+        }
+
+        try
+        {
+            new UTF32Encoding(false, false, true).GetChars([0x00, 0x00, 0x11]);
+            Require(false);
+        }
+        catch (DecoderFallbackException exception)
+        {
+            Require(exception.Index == 0 && exception.BytesUnknown is { Length: 3 });
+        }
+
+        var ascii = (Encoding)Encoding.ASCII.Clone();
+        ascii.EncoderFallback = new EncoderReplacementFallback("Ω");
+        var recursiveThrew = false;
+        try { ascii.GetByteCount("Ω"); }
+        catch (ArgumentException) { recursiveThrew = true; }
+        Require(recursiveThrew);
+
+        var utf32 = (Encoding)new UTF32Encoding(false, false).Clone();
+        utf32.EncoderFallback = new EncoderReplacementFallback("😀");
+        Require(utf32.GetByteCount("\uD800") == 4 && utf32.GetBytes("\uD800").Length == 4);
+    }
+
+    private static void RuneUnicodeProperties()
+    {
+        var lowerGreek = new Rune(0x03B1);
+        Require(Rune.IsLetter(lowerGreek) && Rune.IsLower(lowerGreek) && !Rune.IsUpper(lowerGreek));
+        Require(Rune.ToUpperInvariant(lowerGreek).Value == 0x0391);
+        Require(Rune.ToLowerInvariant(new Rune(0x0391)).Value == 0x03B1);
+
+        var deseret = new Rune(0x10428);
+        Require(Rune.GetUnicodeCategory(deseret) == UnicodeCategory.LowercaseLetter);
+        Require(Rune.ToUpperInvariant(deseret).Value == 0x10400);
+        Require(Rune.ToLowerInvariant(new Rune(0x10400)).Value == 0x10428);
+
+        Require(Rune.GetNumericValue(new Rune(0x00BC)) == 0.25);
+        Require(Rune.GetNumericValue(new Rune(0x0665)) == 5);
+        Require(Rune.IsNumber(new Rune(0x216B)) && Rune.GetNumericValue(new Rune(0x216B)) == 12);
+        Require(Rune.IsPunctuation(new Rune(0x2014)));
+        Require(Rune.IsSymbol(new Rune(0x1F600)));
+        Require(Rune.IsWhiteSpace(new Rune('\t')) && !Rune.IsSeparator(new Rune('\t')));
+        Require(Rune.IsWhiteSpace(new Rune(0x0085)) && !Rune.IsSeparator(new Rune(0x0085)));
+        Require(Rune.IsWhiteSpace(new Rune(0x00A0)) && Rune.IsSeparator(new Rune(0x00A0)));
+    }
+
+    private static void CharUnicodeProperties()
+    {
+        Require(char.GetNumericValue('\u00BC') == 0.25);
+        Require(char.GetNumericValue("😀Ⅻ", 2) == 12);
+        Require(char.IsLetter('\u03B1') && char.IsLower('\u03B1'));
+        Require(char.ToUpperInvariant('\u03B1') == '\u0391');
+        Require(char.IsWhiteSpace('\t') && !char.IsSeparator('\t'));
+        Require(char.IsWhiteSpace('\u0085') && !char.IsSeparator('\u0085'));
+        Require(char.IsSeparator('\u2028'));
+        Require(CharUnicodeInfo.GetUnicodeCategory("😀", 0) == UnicodeCategory.OtherSymbol);
+        Require(CharUnicodeInfo.GetUnicodeCategory(0x10428) == UnicodeCategory.LowercaseLetter);
+        Require(CharUnicodeInfo.GetNumericValue("😀Ⅻ", 2) == 12);
+    }
+
+    private static void SurrogateConversionContracts()
+    {
+        Require(char.ConvertToUtf32("😀", 0) == 0x1F600);
+        var highThrew = false;
+        try { char.ConvertToUtf32("\uD83D", 0); }
+        catch (ArgumentException) { highThrew = true; }
+        Require(highThrew);
+        var lowThrew = false;
+        try { char.ConvertToUtf32("\uDE00", 0); }
+        catch (ArgumentException) { lowThrew = true; }
+        Require(lowThrew);
+    }
+
+    private static void CompositeFormattingContracts()
+    {
+        Require(string.Format("{0:X4}|{1:F2}", 42, 1.5) == "002A|1.50");
+
+        var parsed = CompositeFormat.Parse("{{{0,-6:X2}}}:{1}");
+        var formatted = string.Format(null, parsed, 15, "tail");
+        var builder = new StringBuilder().AppendFormat(null, parsed, 15, "tail").ToString();
+        Require(formatted == "{0F    }:tail" && builder == formatted);
+    }
+
+    private static void InvariantProviderBridge()
+    {
+        Require(ReferenceEquals(
+            CultureInfo.InvariantCulture.GetFormat(typeof(NumberFormatInfo)),
+            NumberFormatInfo.InvariantInfo));
+        Require(CultureInfo.InvariantCulture.GetFormat(typeof(CultureInfo)) is null);
+
+        using var defaultWriter = new StringWriter();
+        using var builderWriter = new StringWriter(new StringBuilder());
+        using var nullWriter = new StringWriter((IFormatProvider?)null);
+        using var stream = new MemoryStream();
+        using var streamWriter = new StreamWriter(stream, Encoding.UTF8, 128, true);
+        Require(ReferenceEquals(defaultWriter.FormatProvider, CultureInfo.CurrentCulture));
+        Require(ReferenceEquals(builderWriter.FormatProvider, CultureInfo.CurrentCulture));
+        Require(ReferenceEquals(nullWriter.FormatProvider, CultureInfo.CurrentCulture));
+        Require(ReferenceEquals(streamWriter.FormatProvider, CultureInfo.CurrentCulture));
+
+        var provider = new NumberProvider();
+        Require(((Half)1.5f).ToString("F1", provider) == "1.5");
+        Require(provider.NumberFormatRequests != 0);
+    }
+
+    private static void CustomFormatterDispatch()
+    {
+        var custom = new MarkerFormatter();
+        Require(string.Format(custom, "<{0,12:hex}>", 42) == "<      CUSTOM>");
+        Require(custom.Requests != 0 && custom.Formats == 1 && custom.SawExpectedFormat && custom.SawExpectedArgument);
+    }
+
+    private static void LineEnumerationContracts()
+    {
+        var empty = ReadOnlySpan<char>.Empty.EnumerateLines();
+        Require(empty.MoveNext() && empty.Current.IsEmpty && !empty.MoveNext());
+
+        var lines = "a\r\n\u0085\u2028\u2029\f".AsSpan().EnumerateLines();
+        Require(lines.MoveNext() && lines.Current.SequenceEqual("a"));
+        for (var index = 0; index < 5; index++)
+        {
+            Require(lines.MoveNext() && lines.Current.IsEmpty);
+        }
+        Require(!lines.MoveNext());
+    }
+
+    private static void UnicodeWhiteSpaceSplitContracts()
+    {
+        var parts = "alpha\u00A0beta\u0085gamma\u2028delta".Split(
+            (string[]?)null,
+            StringSplitOptions.RemoveEmptyEntries);
+        Require(parts.Length == 4 && parts[0] == "alpha" && parts[1] == "beta" &&
+            parts[2] == "gamma" && parts[3] == "delta");
+
+        var emptySeparators = "one\u2003two".Split(Array.Empty<string>(), StringSplitOptions.RemoveEmptyEntries);
+        Require(emptySeparators.Length == 2 && emptySeparators[0] == "one" && emptySeparators[1] == "two");
+    }
+
+    private static void DirectSpanCodecContracts()
+    {
+        Encoding[] encodings =
+        [
+            Encoding.UTF8,
+            Encoding.Unicode,
+            Encoding.BigEndianUnicode,
+            Encoding.UTF32,
+            new UTF32Encoding(true, false),
+        ];
+        const string source = "AΩ😀";
+        foreach (var encoding in encodings)
+        {
+            Span<byte> bytes = stackalloc byte[32];
+            Span<char> chars = stackalloc char[8];
+            var byteCount = encoding.GetByteCount(source.AsSpan());
+            var bytesWritten = encoding.GetBytes(source.AsSpan(), bytes);
+            Require(bytesWritten == byteCount && encoding.GetCharCount(bytes[..bytesWritten]) == source.Length);
+            var charsWritten = encoding.GetChars(bytes[..bytesWritten], chars);
+            Require(charsWritten == source.Length && chars[..charsWritten].SequenceEqual(source.AsSpan()));
+            Require(encoding.GetString(bytes[..bytesWritten]) == source);
+        }
+
+        Span<byte> asciiBytes = stackalloc byte[5];
+        Span<char> asciiChars = stackalloc char[5];
+        Require(Encoding.ASCII.GetBytes("ASCII".AsSpan(), asciiBytes) == 5);
+        Require(Encoding.ASCII.GetChars(asciiBytes, asciiChars) == 5 && asciiChars.SequenceEqual("ASCII"));
+    }
+
+    private static void RuneTraversalContracts()
+    {
+        const string text = "A😀Ω";
+        var values = new int[3];
+        var count = 0;
+        foreach (var rune in text.EnumerateRunes()) values[count++] = rune.Value;
+        Require(count == 3 && values[0] == 'A' && values[1] == 0x1F600 && values[2] == 'Ω');
+
+        var builder = new StringBuilder(1);
+        builder.Append('A');
+        builder.Append('\uD83D');
+        builder.Append('\uDE00');
+        builder.Append('Ω');
+
+        var flattened = new StringBuilder();
+        foreach (var chunk in builder.GetChunks()) flattened.Append(chunk.Span);
+        Require(flattened.ToString() == text);
+    }
+
+    private sealed class MarkerFormatter : IFormatProvider, ICustomFormatter
+    {
+        public int Requests;
+        public int Formats;
+        public bool SawExpectedFormat;
+        public bool SawExpectedArgument;
+
+        public object? GetFormat(Type? formatType)
+        {
+            Requests++;
+            return this;
+        }
+
+        public string Format(string? format, object? arg, IFormatProvider? formatProvider)
+        {
+            Formats++;
+            SawExpectedFormat = format == "hex";
+            SawExpectedArgument = arg is int value && value == 42;
+            return "CUSTOM";
+        }
+    }
+
+    private sealed class NumberProvider : IFormatProvider
+    {
+        public int CustomFormatterRequests;
+        public int NumberFormatRequests;
+
+        public object? GetFormat(Type? formatType)
+        {
+            if (formatType == typeof(ICustomFormatter)) CustomFormatterRequests++;
+            if (formatType == typeof(NumberFormatInfo))
+            {
+                NumberFormatRequests++;
+                return NumberFormatInfo.InvariantInfo;
+            }
+            return null;
+        }
     }
 
     private sealed class ShortStream(byte[] bytes) : MemoryStream(bytes)

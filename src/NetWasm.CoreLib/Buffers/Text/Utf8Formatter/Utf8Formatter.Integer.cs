@@ -1,143 +1,340 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-// Scalar adaptation: the NetWasm profile routes integer formatting through
-// its invariant Number implementation rather than runtime-private emitters.
+using System.Runtime.CompilerServices;
 
-namespace System.Buffers.Text;
-
-public static partial class Utf8Formatter
+namespace System.Buffers.Text
 {
-    public static bool TryFormat(byte value, Span<byte> destination, out int bytesWritten, StandardFormat format = default(System.Buffers.StandardFormat)) =>
-        TryWrite(FormatUnsigned(value, 8, format), destination, out bytesWritten);
-
-    public static bool TryFormat(sbyte value, Span<byte> destination, out int bytesWritten, StandardFormat format = default(System.Buffers.StandardFormat)) =>
-        TryWrite(FormatSigned(value, 8, format), destination, out bytesWritten);
-
-    public static bool TryFormat(ushort value, Span<byte> destination, out int bytesWritten, StandardFormat format = default(System.Buffers.StandardFormat)) =>
-        TryWrite(FormatUnsigned(value, 16, format), destination, out bytesWritten);
-
-    public static bool TryFormat(short value, Span<byte> destination, out int bytesWritten, StandardFormat format = default(System.Buffers.StandardFormat)) =>
-        TryWrite(FormatSigned(value, 16, format), destination, out bytesWritten);
-
-    public static bool TryFormat(uint value, Span<byte> destination, out int bytesWritten, StandardFormat format = default(System.Buffers.StandardFormat)) =>
-        TryWrite(FormatUnsigned(value, 32, format), destination, out bytesWritten);
-
-    public static bool TryFormat(int value, Span<byte> destination, out int bytesWritten, StandardFormat format = default(System.Buffers.StandardFormat)) =>
-        TryWrite(FormatSigned(value, 32, format), destination, out bytesWritten);
-
-    public static bool TryFormat(ulong value, Span<byte> destination, out int bytesWritten, StandardFormat format = default(System.Buffers.StandardFormat)) =>
-        TryWrite(FormatUnsigned(value, 64, format), destination, out bytesWritten);
-
-    public static bool TryFormat(long value, Span<byte> destination, out int bytesWritten, StandardFormat format = default(System.Buffers.StandardFormat)) =>
-        TryWrite(FormatSigned(value, 64, format), destination, out bytesWritten);
-
-    private static string FormatUnsigned(ulong value, int bits, StandardFormat format)
+    /// <summary>
+    /// Methods to format common data types as Utf8 strings.
+    /// </summary>
+    public static partial class Utf8Formatter
     {
-        if (format.Symbol is 'n' or 'N')
+        /// <summary>
+        /// Formats a Byte as a UTF-8 string.
+        /// </summary>
+        /// <param name="value">Value to format</param>
+        /// <param name="destination">Buffer to write the UTF-8 formatted value to</param>
+        /// <param name="bytesWritten">Receives the length of the formatted text in bytes</param>
+        /// <param name="format">The standard format to use</param>
+        /// <returns>
+        /// true for success. "bytesWritten" contains the length of the formatted text in bytes.
+        /// false if buffer was too short. Iteratively increase the size of the buffer and retry until it succeeds.
+        /// </returns>
+        /// <remarks>
+        /// Formats supported:
+        ///     G/g (default)
+        ///     D/d             32767
+        ///     N/n             32,767
+        ///     X/x             7fff
+        /// </remarks>
+        /// <exceptions>
+        /// <cref>System.FormatException</cref> if the format is not valid for this data type.
+        /// </exceptions>
+        public static bool TryFormat(byte value, Span<byte> destination, out int bytesWritten, StandardFormat format = default) =>
+            TryFormat((uint)value, destination, out bytesWritten, format);
+
+        /// <summary>
+        /// Formats an SByte as a UTF-8 string.
+        /// </summary>
+        /// <param name="value">Value to format</param>
+        /// <param name="destination">Buffer to write the UTF-8 formatted value to</param>
+        /// <param name="bytesWritten">Receives the length of the formatted text in bytes</param>
+        /// <param name="format">The standard format to use</param>
+        /// <returns>
+        /// true for success. "bytesWritten" contains the length of the formatted text in bytes.
+        /// false if buffer was too short. Iteratively increase the size of the buffer and retry until it succeeds.
+        /// </returns>
+        /// <remarks>
+        /// Formats supported:
+        ///     G/g (default)
+        ///     D/d             32767
+        ///     N/n             32,767
+        ///     X/x             7fff
+        /// </remarks>
+        /// <exceptions>
+        /// <cref>System.FormatException</cref> if the format is not valid for this data type.
+        /// </exceptions>
+        [CLSCompliant(false)]
+        public static bool TryFormat(sbyte value, Span<byte> destination, out int bytesWritten, StandardFormat format = default) =>
+            TryFormat(value, 0xFF, destination, out bytesWritten, format);
+
+        /// <summary>
+        /// Formats a Unt16 as a UTF-8 string.
+        /// </summary>
+        /// <param name="value">Value to format</param>
+        /// <param name="destination">Buffer to write the UTF-8 formatted value to</param>
+        /// <param name="bytesWritten">Receives the length of the formatted text in bytes</param>
+        /// <param name="format">The standard format to use</param>
+        /// <returns>
+        /// true for success. "bytesWritten" contains the length of the formatted text in bytes.
+        /// false if buffer was too short. Iteratively increase the size of the buffer and retry until it succeeds.
+        /// </returns>
+        /// <remarks>
+        /// Formats supported:
+        ///     G/g (default)
+        ///     D/d             32767
+        ///     N/n             32,767
+        ///     X/x             7fff
+        /// </remarks>
+        /// <exceptions>
+        /// <cref>System.FormatException</cref> if the format is not valid for this data type.
+        /// </exceptions>
+        [CLSCompliant(false)]
+        public static bool TryFormat(ushort value, Span<byte> destination, out int bytesWritten, StandardFormat format = default) =>
+            TryFormat((uint)value, destination, out bytesWritten, format);
+
+        /// <summary>
+        /// Formats an Int16 as a UTF-8 string.
+        /// </summary>
+        /// <param name="value">Value to format</param>
+        /// <param name="destination">Buffer to write the UTF-8 formatted value to</param>
+        /// <param name="bytesWritten">Receives the length of the formatted text in bytes</param>
+        /// <param name="format">The standard format to use</param>
+        /// <returns>
+        /// true for success. "bytesWritten" contains the length of the formatted text in bytes.
+        /// false if buffer was too short. Iteratively increase the size of the buffer and retry until it succeeds.
+        /// </returns>
+        /// <remarks>
+        /// Formats supported:
+        ///     G/g (default)
+        ///     D/d             32767
+        ///     N/n             32,767
+        ///     X/x             7fff
+        /// </remarks>
+        /// <exceptions>
+        /// <cref>System.FormatException</cref> if the format is not valid for this data type.
+        /// </exceptions>
+        public static bool TryFormat(short value, Span<byte> destination, out int bytesWritten, StandardFormat format = default) =>
+            TryFormat(value, 0xFFFF, destination, out bytesWritten, format);
+
+        /// <summary>
+        /// Formats a UInt32 as a UTF-8 string.
+        /// </summary>
+        /// <param name="value">Value to format</param>
+        /// <param name="destination">Buffer to write the UTF-8 formatted value to</param>
+        /// <param name="bytesWritten">Receives the length of the formatted text in bytes</param>
+        /// <param name="format">The standard format to use</param>
+        /// <returns>
+        /// true for success. "bytesWritten" contains the length of the formatted text in bytes.
+        /// false if buffer was too short. Iteratively increase the size of the buffer and retry until it succeeds.
+        /// </returns>
+        /// <remarks>
+        /// Formats supported:
+        ///     G/g (default)
+        ///     D/d             32767
+        ///     N/n             32,767
+        ///     X/x             7fff
+        /// </remarks>
+        /// <exceptions>
+        /// <cref>System.FormatException</cref> if the format is not valid for this data type.
+        /// </exceptions>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        [CLSCompliant(false)]
+        public static bool TryFormat(uint value, Span<byte> destination, out int bytesWritten, StandardFormat format = default)
         {
-            return FormatNumber(Number.FormatUnsigned(value, bits, "D"), format);
-        }
-
-        return Number.FormatUnsigned(value, bits, FormatString(format));
-    }
-
-    private static string FormatSigned(long value, int bits, StandardFormat format)
-    {
-        if (format.Symbol is 'n' or 'N')
-        {
-            return FormatNumber(Number.FormatSigned(value, bits, "D"), format);
-        }
-
-        return Number.FormatSigned(value, bits, FormatString(format));
-    }
-
-    private static string? FormatString(StandardFormat format)
-    {
-        if (format.IsDefault)
-        {
-            return null;
-        }
-
-        var symbol = format.Symbol;
-        if (symbol is 'g' or 'G' or 'r' or 'R')
-        {
-            if (format.HasPrecision)
+            if (format.IsDefault)
             {
-                throw new NotSupportedException();
+                return Number.TryUInt32ToDecStr(value, destination, out bytesWritten);
             }
 
-            return "D";
-        }
-
-        if (symbol is not ('d' or 'D' or 'x' or 'X'))
-        {
-            ThrowHelper.ThrowFormatException_BadFormatSpecifier();
-        }
-
-        return format.HasPrecision
-            ? new StandardFormat(symbol, format.Precision).ToString()
-            : new StandardFormat(symbol).ToString();
-    }
-
-    private static string FormatNumber(string integerText, StandardFormat format)
-    {
-        var decimalDigits = format.HasPrecision ? format.Precision : (byte)2;
-        var negative = integerText.Length != 0 && integerText[0] == '-';
-        var firstDigit = negative ? 1 : 0;
-        var digitCount = integerText.Length - firstDigit;
-        var separators = digitCount <= 3 ? 0 : (digitCount - 1) / 3;
-        var length = (negative ? 1 : 0) + digitCount + separators + (decimalDigits == 0 ? 0 : 1 + decimalDigits);
-        var chars = new char[length];
-        var index = 0;
-        if (negative)
-        {
-            chars[index++] = '-';
-        }
-
-        for (var digitIndex = 0; digitIndex < digitCount; digitIndex++)
-        {
-            if (digitIndex != 0 && (digitCount - digitIndex) % 3 == 0)
+            switch (format.Symbol | 0x20)
             {
-                chars[index++] = ',';
-            }
+                case 'd':
+                    return Number.TryUInt32ToDecStr(value, format.PrecisionOrZero, destination, out bytesWritten);
 
-            chars[index++] = integerText[firstDigit + digitIndex];
-        }
+                case 'x':
+                    return Number.TryInt32ToHexStr((int)value, Number.GetHexBase(format.Symbol), format.PrecisionOrZero, destination, out bytesWritten);
 
-        if (decimalDigits != 0)
-        {
-            chars[index++] = '.';
-            for (var decimalIndex = 0; decimalIndex < decimalDigits; decimalIndex++)
-            {
-                chars[index++] = '0';
+                case 'n':
+                    return FormattingHelpers.TryFormat(value, destination, out bytesWritten, format);
+
+                case 'g' or 'r':
+                    if (format.HasPrecision)
+                    {
+                        ThrowGWithPrecisionNotSupported();
+                    }
+                    goto case 'd';
+
+                default:
+                    ThrowHelper.ThrowFormatException_BadFormatSpecifier();
+                    goto case 'd';
             }
         }
 
-        return string.Create(chars);
-    }
+        /// <summary>
+        /// Formats an Int32 as a UTF-8 string.
+        /// </summary>
+        /// <param name="value">Value to format</param>
+        /// <param name="destination">Buffer to write the UTF-8 formatted value to</param>
+        /// <param name="bytesWritten">Receives the length of the formatted text in bytes</param>
+        /// <param name="format">The standard format to use</param>
+        /// <returns>
+        /// true for success. "bytesWritten" contains the length of the formatted text in bytes.
+        /// false if buffer was too short. Iteratively increase the size of the buffer and retry until it succeeds.
+        /// </returns>
+        /// <remarks>
+        /// Formats supported:
+        ///     G/g (default)
+        ///     D/d             32767
+        ///     N/n             32,767
+        ///     X/x             7fff
+        /// </remarks>
+        /// <exceptions>
+        /// <cref>System.FormatException</cref> if the format is not valid for this data type.
+        /// </exceptions>
+        public static bool TryFormat(int value, Span<byte> destination, out int bytesWritten, StandardFormat format = default) =>
+            TryFormat(value, ~0, destination, out bytesWritten, format);
 
-    private static bool TryWrite(string value, Span<byte> destination, out int bytesWritten)
-    {
-        if (value.Length > destination.Length)
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static bool TryFormat(int value, int hexMask, Span<byte> destination, out int bytesWritten, StandardFormat format = default)
         {
-            bytesWritten = 0;
-            return false;
-        }
-
-        for (var index = 0; index < value.Length; index++)
-        {
-            var character = value[index];
-            if (character > 0x7F)
+            if (format.IsDefault)
             {
-                bytesWritten = 0;
-                return false;
+                return value >= 0 ?
+                    Number.TryUInt32ToDecStr((uint)value, destination, out bytesWritten) :
+                    Number.TryNegativeInt32ToDecStr(value, format.PrecisionOrZero, "-"u8, destination, out bytesWritten);
             }
 
-            destination[index] = (byte)character;
+            switch (format.Symbol | 0x20)
+            {
+                case 'd':
+                    return value >= 0 ?
+                        Number.TryUInt32ToDecStr((uint)value, format.PrecisionOrZero, destination, out bytesWritten) :
+                        Number.TryNegativeInt32ToDecStr(value, format.PrecisionOrZero, "-"u8, destination, out bytesWritten);
+
+                case 'x':
+                    return Number.TryInt32ToHexStr(value & hexMask, Number.GetHexBase(format.Symbol), format.PrecisionOrZero, destination, out bytesWritten);
+
+                case 'n':
+                    return FormattingHelpers.TryFormat(value, destination, out bytesWritten, format);
+
+                case 'g' or 'r':
+                    if (format.HasPrecision)
+                    {
+                        ThrowGWithPrecisionNotSupported();
+                    }
+                    goto case 'd';
+
+                default:
+                    ThrowHelper.ThrowFormatException_BadFormatSpecifier();
+                    goto case 'd';
+            }
         }
 
-        bytesWritten = value.Length;
-        return true;
+        /// <summary>
+        /// Formats a UInt64 as a UTF-8 string.
+        /// </summary>
+        /// <param name="value">Value to format</param>
+        /// <param name="destination">Buffer to write the UTF-8 formatted value to</param>
+        /// <param name="bytesWritten">Receives the length of the formatted text in bytes</param>
+        /// <param name="format">The standard format to use</param>
+        /// <returns>
+        /// true for success. "bytesWritten" contains the length of the formatted text in bytes.
+        /// false if buffer was too short. Iteratively increase the size of the buffer and retry until it succeeds.
+        /// </returns>
+        /// <remarks>
+        /// Formats supported:
+        ///     G/g (default)
+        ///     D/d             32767
+        ///     N/n             32,767
+        ///     X/x             7fff
+        /// </remarks>
+        /// <exceptions>
+        /// <cref>System.FormatException</cref> if the format is not valid for this data type.
+        /// </exceptions>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        [CLSCompliant(false)]
+        public static bool TryFormat(ulong value, Span<byte> destination, out int bytesWritten, StandardFormat format = default)
+        {
+            if (format.IsDefault)
+            {
+                return Number.TryUInt64ToDecStr(value, destination, out bytesWritten);
+            }
+
+            switch (format.Symbol | 0x20)
+            {
+                case 'd':
+                    return Number.TryUInt64ToDecStr(value, format.PrecisionOrZero, destination, out bytesWritten);
+
+                case 'x':
+                    return Number.TryInt64ToHexStr((long)value, Number.GetHexBase(format.Symbol), format.PrecisionOrZero, destination, out bytesWritten);
+
+                case 'n':
+                    return FormattingHelpers.TryFormat(value, destination, out bytesWritten, format);
+
+                case 'g' or 'r':
+                    if (format.HasPrecision)
+                    {
+                        ThrowGWithPrecisionNotSupported();
+                    }
+                    goto case 'd';
+
+                default:
+                    ThrowHelper.ThrowFormatException_BadFormatSpecifier();
+                    goto case 'd';
+            }
+        }
+
+        /// <summary>
+        /// Formats an Int64 as a UTF-8 string.
+        /// </summary>
+        /// <param name="value">Value to format</param>
+        /// <param name="destination">Buffer to write the UTF-8 formatted value to</param>
+        /// <param name="bytesWritten">Receives the length of the formatted text in bytes</param>
+        /// <param name="format">The standard format to use</param>
+        /// <returns>
+        /// true for success. "bytesWritten" contains the length of the formatted text in bytes.
+        /// false if buffer was too short. Iteratively increase the size of the buffer and retry until it succeeds.
+        /// </returns>
+        /// <remarks>
+        /// Formats supported:
+        ///     G/g (default)
+        ///     D/d             32767
+        ///     N/n             32,767
+        ///     X/x             7fff
+        /// </remarks>
+        /// <exceptions>
+        /// <cref>System.FormatException</cref> if the format is not valid for this data type.
+        /// </exceptions>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static bool TryFormat(long value, Span<byte> destination, out int bytesWritten, StandardFormat format = default)
+        {
+            if (format.IsDefault)
+            {
+                return value >= 0 ?
+                    Number.TryUInt64ToDecStr((ulong)value, destination, out bytesWritten) :
+                    Number.TryNegativeInt64ToDecStr(value, format.PrecisionOrZero, "-"u8, destination, out bytesWritten);
+            }
+
+            switch (format.Symbol | 0x20)
+            {
+                case 'd':
+                    return value >= 0 ?
+                        Number.TryUInt64ToDecStr((ulong)value, format.PrecisionOrZero, destination, out bytesWritten) :
+                        Number.TryNegativeInt64ToDecStr(value, format.PrecisionOrZero, "-"u8, destination, out bytesWritten);
+
+                case 'x':
+                    return Number.TryInt64ToHexStr(value, Number.GetHexBase(format.Symbol), format.PrecisionOrZero, destination, out bytesWritten);
+
+                case 'n':
+                    return FormattingHelpers.TryFormat(value, destination, out bytesWritten, format);
+
+                case 'g' or 'r':
+                    if (format.HasPrecision)
+                    {
+                        ThrowGWithPrecisionNotSupported();
+                    }
+                    goto case 'd';
+
+                default:
+                    ThrowHelper.ThrowFormatException_BadFormatSpecifier();
+                    goto case 'd';
+            }
+        }
+
+        private static void ThrowGWithPrecisionNotSupported() =>
+            // With a precision, 'G' can produce exponential format, even for integers.
+            throw new NotSupportedException(SR.Argument_GWithPrecisionNotSupported);
     }
 }

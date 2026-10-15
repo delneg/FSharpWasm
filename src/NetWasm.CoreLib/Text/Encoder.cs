@@ -61,23 +61,25 @@ public abstract class Encoder
         var prefixLength = pending == '\0' ? 0 : 1;
         var held = !flush && combined.Length != 0 && IsHigh(combined[combined.Length - 1]);
         var encodableLength = held ? combined.Length - 1 : combined.Length;
-        var take = encodableLength;
-        while (take > 0 && GetEffectiveEncoding().GetByteCount(new ReadOnlySpan<char>(combined, 0, take)) > byteCount) take--;
-        if (take == 0 && encodableLength != 0 && GetEffectiveEncoding().GetByteCount(ReadOnlySpan<char>.Empty) > byteCount) throw new ArgumentException("The destination buffer is too small.");
+        var encoding = GetEffectiveEncoding();
+        var take = FindEncodablePrefix(encoding, combined, encodableLength, byteCount);
+        if (take == 0 && encodableLength != 0) throw new ArgumentException("The destination buffer is too small.", nameof(bytes));
 
         var output = new Span<byte>(bytes, byteIndex, byteCount);
-        bytesUsed = take == 0 ? 0 : GetEffectiveEncoding().GetBytes(new ReadOnlySpan<char>(combined, 0, take), output);
-        charsUsed = take > prefixLength ? take - prefixLength : 0;
+        bytesUsed = take == 0 ? 0 : encoding.GetBytes(new ReadOnlySpan<char>(combined, 0, take), output);
+        var consumed = take;
         if (held && take == encodableLength)
         {
             _pendingHighSurrogate = combined[combined.Length - 1];
-            if (combined.Length > prefixLength) charsUsed++;
+            consumed++;
         }
         else
         {
-            _pendingHighSurrogate = '\0';
+            _pendingHighSurrogate = take == 0 ? pending : '\0';
         }
-        completed = charsUsed == charCount && _pendingHighSurrogate == '\0' && (_fallbackBuffer is null || _fallbackBuffer.Remaining == 0);
+        charsUsed = consumed > prefixLength ? consumed - prefixLength : 0;
+        if (charsUsed > charCount) charsUsed = charCount;
+        completed = charsUsed == charCount && (!flush || _pendingHighSurrogate == '\0') && (_fallbackBuffer is null || _fallbackBuffer.Remaining == 0);
     }
 
     public virtual void Convert(ReadOnlySpan<char> chars, Span<byte> bytes, bool flush, out int charsUsed, out int bytesUsed, out bool completed)
@@ -140,7 +142,22 @@ public abstract class Encoder
         return result;
     }
 
+    private static int FindEncodablePrefix(Encoding encoding, char[] chars, int length, int byteCapacity)
+    {
+        var accepted = 0;
+        for (var index = 0; index < length;)
+        {
+            var next = index + 1;
+            if (IsHigh(chars[index]) && next < length && IsLow(chars[next])) next++;
+            if (encoding.GetByteCount(new ReadOnlySpan<char>(chars, 0, next)) > byteCapacity) break;
+            accepted = next;
+            index = next;
+        }
+        return accepted;
+    }
+
     private static bool IsHigh(char value) => value >= 0xD800 && value <= 0xDBFF;
+    private static bool IsLow(char value) => value >= 0xDC00 && value <= 0xDFFF;
 }
 
 internal sealed class EncodingEncoder : Encoder

@@ -32,7 +32,13 @@ public sealed class CultureInfo : IFormatProvider
 
     public string Name { get; }
 
-    public object? GetFormat(Type? formatType) => formatType == typeof(CultureInfo) ? this : null;
+    public NumberFormatInfo NumberFormat => NumberFormatInfo.InvariantInfo;
+
+    public DateTimeFormatInfo DateTimeFormat => DateTimeFormatInfo.InvariantInfo;
+
+    public object? GetFormat(Type? formatType) =>
+        formatType == typeof(NumberFormatInfo) ? NumberFormat :
+        formatType == typeof(DateTimeFormatInfo) ? DateTimeFormat : null;
 
     public override bool Equals(object? value) => value is CultureInfo culture && Name == culture.Name;
 

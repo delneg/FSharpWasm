@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using NetWasm.Compiler.Tasks.MsBuild;
 
 namespace NetWasm.Compiler.Tasks.Compilation;
 
@@ -42,7 +43,9 @@ internal sealed class ManagedModuleCompiler(
             UseJavaScriptExportBoundary: request.UseJavaScriptExportBoundary,
             ProjectDirectory: request.ProjectDirectory,
             PathMap: request.PathMap,
-            StructuredDiagnostics: request.StructuredDiagnostics)) with
+            StructuredDiagnostics: request.StructuredDiagnostics,
+            Optimization: FinalWasmOptimizationParser.Parse(request.Optimization),
+            OptimizationOverrides: request.OptimizationOverrides)) with
         {
             EntryPoint = entryPoint?.Abi,
         };

@@ -3,8 +3,7 @@
 
 namespace System
 {
-    // Adapted from dotnet/runtime System.Private.Uri at commit
-    // 811225a482702af7ecc35d817966bc70b88a3a23.
+    // Used to control whether absolute or relative URIs are used
     public enum UriKind
     {
         RelativeOrAbsolute = 0,
@@ -15,29 +14,79 @@ namespace System
     [Flags]
     public enum UriComponents
     {
+        // Generic parts.
+        // ATTN: The values must stay in sync with Uri.Flags.xxxNotCanonical
         Scheme = 0x1,
         UserInfo = 0x2,
         Host = 0x4,
         Port = 0x8,
-        StrongPort = 0x80,
-        NormalizedHost = 0x100,
         Path = 0x10,
         Query = 0x20,
         Fragment = 0x40,
-        KeepDelimiter = 0x40000000,
-        SerializationInfoString = unchecked((int)0x80000000),
-        SchemeAndServer = Scheme | Host | Port,
-        HostAndPort = Host | StrongPort,
-        StrongAuthority = UserInfo | Host | StrongPort,
-        PathAndQuery = Path | Query,
-        HttpRequestUrl = Scheme | Host | Port | Path | Query,
-        AbsoluteUri = Scheme | UserInfo | Host | Port | Path | Query | Fragment
-    }
 
+        StrongPort = 0x80,
+        NormalizedHost = 0x100,
+
+        // This will also return respective delimiters for scheme, userinfo or port
+        // Valid only for a single component requests.
+        KeepDelimiter = 0x40000000,
+
+        // This is used by GetObjectData and can also be used directly.
+        // Works for both absolute and relative Uris
+        SerializationInfoString = unchecked((int)0x80000000),
+
+        // Shortcuts for general cases
+        AbsoluteUri = Scheme | UserInfo | Host | Port | Path | Query | Fragment,
+        HostAndPort = Host | StrongPort,                //includes port even if default
+        StrongAuthority = UserInfo | Host | StrongPort, //includes port even if default
+        SchemeAndServer = Scheme | Host | Port,
+        HttpRequestUrl = Scheme | Host | Port | Path | Query,
+        PathAndQuery = Path | Query,
+    }
     public enum UriFormat
     {
         UriEscaped = 1,
-        Unescaped = 2,
-        SafeUnescaped = 3
+        Unescaped = 2,      // Completely unescaped.
+        SafeUnescaped = 3   // Canonical unescaped.  Allows same uri to be reconstructed from the output.
+        // If the unescaped sequence results in a new escaped sequence, it will revert to the original sequence.
+
+        // This value is reserved for the default ToString() format that is historically none of the above.
+        // V1ToStringUnescape = 0x7FFF
+    }
+
+    internal enum ParsingError
+    {
+        // looks good
+        None,
+
+        // These first errors indicate that the Uri cannot be absolute, but may be relative.
+        BadFormat,
+        BadScheme,
+        BadAuthority,
+        EmptyUriString,
+        LastErrorOkayForRelativeUris,
+
+        // All higher error values are fatal, indicating that neither an absolute or relative
+        // Uri could be generated.
+        SchemeLimit,
+        MustRootedPath,
+
+        // derived class controlled
+        BadHostName,
+        BadPort,
+        BadAuthorityTerminator,
+
+        // The user requested only a relative Uri, but an absolute Uri was parsed.
+        CannotCreateRelative
+    }
+
+    [Flags]
+    internal enum UnescapeMode
+    {
+        None = 0x0,
+        Escape = 0x1,                            // Only used by ImplicitFile, the string is already fully unescaped
+        Unescape = 0x2,                          // Only used as V1.0 UserEscaped compatibility mode
+        EscapeUnescape = Unescape | Escape,      // does both escaping control+reserved and unescaping of safe characters
+        V1ToStringFlag = 0x4,                    // Only used as V1.0 ToString() compatibility mode, assumes DontEscape level also
     }
 }

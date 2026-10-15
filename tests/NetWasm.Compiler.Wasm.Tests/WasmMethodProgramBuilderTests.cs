@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using NetWasm.Compiler.ComponentModel.Optimization;
 using NetWasm.Compiler.ControlFlow;
 using NetWasm.Compiler.ControlFlow.Structured;
 using NetWasm.Compiler.ControlFlow.Structuring;
@@ -25,7 +26,8 @@ public sealed class WasmMethodProgramBuilderTests
                 definition),
             ImmutableDictionary<string, ManagedMethodBody>.Empty.Add(
                 constructed.Method.CanonicalName,
-                constructed));
+                constructed),
+            BranchPrefixDuplicationPolicy.Speed);
 
         Assert.Same(definition.Method,
             result.Methods[definition.Method.Definition.Key].Header.MethodInstance);
@@ -34,6 +36,10 @@ public sealed class WasmMethodProgramBuilderTests
         Assert.Equal(constructed.Method.CanonicalName,
             result.ConstructedMethods.Single().Value.Header.MethodInstance!.CanonicalName);
         Assert.Equal([definition, constructed], lowerer.Inputs);
+        Assert.Equal(
+            [BranchPrefixDuplicationPolicy.Speed,
+                BranchPrefixDuplicationPolicy.Speed],
+            lowerer.Policies);
     }
 
     [Fact]
@@ -86,11 +92,17 @@ public sealed class WasmMethodProgramBuilderTests
     {
         public List<ManagedMethodBody> Inputs { get; } = [];
 
-        public StructuredMethod Lower(ManagedMethodBody method)
+        public List<BranchPrefixDuplicationPolicy> Policies { get; } = [];
+
+        public StructuredMethod Lower(
+            ManagedMethodBody method,
+            BranchPrefixDuplicationPolicy branchPrefixDuplication =
+                BranchPrefixDuplicationPolicy.SizeAware)
         {
             Inputs.Add(method);
+            Policies.Add(branchPrefixDuplication);
             return new ValidatedStructuredMethodBuilderFactory()
-                .Create()
+                .Create(branchPrefixDuplication)
                 .Build(method.ControlFlow);
         }
     }

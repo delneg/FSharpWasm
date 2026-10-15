@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using NetWasm.Compiler.ComponentModel;
 using NetWasm.Compiler.Core;
 using NetWasm.TestInfrastructure;
 
@@ -31,6 +32,8 @@ internal sealed record CompilationScenario(
     internal string? ObserveExportName { get; init; }
     internal bool EmitStackTrace { get; init; }
     internal bool EmitPortablePdb { get; init; }
+    internal FinalWasmOptimization Optimization { get; init; } =
+        FinalWasmOptimization.Oz;
     internal bool LoadStackTraceSymbols { get; init; } = true;
     internal int EntryInvocationCount { get; init; } = 1;
     internal string? DiagnosticTracePath { get; init; }
@@ -95,7 +98,8 @@ internal sealed class CompilationScenarioExecutor(TestAssets assets) :
             WitPath: scenario.WitPath,
             WitWorld: scenario.WitWorld,
             EmitStackTrace: scenario.EmitStackTrace,
-            ProjectDirectory: _assets.Directory));
+            ProjectDirectory: _assets.Directory,
+            Optimization: scenario.Optimization));
 
         CompilerTestSupport.ValidateWithNode(compilation.ApplicationModule, _assets.Directory);
 

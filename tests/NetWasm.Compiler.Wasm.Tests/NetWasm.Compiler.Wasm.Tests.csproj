@@ -8,5 +8,6 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../../src/NetWasm.Compiler.Wasm/NetWasm.Compiler.Wasm.csproj" />
+    <ProjectReference Include="../../src/NetWasm.Compiler.GarbageCollection/NetWasm.Compiler.GarbageCollection.csproj" />
   </ItemGroup>
 </Project>

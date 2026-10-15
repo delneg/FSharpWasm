@@ -9,5 +9,6 @@ internal interface IAllocationCapabilityAnalyzerFactory
         ITypeRepository types,
         IFieldRepository fields,
         IMethodRepository methods,
+        IRuntimeIntrinsicRegistry intrinsics,
         ITypeClassifier typeClassifier);
 }

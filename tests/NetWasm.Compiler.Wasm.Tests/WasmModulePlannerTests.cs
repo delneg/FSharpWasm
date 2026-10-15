@@ -15,6 +15,35 @@ using static EmitterTestSupport;
 public sealed class WasmModulePlannerTests
 {
     [Fact]
+    public void FinalizationPlanSelectsItsRuntimeImportsAndFlowsToEmission()
+    {
+        var program = new FakeProgram();
+        var finalization = new FinalizationPlan([9], false);
+        var finalizationPlans = new FixedFinalizationPlanBuilder(finalization);
+        var planner = new WasmModulePlanner(
+            program,
+            program,
+            program,
+            new FakeIntrinsics(),
+            new InteropImportPlanner(),
+            WasmRuntimeImports.CreateCatalog(),
+            new DisabledStackTraceMethodPlanBuilder(),
+            new WasmModulePlanInvariantValidator(),
+            new NativeImportPlanner(NativeAbiTestSupport.ScalarPlanner()),
+            NativeAbiTestSupport.CallbackPlanner(),
+            finalizationPlans);
+
+        var plan = BuildThroughContract(planner, CreateEmissionRequest(program));
+
+        Assert.Same(finalization, plan.Finalization);
+        Assert.True(plan.RuntimeImportSelection.IncludeFinalization);
+        Assert.Contains(
+            plan.RuntimeImports,
+            import => import.Name == RuntimeAbi.RuntimeAllocateFinalizable);
+        Assert.True(finalizationPlans.Called);
+    }
+
+    [Fact]
     public void NativeCallsReceiveImportedIndicesBeforeManagedDefinitions()
     {
         var program = new FakeProgram();
@@ -38,7 +67,7 @@ public sealed class WasmModulePlannerTests
             new InteropImportPlanner(), WasmRuntimeImports.CreateCatalog(),
             new DisabledStackTraceMethodPlanBuilder(), new WasmModulePlanInvariantValidator(),
             new NativeImportPlanner(NativeAbiTestSupport.ScalarPlanner()),
-            NativeAbiTestSupport.CallbackPlanner());
+            NativeAbiTestSupport.CallbackPlanner(), FinalizationPlans());
 
         var plan = BuildThroughContract(planner, request);
 
@@ -54,12 +83,19 @@ public sealed class WasmModulePlannerTests
             program, program, program, new FakeIntrinsics(),
             new InteropImportPlanner(), WasmRuntimeImports.CreateCatalog(),
             new DisabledStackTraceMethodPlanBuilder(), new WasmModulePlanInvariantValidator(), null!,
-            NativeAbiTestSupport.CallbackPlanner()));
+            NativeAbiTestSupport.CallbackPlanner(), FinalizationPlans()));
         Assert.Throws<ArgumentNullException>(() => new WasmModulePlanner(
             program, program, program, new FakeIntrinsics(),
             new InteropImportPlanner(), WasmRuntimeImports.CreateCatalog(),
             new DisabledStackTraceMethodPlanBuilder(), new WasmModulePlanInvariantValidator(),
-            new NativeImportPlanner(NativeAbiTestSupport.ScalarPlanner()), null!));
+            new NativeImportPlanner(NativeAbiTestSupport.ScalarPlanner()), null!,
+            FinalizationPlans()));
+        Assert.Throws<ArgumentNullException>(() => new WasmModulePlanner(
+            program, program, program, new FakeIntrinsics(),
+            new InteropImportPlanner(), WasmRuntimeImports.CreateCatalog(),
+            new DisabledStackTraceMethodPlanBuilder(), new WasmModulePlanInvariantValidator(),
+            new NativeImportPlanner(NativeAbiTestSupport.ScalarPlanner()),
+            NativeAbiTestSupport.CallbackPlanner(), null!));
     }
 
     [Fact]
@@ -103,7 +139,7 @@ public sealed class WasmModulePlannerTests
             new DisabledStackTraceMethodPlanBuilder(),
             new WasmModulePlanInvariantValidator(),
             new NativeImportPlanner(NativeAbiTestSupport.ScalarPlanner()),
-            NativeAbiTestSupport.CallbackPlanner());
+            NativeAbiTestSupport.CallbackPlanner(), FinalizationPlans());
 
         var plan = BuildThroughContract(planner, request);
 
@@ -157,7 +193,7 @@ public sealed class WasmModulePlannerTests
             new InteropImportPlanner(), imports, new DisabledStackTraceMethodPlanBuilder(),
             new WasmModulePlanInvariantValidator(),
             new NativeImportPlanner(NativeAbiTestSupport.ScalarPlanner()),
-            NativeAbiTestSupport.CallbackPlanner()), request);
+            NativeAbiTestSupport.CallbackPlanner(), FinalizationPlans()), request);
 
         Assert.True(plan.RuntimeImportSelection.IncludeTerminalExceptionReporter);
         Assert.Empty(request.HostCallbacks);
@@ -167,6 +203,69 @@ public sealed class WasmModulePlannerTests
         Assert.Equal(exportsAsyncMethod, plan.RuntimeImportSelection.IncludeExceptionCapture);
         Assert.Equal(exportsAsyncMethod, plan.RuntimeImports.Any(
             import => import.Name == RuntimeAbi.RuntimeCaptureManagedException));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void PlansManagedThrowFunctionOnlyForStringLength(bool usesStringLength)
+    {
+        var program = new FakeProgram();
+        var entry = program.GetMethod(EntryKey);
+        var instructions = usesStringLength
+            ? new[]
+            {
+                I(0, CilOperation.Call, new CilOperand.Entity(StringLengthKey)),
+                I(1, CilOperation.Return),
+            }
+            : new[]
+            {
+                I(0, CilOperation.LoadInt32, new CilOperand.ConstantI4(0)),
+                I(1, CilOperation.Return),
+            };
+        var methods = new Dictionary<EntityKey, StructuredMethod>
+        {
+            [EntryKey] = UnvalidatedMethod(new CilMethodBody(
+                entry,
+                1,
+                [],
+                [.. instructions])),
+        };
+        var request = WasmEmissionRequest.Create(
+            entry,
+            methods,
+            EmptyRootMaps(methods.Keys),
+            [],
+            ImmutableDictionary<string, EntityKey>.Empty,
+            callableMethods: CreateCallableMethods(program, methods.Keys));
+        var plan = BuildThroughContract(
+            new WasmModulePlanner(
+                program,
+                program,
+                program,
+                new FakeIntrinsics(),
+                new InteropImportPlanner(),
+                WasmRuntimeImports.CreateCatalog(),
+                new DisabledStackTraceMethodPlanBuilder(),
+                new WasmModulePlanInvariantValidator(),
+                new NativeImportPlanner(NativeAbiTestSupport.ScalarPlanner()),
+                NativeAbiTestSupport.CallbackPlanner(),
+                FinalizationPlans()),
+            request);
+
+        Assert.Equal(
+            usesStringLength,
+            plan.FunctionIndices.ManagedThrowFunctionIndex.IsPresent);
+        Assert.True(plan.FunctionIndices.TryGetMethod(EntryKey, out var entryIndex));
+        Assert.Equal(
+            entryIndex.Value + (usesStringLength ? 2 : 1),
+            plan.StaticInitializerFunctionBase);
+        if (usesStringLength)
+        {
+            Assert.Equal(
+                entryIndex.Value + 1,
+                plan.FunctionIndices.ManagedThrowFunctionIndex.Value);
+        }
     }
 
     [Theory]
@@ -253,7 +352,7 @@ public sealed class WasmModulePlannerTests
                 tracePlans,
                 new WasmModulePlanInvariantValidator(),
                 new NativeImportPlanner(NativeAbiTestSupport.ScalarPlanner()),
-                NativeAbiTestSupport.CallbackPlanner()),
+                NativeAbiTestSupport.CallbackPlanner(), FinalizationPlans()),
             request);
         var expectedMethodEmissions = new StructuredMethodEmissionPlanner(
             new ManagedMethodIdentityFactory(),
@@ -291,10 +390,7 @@ public sealed class WasmModulePlannerTests
         Assert.Equal(plan.RuntimeImports.Length, jsIndex.Value);
         Assert.Equal(jsIndex.Value + 1, witIndex.Value);
         Assert.Equal(witIndex, equivalentWitIndex);
-        Assert.True(plan.DelegateCountHelperIndex.IsPresent);
-        Assert.True(plan.DelegateLeafHelperIndex.IsPresent);
-        Assert.True(plan.DelegateEqualityHelperIndex.IsPresent);
-        Assert.True(plan.DelegateRemoveHelperIndex.IsPresent);
+        Assert.True(plan.FunctionIndices.ManagedThrowFunctionIndex.IsPresent);
     }
 
     [Fact]
@@ -329,7 +425,7 @@ public sealed class WasmModulePlannerTests
             new DisabledStackTraceMethodPlanBuilder(),
                 new WasmModulePlanInvariantValidator(),
                 new NativeImportPlanner(NativeAbiTestSupport.ScalarPlanner()),
-                NativeAbiTestSupport.CallbackPlanner()),
+                NativeAbiTestSupport.CallbackPlanner(), FinalizationPlans()),
             request));
 
         Assert.Contains("has no method operand", exception.Message);
@@ -370,7 +466,7 @@ public sealed class WasmModulePlannerTests
             new DisabledStackTraceMethodPlanBuilder(),
                 new WasmModulePlanInvariantValidator(),
                 new NativeImportPlanner(NativeAbiTestSupport.ScalarPlanner()),
-                NativeAbiTestSupport.CallbackPlanner()),
+                NativeAbiTestSupport.CallbackPlanner(), FinalizationPlans()),
             request);
 
         Assert.True(plan.OrderedMethods
@@ -382,7 +478,6 @@ public sealed class WasmModulePlannerTests
         Assert.Equal(plan.RuntimeImports.Length, entryIndex.Value);
         Assert.Equal(entryIndex.Value + 1, constructorIndex.Value);
         Assert.False(plan.InteropImports.StringLength.IsPresent);
-        Assert.False(plan.DelegateCountHelperIndex.IsPresent);
     }
 
     [Fact]
@@ -425,7 +520,7 @@ public sealed class WasmModulePlannerTests
             new DisabledStackTraceMethodPlanBuilder(),
             new WasmModulePlanInvariantValidator(),
             new NativeImportPlanner(NativeAbiTestSupport.ScalarPlanner()),
-            NativeAbiTestSupport.CallbackPlanner());
+            NativeAbiTestSupport.CallbackPlanner(), FinalizationPlans());
 
         var exception = Assert.Throws<CompilerException>(
             () => ((IWasmModulePlanner)planner).Build(request, methodEmissions));
@@ -485,7 +580,7 @@ public sealed class WasmModulePlannerTests
             new DisabledStackTraceMethodPlanBuilder(),
                 new WasmModulePlanInvariantValidator(),
                 new NativeImportPlanner(NativeAbiTestSupport.ScalarPlanner()),
-                NativeAbiTestSupport.CallbackPlanner()),
+                NativeAbiTestSupport.CallbackPlanner(), FinalizationPlans()),
             request);
 
         Assert.True(plan.RuntimeImportSelection.IncludeTerminalExceptionReporter);
@@ -558,7 +653,7 @@ public sealed class WasmModulePlannerTests
                 new DisabledStackTraceMethodPlanBuilder(),
                 new WasmModulePlanInvariantValidator(),
                 new NativeImportPlanner(NativeAbiTestSupport.ScalarPlanner()),
-                NativeAbiTestSupport.CallbackPlanner()),
+                NativeAbiTestSupport.CallbackPlanner(), FinalizationPlans()),
             request);
 
         Assert.Equal(
@@ -608,7 +703,7 @@ public sealed class WasmModulePlannerTests
             new DisabledStackTraceMethodPlanBuilder(),
                 new WasmModulePlanInvariantValidator(),
                 new NativeImportPlanner(NativeAbiTestSupport.ScalarPlanner()),
-                NativeAbiTestSupport.CallbackPlanner()),
+                NativeAbiTestSupport.CallbackPlanner(), FinalizationPlans()),
             new ModuleDataPlanner(
                 layouts,
                 layouts,
@@ -625,6 +720,25 @@ public sealed class WasmModulePlannerTests
         Assert.Equal(
             delegateType.CanonicalName,
             forwarded.CanonicalName);
+    }
+
+    private static FinalizationPlanBuilder FinalizationPlans() =>
+        new FinalizationPlanBuilder(
+            new RecordingLayoutProvider(),
+            new FakeIntrinsics());
+
+    private sealed class FixedFinalizationPlanBuilder(FinalizationPlan plan) :
+        IFinalizationPlanBuilder
+    {
+        public bool Called { get; private set; }
+
+        public FinalizationPlan Build(
+            ImmutableArray<StructuredMethodEmission> methodEmissions)
+        {
+            Assert.False(methodEmissions.IsDefault);
+            Called = true;
+            return plan;
+        }
     }
 
     private delegate WasmModulePlan WasmModulePlannerCall(
@@ -675,7 +789,8 @@ public sealed class WasmModulePlannerTests
                     new CilOperand.MethodInstance(program.SecondInvokeInstance)),
                 I(4, CilOperation.CallVirtual,
                     new CilOperand.MethodInstance(program.NonInvokeInstance)),
-                I(5, CilOperation.Return),
+                I(5, CilOperation.Call, new CilOperand.Entity(StringLengthKey)),
+                I(6, CilOperation.Return),
             ]);
         return UnvalidatedMethod(body);
     }

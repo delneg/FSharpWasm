@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
+using NetWasm.Compiler.ComponentModel.Optimization;
 using NetWasm.Compiler.ControlFlow;
 using NetWasm.Compiler.Core;
 
@@ -14,17 +15,19 @@ internal sealed class WasmMethodProgramBuilder(
 
     public WasmMethodLoweringResult Build(
         IReadOnlyDictionary<EntityKey, ManagedMethodBody> methods,
-        IReadOnlyDictionary<string, ManagedMethodBody> constructedMethods)
+        IReadOnlyDictionary<string, ManagedMethodBody> constructedMethods,
+        BranchPrefixDuplicationPolicy branchPrefixDuplication =
+            BranchPrefixDuplicationPolicy.SizeAware)
     {
         ArgumentNullException.ThrowIfNull(methods);
         ArgumentNullException.ThrowIfNull(constructedMethods);
         return new(
             methods.ToImmutableDictionary(
                 pair => pair.Key,
-                pair => _methods.Lower(pair.Value)),
+                pair => _methods.Lower(pair.Value, branchPrefixDuplication)),
             constructedMethods.ToImmutableDictionary(
                 pair => pair.Key,
-                pair => _methods.Lower(pair.Value),
+                pair => _methods.Lower(pair.Value, branchPrefixDuplication),
                 StringComparer.Ordinal));
     }
 }

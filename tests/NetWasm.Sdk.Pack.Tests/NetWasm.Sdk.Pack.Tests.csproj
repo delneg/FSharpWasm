@@ -27,6 +27,10 @@
       <HintPath>$(MSBuildToolsPath)/Microsoft.Build.Utilities.Core.dll</HintPath>
       <Private>true</Private>
     </Reference>
+    <Reference Include="Microsoft.Build.Tasks.Core">
+      <HintPath>$(MSBuildToolsPath)/Microsoft.Build.Tasks.Core.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
     <Reference Include="NuGet.Versioning">
       <HintPath>$(MSBuildToolsPath)/NuGet.Versioning.dll</HintPath>
       <Private>true</Private>

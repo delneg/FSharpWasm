@@ -6,6 +6,7 @@ using System.Runtime.CompilerServices;
 
 namespace System.Numerics
 {
+    // TODO(netwasm-simd)
     /// <summary>Represents a vector with two single-precision floating-point values.</summary>
     public partial struct Vector2 : IEquatable<Vector2>, IFormattable
     {

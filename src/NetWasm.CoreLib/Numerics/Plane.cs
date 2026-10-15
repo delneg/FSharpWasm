@@ -5,6 +5,7 @@
 
 namespace System.Numerics;
 
+// TODO(netwasm-simd)
 public struct Plane : IEquatable<Plane>
 {
     public Vector3 Normal;

@@ -8,20 +8,21 @@ public sealed record BrowserBinaryenInvocation(string ToolId, ImmutableArray<str
 
 public sealed record BrowserComponentExportPruning(string InputPath, string OutputPath, string Prefix);
 
-public sealed record BrowserFileCopy(string InputPath, string OutputPath);
-
 public sealed record BrowserCoreModuleValidation(string Path, ImmutableArray<string> Arguments);
 
 /// <summary>
-/// Parse TextModules, run Merge, apply ExportPruning to the merged bytes, and run
-/// Optimization then Validation, or Validation then Copy. Release the owned CleanupPaths on success or failure.
+/// Parse TextModules, apply ManagedInlining to application bytes, run Merge, apply ExportPruning, and run
+/// Optimization then InlineAnnotationCleanup then Validation. Without optimization,
+/// run Validation then InlineAnnotationCleanup to the output. Release CleanupPaths on success or failure.
 /// The plan records authoritative commands; it does not execute tools.
 /// </summary>
 public sealed record BrowserComponentCoreModuleLinkPlan(
     ImmutableArray<BrowserWasmTextModule> TextModules,
+    BrowserInlineAnnotationEdit ManagedInlining,
+    BrowserInlineAnnotationEdit RuntimeInlining,
     BrowserBinaryenInvocation Merge,
     BrowserComponentExportPruning ExportPruning,
     BrowserBinaryenInvocation? Optimization,
     BrowserCoreModuleValidation? Validation,
-    BrowserFileCopy? Copy,
+    BrowserInlineAnnotationEdit InlineAnnotationCleanup,
     ImmutableArray<string> CleanupPaths);

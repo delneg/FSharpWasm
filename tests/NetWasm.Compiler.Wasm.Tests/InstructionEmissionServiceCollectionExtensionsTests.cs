@@ -4,7 +4,6 @@ using NetWasm.Compiler.Wasm.Emission;
 using NetWasm.Compiler.Wasm.Emission.Exceptions;
 using NetWasm.Compiler.Wasm.Emission.Instructions;
 using NetWasm.Compiler.Wasm.Emission.Instructions.Calls;
-using NetWasm.Compiler.Wasm.Emission.Instructions.Delegates;
 using NetWasm.Compiler.Wasm.Emission.Instructions.Memory;
 using NetWasm.Compiler.Wasm.Emission.Instructions.NativeIntegers;
 using NetWasm.Compiler.Wasm.Emission.Instructions.Objects;

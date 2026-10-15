@@ -15,11 +15,7 @@ namespace System;
 
 public struct HashCode
 {
-    // NetWasm currently has no entropy capability. Keep the module seed fixed
-    // and explicit so hash values are deterministic within this CoreLib module
-    // while retaining the upstream xxHash32 mixing and avalanche behavior.
-    private const uint Seed = 0x9E3779B9U;
-    private static readonly uint s_seed = Seed;
+    private static readonly uint s_seed = (uint)MarvinSeedRuntime.Get();
 
     private const uint Prime1 = 2654435761U;
     private const uint Prime2 = 2246822519U;

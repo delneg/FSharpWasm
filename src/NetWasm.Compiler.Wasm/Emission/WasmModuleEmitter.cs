@@ -6,7 +6,6 @@ using NetWasm.Compiler.Core;
 using NetWasm.Compiler.Wasm.Emission.GeneratedFunctions;
 using NetWasm.Compiler.Wasm.Emission.Instructions;
 using NetWasm.Compiler.Wasm.Emission.Instructions.Calls;
-using NetWasm.Compiler.Wasm.Emission.Instructions.Delegates;
 using NetWasm.Compiler.Wasm.Emission.Instructions.Interop;
 using NetWasm.Compiler.Wasm.Emission.Instructions.Memory;
 using NetWasm.Compiler.Wasm.Emission.Instructions.Objects;
@@ -24,6 +23,7 @@ internal sealed class WasmModuleEmitter(
     ITargetLayout layouts,
     IManagedDefinitionSetAppender managedDefinitions,
     IConstructedMethodSetAppender constructedMethods,
+    IManagedThrowFunctionAppender managedThrowFunctions,
     IDelegateFunctionAppender delegateFunctions,
     INativeCallbackFunctionAppender nativeCallbacks,
     IHostCallbackSetAppender hostCallbacks,
@@ -52,6 +52,8 @@ internal sealed class WasmModuleEmitter(
         managedDefinitions;
     private readonly IConstructedMethodSetAppender _constructedMethods =
         constructedMethods;
+    private readonly IManagedThrowFunctionAppender _managedThrowFunctions =
+        managedThrowFunctions;
     private readonly IDelegateFunctionAppender _delegateFunctions = delegateFunctions;
     private readonly INativeCallbackFunctionAppender _nativeCallbacks = nativeCallbacks;
     private readonly IHostCallbackSetAppender _hostCallbacks = hostCallbacks;
@@ -101,8 +103,7 @@ internal sealed class WasmModuleEmitter(
         var orderedConstructedMethods = plan.OrderedConstructedMethods;
         var delegateInvokes = plan.DelegateInvokes;
         var delegateInvokeTarget = new DelegateInvokeTarget(
-            plan.FunctionIndices,
-            request.DelegateBindings);
+            request.DelegateBindings, moduleData);
         var imports = _moduleImports.Collect(new(
             request,
             plan.RuntimeImports,
@@ -127,9 +128,14 @@ internal sealed class WasmModuleEmitter(
             managedMethodEmissions, orderedConstructedMethods, methodInstances,
             constructedMethods, constructedRootMaps, target.Instructions,
             functionIndices);
-        _delegateFunctions.Append(functions, delegateInvokes, request.DelegateTypes,
-            plan.DelegateCountHelperIndex, plan.DelegateLeafHelperIndex,
-            plan.DelegateEqualityHelperIndex, delegateInvokeTarget, functionIndices);
+        _managedThrowFunctions.Append(
+            functions,
+            plan.FunctionIndices.ManagedThrowFunctionIndex);
+        _delegateFunctions.Append(
+            functions,
+            delegateInvokes,
+            delegateInvokeTarget,
+            functionIndices);
         staticInitializers.Append(functions, moduleData.StaticInitializerFunctions);
 
         var nativeCallbackIndices = ImmutableDictionary.CreateBuilder<string, int>(
@@ -234,6 +240,20 @@ internal sealed class WasmModuleEmitter(
         {
             runtimeFeatures = [.. componentRuntimeFeatures
                 .Append(NetWasmRuntimeFeatureIds.EphemeronHandles)
+                .Order(StringComparer.Ordinal)];
+        }
+        if (plan.RuntimeImportSelection.IncludeFinalization)
+        {
+            runtimeFeatures = [.. runtimeFeatures
+                .Append(NetWasmRuntimeFeatureIds.Finalization)
+                .Distinct(StringComparer.Ordinal)
+                .Order(StringComparer.Ordinal)];
+        }
+        if (plan.RuntimeImportSelection.IncludeWeakHandles)
+        {
+            runtimeFeatures = [.. runtimeFeatures
+                .Append(NetWasmRuntimeFeatureIds.WeakHandles)
+                .Distinct(StringComparer.Ordinal)
                 .Order(StringComparer.Ordinal)];
         }
         if (request.StructuredDiagnostics)

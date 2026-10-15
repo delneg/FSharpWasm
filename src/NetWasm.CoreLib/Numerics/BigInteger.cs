@@ -11,6 +11,7 @@ using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Numerics;
 using System.Runtime.InteropServices;
+using System.Text;
 
 namespace System.Numerics
 {
@@ -204,17 +205,15 @@ namespace System.Numerics
 
         public static BigInteger ModPow(BigInteger value, BigInteger exponent, BigInteger modulus)
         {
-            if (modulus.IsZero) throw new DivideByZeroException();
             if (exponent._sign < 0) throw new ArgumentOutOfRangeException(nameof(exponent));
-            var result = One % modulus;
-            value %= modulus;
-            while (!exponent.IsZero)
-            {
-                if (!exponent.IsEven) result = (result * value) % modulus;
-                exponent >>= 1;
-                value = (value * value) % modulus;
-            }
-            return result;
+            if (modulus.IsZero) throw new DivideByZeroException();
+
+            var bits = BigIntegerCalculator.Pow(
+                value._bits ?? Array.Empty<uint>(),
+                exponent._bits ?? Array.Empty<uint>(),
+                modulus._bits!);
+            var sign = value._sign < 0 && !exponent.IsEven ? -1 : 1;
+            return new BigInteger(sign, bits);
         }
 
         public static BigInteger operator &(BigInteger left, BigInteger right) => Bitwise(left, right, '&');
@@ -343,35 +342,160 @@ namespace System.Numerics
             return bits;
         }
 
-        public int GetByteCount(bool isUnsigned = false) => ToByteArray(isUnsigned, false).Length;
+        public int GetByteCount(bool isUnsigned = false)
+        {
+            var count = 0;
+            TryGetBytes(GetBytesMode.Count, default, isUnsigned, isBigEndian: false, ref count);
+            return count;
+        }
+
         public int GetByteCount() => GetByteCount(false);
         public int GetShortestBitLength() => checked((int)(_sign < 0 ? GetBitLength() + 1 : GetBitLength()));
         public byte[] ToByteArray() => ToByteArray(false, false);
         public byte[] ToByteArray(bool isUnsigned, bool isBigEndian = false)
         {
-            if (isUnsigned && _sign < 0) throw new OverflowException();
-            var bytes = ToLittleEndianBytes(isUnsigned);
-            if (!isBigEndian) return bytes;
-            var reversed = new byte[bytes.Length];
-            for (var index = 0; index < bytes.Length; index++) reversed[index] = bytes[bytes.Length - index - 1];
-            return reversed;
+            var ignored = 0;
+            return TryGetBytes(GetBytesMode.AllocateArray, default, isUnsigned, isBigEndian, ref ignored)!;
         }
 
         public bool TryWriteBytes(Span<byte> destination, out int bytesWritten, bool isUnsigned = false, bool isBigEndian = false)
         {
-            var bytes = ToByteArray(isUnsigned, isBigEndian);
-            if (destination.Length < bytes.Length)
+            bytesWritten = 0;
+            if (TryGetBytes(GetBytesMode.Span, destination, isUnsigned, isBigEndian, ref bytesWritten) is null)
             {
                 bytesWritten = 0;
                 return false;
             }
-            for (var index = 0; index < bytes.Length; index++) destination[index] = bytes[index];
-            bytesWritten = bytes.Length;
+
             return true;
+        }
+
+        internal bool TryWriteOrCountBytes(Span<byte> destination, out int bytesWritten, bool isUnsigned = false, bool isBigEndian = false)
+        {
+            bytesWritten = 0;
+            return TryGetBytes(GetBytesMode.Span, destination, isUnsigned, isBigEndian, ref bytesWritten) is not null;
         }
 
         public bool TryWriteBigEndian(Span<byte> destination, out int bytesWritten) => TryWriteBytes(destination, out bytesWritten, false, true);
         public bool TryWriteLittleEndian(Span<byte> destination, out int bytesWritten) => TryWriteBytes(destination, out bytesWritten, false, false);
+
+        private enum GetBytesMode
+        {
+            AllocateArray,
+            Count,
+            Span
+        }
+
+        private byte[]? TryGetBytes(
+            GetBytesMode mode,
+            Span<byte> destination,
+            bool isUnsigned,
+            bool isBigEndian,
+            ref int bytesWritten)
+        {
+            var sign = _sign;
+            if (sign == 0)
+            {
+                switch (mode)
+                {
+                    case GetBytesMode.AllocateArray:
+                        return new byte[] { 0 };
+                    case GetBytesMode.Count:
+                        bytesWritten = 1;
+                        return null;
+                    default:
+                        bytesWritten = 1;
+                        if (destination.IsEmpty) return null;
+                        destination[0] = 0;
+                        return Array.Empty<byte>();
+                }
+            }
+
+            if (isUnsigned && sign < 0) throw new OverflowException();
+
+            const int BytesPerLimb = sizeof(uint);
+            var bits = _bits!;
+            var highByte = sign < 0 ? (byte)0xFF : (byte)0;
+            var firstNonZeroLimb = 0;
+            uint highLimb;
+            if (sign < 0)
+            {
+                while (bits[firstNonZeroLimb] == 0) firstNonZeroLimb++;
+                highLimb = ~bits[^1];
+                if (bits.Length - 1 == firstNonZeroLimb) highLimb++;
+            }
+            else
+            {
+                highLimb = bits[^1];
+            }
+
+            var leadingZeroCount = sign < 0
+                ? BitOperations.LeadingZeroCount(~highLimb)
+                : BitOperations.LeadingZeroCount(highLimb);
+            var mostSignificantByteIndex = Math.Max(0, BytesPerLimb - 1 - leadingZeroCount / 8);
+            var mostSignificantByte = (byte)(highLimb >> (mostSignificantByteIndex * 8));
+            var needsSignByte = !isUnsigned && (mostSignificantByte & 0x80) != (highByte & 0x80);
+            var length = checked(BytesPerLimb * (bits.Length - 1) + mostSignificantByteIndex + 1 + (needsSignByte ? 1 : 0));
+
+            byte[] result;
+            switch (mode)
+            {
+                case GetBytesMode.AllocateArray:
+                    destination = result = new byte[length];
+                    break;
+                case GetBytesMode.Count:
+                    bytesWritten = length;
+                    return null;
+                default:
+                    bytesWritten = length;
+                    if (destination.Length < length) return null;
+                    result = Array.Empty<byte>();
+                    break;
+            }
+
+            var currentByte = isBigEndian ? length : 0;
+            var increment = isBigEndian ? -1 : 1;
+            for (var limbIndex = 0; limbIndex < bits.Length - 1; limbIndex++)
+            {
+                var limb = bits[limbIndex];
+                if (sign < 0)
+                {
+                    limb = ~limb;
+                    if (limbIndex <= firstNonZeroLimb) limb++;
+                }
+
+                if (isBigEndian)
+                {
+                    currentByte -= BytesPerLimb;
+                    for (var byteIndex = 0; byteIndex < BytesPerLimb; byteIndex++)
+                    {
+                        destination[currentByte + byteIndex] = (byte)(limb >> ((BytesPerLimb - byteIndex - 1) * 8));
+                    }
+                }
+                else
+                {
+                    for (var byteIndex = 0; byteIndex < BytesPerLimb; byteIndex++)
+                    {
+                        destination[currentByte++] = (byte)(limb >> (byteIndex * 8));
+                    }
+                }
+            }
+
+            if (isBigEndian) currentByte--;
+            for (var byteIndex = 0; byteIndex <= mostSignificantByteIndex; byteIndex++)
+            {
+                destination[currentByte] = (byte)(highLimb >> (byteIndex * 8));
+                if (byteIndex < mostSignificantByteIndex) currentByte += increment;
+            }
+
+            if (needsSignByte)
+            {
+                currentByte += increment;
+                destination[currentByte] = highByte;
+            }
+
+            return result;
+        }
 
         public override string ToString() => Format(null);
         public string ToString(IFormatProvider? provider) => Format(null);
@@ -380,28 +504,19 @@ namespace System.Numerics
 
         public bool TryFormat(Span<char> destination, out int charsWritten, ReadOnlySpan<char> format = default, IFormatProvider? provider = null)
         {
-            var text = Format(format.Length == 0 ? null : FormatSpan(format));
-            if (text.Length > destination.Length)
-            {
-                charsWritten = 0;
-                return false;
-            }
-            for (var index = 0; index < text.Length; index++) destination[index] = text[index];
-            charsWritten = text.Length;
-            return true;
+            var builder = new ValueStringBuilder(destination);
+            AppendFormat(ref builder, format);
+            return builder.TryCopyTo(destination, out charsWritten);
         }
 
         public bool TryFormat(Span<byte> utf8Destination, out int bytesWritten, ReadOnlySpan<char> format = default, IFormatProvider? provider = null)
         {
-            var text = Format(format.Length == 0 ? null : FormatSpan(format));
-            if (text.Length > utf8Destination.Length)
-            {
-                bytesWritten = 0;
-                return false;
-            }
-            for (var index = 0; index < text.Length; index++) utf8Destination[index] = (byte)text[index];
-            bytesWritten = text.Length;
-            return true;
+            Span<char> buffer = stackalloc char[128];
+            var builder = new ValueStringBuilder(buffer);
+            AppendFormat(ref builder, format);
+            var success = Number.TryCopyUtf8(builder.AsSpan(), utf8Destination, out bytesWritten);
+            builder.Dispose();
+            return success;
         }
 
         public static BigInteger Parse(string s) => Parse(s, NumberStyles.Integer, null);
@@ -675,44 +790,53 @@ namespace System.Numerics
             return true;
         }
 
-        private static string FormatSpan(ReadOnlySpan<char> format)
-        {
-            var chars = new char[format.Length];
-            for (var index = 0; index < chars.Length; index++) chars[index] = format[index];
-            return String.Create(chars);
-        }
-
         private string Format(string? format)
         {
-            var symbol = format is null || format.Length == 0 ? 'G' : format[0];
+            var builder = new ValueStringBuilder(64);
+            AppendFormat(ref builder, format.AsSpan());
+            return builder.ToString();
+        }
+
+        private void AppendFormat(scoped ref ValueStringBuilder builder, scoped ReadOnlySpan<char> format)
+        {
+            var symbol = Number.ParseInvariantFormatSpecifier(format, out var parsedPrecision);
+            var negative = _sign < 0;
+            if (symbol == '\0' || symbol is 'C' or 'c' or 'F' or 'f' or 'N' or 'n' or 'E' or 'e' or 'P' or 'p')
+            {
+                var decimalBuffer = CreateMagnitudeDigits(10, upper: false, out var decimalStart);
+                var decimalDigits = decimalBuffer.AsSpan(decimalStart);
+                var pattern = symbol == '\0' ? format : Number.CreateInvariantStandardPattern(symbol, parsedPrecision).AsSpan();
+                Number.AppendCustomInvariant(
+                    ref builder,
+                    decimalDigits,
+                    decimalDigits.Length,
+                    negative,
+                    Number.NumberBufferKind.Integer,
+                    pattern);
+                return;
+            }
             var upper = symbol == 'X';
             var radix = symbol is 'X' or 'x' ? 16 : symbol is 'B' or 'b' ? 2 : 10;
             if (radix == 10 && symbol is not ('G' or 'g' or 'D' or 'd')) throw new FormatException();
-            var precision = -1;
-            if (format is not null && format.Length > 1)
-            {
-                precision = 0;
-                for (var formatIndex = 1; formatIndex < format.Length; formatIndex++)
-                {
-                    var digit = format[formatIndex];
-                    if (digit < '0' || digit > '9') throw new FormatException();
-                    precision = checked(precision * 10 + digit - '0');
-                }
-            }
-            var negative = _sign < 0;
+            var precision = parsedPrecision;
+            var digits = CreateMagnitudeDigits(radix, upper, out var index);
+            var digitCount = digits.Length - index;
+            if (negative) builder.Append('-');
+            if (precision > digitCount) builder.Append('0', precision - digitCount);
+            builder.Append(digits.AsSpan(index));
+        }
+
+        private char[] CreateMagnitudeDigits(int radix, bool upper, out int index)
+        {
             var magnitude = _bits;
             if (magnitude is null)
             {
-                if (precision <= 1) return "0";
-                var zeroes = new char[precision];
-                for (var zeroIndex = 0; zeroIndex < zeroes.Length; zeroIndex++) zeroes[zeroIndex] = '0';
-                return String.Create(zeroes);
+                index = 0;
+                return ['0'];
             }
             var naturalCapacity = radix == 10 ? checked(BitLength(magnitude) * 31 / 100 + 3) : checked(BitLength(magnitude) + 2);
-            var capacity = checked(Math.Max(naturalCapacity, precision > 0 ? precision : 0) + (negative ? 1 : 0));
-            var buffer = new char[capacity];
-            var index = buffer.Length;
-            var digitCount = 0;
+            var buffer = new char[naturalCapacity];
+            index = buffer.Length;
             if (radix == 10)
             {
                 var work = Clone(magnitude);
@@ -721,31 +845,17 @@ namespace System.Numerics
                     var digit = DivideByUInt32(work, 10);
                     buffer[--index] = (char)('0' + digit);
                 } while (EffectiveLength(work) != 0);
-                digitCount = buffer.Length - index;
+                return buffer;
             }
-            else
+            var bits = BitLength(magnitude);
+            for (var bit = 0; bit < bits; bit += radix == 16 ? 4 : 1)
             {
-                var bits = BitLength(magnitude);
-                for (var bit = 0; bit < bits; bit += radix == 16 ? 4 : 1)
-                {
-                    var digit = 0;
-                    var count = radix == 16 ? 4 : 1;
-                    for (var offset = 0; offset < count && bit + offset < bits; offset++) if (GetMagnitudeBit(magnitude, bit + offset)) digit |= 1 << offset;
-                    buffer[--index] = digit < 10 ? (char)('0' + digit) : (char)((upper ? 'A' : 'a') + digit - 10);
-                }
-                digitCount = buffer.Length - index;
+                var digit = 0;
+                var count = radix == 16 ? 4 : 1;
+                for (var offset = 0; offset < count && bit + offset < bits; offset++) if (GetMagnitudeBit(magnitude, bit + offset)) digit |= 1 << offset;
+                buffer[--index] = digit < 10 ? (char)('0' + digit) : (char)((upper ? 'A' : 'a') + digit - 10);
             }
-            if (precision > digitCount)
-            {
-                var padded = new char[precision + (negative ? 1 : 0)];
-                var paddedIndex = 0;
-                if (negative) padded[paddedIndex++] = '-';
-                for (var zeroIndex = digitCount; zeroIndex < precision; zeroIndex++) padded[paddedIndex++] = '0';
-                for (var digitIndex = index; digitIndex < buffer.Length; digitIndex++) padded[paddedIndex++] = buffer[digitIndex];
-                return String.Create(padded);
-            }
-            if (negative) buffer[--index] = '-';
-            return String.Create(buffer, index, buffer.Length - index);
+            return buffer;
         }
 
         private static BigInteger Bitwise(BigInteger left, BigInteger right, char operation)
@@ -837,37 +947,6 @@ namespace System.Numerics
             return bits;
         }
 
-        private byte[] ToLittleEndianBytes(bool unsigned)
-        {
-            if (_sign == 0) return new byte[] { 0 };
-            var byteCount = (_bits!.Length * 4);
-            while (byteCount > 1 && (_bits[(byteCount - 1) / 4] >> (((byteCount - 1) & 3) * 8) & 0xFF) == 0) byteCount--;
-            var bytes = new byte[byteCount];
-            for (var index = 0; index < byteCount; index++) bytes[index] = (byte)(_bits[index / 4] >> ((index & 3) * 8));
-            if (_sign > 0)
-            {
-                if (!unsigned && (bytes[^1] & 0x80) != 0)
-                {
-                    var expanded = new byte[bytes.Length + 1];
-                    for (var index = 0; index < bytes.Length; index++) expanded[index] = bytes[index];
-                    bytes = expanded;
-                }
-                return bytes;
-            }
-            var twos = new byte[bytes.Length];
-            for (var index = 0; index < bytes.Length; index++) twos[index] = (byte)~bytes[index];
-            var carry = 1;
-            for (var index = 0; index < twos.Length; index++) { var sum = twos[index] + carry; twos[index] = (byte)sum; carry = sum >> 8; }
-            if ((twos[^1] & 0x80) == 0)
-            {
-                var expanded = new byte[twos.Length + 1];
-                for (var index = 0; index < twos.Length; index++) expanded[index] = twos[index];
-                expanded[^1] = 0xFF;
-                twos = expanded;
-            }
-            return twos;
-        }
-
         private ulong ToUInt64() => _bits is null ? 0 : _bits.Length == 1 ? _bits[0] : ((ulong)_bits[1] << 32) | _bits[0];
         private double ToDouble()
         {
@@ -921,7 +1000,7 @@ namespace System.Numerics
                 var shifted = ShiftLeftMagnitude(rem._bits ?? Array.Empty<uint>(), 1);
                 rem = new BigInteger(1, shifted);
                 if (GetMagnitudeBit(dividend, bit)) rem += One;
-                if (CompareMagnitude(rem._bits!, divisor) >= 0)
+                if (!rem.IsZero && CompareMagnitude(rem._bits!, divisor) >= 0)
                 {
                     rem = new BigInteger(1, SubtractMagnitude(rem._bits!, divisor));
                     quotientWords[bit / 32] |= 1u << (bit & 31);
