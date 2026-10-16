@@ -24,17 +24,17 @@ and .NET CIL directly to WebAssembly. It does not carry the desktop CLR, Mono,
 
 For the same print-`42` workload, NetWasm is **10.9% smaller**. Its number
 includes the runtime and precise Compact garbage collector. Both artifacts are
-standalone WASI Preview 2 Components, built with size-oriented settings and
-measured uncompressed. NetWasm compresses to **13,501 bytes with Brotli 11**.
+standalone WASI Preview 2 Components, built with size-oriented settings.
+NetWasm is also **20.4% smaller after Brotli 11**: 13,501 versus 16,963 bytes.
 
-![Wasm footprint landscape. NetWasm with precise GC is 47,798 bytes, Rust's size-oriented profile is 53,635 bytes, Kotlin/Wasm is 79,293 bytes and the published TinyGo reference is 110,084 bytes. NetWasm and Rust are the matched WASI Preview 2 comparison; Kotlin and TinyGo are contextual Preview 1 references.](docs/images/wasm-footprint-landscape.svg)
+![Wasm footprint landscape with raw and Brotli-11 sizes. NetWasm with precise GC is 47,798 raw and 13,501 compressed bytes; Rust is 53,635 and 16,963; Kotlin/Wasm is 79,293 and 22,655; TinyGo is 93,043 and 26,931. NetWasm and Rust are the matched WASI Preview 2 comparison; Kotlin and TinyGo are contextual Preview 1 references.](docs/images/wasm-footprint-landscape.svg)
 
-| Toolchain | Raw Wasm | Comparison role |
-| --- | ---: | --- |
-| **NetWasm 0.8.0, Compact GC** | **47,798 B** | WASI P2 Component; precise GC included |
-| Rust 1.95.0, size profile | 53,635 B | Matched WASI P2 Component reference |
-| Kotlin 2.4.0 `wasmWasi` | 79,293 B | P1 context; GC supplied by the host engine |
-| TinyGo 0.39.0 | 110,084 B | Published P1 Hello World context |
+| Toolchain | Raw Wasm | Brotli 11 | Comparison role |
+| --- | ---: | ---: | --- |
+| **NetWasm 0.8.0, Compact GC** | **47,798 B** | **13,501 B** | WASI P2 Component; precise GC included |
+| Rust 1.95.0, size profile | 53,635 B | 16,963 B | Matched WASI P2 Component reference |
+| Kotlin 2.4.0 `wasmWasi` | 79,293 B | 22,655 B | P1 context; GC supplied by the host engine |
+| TinyGo 0.39.0 | 93,043 B | 26,931 B | P1 context; precise GC configured |
 
 Rust is the headline comparison because it uses the same workload and output
 form. Kotlin/Wasm and TinyGo show the broader footprint landscape, but their

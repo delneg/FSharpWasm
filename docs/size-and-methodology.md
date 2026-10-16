@@ -6,8 +6,9 @@ The measured Release/Oz `Console.WriteLine(42)` WASI Preview 2 component is
 **47,798 bytes (46.7 KiB)** with the default precise Compact collector, or
 **13,501 bytes with Brotli quality 11**. The same print-`42` workload with
 Rust 1.95.0's size-oriented profile produces a **53,635-byte** WASI Preview 2
-component. NetWasm is **5,837 bytes (10.9%) smaller**, including its linked
-runtime and reachable precise-GC support.
+component, or **16,963 bytes with Brotli quality 11**. NetWasm is **5,837 bytes
+(10.9%) smaller raw** and **3,462 bytes (20.4%) smaller compressed**, including
+its linked runtime and reachable precise-GC support.
 
 These NetWasm figures were reproduced using the released 0.8.0 SDK and template
 packages from NuGet.org. All four collector variants execute and print `42`.
@@ -284,29 +285,28 @@ some printed code snippets contain syntax errors. Its other rows also mix
 Preview 1 core modules with the Rust Preview 2 component. Do not present that
 table as a fully reproduced, equivalent-target ranking.
 
-## Managed-language footprint comparison
+## Broader Wasm footprint comparison
 
-Kotlin is the closer managed-language reference: both programs print `42`
-through WASI. TinyGo's published Hello World result provides additional context.
-These are **not equivalent deployment formats, collector boundaries or build
-settings**:
+Kotlin and TinyGo provide broader language/runtime context. All four locally
+reproduced programs print `42` through WASI and use size-oriented builds. They
+are **not equivalent deployment formats or collector boundaries**:
 
-| Build | Artifact | Bytes | Collector boundary |
-| --- | --- | ---: | --- |
-| NetWasm 0.8.0 Release/Oz, Compact | WASI Preview 2 Component | 47,798 | Precise Compact GC included in the artifact |
-| Kotlin 2.4.0 production `wasmWasi` | WASI Preview 1 core module | 79,293 | WasmGC supplied by the host engine, not the artifact |
-| TinyGo 0.39.0 Hello World* | WASI Preview 1 core module | 110,084 | Precise GC configured |
+| Build | Artifact | Raw bytes | Brotli 11 | Collector boundary |
+| --- | --- | ---: | ---: | --- |
+| NetWasm 0.8.0 Release/Oz, Compact | WASI Preview 2 Component | 47,798 | 13,501 | Precise Compact GC included in the artifact |
+| Rust 1.95.0 size profile | WASI Preview 2 Component | 53,635 | 16,963 | No tracing GC in this workload |
+| Kotlin 2.4.0 production `wasmWasi` | WASI Preview 1 core module | 79,293 | 22,655 | WasmGC supplied by the host engine, not the artifact |
+| TinyGo 0.39.0 `fmt.Println(42)` | WASI Preview 1 core module | 93,043 | 26,931 | Precise GC configured |
 
-\* Source: [RIoT Secure, October 2025](https://www.riotsecure.com/blog/wasm_binary_size_in_high_Level_languages),
-using `-target=wasi -opt=2 -no-debug`. TinyGo 0.39.0's
+Brotli uses quality 11, generic mode and `lgwin=22` for every artifact.
+TinyGo uses `-target=wasi -opt=2 -no-debug`; its
 [`wasi` alias](https://github.com/tinygo-org/tinygo/blob/v0.39.0/targets/wasi.json)
 selects [`wasip1`, with precise GC configured](https://github.com/tinygo-org/tinygo/blob/v0.39.0/targets/wasip1.json).
 
-The NetWasm and Kotlin artifacts execute and print `42`; the Kotlin module
-passes wasm-tools validation. These are console-output footprint tests, not
-allocation stress tests or demonstrations of a collection cycle. Runtime
-configuration does not mean that every possible runtime operation survives
-reachability trimming.
+All four artifacts execute and print `42`; each passes `wasm-tools validate`.
+These are console-output footprint tests, not allocation stress tests or
+demonstrations of a collection cycle. Runtime configuration does not mean that
+every possible runtime operation survives reachability trimming.
 
 ### Where the collector lives
 
@@ -339,6 +339,31 @@ The root project is named `console42`, with the source in
 1 for this target, while [Kotlin's configuration reference](https://kotlinlang.org/docs/wasm-configuration.html)
 describes its engine WasmGC requirement. The collector is not bundled into the
 79,293-byte module. No Preview 2 adapter or component envelope was added.
+
+### TinyGo
+
+The source is:
+
+```go
+package main
+
+import "fmt"
+
+func main() {
+    fmt.Println(42)
+}
+```
+
+Build with the official TinyGo 0.39.0 toolchain:
+
+```sh
+tinygo build -target=wasi -opt=2 -no-debug -o console42.wasm main.go
+wasmtime run console42.wasm
+```
+
+The retained run used the official `tinygo/tinygo:0.39.0` image, whose manifest
+digest was `sha256:0e51d243c1b84ec650f2dcd1cce3a09bb09730e1134771aeace2240ade4b32f5`.
+No Preview 2 adapter or component envelope was added.
 
 ## JSON is not one fixed cost
 
