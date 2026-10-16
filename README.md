@@ -27,7 +27,7 @@ includes the runtime and precise Compact garbage collector. Both artifacts are
 standalone WASI Preview 2 Components, built with size-oriented settings.
 NetWasm is also **20.4% smaller after Brotli 11**: 13,501 versus 16,963 bytes.
 
-![Wasm footprint landscape with raw and Brotli-11 sizes. NetWasm with precise GC is 47,798 raw and 13,501 compressed bytes; Rust is 53,635 and 16,963; Kotlin/Wasm is 79,293 and 22,655; TinyGo is 93,043 and 26,931. NetWasm and Rust are the matched WASI Preview 2 comparison; Kotlin and TinyGo are contextual Preview 1 references.](docs/images/wasm-footprint-landscape.svg)
+![Wasm footprint landscape with raw and Brotli-11 sizes. NetWasm with precise GC is 47,798 raw and 13,501 compressed bytes; Rust is 53,635 and 16,963; Kotlin/Wasm is 79,293 and 22,655; TinyGo is 93,043 and 26,931. NetWasm and Rust are the matched WASI Preview 2 comparison; Kotlin and TinyGo are contextual Preview 1 references.](docs/images/wasm-footprint-landscape-brotli11.svg)
 
 | Toolchain | Raw Wasm | Brotli 11 | Comparison role |
 | --- | ---: | ---: | --- |
