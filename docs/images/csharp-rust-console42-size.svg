@@ -1,32 +1,86 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="960" height="460" viewBox="0 0 960 460"
-     role="img" aria-labelledby="title description">
-  <title id="title">C# with precise GC beats Rust's size-oriented profile at Wasm size</title>
-  <desc id="description">Printing 42 as a WASI Preview 2 component. NetWasm 0.8.0 candidate with Compact GC: 47,798 bytes. Rust 1.95.0 with its documented size profile: 53,635 bytes. NetWasm is 10.9 percent smaller. Zero-based linear scale. Uncompressed artifacts, not a language-wide ranking.</desc>
-  <style>
-    text { font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
-    .muted { fill: #a9b4c7; font-size: 15px; }
-    .label { fill: #f4f6fa; font-size: 19px; font-weight: 650; }
-    .value { fill: #f4f6fa; font-size: 19px; font-weight: 700; text-anchor: end; }
-    .tick { fill: #a9b4c7; font-size: 13px; text-anchor: middle; }
-  </style>
-  <rect width="960" height="460" rx="20" fill="#0c1220"/>
-  <text x="80" y="56" fill="#67e8f9" font-size="36" font-weight="800">C# just beat Rust at Wasm size.</text>
-  <text x="80" y="88" class="muted">10.9% smaller. Runtime and precise GC included.</text>
-  <g stroke="#28354b">
-    <path d="M80 130V352 M280 130V352 M480 130V352 M680 130V352 M880 130V352"/>
+<svg role="img" aria-labelledby="chart-title chart-description"
+     xmlns="http://www.w3.org/2000/svg" width="960" height="684" viewBox="0 0 960 684">
+  <title id="chart-title">Wasm footprint landscape: C# with precise GC is smaller than the Rust size reference</title>
+  <desc id="chart-description">Zero-based raw Wasm size comparison. NetWasm 0.8.0 with precise Compact garbage collection is 47,798 bytes. Rust 1.95.0 with its size-oriented profile is 53,635 bytes. These are matched WASI Preview 2 components. Kotlin 2.4 wasmWasi is 79,293 bytes and TinyGo 0.39 is 110,084 bytes; these are contextual WASI Preview 1 references.</desc>
+  <defs>
+    <linearGradient id="background" x1="0" y1="0" x2="960" y2="684" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#080b10"/>
+      <stop offset="1" stop-color="#111827"/>
+    </linearGradient>
+    <linearGradient id="netwasm-bar" x1="90" y1="0" x2="386" y2="0" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#06b6d4"/>
+      <stop offset="1" stop-color="#67e8f9"/>
+    </linearGradient>
+    <linearGradient id="rust-bar" x1="90" y1="0" x2="422" y2="0" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#b45309"/>
+      <stop offset="1" stop-color="#fbbf24"/>
+    </linearGradient>
+    <linearGradient id="context-bar" x1="90" y1="0" x2="771" y2="0" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#475569"/>
+      <stop offset="1" stop-color="#94a3b8"/>
+    </linearGradient>
+    <pattern id="context-pattern" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+      <rect width="8" height="8" fill="url(#context-bar)"/>
+      <path d="M0 0V8" stroke="#cbd5e1" stroke-opacity="0.22" stroke-width="2"/>
+    </pattern>
+    <filter id="bar-shadow" x="-10%" y="-60%" width="120%" height="220%">
+      <feDropShadow dx="0" dy="4" stdDeviation="6" flood-color="#000" flood-opacity="0.38"/>
+    </filter>
+    <style>
+      text { font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+      .muted { fill: #94a3b8; }
+      .label { fill: #f8fafc; font-size: 17px; font-weight: 700; }
+      .context-label { fill: #cbd5e1; font-size: 17px; font-weight: 650; }
+      .value { fill: #e2e8f0; font-size: 16px; font-weight: 700; text-anchor: end; }
+      .tick { fill: #7c8ba1; font-size: 12px; text-anchor: middle; }
+      .grid { stroke: #273244; stroke-width: 1; }
+    </style>
+  </defs>
+
+  <rect width="960" height="684" rx="22" fill="url(#background)"/>
+
+  <text x="90" y="49" class="muted" font-size="15">PRINTING 42  /  RAW WASM  /  LOWER IS BETTER</text>
+  <text x="90" y="108" fill="#67e8f9" font-size="48" font-weight="820">C# + precise GC</text>
+  <text x="90" y="153" fill="#f8fafc" font-size="31" font-weight="760">10.9% smaller than Rust</text>
+  <g transform="translate(752 73)">
+    <rect width="118" height="32" rx="16" fill="#12303a" stroke="#1e6573"/>
+    <text x="59" y="21" fill="#a5f3fc" font-size="13" font-weight="700" text-anchor="middle">NetWasm 0.8</text>
   </g>
-  <text x="80" y="152" class="label">C# / NetWasm 0.8.0 candidate / Compact GC</text>
-  <text x="880" y="152" class="value">47,798 bytes</text>
-  <rect x="80" y="171" width="583.4717" height="48" rx="4" fill="#22d3ee"/>
-  <text x="80" y="270" class="label">Rust 1.95.0 / size-oriented profile</text>
-  <text x="880" y="270" class="value">53,635 bytes</text>
-  <rect x="80" y="289" width="654.7241" height="48" rx="4" fill="#e8a36d"/>
-  <path d="M80 352H880" stroke="#62728d"/>
-  <text x="80" y="374" class="tick">0</text>
-  <text x="280" y="374" class="tick">16</text>
-  <text x="480" y="374" class="tick">32</text>
-  <text x="680" y="374" class="tick">48</text>
-  <text x="880" y="374" class="tick">64 KiB</text>
-  <text x="80" y="410" class="muted">Same print-42 workload. Both are WASI Preview 2 components. Uncompressed.</text>
-  <text x="80" y="435" class="muted">NetWasm Release/Oz; Rust opt-level=z, LTO, one codegen unit, panic=abort, symbols stripped.</text>
+
+  <text x="90" y="204" fill="#67e8f9" font-size="12" font-weight="800" letter-spacing="1.7">MATCHED WASI PREVIEW 2 COMPONENTS</text>
+
+  <g aria-hidden="true">
+    <line x1="90" y1="220" x2="90" y2="590" class="grid"/>
+    <line x1="285" y1="220" x2="285" y2="590" class="grid"/>
+    <line x1="480" y1="220" x2="480" y2="590" class="grid"/>
+    <line x1="675" y1="220" x2="675" y2="590" class="grid"/>
+    <line x1="870" y1="220" x2="870" y2="590" class="grid"/>
+  </g>
+
+  <text x="90" y="246" fill="#67e8f9" class="label">NetWasm  /  Compact GC</text>
+  <text x="870" y="246" fill="#a5f3fc" class="value">47,798 B</text>
+  <rect x="90" y="260" width="303" height="38" rx="7" fill="url(#netwasm-bar)" stroke="#67e8f9" filter="url(#bar-shadow)"/>
+
+  <text x="90" y="335" fill="#fbbf24" class="label">Rust 1.95  /  size profile</text>
+  <text x="870" y="335" fill="#fde68a" class="value">53,635 B</text>
+  <rect x="90" y="349" width="341" height="38" rx="7" fill="url(#rust-bar)" stroke="#fbbf24" filter="url(#bar-shadow)"/>
+
+  <line x1="90" y1="426" x2="870" y2="426" stroke="#334155"/>
+  <text x="90" y="454" fill="#94a3b8" font-size="12" font-weight="800" letter-spacing="1.7">BROADER FOOTPRINT CONTEXT  /  WASI PREVIEW 1</text>
+
+  <text x="90" y="491" class="context-label">Kotlin 2.4  /  wasmWasi</text>
+  <text x="870" y="491" class="value">79,293 B</text>
+  <rect x="90" y="505" width="504" height="32" rx="6" fill="url(#context-pattern)" opacity="0.8"/>
+
+  <text x="90" y="574" class="context-label">TinyGo 0.39  /  published reference</text>
+  <text x="870" y="574" class="value">110,084 B</text>
+  <rect x="90" y="588" width="700" height="32" rx="6" fill="url(#context-pattern)" opacity="0.8"/>
+
+  <line x1="90" y1="634" x2="870" y2="634" stroke="#586273"/>
+  <text x="90" y="654" class="tick">0</text>
+  <text x="285" y="654" class="tick">30</text>
+  <text x="480" y="654" class="tick">60</text>
+  <text x="675" y="654" class="tick">90</text>
+  <text x="870" y="654" class="tick">120 KiB</text>
+  <text x="90" y="674" class="muted" font-size="11">Rust is the matched reference. Kotlin and TinyGo use different target/runtime boundaries; see methodology.</text>
 </svg>
