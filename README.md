@@ -277,7 +277,7 @@ There is no sign-in, activation, telemetry or technical enforcement.
 
 [Licensing guide](docs/licensing.md) ·
 [Third-party notices](THIRD-PARTY-NOTICES.md) ·
-Commercial licensing: <zionsatidev@gmail.com>
+Commercial licensing: <zion.sati@netwasm.com>
 
 ## Bring a workload
 
