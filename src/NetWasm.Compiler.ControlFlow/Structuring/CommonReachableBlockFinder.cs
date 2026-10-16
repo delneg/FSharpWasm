@@ -57,7 +57,8 @@ internal sealed class CommonReachableBlockFinder(
         }
         var postDominators = _postDominators.Find(state, stop, allowed);
         var distances = starts.Select(start => _distances.Find(state, start, stop, allowed)).ToArray();
-        var common = postDominators[starts[0]]
+        var common = starts.Select(start => postDominators[start])
+            .Aggregate((common, next) => common.Intersect(next))
             .Where(node => distances.All(distance => distance.ContainsKey(node)))
             .ToArray();
         return common.Length == 0

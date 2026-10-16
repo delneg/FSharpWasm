@@ -404,7 +404,9 @@ internal sealed class StructuredControlFlowEmitter(
             emitBlock,
             emitExceptionRegion,
             3,
-            0,
+            // Post-test structuring maps continue markers to the loop header,
+            // not to the condition following this body block.
+            1,
             exceptionLeaveDepth is int bodyLeaveDepth ? bodyLeaveDepth + 4 : null,
             dispatcherContinueDepth is int bodyDispatcherDepth
                 ? bodyDispatcherDepth + 4
@@ -431,6 +433,8 @@ internal sealed class StructuredControlFlowEmitter(
             context,
             emitBlock,
             emitExceptionRegion,
+            loopBreakDepth: 3,
+            loopContinueDepth: 1,
             exceptionLeaveDepth: exceptionLeaveDepth is int continueLeaveDepth
                 ? continueLeaveDepth + 4
                 : null,

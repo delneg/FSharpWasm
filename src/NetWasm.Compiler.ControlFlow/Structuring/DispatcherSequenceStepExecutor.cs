@@ -127,6 +127,7 @@ internal sealed class DispatcherSequenceStepExecutor(
                 state.LoopExitTargets.Push(loop.Exit);
                 state.LoopContinueTargets.Push(loop.Continue);
                 StructuredSequenceDraft loopBody;
+                StructuredSequenceDraft continueBody;
                 try
                 {
                     loopBody = structuredControlFlowBuilder.Build(state,
@@ -137,6 +138,18 @@ internal sealed class DispatcherSequenceStepExecutor(
                     activeBlocks,
                     retainedActiveBlocks),
                 []);
+                    // The continuation is still inside this loop. Its early
+                    // exits must retain this loop's break target and may run
+                    // the condition-exit extension before reaching that target.
+                    continueBody = structuredControlFlowBuilder.Build(state,
+                        state.Graph.Successors[loop.Condition]
+                            .Single(loop.CoreComponent.Contains),
+                        loop.Header,
+                        _allowedBlocks.Clip(
+                            loopAllowed.Union(loop.ConditionExitComponent.Intersect(allowed)),
+                            activeBlocks,
+                            retainedActiveBlocks),
+                        []);
                 }
                 finally
                 {
@@ -148,15 +161,7 @@ internal sealed class DispatcherSequenceStepExecutor(
                     loopBody,
                     conditionBlock,
                     continueWhenTrue,
-                    structuredControlFlowBuilder.Build(state,
-                        state.Graph.Successors[loop.Condition]
-                            .Single(loop.CoreComponent.Contains),
-                        loop.Header,
-                _allowedBlocks.Clip(
-                    loopAllowed,
-                    activeBlocks,
-                    retainedActiveBlocks),
-                []),
+                    continueBody,
                     structuredControlFlowBuilder.Build(state,
                         loop.ConditionExit,
                         loop.Exit,

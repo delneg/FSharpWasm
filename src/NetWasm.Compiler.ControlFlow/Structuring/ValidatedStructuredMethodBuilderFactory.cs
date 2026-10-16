@@ -85,7 +85,8 @@ public sealed class ValidatedStructuredMethodBuilderFactory : IValidatedStructur
             errors,
             exitPartitions,
             new LoopContinueTargetFinder(joins, reachableBlocks),
-            new LoopRegionEligibilityClassifier(subgraphCycles));
+            new LoopRegionEligibilityClassifier(subgraphCycles),
+            branchPrefixDuplication);
         var structuredControlFlow = new StructuredControlFlowBuilder(
             exceptionAwareDispatcherShells,
             new StructuredSequenceStepChain(
