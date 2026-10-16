@@ -199,6 +199,27 @@ public sealed class BranchingSequenceStepExecutorTests
     }
 
     [Fact]
+    public void DispatcherRetainsCurrentBranchWhenItIsTheLoopContinueTarget()
+    {
+        var state = CreateConditionalState(CilOperation.BranchIfTrue);
+        var entry = state.Graph.Entry;
+        state.LoopContinueTargets.Push(entry.Index);
+        var reachable = new FixedReachableBlockFinder();
+        var builder = new StructuredControlFlowBuilderProbe();
+        var actor = CreateActor(new FixedJoinFinder(null, null), reachable,
+            new TerminalExcludingBranchJoinSelector(), overlaps: true);
+        var regions = ImmutableArray.CreateBuilder<StructuredRegionDraft>();
+
+        var result = Execute(actor, builder, state, entry.Index, null,
+            state.Graph.ReachableBlocks, [], regions);
+
+        Assert.Contains(entry.Index, Assert.Single(builder.DispatcherCalls).Component);
+        Assert.Same(builder.DispatcherResult, Assert.Single(regions));
+        Assert.Equal(1, reachable.CallCount);
+        Assert.Null(result.NextBlockOffset);
+    }
+
+    [Fact]
     public void ExecuteDeclinesANonBranchingBlock()
     {
         var distances = new ControlFlowDistanceFinder();
@@ -322,7 +343,7 @@ public sealed class BranchingSequenceStepExecutorTests
             int? stop, ImmutableHashSet<int> allowed)
         {
             CallCount++;
-            return results?.GetValueOrDefault(start) ?? [start];
+            return allowed.Contains(start) ? results?.GetValueOrDefault(start) ?? [start] : [];
         }
 
         public ImmutableHashSet<int> Find(ControlFlowGraph graph, int entry,
@@ -350,6 +371,15 @@ public sealed class BranchingSequenceStepExecutorTests
     {
         public virtual BranchJoinSelection Select(BranchJoinSelectionRequest request) =>
             new(join, request.AllowedBlocks, [], duplicatedPrefixBlocks ?? []);
+    }
+
+    private sealed class TerminalExcludingBranchJoinSelector : IBranchJoinSelector
+    {
+        public BranchJoinSelection Select(BranchJoinSelectionRequest request)
+        {
+            var terminal = request.ContinueTarget!.Value;
+            return new(null, request.AllowedBlocks.Remove(terminal), [terminal], []);
+        }
     }
 
     private sealed class RecordingBranchJoinSelector(int? join) :

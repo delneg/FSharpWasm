@@ -118,7 +118,10 @@ internal sealed class BranchingSequenceStepExecutor(
                 var component = _reachableBlocks.Find(state,
                             current.Value,
                             join,
-                            analysisAllowed);
+                            // The current branch can also be a loop-continue
+                            // target. It must seed the dispatcher even though
+                            // join analysis excludes terminal transfers.
+                            analysisAllowed.Add(current.Value));
                 var dispatcherJoin = _joins.Find(state,
                     component
                         .SelectMany(node => state.Graph.Successors[node])

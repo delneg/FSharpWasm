@@ -650,6 +650,53 @@ public sealed class StructuredControlFlowEmitterTests
             instructions);
     }
 
+    [Theory]
+    [InlineData(false, 3u)]
+    [InlineData(true, 1u)]
+    public void PostTestContinuationUsesItsOwnLoopTransferDepth(bool continueLoop, uint depth)
+    {
+        var code = new RecordingInstructionWriter();
+        StructuredRegion transfer = continueLoop
+            ? new StructuredLoopContinue()
+            : new StructuredLoopBreak();
+        var loop = new StructuredPostTestLoop(StructuredSequence.Empty, Block(0), true,
+            new StructuredSequence([transfer]), StructuredSequence.Empty);
+        var emitter = CreateEmitter();
+
+        emitter.Emit(code, new StructuredSequence([loop]), CreateContext(),
+            (_, _, _) => new ConditionValue(0, CliValueKind.I4),
+            (_, _, _, _, _, _) => { }, loopBreakDepth: 7, loopContinueDepth: 8);
+
+        Assert.Equal(new[] {
+            WasmInstruction.WithOperand(WasmOpcodes.Branch, WasmInstructionOperand.Unsigned(depth)),
+            WasmInstruction.WithOperand(WasmOpcodes.Branch, WasmInstructionOperand.Unsigned(1)),
+        }, code.ToInstructions().Where(instruction => instruction.Opcode == WasmOpcodes.Branch));
+    }
+
+    [Theory]
+    [InlineData(false, 1u)]
+    [InlineData(true, 2u)]
+    public void PostTestBodyContinueRestartsHeaderInsteadOfEvaluatingCondition(
+        bool nestedConditional, uint depth)
+    {
+        var code = new RecordingInstructionWriter();
+        var continuation = new StructuredSequence([new StructuredLoopContinue()]);
+        var body = nestedConditional
+            ? new StructuredSequence([new StructuredIf(Block(1), continuation, StructuredSequence.Empty)])
+            : continuation;
+        var loop = new StructuredPostTestLoop(body, Block(0), true,
+            StructuredSequence.Empty, StructuredSequence.Empty);
+
+        CreateEmitter().Emit(code, new StructuredSequence([loop]), CreateContext(),
+            (_, _, _) => new ConditionValue(0, CliValueKind.I4),
+            (_, _, _, _, _, _) => { });
+
+        Assert.Equal(new[] {
+            WasmInstruction.WithOperand(WasmOpcodes.Branch, WasmInstructionOperand.Unsigned(depth)),
+            WasmInstruction.WithOperand(WasmOpcodes.Branch, WasmInstructionOperand.Unsigned(1)),
+        }, code.ToInstructions().Where(instruction => instruction.Opcode == WasmOpcodes.Branch));
+    }
+
     [Fact]
     public void NestedPostTestLoopExitBodyRetainsOuterLoopTargets()
     {
