@@ -1,83 +1,77 @@
-# NetWasm: C# just beat Rust at Wasm size.
+# NetWasm
 
-NetWasm is an independent .NET compiler, CoreLib, runtime, and SDK that compiles
-C# and .NET CIL into small, standalone WebAssembly modules and WASI Preview 2
-components.
+**Independent .NET for WebAssembly and WASI.**<br>
+Write C#. Deploy small, standalone Wasm.
 
-Write C#. Deploy like C++. Target WebAssembly and WASI.
-
-**C# with precise garbage collection: 47,798 bytes. Rust's size-oriented
-profile: 53,635 bytes.**
-
-For the same print-`42` workload, the measured NetWasm 0.8.0 release is
-**10.9% smaller**, with its runtime and precise Compact GC included.
-Both outputs are standalone WASI Preview 2 components. The Rust reference uses
-Rust 1.95.0 with `opt-level = "z"`, LTO and the size settings documented in
-[the methodology](docs/size-and-methodology.md#rust-a-footprint-reference-not-a-gc-comparison).
-This is a measured workload/profile result, not a language-wide size guarantee.
-These measurements were reproduced using the released NetWasm 0.8.0 SDK packages.
-
-![C# with precise GC beats Rust's size-oriented profile for printing 42: NetWasm 47,798 bytes, Rust 53,635 bytes. Both are WASI Preview 2 components.](docs/images/csharp-rust-console42-size.svg)
+NetWasm is an independent compiler, CoreLib, runtime and SDK that compiles C#
+and .NET CIL directly to WebAssembly. It does not carry the desktop CLR, Mono,
+`dotnet.js` or application DLLs into production.
 
 [![Star NetWasm on GitHub](https://img.shields.io/github/stars/zion-sati/NetWasm?style=for-the-badge&logo=github&label=Star%20NetWasm)](https://github.com/zion-sati/NetWasm)
-
 [![Publication](https://img.shields.io/github/actions/workflow/status/zion-sati/NetWasm/release.yml?label=publish&event=release)](https://github.com/zion-sati/NetWasm/actions/workflows/release.yml)
 [![License: Community + MIT](https://img.shields.io/badge/license-Community%20%2B%20MIT-blue)](docs/licensing.md)
 
-NetWasm compiles C# into a standalone WebAssembly Component, without carrying
-the desktop .NET runtime. Keep the language, generics, exceptions and managed
-memory. Deploy the compiled program to a compatible WASI host.
-
 [Compile C# to WebAssembly](https://www.netwasm.com/compile-csharp-to-webassembly/) ·
 [Try it in the browser](https://playground.netwasm.com/) ·
-[Measured size and reproduction steps](docs/size-and-methodology.md) ·
-[Quickstart](docs/sdk-quickstart.md) ·
-[JavaScript interop](docs/javascript-interop.md) ·
-[Static C interop](docs/static-native-interop.md) ·
-[WIT bindings](docs/wit-bindings.md) ·
-[Garbage collector choices](docs/runtime-garbage-collection.md) ·
-[Supported APIs and limitations](docs/support-status.md)
+[Install and build](#try-it) ·
+[See supported APIs](docs/support-status.md) ·
+[Read the documentation](docs/index.md)
 
-## AOT vs AOT: printing `42`
+## C# now beats our Rust size reference
 
-**46.7 KiB with NetWasm. 14.58 MiB with .NET 11 Blazor WebAssembly AOT.**
-Using the exact byte counts, NetWasm is about **320× smaller**.
+**NetWasm 0.8.0 + precise GC: 47,798 bytes**<br>
+**Rust 1.95.0 size-oriented profile: 53,635 bytes**
 
-![AOT Wasm size comparison, lower is better: NetWasm with Compact GC 46.7 KiB, Blazor .NET 10 11.71 MiB, Blazor .NET 11 RC1 14.58 MiB. NetWasm is about 320 times smaller than the .NET 11 build by exact bytes.](docs/images/aot-console42-size.svg)
+For the same print-`42` workload, NetWasm is **10.9% smaller**. Its number
+includes the runtime and precise Compact garbage collector. Both artifacts are
+standalone WASI Preview 2 Components, built with size-oriented settings and
+measured uncompressed. NetWasm compresses to **13,501 bytes with Brotli 11**.
 
-We published an empty-UI Blazor WebAssembly app that calls
-`Console.WriteLine(42)`, with AOT, full managed trimming, IL stripping, invariant
-globalization and size-focused native compilation/linking enabled. Both the
-.NET 10 and .NET 11 builds printed `42` in Chromium without errors.
+![Wasm footprint landscape. NetWasm with precise GC is 47,798 bytes, Rust's size-oriented profile is 53,635 bytes, Kotlin/Wasm is 79,293 bytes and the published TinyGo reference is 110,084 bytes. NetWasm and Rust are the matched WASI Preview 2 comparison; Kotlin and TinyGo are contextual Preview 1 references.](docs/images/csharp-rust-console42-size.svg)
 
-| AOT build | Uncompressed Wasm | Size relative to NetWasm |
-| --- | ---: | ---: |
-| **NetWasm 0.8.0, Compact GC** | **47,798 bytes (46.7 KiB)** | **1x** |
-| Blazor WebAssembly, .NET 10 | 12,276,684 bytes (11.71 MiB) | 257x |
-| Blazor WebAssembly, .NET 11 RC1 | 15,289,241 bytes (14.58 MiB) | 320x |
+| Toolchain | Raw Wasm | Comparison role |
+| --- | ---: | --- |
+| **NetWasm 0.8.0, Compact GC** | **47,798 B** | WASI P2 Component; precise GC included |
+| Rust 1.95.0, size profile | 53,635 B | Matched WASI P2 Component reference |
+| Kotlin 2.4.0 `wasmWasi` | 79,293 B | P1 context; GC supplied by the host engine |
+| TinyGo 0.39.0 | 110,084 B | Published P1 Hello World context |
 
-These are measured Wasm payloads, with no compression and no JavaScript counted.
-Blazor's total includes its native runtime and required Webcil assemblies; the
-native runtime alone was 9.04 MiB on .NET 10 and 11.18 MiB on .NET 11 RC1.
-NetWasm's figure includes its runtime, garbage collector and WASI component.
-NetWasm does not require a UI framework to run your C#.
-This compares a console component with an empty-UI Blazor application, not
-equivalent UI frameworks or a minimum size for every .NET application.
+Rust is the headline comparison because it uses the same workload and output
+form. Kotlin/Wasm and TinyGo show the broader footprint landscape, but their
+targets and runtime boundaries differ. This is a measured workload/profile
+result, not a language-wide size ranking.
 
-[Exact versions, settings and reproduction](docs/size-and-methodology.md#blazor-webassembly-aot-printing-42).
+[Exact sources, versions, settings and reproduction steps](docs/size-and-methodology.md)
+
+## More than Hello World
+
+The 46.7 KiB program is the baseline, not the boundary.
+
+**C# 15** · **Web Workers** · **static `.a` interop** · **WIT/WASI P2** ·
+**expression trees** · **HTTP/JSON/XML/Regex** · **reflection-free DI** ·
+**TUnit/VSTest** · **wasm64** · **four allocation strategies**
+
+Today NetWasm can:
+
+- build, run, publish and test projects through the ordinary `dotnet` CLI;
+- publish browser [C# Web Workers](docs/web-workers.md) with generated
+  JavaScript clients;
+- link compatible Wasm [`.a` archives](docs/static-native-interop.md) and
+  generate bounded C ABI marshalling;
+- [generate C# bindings from WIT](docs/wit-bindings.md) and produce standalone
+  WASI P2 Components;
+- construct and inspect expression trees without general runtime reflection;
+- use independently packaged LINQ, HTTP, JSON, XML, Regex, Hashing and
+  dependency-injection libraries;
+- dual-target libraries for `netwasm0.1` and desktop .NET.
+
+The profile is deliberately smaller than desktop .NET, but it is broad enough
+to build, test and package non-trivial programs.
 
 ## Try it
 
 Install [.NET SDK 10.0.303 or newer](https://dotnet.microsoft.com/download/dotnet/10.0),
-then follow the [host and restore notes](docs/sdk-quickstart.md#1-install-net). Earlier
-.NET 10 SDK patches carry an ARM64 runtime race that can crash parallel compilation.
-Projects using C# 15 select the .NET 11 SDK; projects using earlier language
-versions can stay on .NET 10, and neither path requires both SDKs.
-The SDK restores its pinned Node, LLD and Binaryen tools for your development
-host through NuGet. You do not need to install Emscripten, Git or Python to
-build an ordinary app or test project.
-
-Install, create, run and publish:
+then run:
 
 ```sh
 dotnet new install NetWasm.Templates
@@ -88,8 +82,8 @@ dotnet run
 dotnet publish -c Release -o publish/local
 ```
 
-Run the published component directly with a compatible WASI Preview 2 host.
-For example, with [Wasmtime](https://wasmtime.dev/):
+Run the published component with a compatible WASI Preview 2 host, such as
+[Wasmtime](https://wasmtime.dev/):
 
 ```sh
 wasmtime run publish/local/HelloNetWasm.wasm
@@ -99,95 +93,53 @@ wasmtime run publish/local/HelloNetWasm.wasm
 42
 ```
 
-The component is self-contained with respect to .NET: no CLR, Mono,
-`dotnet.js`, application DLLs, or NetWasm installation is required at runtime.
-A WebAssembly host is still required. **Build with .NET; run without .NET.**
+The published component is self-contained with respect to .NET. A WebAssembly
+host is still required. **Build with .NET; run without .NET.**
 
-For Windows host support, browser publishing and dual-target libraries, follow the
-[complete SDK quickstart](docs/sdk-quickstart.md).
+Projects using C# 15 select the .NET 11 SDK; earlier language versions can stay
+on .NET 10. The SDK restores its pinned Node, LLD and Binaryen tools through
+NuGet, so an ordinary app does not require a separate Emscripten, Git or Python
+installation. See the [complete quickstart](docs/sdk-quickstart.md) for host,
+restore, Windows, browser and dual-targeting details.
 
-## More than Hello World
-
-The 46.7 KiB program is the baseline, not the boundary. NetWasm already covers a practical .NET development loop:
-
-- C# 15 when the project selects the .NET 11 SDK, while the default template remains on .NET 10;
-- `dotnet build`, `dotnet run`, `dotnet publish` and `dotnet test`;
-- [C# Web Workers](docs/web-workers.md) with generated JavaScript clients and either a portable WIT or direct JSExport boundary;
-- [TUnit-NetWasm](https://github.com/zion-sati/TUnit-NetWasm) tests through the generic VSTest bridge and ordinary `dotnet test`;
-- independently packaged ports for LINQ, HTTP, JSON, XML, Regex, Hashing and reflection-free dependency injection;
-- dual-target library projects for `netwasm0.1` and desktop `net10.0`.
-
-The supported surface is deliberately smaller than desktop .NET, but it is already broad enough to build, test and package non-trivial programs.
-
-## .NET designed around Wasm
-
-I started NetWasm with a simple challenge: **“Kotlin has it, why can’t we?!”**
-
-“It” is [Kotlin Multiplatform (KMP)'s common API surface](https://kotlinlang.org/docs/multiplatform/multiplatform-discover-project.html):
-shared code uses portable APIs instead of the whole JVM/Java library surface,
-with [Wasm among its targets](https://kotlinlang.org/docs/wasm-overview.html).
-Think of a smaller platform contract, in the spirit of .NET Standard, not a
-desktop runtime squeezed into every deployment.
-
-C# does not require the desktop .NET runtime's entire compatibility surface.
-NetWasm starts with a different boundary: a smaller CoreLib, closed-world
-compilation, precise garbage collection and explicit WASI interfaces.
+## How it stays small
 
 Roslyn produces CIL. NetWasm compiles the reachable program directly to Wasm,
-specializes its generics, and links only the runtime support it needs. It does
-not ship a CLR, Mono, `dotnet.js`, or application assemblies. The linked Wasm
-component is the program.
+specializes its generics and links only the runtime support it needs. The linked
+Wasm component is the program.
 
-This is a new .NET platform, not an attempt to make every desktop assumption
-work inside a Wasm sandbox. That tradeoff is what makes the small artifact
-possible.
+- **Closed-world compilation.** Unreachable code, imports and runtime features
+  do not enter the artifact.
+- **A smaller platform contract.** NetWasm supports portable APIs instead of
+  reproducing every desktop runtime assumption.
+- **No broad runtime reflection.** Runtime type names, dynamic assembly loading
+  and the `dynamic` keyword are outside the profile.
+- **Generated boundaries.** JSON, DI, WIT and native interop use known contracts
+  rather than runtime discovery.
+- **Optional data and diagnostics.** Timezone data, rich stack traces and other
+  deployment data are included only when selected.
+- **One collector.** Only the chosen allocation strategy is linked.
 
-## Pay for what you use
+This is a new .NET platform, not desktop .NET squeezed into a Wasm sandbox.
+That boundary is what makes native-Wasm-sized C# possible.
 
-- **Reachable code and imports only.** An unused package reference is not a
-  reason to retain its implementation or request its host capabilities.
-- **No runtime type names.** Runtime type-name lookup and broad reflection are
-  unsupported, so namespace-qualified type-name metadata never enters the Wasm.
-  Application strings, JSON property names, and names required by public
-  interfaces are ordinary reachable data.
-- **JSON has tiers, not one fixed runtime tax.** `JsonDocument` read-only DOM
-  parsing, source-generated serialization and typed deserialization retain different
-  closures. See the [scenario measurements](docs/size-and-methodology.md#json-is-not-one-fixed-cost).
-- **Timezone data stays out of the Wasm.** UTC needs no timezone database;
-  local-time support uses an explicitly selected deployment sidecar.
-- **Debugging is a build choice.** Debug enables managed stack traces;
-  Release omits their instrumentation and symbol sidecar unless requested.
-- **Only the selected collector is linked.** Compact is the default from 0.7.0;
-  choosing Boehm does not make libraries collector-specific or link both backends.
+[How JSON and optional features affect size](docs/size-and-methodology.md#json-is-not-one-fixed-cost)
 
-The 47,798-byte figure is the uncompressed final component, not a compressed
-download or the size of a complete JavaScript-host deployment. A WASI host is
-still required. [The measurement notes](docs/size-and-methodology.md) make that
-boundary explicit.
+## Choose your allocation strategy
 
-## Small by default. Choose your allocation strategy.
+Compact is the default: a size-first, precise, non-moving mark-and-sweep
+collector. It traces compiler-published roots and reference layouts without
+conservative scanning. Its name refers to implementation size, not moving heap
+compaction.
 
-Compact is a size-first, precise, non-moving mark-and-sweep collector. It traces
-compiler-published roots and reference layouts without conservative scanning.
-It supports NetWasm's managed lifetime features, including finalizers,
-resurrection, weak references, dependent handles and pinning. Its name refers
-to implementation size, not moving heap compaction.
+| Strategy | Best fit | Raw component | Brotli 11 |
+| --- | --- | ---: | ---: |
+| **Compact (default)** | Small applications and low-churn UI | **47,798 B** | **13,501 B** |
+| NetWasmGC | Higher allocation throughput | 51,300 B | 15,157 B |
+| Bump | Bounded, one-shot jobs | 43,794 B | 11,929 B |
+| Boehm | Conservative collector compatibility | 74,142 B | 25,023 B |
 
-NetWasmGC is the throughput-oriented precise, non-moving collector. Select
-`NetWasm` for faster allocation and collection paths at the cost of more memory
-and a larger module. Bump is a non-collecting option for bounded, one-shot jobs.
-Boehm remains available. Benchmark your application before choosing a collector.
-
-For the same 0.8.0 candidate Release/Oz `Console.WriteLine(42)` component:
-
-| Collector | Uncompressed final component | Brotli quality 11 |
-| --- | ---: | ---: |
-| Compact (default) | 47,798 bytes | 13,501 bytes |
-| NetWasmGC | 51,300 bytes | 15,157 bytes |
-| Bump | 43,794 bytes | 11,929 bytes |
-| Boehm | 74,142 bytes | 25,023 bytes |
-
-To select NetWasmGC, put this in the executable project's `.csproj`:
+Select a strategy in the executable project's `.csproj`:
 
 ```xml
 <PropertyGroup>
@@ -195,120 +147,118 @@ To select NetWasmGC, put this in the executable project's `.csproj`:
 </PropertyGroup>
 ```
 
-Leaving the property unset selects Compact. This is a build-time application
-choice; class libraries remain collector-neutral. All four backends are packaged
-for wasm32 and wasm64. See [Choosing a garbage collector](docs/runtime-garbage-collection.md)
-for the tradeoffs, selection rules and diagnostics.
+Leaving the property unset selects Compact. Libraries remain collector-neutral;
+all four backends are packaged for wasm32 and wasm64. See
+[Choosing a garbage collector](docs/runtime-garbage-collection.md) for the
+tradeoffs and diagnostics.
 
 ## Libraries should travel upward
 
 A library written for the smaller NetWasm profile should also be useful on
-desktop .NET, not trapped in a Wasm-only ecosystem.
+desktop .NET, rather than trapped in a Wasm-only ecosystem.
 
 ```sh
 dotnet new netwasm-lib -n MyLibrary
 ```
 
-The template targets both `netwasm0.1` and `net10.0`, producing NuGet
-library assets for each platform. Portability is explicit multi-targeting,
-not a promise that an arbitrary desktop package will work in reverse.
+The template targets `netwasm0.1` and `net10.0`, producing NuGet assets for
+both platforms. This is explicit multi-targeting, not a promise that arbitrary
+desktop packages work in reverse.
 
-The [ported libraries](https://github.com/zion-sati/NetWasm.Libraries) are
-independent packages, including LINQ, HTTP,
-JSON, XML, Regex, Hashing and reflection-free dependency injection.
-[TUnit-NetWasm](https://github.com/zion-sati/TUnit-NetWasm) uses the same public
-SDK and generic VSTest bridge for `dotnet test` integration.
+[NetWasm.Libraries](https://github.com/zion-sati/NetWasm.Libraries) provides the
+ported framework and extensions packages.
+[TUnit-NetWasm](https://github.com/zion-sati/TUnit-NetWasm) provides ordinary
+`dotnet test` integration through the generic VSTest bridge.
+
+## How does this compare to conventional .NET Wasm?
+
+For an empty-UI Blazor WebAssembly application that prints `42`, with AOT,
+managed trimming, IL stripping, invariant globalization and size-focused native
+linking enabled:
+
+![AOT Wasm size comparison, lower is better: NetWasm with Compact GC 46.7 KiB, Blazor .NET 10 11.71 MiB, Blazor .NET 11 RC1 14.58 MiB. NetWasm is about 320 times smaller than the .NET 11 build by exact bytes.](docs/images/aot-console42-size.svg)
+
+| AOT build | Uncompressed Wasm | Relative to NetWasm |
+| --- | ---: | ---: |
+| **NetWasm 0.8.0, Compact GC** | **47,798 B** | **1×** |
+| Blazor WebAssembly, .NET 10 | 12,276,684 B | 257× |
+| Blazor WebAssembly, .NET 11 RC1 | 15,289,241 B | 320× |
+
+The Blazor total includes its native runtime and required Webcil assemblies;
+NetWasm includes its runtime, garbage collector and WASI component. This is a
+console component versus an empty-UI application—not an equivalent-framework
+comparison or a claim about every .NET workload.
+
+[Exact Blazor versions, settings and reproduction](docs/size-and-methodology.md#blazor-webassembly-aot-printing-42)
+
+## Current boundary
+
+NetWasm is pre-1.0. Its supported profile is usable today and covered by
+published qualification, but source, package, target-profile and ABI contracts
+may change between minor releases.
+
+The normal portable output is a wasm32 WASI Preview 2 Component. Raw wasm32,
+raw wasm64 and JavaScript-host integration are advanced alternatives; wasm64
+Components remain blocked by upstream tooling.
+
+Runtime reflection, `dynamic`, runtime assembly loading and managed threading
+are outside the profile. General `System.IO.File`/`Directory`/`FileStream`, raw
+sockets and subprocess APIs are not yet implemented. Existing NuGet packages
+work only when their reachable code and API dependencies fit the supported
+profile.
+
+[Supported APIs and limitations](docs/support-status.md) ·
+[Documentation index](docs/index.md)
+
+## Road to 1.0
+
+NetWasm 1.0 means a useful, documented and stable smaller platform—not “desktop
+.NET, but in Wasm.” The main remaining themes are:
+
+- broader WASI Preview 2 coverage;
+- globalization modes and optional culture data;
+- expression-tree completion;
+- a faster incremental development loop;
+- a stable `netwasm1.0` platform and runtime contract;
+- production diagnostics and broader host qualification.
+
+**Next on the roadmap:** broader `netstandard2.1` source compatibility, so more
+portable libraries can move into the NetWasm profile without importing desktop
+runtime assumptions.
+
+[Read the full 1.0 roadmap](docs/roadmap.md)
 
 ## Packages
 
-[![NuGet: NetWasm.Compiler.Browser](https://img.shields.io/badge/NuGet-NetWasm.Compiler.Browser-004880?logo=nuget)](https://www.nuget.org/packages/NetWasm.Compiler.Browser)
-[![NuGet: NetWasm.Compiler.Tasks](https://img.shields.io/badge/NuGet-NetWasm.Compiler.Tasks-004880?logo=nuget)](https://www.nuget.org/packages/NetWasm.Compiler.Tasks)
-[![NuGet: NetWasm.Hosting](https://img.shields.io/badge/NuGet-NetWasm.Hosting-004880?logo=nuget)](https://www.nuget.org/packages/NetWasm.Hosting)
-[![NuGet: NetWasm.Hosting.Build](https://img.shields.io/badge/NuGet-NetWasm.Hosting.Build-004880?logo=nuget)](https://www.nuget.org/packages/NetWasm.Hosting.Build)
-[![NuGet: NetWasm.Ref](https://img.shields.io/badge/NuGet-NetWasm.Ref-004880?logo=nuget)](https://www.nuget.org/packages/NetWasm.Ref)
-[![NuGet: NetWasm.Runtime.Pack](https://img.shields.io/badge/NuGet-NetWasm.Runtime.Pack-004880?logo=nuget)](https://www.nuget.org/packages/NetWasm.Runtime.Pack)
-[![NuGet: NetWasm.Runtime.Wasm32](https://img.shields.io/badge/NuGet-NetWasm.Runtime.Wasm32-004880?logo=nuget)](https://www.nuget.org/packages/NetWasm.Runtime.Wasm32)
-[![NuGet: NetWasm.Runtime.Wasm64](https://img.shields.io/badge/NuGet-NetWasm.Runtime.Wasm64-004880?logo=nuget)](https://www.nuget.org/packages/NetWasm.Runtime.Wasm64)
-[![NuGet: NetWasm.Sdk](https://img.shields.io/badge/NuGet-NetWasm.Sdk-004880?logo=nuget)](https://www.nuget.org/packages/NetWasm.Sdk)
-[![NuGet: NetWasm.Templates](https://img.shields.io/badge/NuGet-NetWasm.Templates-004880?logo=nuget)](https://www.nuget.org/packages/NetWasm.Templates)
-[![NuGet: NetWasm.Testing.VSTest](https://img.shields.io/badge/NuGet-NetWasm.Testing.VSTest-004880?logo=nuget)](https://www.nuget.org/packages/NetWasm.Testing.VSTest)
-[![NuGet: NetWasm.Toolchain](https://img.shields.io/badge/NuGet-NetWasm.Toolchain-004880?logo=nuget)](https://www.nuget.org/packages/NetWasm.Toolchain)
-[![NuGet: NetWasm.Wit.Bindings.Tool](https://img.shields.io/badge/NuGet-NetWasm.Wit.Bindings.Tool-004880?logo=nuget)](https://www.nuget.org/packages/NetWasm.Wit.Bindings.Tool)
+<details>
+<summary>Compiler, SDK, runtime and hosting packages</summary>
+
+[NetWasm.Compiler.Browser](https://www.nuget.org/packages/NetWasm.Compiler.Browser) ·
+[NetWasm.Compiler.Tasks](https://www.nuget.org/packages/NetWasm.Compiler.Tasks) ·
+[NetWasm.Hosting](https://www.nuget.org/packages/NetWasm.Hosting) ·
+[NetWasm.Hosting.Build](https://www.nuget.org/packages/NetWasm.Hosting.Build) ·
+[NetWasm.Ref](https://www.nuget.org/packages/NetWasm.Ref) ·
+[NetWasm.Runtime.Pack](https://www.nuget.org/packages/NetWasm.Runtime.Pack) ·
+[NetWasm.Runtime.Wasm32](https://www.nuget.org/packages/NetWasm.Runtime.Wasm32) ·
+[NetWasm.Runtime.Wasm64](https://www.nuget.org/packages/NetWasm.Runtime.Wasm64) ·
+[NetWasm.Sdk](https://www.nuget.org/packages/NetWasm.Sdk) ·
+[NetWasm.Templates](https://www.nuget.org/packages/NetWasm.Templates) ·
+[NetWasm.Testing.VSTest](https://www.nuget.org/packages/NetWasm.Testing.VSTest) ·
+[NetWasm.Toolchain](https://www.nuget.org/packages/NetWasm.Toolchain) ·
+[NetWasm.Wit.Bindings.Tool](https://www.nuget.org/packages/NetWasm.Wit.Bindings.Tool)
 
 [Ported-library packages](https://github.com/zion-sati/NetWasm.Libraries#packages) ·
 [TUnit packages](https://github.com/zion-sati/TUnit-NetWasm#netwasm-packages)
 
-## The direction
-
-Reflection-free .NET. WASI as the new POSIX.
-
-The aim is a portable C# ecosystem built around ahead-of-time compilation,
-explicit interfaces and source generation rather than runtime discovery.
-WASI supplies a language-neutral platform boundary; C# should participate
-without carrying a desktop runtime everywhere it goes.
-
-That is the direction, not a claim that today's profile implements all of
-.NET or all of WASI.
-
-## Roadmap to 1.0
-
-NetWasm 1.0 does not mean “desktop .NET, but in Wasm.” It means the smaller
-platform has a useful, documented boundary that applications can depend on.
-
-These are the release gates:
-
-| Area | The v1.0 bar |
-| --- | --- |
-| Practical WASI Preview 2 | Ordinary C# can use files and directories, streams and polling, CLI arguments and environment, clocks, randomness, outgoing and incoming HTTP, and TCP/UDP/DNS where the host grants those capabilities. Browser and standalone adapters publish the capability pairs they support, with consistent lifetime/error semantics and clear failure for unavailable operations. WebSockets use an explicit versioned host contract because WASI P2 has no standard WebSocket interface. Internal completion-oriented boundaries keep a later P3 migration out of application APIs; v1.0 does not wait for P3. |
-| Static native interoperability | Applications can link compatible Wasm `.a` archives, use source-generated `LibraryImport` plus a bounded raw `DllImport` C ABI, and expose supported `UnmanagedCallersOnly` callbacks. Archive dependencies, relocations, memory ownership, callbacks, GC safety and failure diagnostics are deterministic and pay-as-you-use. Dynamic libraries, runtime symbol lookup, native threads and a direct C++ ABI remain outside the profile. |
-| Globalization and resources | Invariant, selected-culture and full-data modes provide documented culture-aware formatting and parsing, casing, comparison, Unicode normalization and properties, calendars, resource fallback and timezone behaviour. Versioned data stays optional so an invariant application does not carry it. Ordinary applications do not need native ICU installed on the build or deployment machine. |
-| Expression trees | Applications can construct and inspect `System.Linq.Expressions` trees without requiring general runtime reflection. `Expression.Compile()` has an interpreted implementation for trees created at runtime, with an optional build-time generated fast path for expressions known during compilation. Neither path depends on runtime IL generation or a JIT. |
-| Compiler and runtime correctness | The supported CIL and library profile has no known correctness bugs. GC, generics, variance and casts, interface and virtual dispatch, exceptions, async continuations, static initialization, callbacks and interop are covered by retained regression and compatibility suites. Builds are deterministic, and CLI and browser pipelines produce the same bytes from the same inputs. |
-| Fast development loop | Unchanged and reverted inputs reuse persistent compiler, runtime-link and component artifacts. An ordinary method edit avoids replaying unaffected whole-program work. Release builds keep full optimization and validation without making every edit pay publish-time costs. |
-| Stable platform contract | NetWasm 1.0 introduces the `netwasm1.0` target profile; `netwasm0.1` remains the 0.x profile instead of changing in place. The target profile, runtime ABI, host capability contracts, package compatibility rules and diagnostics have an explicit 1.x compatibility policy. Later target-profile versions change for platform-contract breaks, not merely because a package was released. Deprecations and unsupported operations fail clearly instead of silently changing behaviour. |
-| Diagnostics and production delivery | Managed stack traces, deterministic Debug output, trap/crash symbolization and actionable compiler/linker diagnostics cover supported deployments. Restore, build, test and publish work from packages on macOS ARM64, Linux ARM64/x64 and Windows ARM64/x64. Wasmtime plus Chromium, Firefox and WebKit release gates cover the portable component and browser paths. |
-| Ecosystem and supply chain | The reference pack and ported libraries publish a generated member-level support catalogue. Templates, TUnit/VSTest, WIT bindings and the supported libraries work as one qualified package graph. Toolchains are pinned, release artifacts are reproducible and attributable, and capability/resource boundaries have focused hostile-input tests. |
-
-The roadmap deliberately excludes runtime reflection, `dynamic`, runtime
-assembly loading, managed threads and a promise that arbitrary desktop NuGet
-packages work unchanged. wasm64 core modules remain useful, but wasm64
-Components cannot become a v1.0 gate until the upstream Component Model tools
-and hosts support them end to end.
-
-The detailed [support inventory](docs/support-status.md) remains the source of
-truth for what is implemented today. A roadmap item is not a current support
-claim.
-
-## Current boundary
-
-NetWasm is pre-1.0. The supported profile is usable today and covered by its
-published qualification, but source, package, target-profile and ABI contracts
-may still change between minor releases. The 1.0 roadmap above defines the
-compatibility commitment still to be earned.
-
-Development hosts: macOS ARM64, Linux ARM64/x64 and Windows ARM64/x64. The normal
-portable output is a wasm32 WASI Preview 2 Component. Raw wasm32/wasm64 and
-JavaScript-host integration are advanced alternatives; wasm64 Components
-remain blocked by upstream tooling.
-
-Runtime reflection, `dynamic`, runtime assembly loading and managed threading
-are outside the profile. General `System.IO.File`/`Directory`/`FileStream`,
-raw sockets and subprocess APIs are not implemented. Existing NuGet packages
-work only when their reachable code and API dependencies fit the supported
-profile, not merely because they target .NET.
-
-Read the [support inventory](docs/support-status.md) before porting an app.
-The [documentation index](docs/index.md) covers hosting, diagnostics, runtime
-contracts and deployment.
+</details>
 
 ## License
 
 CoreLib, runtime libraries, templates and generated support code are MIT,
 subject to preserved upstream notices. The compiler and developer tooling use
-the [NetWasm Community License 1.0](LICENSES/LicenseRef-NetWasm-Community-1.0.txt),
-not MIT.
+the [NetWasm Community License 1.0](LICENSES/LicenseRef-NetWasm-Community-1.0.txt).
 The Compact collector retains its Apache-2.0 license and AssemblyScript
-attribution; see [third-party notices](THIRD-PARTY-NOTICES.md#compact-garbage-collector).
+attribution.
 
 The Community License is free for qualifying individuals, education,
 open-source work, evaluation, and organizations with fewer than 250 employees
@@ -318,12 +268,13 @@ internal commercial use; OEM and Commercial Offering use require a separate
 agreement. Generated applications may use their authors' chosen licenses.
 There is no sign-in, activation, telemetry or technical enforcement.
 
-See the [licensing guide](docs/licensing.md) for the exact boundaries.
-Commercial licensing: <zionsatidev@gmail.com>.
+[Licensing guide](docs/licensing.md) ·
+[Third-party notices](THIRD-PARTY-NOTICES.md) ·
+Commercial licensing: <zionsatidev@gmail.com>
 
 ## Bring a workload
 
 Start with `Console.WriteLine(42)`, then try the smallest real workload where
-deployment size, sandboxing, or portability matters. If something is missing,
-open an [issue](https://github.com/zion-sati/NetWasm/issues), concrete workloads
+deployment size, sandboxing or portability matters. If something is missing,
+open an [issue](https://github.com/zion-sati/NetWasm/issues). Concrete workloads
 are how the 1.0 support boundary gets decided.

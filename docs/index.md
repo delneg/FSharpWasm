@@ -10,7 +10,8 @@ repository.
 ## Start here
 
 - [Size measurements and methodology](size-and-methodology.md) — reproduce the
-  84,653-byte C# component and read the Rust comparison and JSON scenario limits.
+  47,798-byte C# component and read the Rust, Kotlin, TinyGo, Blazor and JSON
+  comparison boundaries.
 - [NetWasm SDK quickstart](sdk-quickstart.md) — create an app or dual-target
   library, restore the pinned host tools through NuGet, then build, run and
   publish with ordinary `dotnet` commands.
@@ -23,9 +24,11 @@ repository.
 - [WIT-to-C# bindings](wit-bindings.md) — run the standalone binding tool,
   select a world, understand the generated model, and match it to the runtime
   boundary.
-- [Support status and roadmap](support-status.md) — the canonical inventory of
+- [Support status](support-status.md) — the canonical inventory of
   implemented, conditional, partially qualified, in-progress, deferred,
   externally blocked, and intentionally unsupported capabilities.
+- [Roadmap to NetWasm 1.0](roadmap.md) — the release gates for the stable
+  platform contract, with current support kept separate from future intent.
 - [Manual build and deployment](cli-build-deployment.md) — the low-level
   source-build/compiler reference, output artifacts, and host entry points.
 - [Targets and output formats](targets-and-outputs.md) — wasm32/wasm64 core
