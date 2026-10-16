@@ -7,6 +7,25 @@ namespace NetWasm.Compiler.Tests;
 public sealed class TreeTraversalCompilationTests
 {
     [Theory]
+    [InlineData(WasmTarget.Wasm32, false, FinalWasmOptimization.None)]
+    [InlineData(WasmTarget.Wasm32, true, FinalWasmOptimization.None)]
+    [InlineData(WasmTarget.Wasm64, false, FinalWasmOptimization.None)]
+    [InlineData(WasmTarget.Wasm64, true, FinalWasmOptimization.None)]
+    [InlineData(WasmTarget.Wasm32, false, FinalWasmOptimization.O3)]
+    [InlineData(WasmTarget.Wasm32, true, FinalWasmOptimization.O3)]
+    [InlineData(WasmTarget.Wasm64, false, FinalWasmOptimization.O3)]
+    [InlineData(WasmTarget.Wasm64, true, FinalWasmOptimization.O3)]
+    public void SharedLoopExitEffectsRunExactlyOnceOnTheSelectedPath(
+        WasmTarget target, bool optimize, FinalWasmOptimization optimization)
+    {
+        using var assets = TestAssets.Create();
+        var executor = (ICompilationScenarioExecutor)new CompilationScenarioExecutor(assets);
+        Assert.Equal(42, executor.Execute(new CompilationScenario(
+            "SharedLoopExit", SharedExitSource, "SharedLoopExit.EntryPoint", optimize, target, 41, [])
+            { Optimization = optimization }));
+    }
+
+    [Theory]
     [InlineData(WasmTarget.Wasm32, false)]
     [InlineData(WasmTarget.Wasm32, true)]
     [InlineData(WasmTarget.Wasm64, false)]
@@ -34,6 +53,44 @@ public sealed class TreeTraversalCompilationTests
             "TreeTraversal", Source, "TreeTraversal.EntryPoint", optimize, target, 41, [])
             { Optimization = FinalWasmOptimization.None }));
     }
+
+    private const string SharedExitSource = """
+        namespace SharedLoopExit;
+        public static class EntryPoint
+        {
+            public static int Run(int input)
+            {
+                var expected = new[] { 1100, 1100, 1010, 1010, 1106, 1103, 1016, 1103 };
+                for (var index = 0; index < expected.Length; index++)
+                {
+                    if (Visit(index < 4 ? 0 : 3, index & 3) != expected[index]) return 1;
+                }
+                return 42;
+            }
+
+            private static int Visit(int limit, int mode)
+            {
+                var count = 0;
+                var total = 0;
+                while (count < limit)
+                {
+                    count++;
+                    total += count;
+                    if ((mode & 1) != 0 && count == 2) goto Shared;
+                }
+                if ((mode & 2) != 0)
+                {
+                    total += 10;
+                    goto Done;
+                }
+            Shared:
+                total += 100;
+            Done:
+                total += 1000;
+                return total;
+            }
+        }
+        """;
 
     private const string LoopSource = """
         namespace LoopTransfers;

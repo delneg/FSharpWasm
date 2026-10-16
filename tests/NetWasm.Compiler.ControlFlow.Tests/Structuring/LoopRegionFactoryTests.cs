@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Immutable;
 using System.Linq;
+using NetWasm.Compiler.ComponentModel.Optimization;
 using NetWasm.Compiler.ControlFlow.Structuring;
 using NetWasm.Compiler.Core;
 
@@ -166,8 +167,12 @@ public sealed class LoopRegionFactoryTests
         }
     }
 
-    [Fact]
-    public void CreateRejectsOverlappingBodyAndConditionExitDomains()
+    [Theory]
+    [InlineData(BranchPrefixDuplicationPolicy.Disabled, false)]
+    [InlineData(BranchPrefixDuplicationPolicy.SizeAware, false)]
+    [InlineData(BranchPrefixDuplicationPolicy.Speed, true)]
+    public void SharedExitExtensionsFollowTheDuplicationPolicy(
+        BranchPrefixDuplicationPolicy policy, bool expected)
     {
         var state = CreateState();
         var overlaps = new RecordingOverlapClassifier(result: true);
@@ -183,7 +188,7 @@ public sealed class LoopRegionFactoryTests
             new UnexpectedIrreducibleControlFlowExceptionFactory(),
             new LoopExitPartitioner(extensions, overlaps),
             continues,
-            CreateEligibilityClassifier());
+            CreateEligibilityClassifier(), policy);
 
         var result = Create(
             factory,
@@ -194,10 +199,16 @@ public sealed class LoopRegionFactoryTests
             [new ControlFlowDomain(0, state.Graph.ReachableBlocks)]);
 
         Assert.Null(result.Region);
-        Assert.NotEmpty(result.DispatcherOwnedBlocks);
-        Assert.Equal(
-            overlaps.LastSets.SelectMany(blocks => blocks).ToImmutableHashSet(),
-            result.DispatcherOwnedBlocks);
+        if (expected)
+        {
+            Assert.Equal(ImmutableHashSet.Create(1, 2), result.DispatcherOwnedBlocks);
+        }
+        else
+        {
+            Assert.Equal(
+                overlaps.LastSets.SelectMany(blocks => blocks).ToImmutableHashSet(),
+                result.DispatcherOwnedBlocks);
+        }
         Assert.Equal(1, overlaps.CallCount);
         Assert.Equal(0, continues.CallCount);
     }
@@ -373,6 +384,9 @@ public sealed class LoopRegionFactoryTests
         Assert.Throws<ArgumentNullException>(() => new LoopRegionFactory(
             overlaps, conditions, joins, reachable, errors, partitions, continues,
             null!));
+        Assert.Throws<ArgumentOutOfRangeException>(() => new LoopRegionFactory(
+            overlaps, conditions, joins, reachable, errors, partitions, continues,
+            eligibility, (BranchPrefixDuplicationPolicy)int.MaxValue));
     }
 
     private static LoopRegionCreation Create<TFactory>(

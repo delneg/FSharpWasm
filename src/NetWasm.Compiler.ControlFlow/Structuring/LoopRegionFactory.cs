@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Linq;
+using NetWasm.Compiler.ComponentModel.Optimization;
 using NetWasm.Compiler.Core;
 
 namespace NetWasm.Compiler.ControlFlow.Structuring;
@@ -14,7 +15,8 @@ internal sealed class LoopRegionFactory(
     IIrreducibleControlFlowExceptionFactory errors,
     ILoopExitPartitioner exitPartitions,
     ILoopContinueTargetFinder continueTargets,
-    ILoopRegionEligibilityClassifier eligibility) : ILoopRegionFactory
+    ILoopRegionEligibilityClassifier eligibility,
+    BranchPrefixDuplicationPolicy duplicationPolicy = BranchPrefixDuplicationPolicy.SizeAware) : ILoopRegionFactory
 {
     private readonly IReachableSetOverlapClassifier _reachableSetOverlaps = reachableSetOverlaps ?? throw new ArgumentNullException(nameof(reachableSetOverlaps));
     private readonly ILoopConditionChooser _loopConditions = loopConditions ?? throw new ArgumentNullException(nameof(loopConditions));
@@ -25,6 +27,12 @@ internal sealed class LoopRegionFactory(
     private readonly ILoopContinueTargetFinder _continueTargets = continueTargets ?? throw new ArgumentNullException(nameof(continueTargets));
     private readonly ILoopRegionEligibilityClassifier _eligibility = eligibility ??
         throw new ArgumentNullException(nameof(eligibility));
+    private readonly bool _allowSharedExitSplitting = duplicationPolicy switch
+    {
+        BranchPrefixDuplicationPolicy.Disabled or BranchPrefixDuplicationPolicy.SizeAware => false,
+        BranchPrefixDuplicationPolicy.Speed => true,
+        _ => throw new ArgumentOutOfRangeException(nameof(duplicationPolicy)),
+    };
 
     public LoopRegionCreation Create(ControlFlowStructuringState state,
         ControlFlowGraph graph,
@@ -102,10 +110,15 @@ internal sealed class LoopRegionFactory(
             additionalExits);
         if (exitPartition.Overlaps)
         {
+            // Keep the cyclic core canonical, but let the enclosing speed-policy
+            // branches split shared exit code. Dispatcher emission still expands
+            // its local component when its exits cannot be structured separately.
             return new LoopRegionCreation(
                 null,
-                exitPartition.BodyComponent.Union(
-                    exitPartition.ConditionExitExtension));
+                _allowSharedExitSplitting
+                    ? component
+                    : exitPartition.BodyComponent.Union(
+                        exitPartition.ConditionExitExtension));
         }
         var continueTarget = conditionIndex == header
             ? _continueTargets.Find(state, graph, component, header)
