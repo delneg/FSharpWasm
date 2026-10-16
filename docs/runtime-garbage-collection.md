@@ -37,22 +37,21 @@ the supported NetWasm profile.
 ## Measured performance
 
 The NetWasm 0.8 qualification campaign measured complete managed workloads, not
-isolated allocator microbenchmarks. The figures below are median elapsed times
-from two accepted cohorts on an Apple M1 Max under Wasmtime 49.0.3. Each cohort
-used three warmups followed by seven retained fresh-process samples. Every
-NetWasm cell used the same managed program and `O3` compiler profile; lower is
-better.
+isolated allocator microbenchmarks. The figures below are the lower median from
+two accepted cohorts on an Apple M1 Max under Wasmtime 49.0.3. Each cohort used
+three warmups followed by seven retained fresh-process samples. Every NetWasm
+cell used the same managed program and `O3` compiler profile; lower is better.
 
 | Collector | Full transaction | Retained object graph | UI-style object churn |
 | --- | ---: | ---: | ---: |
-| Bump | 35.98 ms | 12.97–13.12 ms | 12.80–12.86 ms |
-| NetWasmGC | 39.34–39.73 ms | 16.65–16.72 ms | 13.27–13.32 ms |
-| Boehm | 41.59 ms | 18.74–18.87 ms | 16.29–16.30 ms |
-| Compact | 49.83–50.32 ms | 30.60–30.89 ms | 22.11–22.15 ms |
+| Bump | 35.98 ms | 12.97 ms | 12.80 ms |
+| NetWasmGC | 39.34 ms | 16.65 ms | 13.27 ms |
+| Boehm | 41.59 ms | 18.74 ms | 16.29 ms |
+| Compact | 49.83 ms | 30.60 ms | 22.11 ms |
 
-Across those cohorts, NetWasmGC was 4.5–5.4% faster than Boehm on the full
-transaction workload, 11.1–11.4% faster on the retained object graph and
-18.2–18.5% faster on UI churn. Bump is useful as a performance ceiling, but the
+Using those reported medians, NetWasmGC was 5.4% faster than Boehm on the full
+transaction workload, 11.1% faster on the retained object graph and 18.5%
+faster on UI churn. Bump is useful as a performance ceiling, but the
 comparison is not equivalent lifetime behaviour: it never collects or reclaims
 managed objects.
 
