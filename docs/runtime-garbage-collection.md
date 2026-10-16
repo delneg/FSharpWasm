@@ -34,6 +34,47 @@ finalization, resurrection, weak references, dependent handles and pinning.
 Collector selection does not enable threading, reflection or other APIs outside
 the supported NetWasm profile.
 
+## Measured performance
+
+The NetWasm 0.8 qualification campaign measured complete managed workloads, not
+isolated allocator microbenchmarks. The figures below are median elapsed times
+from two accepted cohorts on an Apple M1 Max under Wasmtime 49.0.3. Each cohort
+used three warmups followed by seven retained fresh-process samples. Every
+NetWasm cell used the same managed program and `O3` compiler profile; lower is
+better.
+
+| Collector | Full transaction | Retained object graph | UI-style object churn |
+| --- | ---: | ---: | ---: |
+| Bump | 36.26–36.67 ms | 13.12–13.19 ms | 12.87–12.98 ms |
+| NetWasmGC | 39.48–40.22 ms | 16.84–16.91 ms | 13.26–13.55 ms |
+| Boehm | 41.68–43.51 ms | 18.80–18.92 ms | 16.27–16.31 ms |
+| Compact | Not measured in this cohort | Not measured in this cohort | Not measured in this cohort |
+
+Across those cohorts, NetWasmGC was 5.3–7.6% faster than Boehm on the full
+transaction workload, about 10–11% faster on the retained object graph and
+17–19% faster on UI churn. Bump is useful as a performance ceiling, but the
+comparison is not equivalent lifetime behaviour: it never collects or reclaims
+managed objects.
+
+The same full-transaction artifacts reached 36 MiB of aggregate Wasm linear
+memory capacity with NetWasmGC, 20.375 MiB with Bump and 13.1875 MiB with
+Boehm. This is whole-invocation linear-memory capacity, not live managed bytes,
+host RSS or a promised ceiling. It makes NetWasmGC's intended trade explicit:
+the measured throughput gain over Boehm used more linear memory on this workload.
+
+Compact is deliberately not assigned an old result here. Its retained historical
+benchmark used an earlier 64 KiB pacing floor, while the 0.8 release uses the
+1 MiB policy documented below. A current Compact throughput number will be
+published only after it is rerun in the same matrix. Until then, choose Compact
+for output size and benchmark it against NetWasmGC with your own allocation and
+retention pattern.
+
+The corresponding complete Console `42` component sizes are 43,794 bytes for
+Bump, 47,798 for Compact, 51,300 for NetWasmGC and 74,142 for Boehm. See
+[Size and methodology](size-and-methodology.md#collector-selection-and-compression)
+for Brotli-11 results and the exact size boundary. Timing and file size measure
+different things; neither table is a universal collector ranking.
+
 ## Selecting a collector
 
 Set the property on the executable application, worker or test project:
