@@ -17,15 +17,16 @@ and .NET CIL directly to WebAssembly. It does not carry the desktop CLR, Mono,
 [See supported APIs](docs/support-status.md) ·
 [Read the documentation](docs/index.md)
 
-## C# now beats Rust at Wasm size
+## C# now beats Rust on Wasm size
 
 **NetWasm 0.8.0 + precise GC: 47,798 bytes**<br>
 **Rust 1.95.0 size-oriented profile: 53,635 bytes**
 
-For the same print-`42` workload, NetWasm is **10.9% smaller**. Its number
-includes the runtime and precise Compact garbage collector. Both artifacts are
-standalone WASI Preview 2 Components, built with size-oriented settings.
-NetWasm is also **20.4% smaller after Brotli 11**: 13,501 versus 16,963 bytes.
+For the same print-`42` workload, NetWasm's result includes the runtime and
+precise Compact garbage collector. Both artifacts are standalone WASI Preview 2
+Components built with size-oriented settings.
+
+**10.9% smaller raw. 20.4% smaller with Brotli-11.**
 
 ![Wasm footprint landscape with raw and Brotli-11 sizes. NetWasm with precise GC is 47,798 raw and 13,501 compressed bytes; Rust is 53,635 and 16,963; Kotlin/Wasm is 79,293 and 22,655; TinyGo is 93,043 and 26,931. NetWasm and Rust are the matched WASI Preview 2 comparison; Kotlin and TinyGo are contextual Preview 1 references.](docs/images/wasm-footprint-landscape-brotli11.svg)
 
