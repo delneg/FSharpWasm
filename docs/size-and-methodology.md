@@ -185,10 +185,10 @@ loaded, their uncompressed response lengths matched the published totals,
 `42` appeared in the console, the empty component rendered, and no browser
 errors occurred.
 
-Relative to the 47,798-byte NetWasm 0.8.0 candidate, these retained Blazor
-Wasm payloads are about 257x and 320x as large. The Blazor builds were measured
-on the date above, not rebuilt with the NetWasm candidate. KiB means 1,024 bytes;
-MiB means 1,048,576 bytes. Neither total includes JavaScript, HTML or the host engine.
+Relative to the released 47,798-byte NetWasm 0.8.0 artifact, these retained
+Blazor Wasm payloads are about 257x and 320x as large. The Blazor builds were
+measured on the date above. KiB means 1,024 bytes; MiB means 1,048,576 bytes.
+Neither total includes JavaScript, HTML or the host engine.
 
 This is [Mono WebAssembly AOT](https://learn.microsoft.com/en-us/aspnet/core/blazor/webassembly-build-tools-and-aot?view=aspnetcore-10.0),
 with [IL stripping](https://learn.microsoft.com/en-us/aspnet/core/blazor/performance/webassembly-runtime-performance?view=aspnetcore-10.0),

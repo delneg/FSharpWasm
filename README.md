@@ -66,8 +66,8 @@ Today NetWasm can:
   dependency-injection libraries;
 - dual-target libraries for `netwasm0.1` and desktop .NET.
 
-The profile is deliberately smaller than desktop .NET, but it is broad enough
-to build, test and package non-trivial programs.
+The profile is deliberately smaller than desktop .NET. It already supports
+complete applications, portable libraries, test projects and browser workers.
 
 ## Try it
 
@@ -213,8 +213,8 @@ profile.
 
 ## Road to 1.0
 
-NetWasm 1.0 means a useful, documented and stable smaller platform—not “desktop
-.NET, but in Wasm.” The main remaining themes are:
+NetWasm 1.0 means a useful, documented and stable smaller platform. It does not
+mean “desktop .NET, but in Wasm.” The main remaining themes are:
 
 - broader WASI Preview 2 coverage;
 - globalization modes and optional culture data;
@@ -223,9 +223,15 @@ NetWasm 1.0 means a useful, documented and stable smaller platform—not “desk
 - a stable `netwasm1.0` platform and runtime contract;
 - production diagnostics and broader host qualification.
 
-**Next on the roadmap:** broader `netstandard2.1` source compatibility, so more
-portable libraries can move into the NetWasm profile without importing desktop
-runtime assumptions.
+**Coming in NetWasm 0.9.0:** broader compatibility with existing .NET Standard
+2.1 library binaries and NuGet assets. The target is to consume libraries
+unchanged when their reachable code fits the NetWasm profile, without carrying
+unused unsupported paths into the application.
+
+This does not turn NetWasm into desktop .NET. Reachable general runtime
+reflection, `dynamic`, runtime assembly loading, managed threading, unsupported
+host APIs and named-culture globalization remain outside the initial 0.9.0
+compatibility slice and fail at compile time.
 
 [Read the full 1.0 roadmap](docs/roadmap.md)
 
