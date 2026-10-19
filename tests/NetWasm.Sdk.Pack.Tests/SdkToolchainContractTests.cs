@@ -38,7 +38,7 @@ public sealed partial class SdkToolchainContractTests
         Assert.Contains("NetWasmSdkComponentize", targetNames);
         Assert.Contains("NetWasmSdkPublishPortable", targetNames);
         Assert.Contains("NetWasmSdkPublishBrowser", targetNames);
-        Assert.Contains("NetWasmSdkPublishJsWorker", targetNames);
+        Assert.Contains("NetWasmSdkPublishJsModule", targetNames);
         Assert.Contains("NetWasmSdkPublishWitWorker", targetNames);
         Assert.Contains("NetWasmSdkRejectWorkerRun", targetNames);
         Assert.Contains("NetWasmSdkRejectLibraryLifecycle", targetNames);
@@ -171,7 +171,8 @@ public sealed partial class SdkToolchainContractTests
 
     [Theory]
     [InlineData("NetWasmSdkPrepareLocalDeployment", "NetWasmWriteExecutionRequestTask")]
-    [InlineData("NetWasmSdkPublishJsWorker", "NetWasmWriteWorkerHostEntryTask")]
+    [InlineData("NetWasmSdkPublishJsModule", "NetWasmWritePageHostEntryTask")]
+    [InlineData("NetWasmSdkPublishJsModule", "NetWasmWriteWorkerHostEntryTask")]
     [InlineData("NetWasmSdkPublishWitWorker", "NetWasmWriteWitWorkerHostEntryTask")]
     public void ExecutionConsumersShareTheCompleteArgumentVector(string targetName, string taskName)
     {

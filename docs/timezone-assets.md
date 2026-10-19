@@ -24,7 +24,9 @@ it in the deployment manifest. The zones come from the IANA release pinned by
 NetWasm.Toolchain, so every machine produces the same sidecar. The sidecar is
 written only when the application reaches a local-time API. Otherwise the build
 warns with NWSDK080 and ships nothing. An unknown zone, or `Full` combined with
-listed zones, fails with NWSDK079.
+listed zones, fails with NWSDK079. Any `NetWasmTimeZoneMode` other than
+`Selected` or `Full` fails with NWSDK083, and `Selected` without a
+`NetWasmTimeZone` item fails with NWSDK084.
 
 `TZ` remains an explicit execution setting; NetWasm never infers a host or
 browser zone. Set it with a `NetWasmEnvironmentVariable` item, in the execution

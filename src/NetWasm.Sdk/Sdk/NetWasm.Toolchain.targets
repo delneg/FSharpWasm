@@ -441,10 +441,10 @@
       <_NetWasmTimeZoneSidecar Remove="@(_NetWasmTimeZoneSidecar)" />
       <_NetWasmTimeZoneRuntimeFeature Remove="@(_NetWasmTimeZoneRuntimeFeature)" />
     </ItemGroup>
-    <Error Code="NWSDK079"
+    <Error Code="NWSDK083"
            Condition="'$(_NetWasmTimeZoneMode)' != '' AND '$(_NetWasmTimeZoneMode)' != 'Selected' AND '$(_NetWasmTimeZoneMode)' != 'Full'"
            Text="NetWasmTimeZoneMode must be Selected or Full, not '$(NetWasmTimeZoneMode)'." />
-    <Error Code="NWSDK079"
+    <Error Code="NWSDK084"
            Condition="'$(_NetWasmTimeZoneMode)' == 'Selected' AND '@(NetWasmTimeZone)' == ''"
            Text="NetWasmTimeZoneMode Selected needs at least one NetWasmTimeZone item, such as &lt;NetWasmTimeZone Include=&quot;Australia/Melbourne&quot; /&gt;." />
     <Error Code="NWSDK079"
@@ -460,7 +460,7 @@
     <Warning Code="NWSDK080"
              Condition="'$(_NetWasmTimeZoneMode)' != '' AND '$(_NetWasmTimeZoneSidecarRequired)' != 'true'"
              Text="No reachable local-time API uses the selected time zones, so the deployment omits the time zone sidecar." />
-    <Error Code="NWSDK079"
+    <Error Code="NWSDK085"
            Condition="'$(_NetWasmTimeZoneSidecarRequired)' == 'true' AND ('$(NetWasmTimeZoneSourceRoot)' == '' OR !Exists('$(NetWasmTimeZoneSourceRoot)'))"
            Text="The resolved NetWasm.Toolchain package does not provide the pinned time zone source." />
     <ItemGroup Condition="'$(_NetWasmTimeZoneSidecarRequired)' == 'true'">

@@ -1172,7 +1172,7 @@ PY
     exit 1
   fi
   expect_failure_contains "$work_root/zone-app-unselected.log" 'Asia/Tokyo' \
-    bash -c 'cd "$1" && TZ=Asia/Tokyo dotnet run --project ZoneApp.csproj --no-build --disable-build-servers' \
+    bash -c 'cd "$1" && dotnet run --project ZoneApp.csproj --no-build --disable-build-servers -e TZ=Asia/Tokyo' \
       _ "$consumer_root/ZoneApp"
 fi
 
