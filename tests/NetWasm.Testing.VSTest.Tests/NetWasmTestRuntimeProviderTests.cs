@@ -184,12 +184,15 @@ public sealed class NetWasmTestRuntimeProviderTests
             CancellationToken.None));
         output!("ordinary output");
         error!("ordinary error");
+        output("");
+        error("");
         exited!(314, 7);
         exited(314, 7);
 
         Assert.Equal(["launched", "exited"], lifecycle);
         Assert.Contains((TestMessageLevel.Informational, "ordinary output"), logger.Messages);
         Assert.Contains((TestMessageLevel.Error, "ordinary error"), logger.Messages);
+        Assert.DoesNotContain(logger.Messages, message => message.Message.Length == 0);
         Assert.Equal(1, process.DisposeCount);
         Assert.Equal(0, process.TerminateCount);
     }
@@ -721,8 +724,12 @@ internal sealed class MessageLoggerStub : IMessageLogger
 {
     internal List<(TestMessageLevel Level, string Message)> Messages { get; } = [];
 
-    public void SendMessage(TestMessageLevel testMessageLevel, string message) =>
+    // VSTest's session logger rejects empty messages, so the stub does too.
+    public void SendMessage(TestMessageLevel testMessageLevel, string message)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(message);
         Messages.Add((testMessageLevel, message));
+    }
 }
 
 [SuppressMessage(

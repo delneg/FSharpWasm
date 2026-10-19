@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { createHash, webcrypto } from "node:crypto";
 import test from "node:test";
 import { createBrowserRawExportSession } from "./browser-raw-export-session.mjs";
+import { timeZoneContainer } from "./timezone-sidecar-zones.test.mjs";
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
@@ -247,7 +248,7 @@ test("retains timezone resources until the persistent session closes", async () 
         clocks: [], environment: ["TZ"], network: "denyAll", preopens: [], randomness: false,
       },
     },
-    timeZoneBytes: Uint8Array.of(1, 2, 3),
+    timeZoneBytes: timeZoneContainer([["Australia/Melbourne", 1]]),
   });
   const session = await state.open({ startup: {
     buildFingerprint, manifestSha256: state.manifestSha256,

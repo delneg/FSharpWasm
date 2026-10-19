@@ -1161,8 +1161,10 @@ text = text.replace("</PropertyGroup>", "  <NetWasmTimeZoneMode>Selected</NetWas
                     "  <ItemGroup>\n    <NetWasmTimeZone Include=\"Australia/Melbourne\" />\n  </ItemGroup>")
 project.write_text(text, encoding="utf-8")
 PY
+  # Pass TZ through dotnet run: Git Bash on Windows drops a TZ such as
+  # Australia/Melbourne from the environment of native programs.
   (cd "$consumer_root/ZoneApp" && run_log "$work_root/zone-app-run.log" \
-    env TZ=Australia/Melbourne dotnet run --project ZoneApp.csproj --disable-build-servers)
+    dotnet run --project ZoneApp.csproj --disable-build-servers -e TZ=Australia/Melbourne)
   zone_output="$(tr -d '\r' < "$work_root/zone-app-run.log" | tail -n 1)"
   if [[ "$zone_output" != "Australia/Melbourne 2026-01-15 11:00" ]]; then
     cat "$work_root/zone-app-run.log" >&2

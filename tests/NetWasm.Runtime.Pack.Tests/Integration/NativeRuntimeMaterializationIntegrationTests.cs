@@ -78,7 +78,9 @@ public sealed class NativeRuntimeMaterializationIntegrationTests
         var layout = Path.Combine(cell, "runtime-layout.json");
         File.WriteAllText(layout, JsonSerializer.Serialize(new
         {
-            schemaVersion = 3, target, applicationStaticDataEnd = 65_537,
+            schemaVersion = 3,
+            target,
+            applicationStaticDataEnd = 65_537,
             runtimeFeatures = Array.Empty<string>(),
             nativeImports = new[]
             {
@@ -155,8 +157,13 @@ public sealed class NativeRuntimeMaterializationIntegrationTests
         });
         File.WriteAllText(Path.Combine(cell, "receipt.json"), JsonSerializer.Serialize(new
         {
-            Target = target, ArchiveKind = lto ? "lto" : "object", Cold = cold, Warm = warm,
-            ReplacedArchive = replaced, RepairedCorruptCache = repaired, Observed = actual.MemoryLayout,
+            Target = target,
+            ArchiveKind = lto ? "lto" : "object",
+            Cold = cold,
+            Warm = warm,
+            ReplacedArchive = replaced,
+            RepairedCorruptCache = repaired,
+            Observed = actual.MemoryLayout,
             ArchiveSha256 = new RuntimeNativeArchiveReader().Read(archive),
             OutputSha256 = new Sha256ArtifactDigestCalculator().Calculate(request.OutputPath),
             Inputs = inputs,

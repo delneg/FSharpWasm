@@ -65,7 +65,8 @@ public sealed class RuntimeLinkPlannerTests
         };
         manifest = manifest with { Targets = manifest.Targets.SetItem(index, original with { Speed = speed }) };
         var request = new RuntimeLinkPlanRequest(JsonSerializer.Serialize(manifest), targetName, 948,
-            SystemLibraries: SystemLibraries(original)) { RuntimeFeatures = [] };
+            SystemLibraries: SystemLibraries(original))
+        { RuntimeFeatures = [] };
         var sizePlan = RuntimeLinkPlanner.Plan(request);
         var speedPlan = RuntimeLinkPlanner.Plan(request with { Optimization = RuntimeWasmOptimization.O3 });
 

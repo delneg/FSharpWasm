@@ -220,8 +220,11 @@ public sealed class LinkedRuntimeModuleReaderTests
         foreach (var memory64 in new[] { false, true })
         {
             var globals = Bounds(memory64);
-            globals[0] = globals[0] with { Value = Enumerable.Repeat((byte)0x80, memory64 ? 9 : 4)
-                .Append((byte)0x10).ToArray() };
+            globals[0] = globals[0] with
+            {
+                Value = Enumerable.Repeat((byte)0x80, memory64 ? 9 : 4)
+                .Append((byte)0x10).ToArray()
+            };
             Assert.Throws<InvalidOperationException>(() => Read(Module(Globals(globals))));
             globals[0] = globals[0] with { Value = Enumerable.Repeat((byte)0x80, memory64 ? 10 : 5).ToArray() };
             Assert.Throws<InvalidOperationException>(() => Read(Module(Globals(globals))));

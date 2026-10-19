@@ -354,7 +354,8 @@ public sealed class NativeManagedExecutionIntegrationTests
                         Path.Combine(toolchain, "tools", "wasm-tools", "wasm-tools.wasm")])));
             using var provider = services.BuildServiceProvider(new ServiceProviderOptions
             {
-                ValidateOnBuild = true, ValidateScopes = true,
+                ValidateOnBuild = true,
+                ValidateScopes = true,
             });
             var componentTarget = wasmTarget == WasmTarget.Wasm64
                 ? ComponentTarget.Wasm64Wasi02 : ComponentTarget.Wasm32Wasi02;
@@ -393,7 +394,8 @@ public sealed class NativeManagedExecutionIntegrationTests
                 Assert.Equal(binding.ExpectedImports.Length, binding.ObservedImports.Length);
                 File.WriteAllText(module + ".bindings.json", JsonSerializer.Serialize(new
                 {
-                    binding.ExpectedImports, binding.ObservedImports,
+                    binding.ExpectedImports,
+                    binding.ObservedImports,
                 }, JsonOptions));
                 var observation = module + ".observations.json";
                 commands.Invoke(new(Path.Combine(tools, "node" + suffix),
@@ -445,8 +447,18 @@ public sealed class NativeManagedExecutionIntegrationTests
             Assert.True(new FileInfo(final).Length < 3 * 1024 * 1024);
             File.WriteAllText(Path.Combine(run, "receipt.json"), JsonSerializer.Serialize(new
             {
-                target, lto, optimizedCil, generated, aggregates, aggregateProfile, arraysUtf8,
-                safeHandles, callbacks, namedCallbacks, callbackOnly, callbackFailure,
+                target,
+                lto,
+                optimizedCil,
+                generated,
+                aggregates,
+                aggregateProfile,
+                arraysUtf8,
+                safeHandles,
+                callbacks,
+                namedCallbacks,
+                callbackOnly,
+                callbackFailure,
                 compilation.NativeImports,
                 SourceSha256 = new Sha256ArtifactDigestCalculator().Calculate(sourcePath),
                 AssemblySha256 = new Sha256ArtifactDigestCalculator().Calculate(assembly),
@@ -471,7 +483,8 @@ public sealed class NativeManagedExecutionIntegrationTests
                         path => new Sha256ArtifactDigestCalculator().Calculate(path)),
                 BindingHashes = new[] { sanitized, final }.ToDictionary(path => Path.GetFileName(path),
                     path => new Sha256ArtifactDigestCalculator().Calculate(path + ".bindings.json")),
-                ProductionRawLinker = true, IndependentRuntimeWitValidated = true,
+                ProductionRawLinker = true,
+                IndependentRuntimeWitValidated = true,
             }, JsonOptions));
         }
     }

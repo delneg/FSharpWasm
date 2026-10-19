@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   createBrowserComponentExportSession,
 } from "./browser-component-export-session.mjs";
+import { timeZoneContainer } from "./timezone-sidecar-zones.test.mjs";
 
 const encoder = new TextEncoder();
 const buildFingerprint = "1".repeat(64);
@@ -223,7 +224,7 @@ test("retains timezone resources and transfers cleanup to the session", async ()
         clocks: [], environment: ["TZ"], network: "denyAll", preopens: [], randomness: false,
       },
     },
-    timeZoneBytes: Uint8Array.of(1, 2, 3),
+    timeZoneBytes: timeZoneContainer([["Australia/Melbourne", 1]]),
   });
   const session = await state.open({
     startup: { buildFingerprint, manifestSha256: state.manifestSha256 },

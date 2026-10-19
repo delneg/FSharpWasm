@@ -49,6 +49,9 @@ try {
     let page;
     try {
       page = await browser.newPage();
+      // A hang guard, not a deadline: WebKit runs emulated on Windows Arm64
+      // runners, where a Debug cell can take longer than Playwright's 30 s.
+      page.setDefaultTimeout(180_000);
       page.on("pageerror", error => entry.pageErrors.push(String(error)));
       page.on("console", message => {
         if (message.type() === "error") entry.consoleErrors.push(message.text());
