@@ -70,4 +70,8 @@ internal sealed record ManagedAggregateSsaPlan(
 
 internal sealed record ManagedAggregateSsaPlanningRequest(
     StructuredMethod Method,
-    ManagedAggregateValueAnalysis Analysis);
+    ManagedAggregateValueAnalysis Analysis)
+{
+    // Whether only storages with a lane read are selected.
+    public bool References { get; init; }
+}

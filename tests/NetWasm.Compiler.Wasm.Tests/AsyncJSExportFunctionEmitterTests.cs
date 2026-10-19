@@ -1,9 +1,12 @@
+using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Linq;
 using NetWasm.Compiler.Core;
 using NetWasm.Compiler.Wasm.Emission;
 using NetWasm.Compiler.Wasm.Emission.GeneratedFunctions;
+using NetWasm.Compiler.Wasm.Emission.Instructions.Interop;
 using NetWasm.Compiler.Wasm.Emission.Planning;
+using NetWasm.Compiler.Wasm.Encoding;
 
 namespace NetWasm.Compiler.Wasm.Tests;
 
@@ -159,6 +162,76 @@ public sealed class AsyncJSExportFunctionEmitterTests
     }
 
     [Fact]
+    public void JavaScriptWrapperRootsStringAndArrayArgumentsUntilTheMethodReturns()
+    {
+        var imports = WasmRuntimeImports.CreateCatalog();
+        var layouts = new RecordingLayoutProvider();
+        var methods = new FakeProgram();
+        var stringType = CliTypeIdentity.Primitive("string", CliValueKind.ManagedReference, isValueType: false);
+        var doubles = CliTypeIdentity.SzArray(CliTypeIdentity.Primitive("f8", CliValueKind.F8));
+        var jsObject = CliTypeIdentity.Named(
+            Assembly, "System.Runtime.InteropServices.JavaScript", "JSObject", isValueType: false);
+        var definition = methods.GetMethod(EntryKey) with
+        {
+            Signature = MethodSignatureModel.Create(
+                CliTypeIdentity.FromStackKind(CliValueKind.ManagedReference),
+                stringType,
+                CliTypeIdentity.FromStackKind(CliValueKind.I4),
+                doubles,
+                jsObject),
+        };
+        var strings = new RecordingStringArguments();
+        var arrays = new RecordingArrayArguments();
+        var objects = new RecordingObjectArguments();
+        var emitter = CreateWrapperEmitter(layouts, imports, strings, arrays, objects);
+
+        var body = emitter.Emit(
+            definition,
+            CreateBinding(methods, CliValueKind.I4),
+            initialization: TestRuntimeInitialization.Create(512),
+            hasFinalizers: false,
+            CreateFunctionIndices(methods),
+            interopImports: new InteropImportPlan([], default, default, default, default, default, default));
+
+        Assert.Equal([0], strings.Parameters);
+        Assert.Equal([(doubles, 2)], arrays.Parameters);
+        Assert.Equal([(jsObject, 3)], objects.Parameters);
+        var calls = Calls(body);
+        // One argument frame plus the existing task frame; the argument frame is
+        // left on both the normal and the rethrowing path.
+        Assert.Equal(2, calls.Count(call => call == Call(imports.Resolve(RuntimeImportSymbol.RootFrameEnter))));
+        Assert.Equal(3, calls.Count(call => call == Call(imports.Resolve(RuntimeImportSymbol.RootFrameLeave))));
+        Assert.Contains(WasmOpcodes.ThrowRef, body);
+    }
+
+    [Fact]
+    public void WrapperWithoutAJavaScriptBoundaryPassesReferencesThrough()
+    {
+        var imports = WasmRuntimeImports.CreateCatalog();
+        var layouts = new RecordingLayoutProvider();
+        var methods = new FakeProgram();
+        var definition = methods.GetMethod(EntryKey) with
+        {
+            Signature = MethodSignatureModel.Create(
+                CliTypeIdentity.FromStackKind(CliValueKind.ManagedReference),
+                CliTypeIdentity.Primitive("string", CliValueKind.ManagedReference, isValueType: false)),
+        };
+        var strings = new RecordingStringArguments();
+        var emitter = CreateWrapperEmitter(layouts, imports, strings, new RecordingArrayArguments());
+
+        var body = emitter.Emit(
+            definition,
+            CreateBinding(methods, CliValueKind.I4),
+            initialization: TestRuntimeInitialization.Create(512),
+            hasFinalizers: false,
+            CreateFunctionIndices(methods));
+
+        Assert.Empty(strings.Parameters);
+        Assert.Equal(1, Calls(body).Count(call =>
+            call == Call(imports.Resolve(RuntimeImportSymbol.RootFrameEnter))));
+    }
+
+    [Fact]
     public void StatusEmitterReadsTheStatusFieldThroughTheHandle()
     {
         var imports = WasmRuntimeImports.CreateCatalog();
@@ -269,7 +342,10 @@ public sealed class AsyncJSExportFunctionEmitterTests
 
     private static IAsyncJSExportWrapperEmitter CreateWrapperEmitter(
         RecordingLayoutProvider layouts,
-        RuntimeImportCatalog imports) => new[]
+        RuntimeImportCatalog imports,
+        IHostCallbackStringArgumentMarshaller? strings = null,
+        IHostCallbackByteArrayArgumentMarshaller? arrays = null,
+        IHostCallbackHostObjectArgumentMarshaller? objects = null) => new[]
         {
             new AsyncJSExportWrapperEmitter(
                 layouts,
@@ -278,7 +354,10 @@ public sealed class AsyncJSExportFunctionEmitterTests
                 CreateRuntimeStateInitializer(layouts, imports),
                 new ImplicitExceptionEmitter(layouts, layouts, 7),
                 CreateReferenceComparisons(layouts),
-                new GeneratedFunctionWriterFactory()),
+                new GeneratedFunctionWriterFactory(),
+                strings ?? new RecordingStringArguments(),
+                arrays ?? new RecordingArrayArguments(),
+                objects ?? new RecordingObjectArguments()),
         }.Cast<IAsyncJSExportWrapperEmitter>().Single();
 
     private static FunctionIndexResolver CreateFunctionIndices(FakeProgram methods)
@@ -299,4 +378,42 @@ public sealed class AsyncJSExportFunctionEmitterTests
         .Select(item => body[item.index + 1])];
 
     private static byte Call(int index) => checked((byte)index);
+
+    private sealed class RecordingStringArguments : IHostCallbackStringArgumentMarshaller
+    {
+        public List<int> Parameters { get; } = [];
+
+        public void Emit(
+            IWasmInstructionWriter code,
+            int handleParameter,
+            int destination,
+            int temporaryI4,
+            int objectTemporary,
+            InteropMarshallingTarget target) => Parameters.Add(handleParameter);
+    }
+
+    private sealed class RecordingObjectArguments : IHostCallbackHostObjectArgumentMarshaller
+    {
+        public List<(CliTypeIdentity Type, int Parameter)> Parameters { get; } = [];
+
+        public void Emit(
+            IWasmInstructionWriter code,
+            CliTypeIdentity objectType,
+            int handleParameter,
+            int destination) => Parameters.Add((objectType, handleParameter));
+    }
+
+    private sealed class RecordingArrayArguments : IHostCallbackByteArrayArgumentMarshaller
+    {
+        public List<(CliTypeIdentity Type, int Parameter)> Parameters { get; } = [];
+
+        public void Emit(
+            IWasmInstructionWriter code,
+            CliTypeIdentity arrayType,
+            int handleParameter,
+            int destination,
+            int temporaryI4,
+            int objectTemporary,
+            InteropMarshallingTarget target) => Parameters.Add((arrayType, handleParameter));
+    }
 }

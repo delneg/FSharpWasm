@@ -9,6 +9,7 @@ namespace System
         private readonly ref T _reference;
         private readonly int _length;
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public ReadOnlySpan(T[]? array)
         {
             if (array == null)
@@ -21,6 +22,7 @@ namespace System
             _length = array.Length;
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public ReadOnlySpan(T[]? array, int start, int length)
         {
             if (array == null)
@@ -43,18 +45,21 @@ namespace System
             _length = length;
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         internal ReadOnlySpan(ref T reference, int length)
         {
             _reference = ref reference;
             _length = length;
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public ReadOnlySpan(ref readonly T reference)
         {
             _reference = ref Unsafe.AsRef(in reference);
             _length = 1;
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public unsafe ReadOnlySpan(void* pointer, int length)
         {
             if (RuntimeHelpers.IsReferenceOrContainsReferences<T>())
@@ -94,6 +99,7 @@ namespace System
 
         public ref readonly T this[int index]
         {
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
             get
             {
                 if ((uint)index >= (uint)_length)
@@ -147,12 +153,14 @@ namespace System
             private readonly ReadOnlySpan<T> _span;
             private int _index;
 
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
             internal Enumerator(ReadOnlySpan<T> span)
             {
                 _span = span;
                 _index = -1;
             }
 
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
             public bool MoveNext()
             {
                 var next = _index + 1;
@@ -167,6 +175,7 @@ namespace System
 
             public ref readonly T Current
             {
+                [MethodImpl(MethodImplOptions.AggressiveInlining)]
                 get => ref _span[_index];
             }
             T System.Collections.Generic.IEnumerator<T>.Current => Current;
@@ -185,6 +194,7 @@ namespace System
             return ref result;
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public ReadOnlySpan<T> Slice(int start)
         {
             if (start < 0 || start > _length)
@@ -195,6 +205,7 @@ namespace System
                 ref Unsafe.Add(ref _reference, start), _length - start);
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public ReadOnlySpan<T> Slice(int start, int length)
         {
             if (start < 0)

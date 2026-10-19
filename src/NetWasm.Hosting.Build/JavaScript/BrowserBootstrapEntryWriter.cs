@@ -22,58 +22,38 @@ public sealed class BrowserBootstrapEntryWriter : IBrowserBootstrapEntryWriter
     public void Write(BrowserBootstrapEntryRequest request)
     {
         Validate(request);
-        var hosting = ModuleSpecifier(request.HostingBrowserModulePath);
-        var instantiation = ModuleSpecifier(Path.Combine(
-            request.Preview2ShimRoot,
-            "dist",
-            "common",
-            "instantiation.js"));
-        var filesystem = ModuleSpecifier(Path.Combine(
-            request.Preview2ShimRoot,
-            "dist",
-            "browser",
-            "filesystem.js"));
         var modules = request.Modules.IsDefault ? [] : request.Modules;
-        var moduleImports = string.Join("\n", modules.Select((module, index) =>
-            $"import * as consumerModule{index} from {ModuleSpecifier(module.SourcePath)};"));
+        var builder = new StringBuilder();
+        builder.Append("import { createBrowserNetWasmBootstrap } from ")
+            .Append(ModuleSpecifier(request.HostingBrowserModulePath)).AppendLine(";");
+        builder.Append("import { createCommandRun } from ")
+            .Append(ModuleSpecifier(Path.Combine(Path.GetDirectoryName(request.HostingBrowserModulePath)!, "command-run.mjs")))
+            .AppendLine(";");
+        BrowserHostSource.AppendImports(builder, request.Preview2ShimRoot);
+        foreach (var (module, index) in modules.Select((module, index) => (module, index)))
+        {
+            builder.Append("import * as consumerModule").Append(index).Append(" from ")
+                .Append(ModuleSpecifier(module.SourcePath)).AppendLine(";");
+        }
+        builder.AppendLine();
+        builder.AppendLine("const manifestUrl = new URL(\"./deployment.json\", import.meta.url).href;");
+        builder.AppendLine("const preview2 = Object.freeze({");
+        BrowserHostSource.AppendPreview2Members(builder, "  ");
+        builder.AppendLine("});");
+        builder.AppendLine("const web = Object.freeze({");
+        BrowserHostSource.AppendWebMembers(builder, "  ");
+        builder.AppendLine("});");
+        builder.AppendLine();
         var moduleBindings = string.Join(", ", modules.Select((module, index) =>
             $"[{JsonSerializer.Serialize(module.Module)}]: consumerModule{index}"));
-        var source = $$"""
-            import { createBrowserNetWasmBootstrap } from {{hosting}};
-            import { WASIShim } from {{instantiation}};
-            import { createFilesystem, InMemoryFilesystemAdapter } from {{filesystem}};
-            {{moduleImports}}
-
-            const manifestUrl = new URL("./deployment.json", import.meta.url).href;
-            const preview2 = Object.freeze({
-              createFilesystem({ preopens }) {
-                if (Object.keys(preopens).length !== 0) {
-                  throw new TypeError("browser preopens require explicit browser capabilities");
-                }
-                return createFilesystem({
-                  adapter: new InMemoryFilesystemAdapter(),
-                  preopens: Object.freeze({}),
-                });
-              },
-              createShim: config => new WASIShim(config),
-            });
-            const web = Object.freeze({
-              compileCoreModule: WebAssembly.compile.bind(WebAssembly),
-              createModuleUrl: bytes => URL.createObjectURL(new Blob(
-                [bytes],
-                { type: "text/javascript" })),
-              digest: crypto.subtle.digest.bind(crypto.subtle),
-              fetch: globalThis.fetch.bind(globalThis),
-              importModule: url => import(url),
-              revokeModuleUrl: URL.revokeObjectURL.bind(URL),
-            });
-
-            export const executeNetWasm = createBrowserNetWasmBootstrap({
-              manifestUrl,
-              preview2,
-              web,
-            }, Object.freeze({ {{moduleBindings}} }));
-            """;
+        builder.AppendLine("export const executeNetWasm = createBrowserNetWasmBootstrap({");
+        builder.AppendLine("  manifestUrl,");
+        builder.AppendLine("  preview2,");
+        builder.AppendLine("  web,");
+        builder.Append("}, Object.freeze({ ").Append(moduleBindings).AppendLine(" }));");
+        // The generated <App>.mjs run() helper calls this with the build's request.
+        builder.AppendLine("export const runNetWasm = createCommandRun(executeNetWasm);");
+        var source = builder.ToString().TrimEnd('\r', '\n');
         Directory.CreateDirectory(Path.GetDirectoryName(request.OutputPath)!);
         File.WriteAllText(
             request.OutputPath,
@@ -81,8 +61,7 @@ public sealed class BrowserBootstrapEntryWriter : IBrowserBootstrapEntryWriter
             new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
     }
 
-    private static string ModuleSpecifier(string path) =>
-        JsonSerializer.Serialize(new Uri(Path.GetFullPath(path)).AbsoluteUri);
+    private static string ModuleSpecifier(string path) => BrowserHostSource.ModuleSpecifier(path);
 
     private static void Validate(BrowserBootstrapEntryRequest request)
     {

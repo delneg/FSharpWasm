@@ -27,7 +27,7 @@ public sealed class WasmOptimizationSettingsResolver : IWasmOptimizationSettings
             [FinalWasmOptimization.O0] = LoopInvariantFieldHoistingPolicy.Disabled,
             [FinalWasmOptimization.O1] = LoopInvariantFieldHoistingPolicy.Disabled,
             [FinalWasmOptimization.O2] = LoopInvariantFieldHoistingPolicy.Conservative,
-            [FinalWasmOptimization.O3] = LoopInvariantFieldHoistingPolicy.Conservative,
+            [FinalWasmOptimization.O3] = LoopInvariantFieldHoistingPolicy.NullChecks,
             [FinalWasmOptimization.Os] = LoopInvariantFieldHoistingPolicy.Disabled,
             [FinalWasmOptimization.Oz] = LoopInvariantFieldHoistingPolicy.Disabled,
         }.ToFrozenDictionary();
@@ -60,7 +60,7 @@ public sealed class WasmOptimizationSettingsResolver : IWasmOptimizationSettings
             [FinalWasmOptimization.O0] = AddressTakenValuePromotionPolicy.Disabled,
             [FinalWasmOptimization.O1] = AddressTakenValuePromotionPolicy.Disabled,
             [FinalWasmOptimization.O2] = AddressTakenValuePromotionPolicy.Disabled,
-            [FinalWasmOptimization.O3] = AddressTakenValuePromotionPolicy.Conservative,
+            [FinalWasmOptimization.O3] = AddressTakenValuePromotionPolicy.References,
             [FinalWasmOptimization.Os] = AddressTakenValuePromotionPolicy.Disabled,
             [FinalWasmOptimization.Oz] = AddressTakenValuePromotionPolicy.Disabled,
         }.ToFrozenDictionary();
@@ -73,7 +73,7 @@ public sealed class WasmOptimizationSettingsResolver : IWasmOptimizationSettings
             [FinalWasmOptimization.O0] = ManagedMethodInliningPolicy.Disabled,
             [FinalWasmOptimization.O1] = ManagedMethodInliningPolicy.Disabled,
             [FinalWasmOptimization.O2] = ManagedMethodInliningPolicy.Disabled,
-            [FinalWasmOptimization.O3] = ManagedMethodInliningPolicy.Conservative,
+            [FinalWasmOptimization.O3] = ManagedMethodInliningPolicy.Speed,
             [FinalWasmOptimization.Os] = ManagedMethodInliningPolicy.Disabled,
             [FinalWasmOptimization.Oz] = ManagedMethodInliningPolicy.Disabled,
         }.ToFrozenDictionary();
@@ -127,6 +127,8 @@ public sealed class WasmOptimizationSettingsResolver : IWasmOptimizationSettings
                 LoopInvariantFieldHoistingPolicy.Disabled,
             ManagedLoopInvariantFieldHoisting.Enabled =>
                 LoopInvariantFieldHoistingPolicy.Conservative,
+            ManagedLoopInvariantFieldHoisting.NullChecks =>
+                LoopInvariantFieldHoistingPolicy.NullChecks,
             _ => throw new ArgumentOutOfRangeException(nameof(options)),
         };
 
@@ -151,6 +153,8 @@ public sealed class WasmOptimizationSettingsResolver : IWasmOptimizationSettings
                 AddressTakenValuePromotionPolicy.Disabled,
             ManagedAddressTakenValuePromotion.Enabled =>
                 AddressTakenValuePromotionPolicy.Conservative,
+            ManagedAddressTakenValuePromotion.References =>
+                AddressTakenValuePromotionPolicy.References,
             _ => throw new ArgumentOutOfRangeException(nameof(options)),
         };
 
@@ -160,7 +164,7 @@ public sealed class WasmOptimizationSettingsResolver : IWasmOptimizationSettings
         {
             ManagedMethodInlining.Auto => managedMethodInlining,
             ManagedMethodInlining.Disabled => ManagedMethodInliningPolicy.Disabled,
-            ManagedMethodInlining.Enabled => ManagedMethodInliningPolicy.Conservative,
+            ManagedMethodInlining.Enabled => ManagedMethodInliningPolicy.Speed,
             _ => throw new ArgumentOutOfRangeException(nameof(options)),
         };
 
@@ -227,18 +231,73 @@ public sealed class WasmOptimizationSettingsResolver : IWasmOptimizationSettings
             ManagedStaticArrayPopulationElimination.Enabled => StaticArrayPopulationEliminationPolicy.Conservative,
             _ => throw new ArgumentOutOfRangeException(nameof(options)),
         };
+        // Folding removes calls and the code their results decide, so it suits size and speed presets alike.
+        var callFoldingOverride = options?.ConstantCallFolding ?? ManagedConstantCallFolding.Auto;
+        var callFolding = callFoldingOverride switch
+        {
+            ManagedConstantCallFolding.Auto => wholeProgramDefaults
+                ? ConstantCallFoldingPolicy.Conservative : ConstantCallFoldingPolicy.Disabled,
+            ManagedConstantCallFolding.Disabled => ConstantCallFoldingPolicy.Disabled,
+            ManagedConstantCallFolding.Enabled => ConstantCallFoldingPolicy.Conservative,
+            _ => throw new ArgumentOutOfRangeException(nameof(options)),
+        };
+        // A bit test replaces a compare per case, so it is smaller as well as faster.
+        var bitTestOverride = options?.SwitchBitTests ?? ManagedSwitchBitTests.Auto;
+        var bitTests = bitTestOverride switch
+        {
+            ManagedSwitchBitTests.Auto => preset is FinalWasmOptimization.None or FinalWasmOptimization.O0
+                ? SwitchBitTestPolicy.Disabled : SwitchBitTestPolicy.Conservative,
+            ManagedSwitchBitTests.Disabled => SwitchBitTestPolicy.Disabled,
+            ManagedSwitchBitTests.Enabled => SwitchBitTestPolicy.Conservative,
+            _ => throw new ArgumentOutOfRangeException(nameof(options)),
+        };
+        // A direct call replaces a dispatch, so it is smaller as well as faster.
+        var devirtualizationOverride = options?.Devirtualization ?? ManagedDevirtualization.Auto;
+        var devirtualization = devirtualizationOverride switch
+        {
+            ManagedDevirtualization.Auto => preset is FinalWasmOptimization.None or FinalWasmOptimization.O0
+                ? DevirtualizationPolicy.Disabled : DevirtualizationPolicy.ExactType,
+            ManagedDevirtualization.Disabled => DevirtualizationPolicy.Disabled,
+            ManagedDevirtualization.Enabled => DevirtualizationPolicy.ExactType,
+            _ => throw new ArgumentOutOfRangeException(nameof(options)),
+        };
+        // Removing an allocation nothing reads removes code as well as work.
+        var allocationOverride = options?.AllocationElimination ?? ManagedAllocationElimination.Auto;
+        var allocations = allocationOverride switch
+        {
+            ManagedAllocationElimination.Auto => preset is FinalWasmOptimization.None or FinalWasmOptimization.O0
+                ? AllocationEliminationPolicy.Disabled : AllocationEliminationPolicy.Unused,
+            ManagedAllocationElimination.Disabled => AllocationEliminationPolicy.Disabled,
+            ManagedAllocationElimination.Enabled => AllocationEliminationPolicy.Unused,
+            _ => throw new ArgumentOutOfRangeException(nameof(options)),
+        };
+        // The condition is repeated per loop, so the size presets keep one copy.
+        var rotationOverride = options?.LoopRotation ?? ManagedLoopRotation.Auto;
+        var rotation = rotationOverride switch
+        {
+            ManagedLoopRotation.Auto => preset == FinalWasmOptimization.O3
+                ? LoopRotationPolicy.Guarded : LoopRotationPolicy.Disabled,
+            ManagedLoopRotation.Disabled => LoopRotationPolicy.Disabled,
+            ManagedLoopRotation.Enabled => LoopRotationPolicy.Guarded,
+            _ => throw new ArgumentOutOfRangeException(nameof(options)),
+        };
 
         if (preset == FinalWasmOptimization.None &&
             (hint != ManagedInliningHints.Auto ||
-             fieldOverride == ManagedLoopInvariantFieldHoisting.Enabled ||
+             fieldOverride is ManagedLoopInvariantFieldHoisting.Enabled or ManagedLoopInvariantFieldHoisting.NullChecks ||
              staticDataOverride == ManagedStaticDataViewElimination.Enabled ||
-             valuePromotionOverride == ManagedAddressTakenValuePromotion.Enabled ||
+             valuePromotionOverride is ManagedAddressTakenValuePromotion.Enabled or ManagedAddressTakenValuePromotion.References ||
              methodInliningOverride == ManagedMethodInlining.Enabled ||
              scalarOverride == ManagedScalarCallPreservation.Enabled ||
              arrayBoundsOverride == ManagedArrayBoundsCheckElimination.Enabled ||
              unrollingOverride == ManagedLoopUnrolling.Enabled ||
              constantOverride == ManagedConstantArgumentPropagation.Enabled ||
              populationOverride == ManagedStaticArrayPopulationElimination.Enabled ||
+             callFoldingOverride == ManagedConstantCallFolding.Enabled ||
+             bitTestOverride == ManagedSwitchBitTests.Enabled ||
+             devirtualizationOverride == ManagedDevirtualization.Enabled ||
+             allocationOverride == ManagedAllocationElimination.Enabled ||
+             rotationOverride == ManagedLoopRotation.Enabled ||
              branchPrefixDuplicationOverride ==
                 ManagedBranchPrefixDuplication.Enabled))
         {
@@ -259,6 +318,11 @@ public sealed class WasmOptimizationSettingsResolver : IWasmOptimizationSettings
             arrayBounds,
             unrolling,
             constantArguments,
-            staticPopulation);
+            staticPopulation,
+            callFolding,
+            bitTests,
+            devirtualization,
+            allocations,
+            rotation);
     }
 }

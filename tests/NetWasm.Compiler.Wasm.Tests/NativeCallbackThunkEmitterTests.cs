@@ -212,6 +212,8 @@ public sealed class NativeCallbackThunkEmitterTests
 
     private sealed class FixedFunctionIndexResolver : IFunctionIndexResolver
     {
+        public int Resolve(InteropImportKey import) => Resolve(import.Method);
+
         public int Resolve(EntityKey method) => 44;
         public int Resolve(string method) => 44;
         public int Resolve(MethodInstanceModel method) => 44;

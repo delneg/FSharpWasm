@@ -15,9 +15,9 @@ repository.
 - [NetWasm SDK quickstart](sdk-quickstart.md) — create an app or dual-target
   library, restore the pinned host tools through NuGet, then build, run and
   publish with ordinary `dotnet` commands.
-- [JavaScript interop](javascript-interop.md) — use `[JSImport]` and
-  `[JSExport]`, generated worker clients, callbacks, tasks, and explicit module
-  providers within the supported ABI.
+- [JavaScript interop](javascript-interop.md): use `[JSImport]` and
+  `[JSExport]`, publish C# exports as a page-hosted JavaScript module, and pass
+  callbacks, tasks, typed arrays and JavaScript objects within the supported ABI.
 - [Static native C interop](static-native-interop.md) — link Wasm `.a`
   archives with `[LibraryImport]` and expose managed callbacks with
   `[UnmanagedCallersOnly]`.
@@ -34,9 +34,9 @@ repository.
 - [Targets and output formats](targets-and-outputs.md) — wasm32/wasm64 core
   modules, Component Model packaging, `cm32p2`/`cm64p2`, and WASI version
   boundaries.
-- [C# Web Workers](web-workers.md) — publish WIT or JSExport workers, call the
-  generated JavaScript client, exchange notifications, and manage worker
-  lifecycle.
+- [C# Web Workers](web-workers.md): publish WIT workers or JavaScript modules
+  in a worker, call the generated JavaScript client, exchange notifications, and
+  manage worker lifecycle.
 - [Compiler diagnostics](diagnostics.md) — every current
   `NetWasm.Compiler.Core.DiagnosticCode`, including cause, exact scope, and
   corrective action.
@@ -65,8 +65,8 @@ repository.
   reachability, layout, and Wasm emission.
 - [Expression-tree execution profile](expression-trees.md): the bounded,
   interpreter-only executable node and delegate matrix.
-- [Timezone assets](timezone-assets.md) — optional timezone deployment and
-  runtime capability selection.
+- [Timezone assets](timezone-assets.md): choose the time zones an application
+  ships, and how hosts load them.
 
 ## Status and compatibility
 

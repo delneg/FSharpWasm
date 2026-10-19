@@ -104,7 +104,10 @@ internal sealed class ArrayInstructionEmitter(
             request.Context,
             arraySlot,
             CliValueKind.ManagedReference);
-        EmitNullCheck(code, arrayLocal);
+        if (!request.Context.ArrayMetadata.Plan.CheckedAccesses.Contains(request.Instruction.Offset))
+        {
+            EmitNullCheck(code, arrayLocal);
+        }
         if (request.Context.ArrayMetadata.Plan.Accesses.TryGetValue(request.Instruction.Offset, out var slot))
         {
             code.Write(WasmInstruction.WithOperand(WasmOpcodes.LocalGet,

@@ -67,9 +67,18 @@ public sealed class NetWasmExecutionResultValidator : INetWasmExecutionResultVal
         }
 
         ArgumentException.ThrowIfNullOrWhiteSpace(failure.Message);
-        if (failure.Message.AsSpan().Trim().Length != failure.Message.Length || failure.Message.Any(char.IsControl))
+        if (!IsSingleLine(failure.Message))
         {
             throw new ArgumentException("Execution failure messages must be canonical single-line text.", nameof(failure));
         }
+
+        if (failure.Detail is not null
+            && (failure.Detail.Length is 0 or > NetWasmExecutionFailure.MaxDetailLength || !IsSingleLine(failure.Detail)))
+        {
+            throw new ArgumentException("Execution failure details must be bounded single-line text.", nameof(failure));
+        }
     }
+
+    private static bool IsSingleLine(string text) =>
+        text.AsSpan().Trim().Length == text.Length && !text.Any(char.IsControl);
 }

@@ -9,6 +9,7 @@ namespace System
         private ref T _reference;
         private int _length;
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public Span(T[]? array)
         {
             if (array == null)
@@ -25,6 +26,7 @@ namespace System
             _length = array.Length;
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public Span(T[]? array, int start, int length)
         {
             if (array == null)
@@ -51,6 +53,7 @@ namespace System
             _length = length;
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public unsafe Span(void* pointer, int length)
         {
             if (RuntimeHelpers.IsReferenceOrContainsReferences<T>())
@@ -65,12 +68,14 @@ namespace System
             _length = length;
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         internal Span(ref T reference, int length)
         {
             _reference = ref reference;
             _length = length;
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public Span(ref T reference)
         {
             _reference = ref reference;
@@ -97,6 +102,7 @@ namespace System
 
         public ref T this[int index]
         {
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
             get
             {
                 if ((uint)index >= (uint)_length)
@@ -150,12 +156,14 @@ namespace System
             private readonly Span<T> _span;
             private int _index;
 
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
             internal Enumerator(Span<T> span)
             {
                 _span = span;
                 _index = -1;
             }
 
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
             public bool MoveNext()
             {
                 var next = _index + 1;
@@ -170,6 +178,7 @@ namespace System
 
             public ref T Current
             {
+                [MethodImpl(MethodImplOptions.AggressiveInlining)]
                 get => ref _span[_index];
             }
             T System.Collections.Generic.IEnumerator<T>.Current => Current;
@@ -190,8 +199,10 @@ namespace System
 
         internal ref T DangerousReference => ref _reference;
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public Span<T> Slice(int start) => Slice(start, _length - start);
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public Span<T> Slice(int start, int length)
         {
             if (start < 0)

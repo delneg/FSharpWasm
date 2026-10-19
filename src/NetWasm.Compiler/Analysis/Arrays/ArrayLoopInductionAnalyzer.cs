@@ -33,6 +33,15 @@ internal sealed class ArrayLoopInductionAnalyzer(
                 // A standalone condition block ensures the induction is tested
                 // before any body effects, including on the initial iteration.
                 var code = guard.Instructions.Where(i => i.Operation != CilOperation.Nop).ToArray();
+                // index + c < length, as in `for (i = 0; i + 1 < a.Length; i++)`.
+                var lookahead = 0;
+                if (code.Length == 7 &&
+                    code[1] is { Operation: CilOperation.LoadInt32, Operand: CilOperand.ConstantI4 { Value: > 0 } added } &&
+                    code[2].Operation == CilOperation.Add)
+                {
+                    lookahead = added.Value;
+                    code = [code[0], .. code[3..]];
+                }
                 if (code.Length != 5 ||
                     code[0].Operation != CilOperation.LoadLocal ||
                     code[1].Operation != CilOperation.LoadLocal ||
@@ -102,7 +111,10 @@ internal sealed class ArrayLoopInductionAnalyzer(
                     (tail.Length != 0 && (tail.Length != 1 || tail[0].Operation != CilOperation.Branch)))
                     continue;
                 result.Add(new(index, array, guardIndex, bodyEntry,
-                    increment.Instruction.Offset, loop));
+                    increment.Instruction.Offset, loop)
+                {
+                    Lookahead = lookahead,
+                });
             }
         }
         return result.ToImmutable();

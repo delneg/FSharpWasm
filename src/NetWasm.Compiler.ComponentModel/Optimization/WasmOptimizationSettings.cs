@@ -22,4 +22,9 @@ public sealed record WasmOptimizationSettings(
         ArrayBoundsCheckEliminationPolicy.Disabled,
     LoopUnrollingPolicy LoopUnrolling = LoopUnrollingPolicy.Disabled,
     ConstantArgumentPropagationPolicy ConstantArgumentPropagation = ConstantArgumentPropagationPolicy.Disabled,
-    StaticArrayPopulationEliminationPolicy StaticArrayPopulationElimination = StaticArrayPopulationEliminationPolicy.Disabled);
+    StaticArrayPopulationEliminationPolicy StaticArrayPopulationElimination = StaticArrayPopulationEliminationPolicy.Disabled,
+    ConstantCallFoldingPolicy ConstantCallFolding = ConstantCallFoldingPolicy.Disabled,
+    SwitchBitTestPolicy SwitchBitTests = SwitchBitTestPolicy.Disabled,
+    DevirtualizationPolicy Devirtualization = DevirtualizationPolicy.Disabled,
+    AllocationEliminationPolicy AllocationElimination = AllocationEliminationPolicy.Disabled,
+    LoopRotationPolicy LoopRotation = LoopRotationPolicy.Disabled);

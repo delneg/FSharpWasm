@@ -33,6 +33,9 @@ public sealed class NetWasmReadHostInteropManifestTaskTests
             {
                 Assert.Equal("add", export.GetMetadata("Name"));
                 Assert.Equal("[\"i32\",\"i32\"]", export.GetMetadata("Parameters"));
+                Assert.Equal("[\"left\",\"right\"]", export.GetMetadata("ParameterNames"));
+                Assert.Equal("[true,false]", export.GetMetadata("NonNullableParameters"));
+                Assert.Equal("true", export.GetMetadata("NonNullableResult"));
                 Assert.Equal("i32", export.GetMetadata("Result"));
                 Assert.Equal(string.Empty, export.GetMetadata("AsyncReturn"));
             },
@@ -40,6 +43,9 @@ public sealed class NetWasmReadHostInteropManifestTaskTests
             {
                 Assert.Equal("read", export.GetMetadata("Name"));
                 Assert.Equal("[]", export.GetMetadata("Parameters"));
+                Assert.Equal("[]", export.GetMetadata("ParameterNames"));
+                Assert.Equal("[]", export.GetMetadata("NonNullableParameters"));
+                Assert.Equal("false", export.GetMetadata("NonNullableResult"));
                 Assert.Equal("i64", export.GetMetadata("Result"));
                 Assert.Equal("task", export.GetMetadata("AsyncReturn"));
             });
@@ -85,8 +91,11 @@ public sealed class NetWasmReadHostInteropManifestTaskTests
                 new("consumer.worker", "increment", ["i32"], "i32"),
             ],
             [
-                new("add", ["i32", "i32"], "i32"),
-                new("read", [], "i64") { AsyncReturn = "task" },
+                new("add", ["i32", "i32"], "i32")
+                {
+                    ParameterNames = ["left", "right"], NonNullableParameters = [true, false], NonNullableResult = true,
+                },
+                new("read", [], "i64") { AsyncReturn = "task", ParameterNames = default, NonNullableParameters = default },
             ]);
         }
     }

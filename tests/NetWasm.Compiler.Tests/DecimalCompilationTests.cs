@@ -278,7 +278,7 @@ public sealed class DecimalCompilationTests
         Assert.DoesNotContain(composed.Body.Instructions, instruction =>
             instruction.Operation == CilOperation.Call &&
             instruction.Operand is CilOperand.MethodInstance called &&
-            called.Value.Definition.Name == "get_UInt32Powers10");
+            called.Value.Definition.Name is "get_UInt32Powers10" or "get_Scale");
         Assert.DoesNotContain(composed.Body.Instructions, instruction =>
             instruction.Operation == CilOperation.Call &&
             instruction.Operand is CilOperand.MethodInstance called &&
@@ -347,10 +347,12 @@ public sealed class DecimalCompilationTests
         Assert.Contains(storage.Id, ssa.Storages.Keys);
         Assert.Equal(4, ssa.Lanes.Length);
         Assert.Equal(32, ssa.Definitions.Length);
-        Assert.Equal(25, ssa.Accesses.Count);
+        // The inlined decimal.Scale reads are lane accesses, not calls that
+        // need the aggregate materialized.
+        Assert.Equal(27, ssa.Accesses.Count);
         Assert.Equal(14, ssa.Phis.Length);
         Assert.Equal(55, ssa.EdgeCopies.Length);
-        Assert.Equal(7, ssa.Materializations.Length);
+        Assert.Equal(5, ssa.Materializations.Length);
         Assert.Empty(ssa.RootDependencies);
         Assert.Contains(ssa.Accesses.Values, access => !access.Writes.IsEmpty);
         Assert.Equal(42, ExecuteWithNode(

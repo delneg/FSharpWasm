@@ -50,7 +50,7 @@ internal sealed class RuntimeIntrinsicTypeRootPlanner(
         {
             foreach (var array in types.Where(type => type.Shape == CliTypeShape.SzArray))
             {
-                var element = array.ElementType!;
+                var element = _nullableTypes.Resolve(array.ElementType!) ?? array.ElementType!;
                 if (!element.IsValueType)
                 {
                     continue;

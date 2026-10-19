@@ -190,6 +190,8 @@ public sealed class FilterFunctionAppenderTests
 
     private sealed class FixedFunctionIndexResolver : IFunctionIndexResolver
     {
+        public int Resolve(InteropImportKey import) => Resolve(import.Method);
+
         public int Resolve(EntityKey method) => 0;
         public int Resolve(string method) => 0;
         public int Resolve(MethodInstanceModel method) => 0;

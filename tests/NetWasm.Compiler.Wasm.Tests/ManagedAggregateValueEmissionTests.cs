@@ -272,6 +272,82 @@ public sealed class ManagedAggregateValueEmissionTests
             instruction.Opcode == WasmOpcodes.I32Store));
     }
 
+    [Theory]
+    [InlineData(WasmTarget.Wasm32)]
+    [InlineData(WasmTarget.Wasm64)]
+    public void MovesReferenceLanesWholeAndClearsEveryLane(WasmTarget target)
+    {
+        var layout = WasmTargetLayout.For(target);
+        var pointer = layout.ObjectReferenceSize;
+        var reference = new ManagedAggregateSsaLane(Storage, 0);
+        var integer = new ManagedAggregateSsaLane(Storage, pointer);
+        var type = CliTypeIdentity.FromStackKind(CliValueKind.ValueType);
+        var recipe = new ManagedAggregateAddressRecipe(Storage, 0, type);
+        var storage = new ManagedAggregateStorage(Storage, type, pointer + sizeof(int), true)
+        {
+            LaneShapes = [new(0, pointer, CliValueKind.ManagedAddress), new(pointer, sizeof(int), CliValueKind.I4)],
+        };
+        var plan = Plan() with
+        {
+            Storages = ImmutableDictionary<ManagedAggregateStorageId, ManagedAggregateStorage>.Empty.Add(Storage, storage),
+            Lanes = [reference, integer],
+            Accesses = ImmutableDictionary<int, ManagedAggregateSsaAccess>.Empty
+                .Add(10, new(new(10, new(0), recipe, pointer, CliValueKind.ManagedAddress, false) { LaneOffsets = [0] },
+                    [new(reference, new(0))], []))
+                .Add(20, new(new(20, new(0), recipe, pointer, CliValueKind.ManagedAddress, true) { LaneOffsets = [0] },
+                    [], [new(reference, new(1))]))
+                .Add(30, new(new(30, new(0), recipe, pointer + sizeof(int), CliValueKind.ValueType, true)
+                {
+                    LaneOffsets = [0, pointer],
+                },
+                    [], [new(reference, new(2)), new(integer, new(3))])),
+            Materializations = [new(new(40, Storage), [new(reference, new(2)), new(integer, new(3))])],
+        };
+        var context = Context(plan) with
+        {
+            ManagedAggregateValues = new(plan,
+                ImmutableDictionary<ManagedAggregateSsaLane, int>.Empty.Add(reference, 30).Add(integer, 31)),
+        };
+        var addresses = new RecordingValueFrameAddressEmitter();
+        var emitter = new ManagedAggregateValueInstructionEmitter(new RecordingLayoutProvider(layout), addresses);
+        var targetPlan = CreateInstructionModuleTarget(new FakeProgram());
+
+        var loadStack = new List<CliValueKind> { CliValueKind.ManagedAddress };
+        var loadCode = new RecordingInstructionWriter();
+        Assert.True(emitter.TryEmit(new(Header(), I(10, CilOperation.LoadField), loadStack, context, targetPlan), loadCode));
+        Assert.Equal([CliValueKind.ManagedAddress], loadStack);
+        Assert.Equal([WasmOpcodes.LocalGet, WasmOpcodes.LocalSet], loadCode.ToInstructions().Select(instruction => instruction.Opcode));
+        Assert.Equal(30u, loadCode.ToInstructions()[0].Operand.UnsignedValue);
+
+        var storeStack = new List<CliValueKind> { CliValueKind.ManagedAddress, CliValueKind.ManagedAddress };
+        var storeCode = new RecordingInstructionWriter();
+        Assert.True(emitter.TryEmit(new(Header(), I(20, CilOperation.StoreField), storeStack, context, targetPlan), storeCode));
+        Assert.Empty(storeStack);
+        Assert.Equal([WasmOpcodes.LocalGet, WasmOpcodes.LocalSet], storeCode.ToInstructions().Select(instruction => instruction.Opcode));
+        Assert.Equal(30u, storeCode.ToInstructions()[1].Operand.UnsignedValue);
+
+        var clearStack = new List<CliValueKind> { CliValueKind.ManagedAddress };
+        var clearCode = new RecordingInstructionWriter();
+        Assert.True(emitter.TryEmit(new(Header(), I(30, CilOperation.InitializeObject), clearStack, context, targetPlan), clearCode));
+        Assert.Empty(clearStack);
+        Assert.Equal(
+            [
+                target == WasmTarget.Wasm64 ? WasmOpcodes.I64Constant : WasmOpcodes.I32Constant, WasmOpcodes.LocalSet,
+                WasmOpcodes.I32Constant, WasmOpcodes.LocalSet,
+            ],
+            clearCode.ToInstructions().Select(instruction => instruction.Opcode));
+        Assert.Equal([30u, 31u], clearCode.ToInstructions().Where(instruction => instruction.Opcode == WasmOpcodes.LocalSet)
+            .Select(instruction => instruction.Operand.UnsignedValue));
+
+        var flushCode = new RecordingInstructionWriter();
+        Assert.False(emitter.TryEmit(new(Header(), I(40, CilOperation.Call), [], context, targetPlan), flushCode));
+        Assert.Equal([12, 12 + pointer], addresses.Offsets);
+        Assert.Equal(
+            [target == WasmTarget.Wasm64 ? WasmOpcodes.I64Store : WasmOpcodes.I32Store, WasmOpcodes.I32Store],
+            flushCode.ToInstructions().Select(instruction => instruction.Opcode)
+                .Where(opcode => opcode is WasmOpcodes.I32Store or WasmOpcodes.I64Store));
+    }
+
     private static ManagedAggregateSsaPlan Plan(bool withOperations = false)
     {
         var storage = new ManagedAggregateStorage(

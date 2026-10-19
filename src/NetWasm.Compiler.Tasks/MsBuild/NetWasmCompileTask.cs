@@ -84,6 +84,11 @@ public sealed class NetWasmCompileTask : CompilerArtifactManifestTaskBase
     public string ManagedLoopUnrolling { get; set; } = "Auto";
     public string ManagedConstantArgumentPropagation { get; set; } = "Auto";
     public string ManagedStaticArrayPopulationElimination { get; set; } = "Auto";
+    public string ManagedConstantCallFolding { get; set; } = "Auto";
+    public string ManagedSwitchBitTests { get; set; } = "Auto";
+    public string ManagedDevirtualization { get; set; } = "Auto";
+    public string ManagedAllocationElimination { get; set; } = "Auto";
+    public string ManagedLoopRotation { get; set; } = "Auto";
     public string? StackTraceSymbolsPath { get; set; }
     public string? ExceptionTypeMapPath { get; set; }
     public bool NoLogo { get; set; }
@@ -124,7 +129,12 @@ public sealed class NetWasmCompileTask : CompilerArtifactManifestTaskBase
                 ManagedArrayBoundsCheckElimination,
                 ManagedLoopUnrolling,
                 ManagedConstantArgumentPropagation,
-                ManagedStaticArrayPopulationElimination);
+                ManagedStaticArrayPopulationElimination,
+                ManagedConstantCallFolding,
+                ManagedSwitchBitTests,
+                ManagedDevirtualization,
+                ManagedAllocationElimination,
+                ManagedLoopRotation);
             var compilation = compiler.Compile(new(
                 InputAssemblyPath,
                 References.Select(static item => item.ItemSpec).ToImmutableArray(),

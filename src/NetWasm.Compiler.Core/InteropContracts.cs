@@ -18,7 +18,17 @@ public sealed record InteropImportDeclaration(
 /// Metadata-owned managed export declaration. A null name means the managed
 /// method name is the public export name.
 /// </summary>
-public sealed record InteropExportDeclaration(string? ExportName);
+public sealed record InteropExportDeclaration(string? ExportName)
+{
+    /// <summary>The method's parameter names from metadata, empty where a parameter has none.</summary>
+    public ImmutableArray<string> ParameterNames { get; init; } = [];
+
+    /// <summary>Whether each parameter is declared non-nullable; oblivious parameters are nullable.</summary>
+    public ImmutableArray<bool> NonNullableParameters { get; init; } = [];
+
+    /// <summary>Whether the result is declared non-nullable.</summary>
+    public bool NonNullableResult { get; init; }
+}
 
 public enum JavaScriptAsyncReturnKind
 {
@@ -263,6 +273,15 @@ public sealed record HostInteropExport(
     ImmutableArray<string> Parameters,
     string Result)
 {
+    /// <summary>The managed parameter names, which generated JavaScript clients use.</summary>
+    public ImmutableArray<string> ParameterNames { get; init; } = [];
+
+    /// <summary>Whether each parameter is declared non-nullable, for generated TypeScript types.</summary>
+    public ImmutableArray<bool> NonNullableParameters { get; init; } = [];
+
+    /// <summary>Whether the result is declared non-nullable, for generated TypeScript types.</summary>
+    public bool NonNullableResult { get; init; }
+
     public string? AsyncReturn { get; init; }
     public string? StatusExport { get; init; }
     public string? ResultExport { get; init; }

@@ -1,4 +1,5 @@
 import { snapshotDeploymentArtifact } from "./deployment-artifact.mjs";
+import { readTimeZoneNames } from "./timezone-sidecar-zones.mjs";
 
 const requestKeys = new Set([
   "hashBytes",
@@ -47,6 +48,11 @@ export async function materializeTimeZoneSidecar(request = {}) {
   }
   if (actualDigest !== selected.artifact.sha256) {
     throw new Error("timezone sidecar integrity check failed");
+  }
+  // Reject an unselected zone here, with a fix, rather than as a startup trap.
+  if (!readTimeZoneNames(bytes).has(selected.timeZone)) {
+    throw new TypeError(`TZ '${selected.timeZone}' is not in this deployment's time zone data. `
+      + "Add it to the project's NetWasmTimeZone items, or set NetWasmTimeZoneMode to Full.");
   }
 
   const release = mountReadOnlyFile(Object.freeze({

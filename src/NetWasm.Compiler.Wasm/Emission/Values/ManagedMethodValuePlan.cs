@@ -17,4 +17,8 @@ internal sealed record ManagedMethodValuePlanRequest(
     MethodRootMap RootMap,
     ManagedByRefEffects ByRefEffects,
     ImmutableHashSet<ManagedAggregateStorageId> ReservedStorages,
-    bool Enabled);
+    bool Enabled)
+{
+    // Whether aggregates with reference and byref fields take part.
+    public bool References { get; init; }
+}

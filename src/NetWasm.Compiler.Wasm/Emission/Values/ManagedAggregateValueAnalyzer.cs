@@ -225,6 +225,16 @@ internal sealed class ManagedAggregateValueAnalyzer(
                             request.Method.Header.MethodInstance);
                         Reject(stack[^1], rejected);
                         break;
+                    case CilOperation.InitializeObject when request.References:
+                        RecordClear(
+                            instruction,
+                            blockId,
+                            stack[^1],
+                            storages,
+                            accesses,
+                            rejected,
+                            request.Method.Header.MethodInstance);
+                        break;
                     case CilOperation.Return:
                     case CilOperation.StoreStaticField:
                     case CilOperation.StoreArrayElement:
@@ -619,7 +629,8 @@ internal sealed class ManagedAggregateValueAnalyzer(
                     result,
                     new(ManagedAggregateStorageKind.Argument, index),
                     _argumentTypes.Resolve(request.Method.Header, index),
-                    owned: true);
+                    owned: true,
+                    request.References);
             }
         }
 
@@ -633,7 +644,8 @@ internal sealed class ManagedAggregateValueAnalyzer(
                 result,
                 new(ManagedAggregateStorageKind.Local, index),
                 request.Method.Header.LocalSignatureTypes[index],
-                owned: true);
+                owned: true,
+                request.References);
         }
         return result;
     }
@@ -642,7 +654,8 @@ internal sealed class ManagedAggregateValueAnalyzer(
         Dictionary<ManagedAggregateStorageId, ManagedAggregateStorage> storages,
         ManagedAggregateStorageId id,
         CliTypeIdentity type,
-        bool owned)
+        bool owned,
+        bool references)
     {
         if (type.StackKind != CliValueKind.ValueType)
         {
@@ -651,12 +664,74 @@ internal sealed class ManagedAggregateValueAnalyzer(
         var layout = _values.GetValueLayout(type);
         if (layout.Size is < 8 or > 16 ||
             layout.Size % sizeof(int) != 0 ||
-            !layout.ReferenceOffsets.IsEmpty ||
-            !layout.ByReferenceOffsets.IsEmpty)
+            LaneShapes(layout, references) is not { } lanes)
         {
             return;
         }
-        storages.Add(id, new(id, type, layout.Size, owned));
+        storages.Add(id, new(id, type, layout.Size, owned) { LaneShapes = lanes });
+    }
+
+    // A reference or byref field becomes a lane of its own, which the root
+    // planner publishes like a local of that kind; the rest is 4-byte lanes.
+    private ImmutableArray<ManagedAggregateLaneShape>? LaneShapes(ValueLayout layout, bool references)
+    {
+        if (layout.ReferenceOffsets.IsEmpty && layout.ByReferenceOffsets.IsEmpty)
+        {
+            return [];
+        }
+        if (!references)
+        {
+            return null;
+        }
+        var pointer = _layouts.Target.ObjectReferenceSize;
+        var tracked = layout.ReferenceOffsets.Concat(layout.ByReferenceOffsets).ToHashSet();
+        var lanes = ImmutableArray.CreateBuilder<ManagedAggregateLaneShape>();
+        for (var offset = 0; offset < layout.Size;)
+        {
+            if (!tracked.Contains(offset))
+            {
+                lanes.Add(new(offset, sizeof(int), CliValueKind.I4));
+                offset += sizeof(int);
+                continue;
+            }
+            if (offset % pointer != 0 || offset + pointer > layout.Size)
+            {
+                return null;
+            }
+            lanes.Add(new(offset, pointer, layout.ByReferenceOffsets.Contains(offset)
+                ? CliValueKind.ManagedAddress
+                : CliValueKind.ManagedReference));
+            offset += pointer;
+        }
+        // A tracked offset inside another lane would be split.
+        return tracked.All(offset => lanes.Any(lane => lane.ByteOffset == offset)) ? lanes.ToImmutable() : null;
+    }
+
+    // initobj of the whole aggregate writes zero to every lane.
+    private void RecordClear(
+        CilInstruction instruction,
+        StructuredBlockId block,
+        AddressOrigins origins,
+        Dictionary<ManagedAggregateStorageId, ManagedAggregateStorage> storages,
+        Dictionary<int, ManagedAggregateLaneAccess> accesses,
+        HashSet<ManagedAggregateStorageId> rejected,
+        MethodInstanceModel? methodInstance)
+    {
+        if (!TrySingleRecipe(origins, rejected, out var recipe))
+        {
+            return;
+        }
+        var storage = storages[recipe.Storage];
+        if (recipe.ByteOffset != 0 || !recipe.Type.Equals(storage.Type) ||
+            !_typeOperands.Resolve(instruction, methodInstance).Equals(storage.Type))
+        {
+            Reject(recipe.Storage, rejected);
+            return;
+        }
+        accesses[instruction.Offset] = new(instruction.Offset, block, recipe, storage.Size, CliValueKind.ValueType, Writes: true)
+        {
+            LaneOffsets = [.. storage.Lanes.Select(static lane => lane.ByteOffset)],
+        };
     }
 
     private AddressOrigins ResolveFieldAddress(
@@ -776,8 +851,19 @@ internal sealed class ManagedAggregateValueAnalyzer(
         Dictionary<int, ManagedAggregateLaneAccess> accesses,
         HashSet<ManagedAggregateStorageId> rejected)
     {
+        var storage = storages[address.Storage];
         if (address.ByteOffset < 0 ||
-            address.ByteOffset + size > storages[address.Storage].Size)
+            address.ByteOffset + size > storage.Size)
+        {
+            Reject(address.Storage, rejected);
+            return;
+        }
+        // An access that touches a reference or byref lane must be exactly that lane.
+        var covered = storage.Lanes
+            .Where(lane => lane.ByteOffset < address.ByteOffset + size && address.ByteOffset < lane.ByteOffset + lane.Size)
+            .ToArray();
+        var tracked = covered.Any(static lane => lane.Kind != CliValueKind.I4);
+        if (tracked && (covered.Length != 1 || covered[0] != new ManagedAggregateLaneShape(address.ByteOffset, size, kind)))
         {
             Reject(address.Storage, rejected);
             return;
@@ -788,7 +874,10 @@ internal sealed class ManagedAggregateValueAnalyzer(
             address,
             size,
             kind,
-            writes);
+            writes)
+        {
+            LaneOffsets = tracked ? [covered[0].ByteOffset] : [],
+        };
     }
 
     private bool TryResolveField(

@@ -36,7 +36,7 @@ public sealed class AsyncJSImportSetAppenderTests
         var target = EmitterTestSupport.CreateFunctionIndexResolver(program);
 
         appender.Append([], 4, ImmutableDictionary.CreateBuilder<string, int>(),
-            request, target, []);
+            request, target, new InteropImportPlan([], default, default, default, default, default, default), []);
 
         Assert.Equal([low.Method, high.Method], leaf.Methods);
         Assert.Equal([4, 4], leaf.ImportCounts);
@@ -52,19 +52,21 @@ public sealed class AsyncJSImportSetAppenderTests
         var resolver = EmitterTestSupport.CreateFunctionIndexResolver();
         var boundaries = new List<ManagedBoundaryPlanEntry>();
 
-        appender.Append(functions, 0, indices, request, resolver, boundaries);
+        var plan = new InteropImportPlan([], default, default, default, default, default, default);
+
+        appender.Append(functions, 0, indices, request, resolver, plan, boundaries);
         Assert.Throws<ArgumentNullException>(() => appender.Append(null!, 0, indices,
-            request, resolver, boundaries));
+            request, resolver, plan, boundaries));
         Assert.Throws<ArgumentOutOfRangeException>(() => appender.Append(functions, -1,
-            indices, request, resolver, boundaries));
+            indices, request, resolver, plan, boundaries));
         Assert.Throws<ArgumentNullException>(() => appender.Append(functions, 0, null!,
-            request, resolver, boundaries));
+            request, resolver, plan, boundaries));
         Assert.Throws<ArgumentNullException>(() => appender.Append(functions, 0, indices,
-            null!, resolver, boundaries));
+            null!, resolver, plan, boundaries));
         Assert.Throws<ArgumentNullException>(() => appender.Append(functions, 0, indices,
-            request, null!, boundaries));
+            request, null!, plan, boundaries));
         Assert.Throws<ArgumentNullException>(() => appender.Append(functions, 0, indices,
-            request, resolver, null!));
+            request, resolver, plan, null!));
     }
 
     private static IAsyncJSImportSetAppender CreateAppender(
@@ -96,6 +98,7 @@ public sealed class AsyncJSImportSetAppenderTests
             ImmutableDictionary<string, int>.Builder indices,
             JavaScriptAsyncMethodBinding binding,
             IFunctionIndexResolver functionIndices,
+            InteropImportPlan interopImports,
             IList<ManagedBoundaryPlanEntry> boundaryEntries)
         {
             Methods.Add(binding.Method);

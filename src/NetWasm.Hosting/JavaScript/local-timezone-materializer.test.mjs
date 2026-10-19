@@ -6,8 +6,9 @@ import { join } from "node:path";
 import test from "node:test";
 import { createLocalTimeZoneMaterializer } from "./local-timezone-materializer.mjs";
 import { selectTimeZoneSidecar } from "./timezone-sidecar-selector.mjs";
+import { timeZoneContainer } from "./timezone-sidecar-zones.test.mjs";
 
-const bytes = Uint8Array.of(5, 6, 7);
+const bytes = timeZoneContainer([["Australia/Melbourne", 1]]);
 
 test("loads and mounts the manifested local sidecar relative to the manifest", async () => {
   const root = await mkdtemp(join(tmpdir(), "netwasm-local-timezone-"));

@@ -1,3 +1,5 @@
+using NetWasm.Compiler.Wasm.Emission.Arrays;
+using System.Collections.Immutable;
 using NetWasm.Compiler.Core;
 using NetWasm.Compiler.Wasm.Emission;
 using NetWasm.Compiler.Wasm.Emission.Instructions;
@@ -90,6 +92,34 @@ public sealed class ArrayIndexAdapterTests
                 WasmOpcodes.End,
             ],
             code.ToInstructions().Select(instruction => instruction.Opcode));
+    }
+
+    [Fact]
+    public void AdaptLeavesTheNullCheckToTheLoopEntryThatMadeIt()
+    {
+        var layouts = new RecordingLayoutProvider();
+        var exceptions = new RecordingImplicitExceptionEmitter();
+        var slot = new ArrayReferenceSlot(false, 0);
+        var request = CreateInstructionRequest(
+            CilOperation.LoadArrayElement,
+            [CliValueKind.ManagedReference, CliValueKind.I4],
+            context: CreateMethodEmissionContext() with
+            {
+                ArrayMetadata = new(
+                    new ArrayMetadataCachingPlan([slot], ImmutableDictionary<int, ArrayReferenceSlot>.Empty.Add(0, slot))
+                    {
+                        CheckedAccesses = [0],
+                    },
+                    ImmutableDictionary<ArrayReferenceSlot, ArrayMetadataSnapshotLocals>.Empty.Add(slot, new(30, 31))),
+            });
+        var code = (RecordingInstructionWriter)GetCodeWriter(request);
+
+        CreateAdapter(layouts, exceptions).Adapt(request, code,
+            GetStackLocal(request.Context, 0, CliValueKind.ManagedReference, layouts.Target), 1);
+
+        Assert.Equal([ManagedExceptionKind.IndexOutOfRange], exceptions.Kinds);
+        Assert.Contains(WasmInstruction.WithOperand(WasmOpcodes.LocalGet, WasmInstructionOperand.Unsigned(30)),
+            code.ToInstructions());
     }
 
     [Fact]

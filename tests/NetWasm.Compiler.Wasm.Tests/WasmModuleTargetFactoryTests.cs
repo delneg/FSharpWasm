@@ -44,7 +44,8 @@ public sealed class WasmModuleTargetFactoryTests
                 new ExceptionGroupEnumerator(),
                 new StructuredExceptionGroupKeyFactory()),
             new TestStructuredMethodEmissionPlanner(new ManagedMethodIdentityFactory(), new TestCilTypeIdentityResolver()),
-            new StaticInitializerFunctionPlanner(layouts, program));
+            new StaticInitializerFunctionPlanner(layouts, program),
+            new JSImportForwarderPlanner(program));
 
         var target = factory.Create(request);
 
@@ -53,6 +54,8 @@ public sealed class WasmModuleTargetFactoryTests
         Assert.Equal(target.ModuleData, target.Instructions.ModuleData);
         Assert.Same(target.Plan.NativeImports, target.Instructions.NativeImports);
         Assert.Same(byRefEffects, target.Instructions.ManagedByRefEffects);
+        Assert.False(request.HasReenterableHostEntries);
+        Assert.Null(target.ModuleData.StateRegistrationGuardAddress);
     }
 
     [Fact]
@@ -92,7 +95,8 @@ public sealed class WasmModuleTargetFactoryTests
                 new ExceptionGroupEnumerator(),
                 new StructuredExceptionGroupKeyFactory()),
             new TestStructuredMethodEmissionPlanner(new ManagedMethodIdentityFactory(), new TestCilTypeIdentityResolver()),
-            new StaticInitializerFunctionPlanner(layouts, program));
+            new StaticInitializerFunctionPlanner(layouts, program),
+            new JSImportForwarderPlanner(program));
 
         var target = factory.Create(request);
 

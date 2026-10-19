@@ -50,6 +50,7 @@ public static class ToolchainPlatformAssetIds
     public const string WitCommandPackage = "wit.command-package";
     public const string WitAsyncCommandPackage = "wit.async-command-package";
     public const string WitCompilerPackage = "wit.compiler-package";
+    public const string TimeZoneClosureIntegrity = "timezones.closure-integrity";
 
     public static ImmutableArray<string> RawInspectionClosure { get; } =
     [

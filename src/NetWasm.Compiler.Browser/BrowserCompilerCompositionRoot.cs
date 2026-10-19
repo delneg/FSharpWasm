@@ -28,8 +28,10 @@ internal static class BrowserCompilerCompositionRoot
         registrations.AddSingleton<IWitDocumentReader, VirtualWitDocumentReader>();
         registrations.AddSingleton<IBrowserCompilationResultProjector,
             BrowserCompilationResultProjector>();
-        registrations.AddSingleton<IManagedExecutableEntryPointSelector,
-            ManagedExecutableEntryPointSelector>();
+        registrations.AddSingleton<IManagedExecutableEntryPointSelectorFactory,
+            ManagedExecutableEntryPointSelectorFactory>();
+        registrations.AddSingleton(services =>
+            services.GetRequiredService<IManagedExecutableEntryPointSelectorFactory>().Create());
         registrations.AddSingleton<IBrowserCompilationPreparationFactory,
             BrowserCompilationPreparationFactory>();
         registrations.AddSingleton<IBrowserCompilationCommand, BrowserCompilationCommand>();

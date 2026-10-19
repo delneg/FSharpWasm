@@ -2055,6 +2055,8 @@ public sealed class EnumIntrinsicBranchTests
 
     private sealed class FixedFunctionIndexResolver : IFunctionIndexResolver
     {
+        public int Resolve(InteropImportKey import) => Resolve(import.Method);
+
         public int Resolve(EntityKey method) => 17;
 
         public int Resolve(string method) => 17;

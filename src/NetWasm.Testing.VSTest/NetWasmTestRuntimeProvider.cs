@@ -315,6 +315,11 @@ public sealed class NetWasmTestRuntimeProvider : ITestRuntimeProvider2
 
     private void Log(TestMessageLevel level, string message)
     {
+        // A test host can print blank lines, but VSTest's logger rejects empty messages.
+        if (message.Length == 0)
+        {
+            return;
+        }
         IMessageLogger? logger;
         lock (_gate)
         {

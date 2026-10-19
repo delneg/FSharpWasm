@@ -114,8 +114,8 @@ async function executeCommandComponent({
       imports: projectedImports,
       instantiateCore,
     }));
-  } catch {
-    return closeScope(componentInstantiationFailure());
+  } catch (error) {
+    return closeScope(componentInstantiationFailure(error));
   }
 
   let binding;
@@ -124,8 +124,8 @@ async function executeCommandComponent({
       contractKey: commandComponentContract,
       instance,
     });
-  } catch {
-    return closeScope(componentBindingFailure());
+  } catch (error) {
+    return closeScope(componentBindingFailure(error));
   }
   const run = binding.diagnosticCommand === undefined
     ? createTerminalManagedExport(
@@ -193,10 +193,10 @@ async function executeProcessComponent({
       imports,
       instantiateCore,
     }));
-  } catch {
+  } catch (error) {
     return closeScope(initializationReactorUse
-      ? reactorInitializationFailure()
-      : componentInstantiationFailure());
+      ? reactorInitializationFailure(error)
+      : componentInstantiationFailure(error));
   }
   if (initializationReactorUse) {
     return closeScope(reactorInitializationFailure());
@@ -208,8 +208,8 @@ async function executeProcessComponent({
       contractKey: processComponentContract,
       instance,
     });
-  } catch {
-    return closeScope(componentBindingFailure());
+  } catch (error) {
+    return closeScope(componentBindingFailure(error));
   }
 
   notifier = createGuestWakeNotifier({
@@ -249,26 +249,29 @@ function validateAdapter(adapter) {
   }
 }
 
-function componentInstantiationFailure() {
+function componentInstantiationFailure(cause) {
   return failedExecutionResult(
     "hostFailure",
     "instantiation",
     "host.component-instantiate",
-    "The execution host could not instantiate the component.");
+    "The execution host could not instantiate the component.",
+    cause);
 }
 
-function componentBindingFailure() {
+function componentBindingFailure(cause) {
   return failedExecutionResult(
     "contractFailure",
     "instantiation",
     "contract.component-exports",
-    "The generated component adapter returned an invalid canonical boundary.");
+    "The generated component adapter returned an invalid canonical boundary.",
+    cause);
 }
 
-function reactorInitializationFailure() {
+function reactorInitializationFailure(cause) {
   return failedExecutionResult(
     "contractFailure",
     "instantiation",
     "contract.reactor-initialization",
-    "The component used the reactor before guest entry.");
+    "The component used the reactor before guest entry.",
+    cause);
 }

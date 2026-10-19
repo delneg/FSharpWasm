@@ -1,10 +1,20 @@
 const contractErrors = new WeakSet();
 
 export function createContractError(
-  message = "NetWasm execution contract validation failed.") {
-  const error = new Error(message);
+  message = "NetWasm execution contract validation failed.",
+  cause) {
+  const error = cause === undefined ? new Error(message) : new Error(message, { cause });
   contractErrors.add(error);
   return error;
+}
+
+// A contract error that wraps a caught value reports that value as its cause.
+export function unwrapContractError(value) {
+  let current = value;
+  while (isContractError(current) && Object.hasOwn(current, "cause")) {
+    current = current.cause;
+  }
+  return current;
 }
 
 export function isContractError(value) {

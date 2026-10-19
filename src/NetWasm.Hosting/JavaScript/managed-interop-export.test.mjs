@@ -138,6 +138,35 @@ test("copies synchronous byte arrays in both directions and releases argument ha
   assert.throws(() => invoke([1, 2, 3]), /Uint8Array or null/);
 });
 
+test("copies typed arrays in both directions with their own element types", () => {
+  const exportMemory = new WebAssembly.Memory({ initial: 1 });
+  const handles = createInteropHandleTable();
+  const reference = 256;
+  const dataAddress = 512;
+  const invoke = createManagedInteropExport(request({
+    descriptor: descriptor({ parameters: ["i32[]"], result: "f64[]" }),
+    getMemory: () => exportMemory,
+    handles,
+    instance: { exports: {
+      run(handle) {
+        assert.deepEqual(handles.get(handle), Int32Array.of(-1, 70_000));
+        const view = new DataView(exportMemory.buffer);
+        view.setInt32(reference + targetLayout.arrayLengthOffset, 2, true);
+        view.setUint32(reference + targetLayout.arrayDataPointerOffset, dataAddress, true);
+        new Float64Array(exportMemory.buffer, dataAddress, 2).set([0.25, -8]);
+        return reference;
+      },
+    } },
+  }));
+
+  const result = invoke(Int32Array.of(-1, 70_000));
+  assert.ok(result instanceof Float64Array);
+  assert.deepEqual([...result], [0.25, -8]);
+  assert.equal(handles.count, 0);
+  assert.throws(() => invoke(Uint32Array.of(1)), /i32\[\] value must be Int32Array or null/);
+  assert.throws(() => invoke([1]), /Int32Array or null/);
+});
+
 test("passes null buffers without acquiring handles and surfaces release failures", () => {
   for (const type of ["string", "bytes"]) {
     const handles = createInteropHandleTable();
@@ -343,4 +372,90 @@ test("delegates async observation through the injected lifetime capability", asy
   assert.equal(await invoke(), 42);
   assert.equal(checked, 1);
   assert.equal(completed, 1);
+});
+
+test("passes async string and typed array arguments as handles released with the start", async () => {
+  const handles = createInteropHandleTable();
+  const values = Float32Array.of(0.5, 2);
+  const invoke = createManagedInteropExport(request({
+    descriptor: descriptor({
+      parameters: ["string", "f32[]", "bytes"], result: "void",
+      asyncReturn: "task", statusExport: "status", completeExport: "complete", completionResult: "exception-handle-v1",
+    }),
+    handles,
+    instance: { exports: {
+      run(name, array, empty) {
+        assert.equal(handles.get(name), "title");
+        assert.strictEqual(handles.get(array), values);
+        assert.equal(empty, 0);
+        return 9;
+      },
+      status: () => 1,
+      complete: () => 0,
+    } },
+    observeAsyncExport(operation) {
+      // The start has already copied the arguments; their handles end with it.
+      assert.equal(handles.count, 2);
+      assert.equal(operation.readResult(), undefined);
+      return Promise.resolve();
+    },
+  }));
+  assert.equal(await invoke("title", values, null), undefined);
+  assert.equal(handles.count, 0);
+});
+
+test("transfers JSObject arguments to the managed wrapper and looks up JSObject results", () => {
+  const handles = createInteropHandleTable();
+  const element = { id: "element" };
+  const callback = () => {};
+  let received;
+  const invoke = createManagedInteropExport(request({
+    descriptor: descriptor({ parameters: ["object", "object", "string"], result: "object" }),
+    handles,
+    instance: { exports: { run(first, second, absent) {
+      received = [handles.get(first), handles.get(second), absent];
+      return first;
+    } } },
+  }));
+  assert.strictEqual(invoke(element, callback, null), element);
+  assert.deepEqual(received, [element, callback, 0]);
+  // The wrappers own both handles; neither is released by the call.
+  assert.equal(handles.count, 2);
+
+  const empty = createManagedInteropExport(request({
+    descriptor: descriptor({ parameters: ["object"], result: "object" }),
+    instance: { exports: { run: handle => handle } },
+  }));
+  assert.equal(empty(null), null);
+});
+
+test("releases JSObject argument handles when a later argument is invalid", () => {
+  const handles = createInteropHandleTable();
+  const invoke = createManagedInteropExport(request({
+    descriptor: descriptor({ parameters: ["object", "object"], result: "void" }),
+    handles,
+    instance: { exports: { run() { assert.fail("must not run"); } } },
+  }));
+  assert.throws(() => invoke({}, 1), /JSObject value must be an object, function, or null/);
+  assert.equal(handles.count, 0);
+});
+
+test("enters the shared export depth guard for the whole call", () => {
+  const events = [];
+  const invoke = createManagedInteropExport(request({
+    instance: { exports: { run() { events.push("run"); return 7; } } },
+    enterExport() {
+      events.push("enter");
+      return () => events.push("leave");
+    },
+  }));
+  assert.equal(invoke(), 7);
+  assert.deepEqual(events, ["enter", "run", "leave"]);
+
+  const refused = createManagedInteropExport(request({
+    instance: { exports: { run() { assert.fail("must not run"); } } },
+    enterExport() { throw new NetWasmHostError("too deep"); },
+  }));
+  assert.throws(() => refused(), /too deep/);
+  assert.throws(() => createManagedInteropExport(request({ enterExport: 1 })), /lifetime actions/);
 });

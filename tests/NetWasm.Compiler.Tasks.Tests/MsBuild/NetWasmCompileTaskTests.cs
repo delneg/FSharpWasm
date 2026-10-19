@@ -63,6 +63,11 @@ public sealed class NetWasmCompileTaskTests
         task.ManagedLoopUnrolling = "Enabled";
         task.ManagedConstantArgumentPropagation = "Enabled";
         task.ManagedStaticArrayPopulationElimination = "Disabled";
+        task.ManagedConstantCallFolding = "Enabled";
+        task.ManagedSwitchBitTests = "Disabled";
+        task.ManagedDevirtualization = "Disabled";
+        task.ManagedAllocationElimination = "Enabled";
+        task.ManagedLoopRotation = "Enabled";
         task.StackTraceSymbolsPath = "application.stacktrace.json";
         task.PathMap = "/source=/mapped";
 
@@ -107,6 +112,11 @@ public sealed class NetWasmCompileTaskTests
         Assert.Equal(ManagedLoopUnrolling.Enabled, request.OptimizationOverrides.LoopUnrolling);
         Assert.Equal(ManagedConstantArgumentPropagation.Enabled, request.OptimizationOverrides.ConstantArgumentPropagation);
         Assert.Equal(ManagedStaticArrayPopulationElimination.Disabled, request.OptimizationOverrides.StaticArrayPopulationElimination);
+        Assert.Equal(ManagedConstantCallFolding.Enabled, request.OptimizationOverrides.ConstantCallFolding);
+        Assert.Equal(ManagedSwitchBitTests.Disabled, request.OptimizationOverrides.SwitchBitTests);
+        Assert.Equal(ManagedDevirtualization.Disabled, request.OptimizationOverrides.Devirtualization);
+        Assert.Equal(ManagedAllocationElimination.Enabled, request.OptimizationOverrides.AllocationElimination);
+        Assert.Equal(ManagedLoopRotation.Enabled, request.OptimizationOverrides.LoopRotation);
         Assert.Equal(
             [
                 "NetWasm Compiler version unknown",

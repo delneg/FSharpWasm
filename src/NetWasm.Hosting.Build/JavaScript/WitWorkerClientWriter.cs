@@ -45,7 +45,7 @@ public sealed class WitWorkerClientWriter(
         js.AppendLine(CultureInfo.InvariantCulture, $"import {{ createWorkerSessionClient }} from {Json(module)};");
         js.AppendLine(CultureInfo.InvariantCulture, $"export const workerContractFingerprint = {Json(Convert.ToHexStringLower(SHA256.HashData(request.ContractJson.Span)))};");
         ts.AppendLine("export declare const workerContractFingerprint: string;");
-        ts.AppendLine("export interface NetWasmWorkerStartupOptions { signal?: AbortSignal; onNotification?: (value: { operation: string; arguments: unknown[] }) => void | Promise<void>; }");
+        ts.AppendLine("export interface NetWasmWorkerStartupOptions { signal?: AbortSignal; environment?: Record<string, string>; stdout?: (line: string) => void; stderr?: (line: string) => void; onNotification?: (value: { operation: string; arguments: unknown[] }) => void | Promise<void>; }");
         ts.AppendLine("export interface NetWasmWorkerCallOptions { signal?: AbortSignal; timeoutMilliseconds?: number; }");
         foreach (var (id, layout) in layouts.OrderBy(entry => entry.Key))
         {
@@ -61,22 +61,29 @@ public sealed class WitWorkerClientWriter(
         js.AppendLine(CultureInfo.InvariantCulture, $"const worker = new Worker(new URL({Json("./" + request.WorkerFileName)}, import.meta.url), {{ type: 'module' }});");
         js.AppendLine("const session = createWorkerSessionClient({");
         js.AppendLine("generation: crypto.randomUUID(), worker, onNotification,");
+        js.AppendLine("environment: options.environment, stderr: options.stderr, stdout: options.stdout,");
         js.AppendLine(CultureInfo.InvariantCulture, $"operations: {System.Text.Json.JsonSerializer.Serialize(contract.Exports.Select(export => export!.Operation))},");
         js.AppendLine(CultureInfo.InvariantCulture, $"startup: {{ buildFingerprint: {Json(request.BuildFingerprint)}, manifestSha256: {Json(request.ManifestSha256)} }},");
         js.AppendLine("}); const abort = () => session.terminate(); signal?.addEventListener('abort', abort, { once: true });");
         js.AppendLine("try { if (signal?.aborted) abort(); await session.ready; } finally { signal?.removeEventListener('abort', abort); } return Object.freeze({");
         ts.AppendLine("export interface NetWasmWorkerClient {");
-        var names = new WitWorkerValueSourceRequest(0, new("", "", default, false, null), layouts);
+        var types = new WitWorkerValueSourceRequest(0, new("", "", default, false, null), layouts);
+        // Parameter names must not shadow the module-level helpers the copies call.
+        var unavailable = ModuleNames.Concat(layouts.Keys.Select(id => $"copyType{id}")).ToArray();
         foreach (var export in contract.Exports)
         {
-            var parameters = string.Join(", ", export!.Parameters.Select((_, index) => $"argument{index}"));
-            var copies = export.Parameters.Select((parameter, index) => WitWorkerValueSourceRequest.Copy(parameter!.Type!, $"argument{index}"));
+            var names = JavaScriptParameterNames.Resolve(
+                [.. export!.Parameters.Select(parameter => JavaScriptParameterNames.FromWit(parameter!.Name ?? ""))],
+                export.Parameters.Length,
+                unavailable);
+            var parameters = string.Join(", ", names);
+            var copies = export.Parameters.Select((parameter, index) => WitWorkerValueSourceRequest.Copy(parameter!.Type!, names[index]));
             js.AppendLine(CultureInfo.InvariantCulture, $"[{Json(export.Operation!)}]: ({(parameters.Length == 0 ? "" : parameters + ", ")}options) => {{");
             js.AppendLine(CultureInfo.InvariantCulture, $"try {{ const args = [{string.Join(", ", copies)}]; return session.invoke({Json(export.Operation!)}, args, options); }}");
             js.AppendLine("catch (cause) { return Promise.reject(cause); } },");
-            var parameterTypes = export.Parameters.Select((parameter, index) => $"argument{index}: {names.Type(parameter!.Type!)}")
+            var parameterTypes = export.Parameters.Select((parameter, index) => $"{names[index]}: {types.Type(parameter!.Type!)}")
                 .Append("options?: NetWasmWorkerCallOptions");
-            ts.AppendLine(CultureInfo.InvariantCulture, $"{Json(export.Operation!)}({string.Join(", ", parameterTypes)}): Promise<{(export.Result is null ? "void" : names.Type(export.Result))}>;");
+            ts.AppendLine(CultureInfo.InvariantCulture, $"{Json(export.Operation!)}({string.Join(", ", parameterTypes)}): Promise<{(export.Result is null ? "void" : types.Type(export.Result))}>;");
         }
         js.AppendLine("dispose: () => session.dispose(), terminate: () => session.terminate(),");
         js.AppendLine("}); }");
@@ -87,6 +94,15 @@ public sealed class WitWorkerClientWriter(
     }
 
     private static string Json(string value) => WitWorkerValueSourceRequest.Json(value);
+
+    // Identifiers the generated module declares or the export members use.
+    private static readonly ImmutableArray<string> ModuleNames =
+    [
+        "options", "session", "args", "cause", "createWorker", "createWorkerSessionClient",
+        "workerContractFingerprint",
+        .. System.Text.RegularExpressions.Regex.Matches(PrimitiveCopies, @"function\s+([A-Za-z_$][\w$]*)")
+            .Select(match => match.Groups[1].Value),
+    ];
     private static bool IsDigest(string value) => value is { Length: 64 }
         && value.All(character => character is >= '0' and <= '9' or >= 'a' and <= 'f');
 

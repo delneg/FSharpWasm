@@ -25,6 +25,7 @@ internal sealed class WasmModuleEmitter(
     IConstructedMethodSetAppender constructedMethods,
     IManagedThrowFunctionAppender managedThrowFunctions,
     IDelegateFunctionAppender delegateFunctions,
+    IJSImportForwarderFunctionAppender jsImportForwarders,
     INativeCallbackFunctionAppender nativeCallbacks,
     IHostCallbackSetAppender hostCallbacks,
     IAsyncJSImportSetAppender asyncJSImportFunctions,
@@ -136,6 +137,12 @@ internal sealed class WasmModuleEmitter(
             delegateInvokes,
             delegateInvokeTarget,
             functionIndices);
+        jsImportForwarders.Append(
+            functions,
+            imports.Length,
+            plan.JSImportForwarders,
+            target.Instructions,
+            functionIndices);
         staticInitializers.Append(functions, moduleData.StaticInitializerFunctions);
 
         var nativeCallbackIndices = ImmutableDictionary.CreateBuilder<string, int>(
@@ -157,6 +164,7 @@ internal sealed class WasmModuleEmitter(
         {
             NativeCallbackReadinessAddress =
                 moduleData.NativeCallbackReadinessAddress,
+            StateRegistrationGuardAddress = moduleData.StateRegistrationGuardAddress,
             StackTraceSymbolRegistrationGuardAddress =
                 moduleData.StackTraceSymbolRegistrationGuardAddress,
             StackTraceSymbols = moduleData.StackTraceSymbols,
@@ -180,7 +188,7 @@ internal sealed class WasmModuleEmitter(
         var asyncImportIndices = ImmutableDictionary.CreateBuilder<string, int>(
             StringComparer.Ordinal);
         _asyncJSImportFunctions.Append(functions, imports.Length, asyncImportIndices,
-            request, functionIndices, boundaryEntries);
+            request, functionIndices, plan.InteropImports, boundaryEntries);
 
         var filterIndices = ImmutableDictionary.CreateBuilder<int, int>();
         _filterFunctions.Append(functions, imports.Length, filterIndices,

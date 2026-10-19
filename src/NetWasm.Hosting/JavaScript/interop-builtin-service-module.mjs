@@ -1,6 +1,7 @@
+import { isValueArray } from "./interop-abi-types.mjs";
 import {
-  writeManagedInteropBytes,
   writeManagedInteropString,
+  writeManagedInteropValueArray,
 } from "./managed-interop-memory-codec.mjs";
 
 const builtinModule = "netwasm.host.v1";
@@ -55,7 +56,7 @@ export function createInteropBuiltinServiceModule(request) {
     interop_byte_length(handle) {
       try {
         const value = request.handles.get(handle);
-        return value instanceof Uint8Array ? value.byteLength : -1;
+        return isValueArray(value) ? value.length : -1;
       } catch {
         return -1;
       }
@@ -63,8 +64,8 @@ export function createInteropBuiltinServiceModule(request) {
     interop_copy_bytes(handle, destination) {
       try {
         const value = request.handles.get(handle);
-        if (!(value instanceof Uint8Array)) return 1;
-        writeManagedInteropBytes({
+        if (!isValueArray(value)) return 1;
+        writeManagedInteropValueArray({
           value,
           reference: destination,
           target: request.contract.target,

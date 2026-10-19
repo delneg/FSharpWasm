@@ -87,7 +87,8 @@ public sealed class TimeZoneInfoFacadeAcceptanceTests
             foreach (var input in expected.Keys)
             {
                 var actual = execution.Observations[input];
-                Assert.Equal(OracleObservationKind.Value, actual.Kind);
+                Assert.True(actual.Kind == OracleObservationKind.Value,
+                    $"input {input}: {actual.Kind} {actual.ExceptionType} {actual.Detail}");
                 Assert.Equal(expected[input].Value, actual.Value);
                 Assert.Null(actual.ExceptionType);
             }

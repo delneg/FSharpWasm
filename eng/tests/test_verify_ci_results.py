@@ -25,6 +25,7 @@ class CiResultTests(unittest.TestCase):
             "host-tools": "skipped",
             "verify-packages": "skipped",
             "runtime-pack-hosts": "skipped",
+            "browser-hosts": "skipped",
         })
 
     def test_ci_scope_accepts_only_ci_infrastructure_gate(self):
@@ -39,6 +40,7 @@ class CiResultTests(unittest.TestCase):
             "host-tools": "skipped",
             "verify-packages": "skipped",
             "runtime-pack-hosts": "skipped",
+            "browser-hosts": "skipped",
         })
 
     def test_full_scope_accepts_every_heavy_gate(self):
@@ -53,6 +55,7 @@ class CiResultTests(unittest.TestCase):
             "host-tools": "success",
             "verify-packages": "success",
             "runtime-pack-hosts": "success",
+            "browser-hosts": "success",
         })
 
     def test_reuse_scope_accepts_only_the_qualification_gate(self):
@@ -67,6 +70,7 @@ class CiResultTests(unittest.TestCase):
             "host-tools": "skipped",
             "verify-packages": "skipped",
             "runtime-pack-hosts": "skipped",
+            "browser-hosts": "skipped",
         })
 
     def test_failed_impact_unknown_scope_and_missing_gate_fail(self):
@@ -86,6 +90,7 @@ class CiResultTests(unittest.TestCase):
                 "host-tools": "success",
                 "verify-packages": "success",
                 "runtime-pack-hosts": "failure",
+                "browser-hosts": "skipped",
             })
 
 

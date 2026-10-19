@@ -131,7 +131,7 @@ test("parseInteropManifest validates asynchronous import descriptors", () => {
     { ...base, rejectExport: "" },
     { ...base, cancelExport: 1 },
     { ...base, cancelExport: "" },
-    { ...base, result: "object" },
+    { ...base, result: "subscription" },
   ]) {
     const manifest = createManifest();
     manifest.imports = [descriptor];
@@ -142,6 +142,10 @@ test("parseInteropManifest validates asynchronous import descriptors", () => {
     base,
     { ...base, asyncReturn: "value-task" },
     { ...base, result: "void" },
+    { ...base, result: "string" },
+    { ...base, result: "bytes" },
+    { ...base, result: "f64[]" },
+    { ...base, result: "object" },
   ]) {
     const manifest = createManifest();
     manifest.imports = [descriptor];
@@ -172,10 +176,30 @@ test("parseInteropManifest validates export descriptors and uniqueness", () => {
     { ...base, result: "string" },
     { ...base, parameters: ["bytes"] },
     { ...base, result: "bytes" },
+    { ...base, parameters: ["i32[]", "u64[]"], result: "f64[]" },
+    { ...base, parameters: ["object"], result: "object" },
+    { ...base, parameters: ["i32", "string"], parameterNames: ["count", "label"],
+      nonNullableParameters: [true, false], nonNullableResult: true },
+    { ...base, parameters: ["i32"], parameterNames: [] },
   ]) {
     const stringManifest = createManifest();
     stringManifest.exports = [descriptor];
     assert.strictEqual(parseInteropManifest(stringManifest), stringManifest);
+  }
+});
+
+test("parseInteropManifest validates export parameter names", () => {
+  const base = { name: "call", parameters: ["i32", "i32"], result: "i32" };
+  for (const parameterNames of [null, "a", ["a"], ["a", 1]]) {
+    const manifest = createManifest();
+    manifest.exports = [{ ...base, parameterNames }];
+    expectInvalid(manifest, /invalid export descriptor/i);
+  }
+  for (const metadata of [{ nonNullableParameters: [true] }, { nonNullableParameters: [true, "no"] },
+    { nonNullableResult: "true" }]) {
+    const manifest = createManifest();
+    manifest.exports = [{ ...base, ...metadata }];
+    expectInvalid(manifest, /invalid export descriptor/i);
   }
 });
 
@@ -199,10 +223,10 @@ test("parseInteropManifest validates asynchronous export descriptors", () => {
     { ...base, completionResult: undefined },
     { ...base, completionResult: "void" },
     { ...base, resultExport: "" },
-    { ...base, parameters: ["string"] },
     { ...base, result: "string" },
-    { ...base, parameters: ["bytes"] },
     { ...base, result: "bytes" },
+    { ...base, result: "f32[]" },
+    { ...base, result: "object" },
   ]) {
     const manifest = createManifest();
     manifest.exports = [descriptor];
@@ -211,6 +235,7 @@ test("parseInteropManifest validates asynchronous export descriptors", () => {
 
   for (const descriptor of [
     base,
+    { ...base, parameters: ["string", "bytes", "f32[]", "i32", "object"] },
     { ...base, asyncReturn: "value-task" },
     { ...base, result: "void", resultExport: undefined },
   ]) {
@@ -249,6 +274,8 @@ test("parseInteropManifest validates callback descriptors", () => {
     { ...base, result: "string" },
     { ...base, parameters: ["object"] },
     { ...base, parameters: ["string", "bytes"] },
+    { ...base, parameters: ["i32[]", "u16[]"] },
+    { ...base, parameters: ["bool[]"] },
   ];
   for (const callback of invalid) {
     const manifest = createManifest();

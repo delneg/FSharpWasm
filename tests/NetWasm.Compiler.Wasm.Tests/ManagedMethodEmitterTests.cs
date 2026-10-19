@@ -286,7 +286,8 @@ public sealed class ManagedMethodEmitterTests
             new GeneratedFunctionWriterFactory(),
             new InstructionCountingWriterFactory(), branchFrames ?? new TerminalBranchValueFramePlanner(),
             new ArrayMetadataCachingPlanner(types),
-            new ArrayMetadataSnapshotEmitter(layouts, layouts, CreateAddressInstructions(layouts)),
+            new ArrayMetadataSnapshotEmitter(layouts, layouts, CreateAddressInstructions(layouts),
+                new ImplicitExceptionEmitter(layouts, layouts, 7)),
             new EmptyFloatingCallPlanner(), new AuthoritativeRootSourceSelector(), new AuthoritativeRootLayoutPlanner(),
             new RootClearElisionPlanner(), new RootValueElisionPlanner());
     }

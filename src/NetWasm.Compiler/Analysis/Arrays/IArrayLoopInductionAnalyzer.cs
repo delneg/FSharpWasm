@@ -9,7 +9,12 @@ internal sealed record ArrayLoopInduction(
     int GuardBlock,
     int BodyEntryBlock,
     int IncrementOffset,
-    ImmutableHashSet<int> LoopBlocks);
+    ImmutableHashSet<int> LoopBlocks)
+{
+    // The guard tests index + Lookahead against the length, so every element
+    // from index to index + Lookahead is in bounds.
+    public int Lookahead { get; init; }
+}
 
 internal interface IArrayLoopInductionAnalyzer
 {

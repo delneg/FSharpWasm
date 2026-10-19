@@ -61,7 +61,13 @@ const result = (requestId, value, overrides = {}) => ({ data: {
 } });
 const failure = (requestId, overrides = {}) => ({ data: {
   protocolVersion: 1, generation: "generation-1", kind: "failure", requestId,
-  error: { category: "guestFailure", message: "managed failure", operation: "fail", stack: "remote" },
+  error: {
+    category: "guestFailure",
+    detail: "NetWasmManagedError: managed failure",
+    message: "managed failure",
+    operation: "fail",
+    stack: "remote",
+  },
   ...overrides,
 } });
 const closed = (overrides = {}) => ({ data: {
@@ -72,7 +78,7 @@ test("starts one generation and dispatches accepted invocations through one FIFO
   const { client, worker } = fixture();
   assert.equal(client.generation, "generation-1");
   assert.deepEqual(worker.sent, [{
-    protocolVersion: 1, generation: "generation-1", kind: "initialize", startup,
+    protocolVersion: 1, generation: "generation-1", kind: "initialize", environment: {}, startup,
   }]);
   const first = client.invoke("add", [20, 22]);
   const second = client.invoke("add", [1, 2]);
@@ -133,6 +139,7 @@ test("projects remote failures with a readable stable envelope", async () => {
   worker.emit("message", failure(1));
   await assert.rejects(pending, error => error instanceof NetWasmWorkerError
     && error.message === "managed failure" && error.category === "guestFailure"
+    && error.detail === "NetWasmManagedError: managed failure"
     && error.operation === "fail" && error.remoteStack === "remote");
 });
 
@@ -144,10 +151,10 @@ test("preserves managed worker details separately from the remote JavaScript sta
     const managed = { typeId: 7, typeName: "System.FormatException", message, stackTrace: "managed trace" };
     const pending = client.invoke("fail");
     worker.emit("message", failure(1, { error: {
-      category: "guestFailure", message, operation: "fail", stack: "JavaScript stack", managed,
+      category: "guestFailure", detail: null, message, operation: "fail", stack: "JavaScript stack", managed,
     } }));
     await assert.rejects(pending, error => error instanceof NetWasmWorkerError
-      && error.message === message && error.remoteStack === "JavaScript stack"
+      && error.message === message && error.detail === null && error.remoteStack === "JavaScript stack"
       && error.managed.message === message && error.managed.stackTrace === "managed trace"
       && error.managed.typeId === 7 && Object.isFrozen(error.managed));
     const subsequent = client.invoke("add", [20, 22]);
@@ -159,11 +166,15 @@ test("preserves managed worker details separately from the remote JavaScript sta
 
 test("rejects malformed managed failure envelopes before exposing them to the page", async () => {
   const managed = { typeId: 7, typeName: null, message: "original", stackTrace: null };
-  const envelope = { category: "guestFailure", message: "original", operation: "fail", stack: null, managed };
+  const envelope = {
+    category: "guestFailure", detail: null, message: "original", operation: "fail", stack: null, managed,
+  };
   for (const error of [
     { ...envelope, managed: {} }, { ...envelope, managed: null },
     { ...envelope, category: "hostFailure" }, { ...envelope, message: "" },
     { ...envelope, [Symbol()]: true },
+    { ...envelope, detail: "" }, { ...envelope, detail: " padded" }, { ...envelope, detail: 7 },
+    (({ detail, ...rest }) => rest)(envelope),
     Object.defineProperty({ ...envelope }, "managed", { enumerable: true, get() { assert.fail("getter"); } }),
     Object.defineProperty({ ...envelope }, "managed", { enumerable: false, value: managed }),
   ]) {
@@ -536,4 +547,61 @@ test("malformed live notifications fail clearly while stale notifications are ig
   } });
   await failed;
   assert.equal(worker.terminations, 1);
+});
+
+const output = (stream, text, overrides = {}) => ({ data: {
+  protocolVersion: 1, generation: "generation-1", kind: "output", stream,
+  bytes: new TextEncoder().encode(text), ...overrides,
+} });
+
+test("sends the environment override and delivers forwarded output as lines", async () => {
+  const lines = [];
+  const { client, worker } = fixture({
+    environment: { MODE: "page" },
+    stderr: line => lines.push(["stderr", line]),
+    stdout: line => lines.push(["stdout", line]),
+  });
+  assert.deepEqual(worker.sent[0].environment, { MODE: "page" });
+  worker.emit("message", output("stdout", "booting\nhalf"));
+  worker.emit("message", ready());
+  await client.ready;
+  worker.emit("message", output("stdout", " line\n"));
+  worker.emit("message", output("stderr", "partial"));
+  assert.deepEqual(lines, [["stdout", "booting"], ["stdout", "half line"]]);
+
+  client.terminate();
+  assert.deepEqual(lines.at(-1), ["stderr", "partial"]);
+  worker.emit("message", output("stdout", "late\n"));
+  assert.equal(lines.length, 3);
+});
+
+test("flushes forwarded output once when the session fails and writes to the console by default", async () => {
+  const logged = [];
+  const originalLog = console.log;
+  console.log = line => logged.push(line);
+  try {
+    const { client, worker } = fixture({ environment: undefined, stdout: null });
+    assert.deepEqual(worker.sent[0].environment, {});
+    worker.emit("message", output("stdout", "before failure"));
+    worker.emit("message", output("stdout", "x", { stream: "stdin" }));
+    await assert.rejects(client.ready, /worker output is invalid/);
+    client.terminate();
+  } finally {
+    console.log = originalLog;
+  }
+  assert.deepEqual(logged, ["before failure"]);
+});
+
+test("rejects malformed output messages and output options", async () => {
+  for (const message of [
+    output("stdout", "x", { bytes: "text" }),
+    output("stdout", "x", { extra: true }),
+  ]) {
+    const { client, worker } = fixture();
+    worker.emit("message", message);
+    await assert.rejects(client.ready, /worker output/);
+  }
+  assert.throws(() => fixture({ stdout: "console" }), /worker stdout must be a function/);
+  assert.throws(() => fixture({ stderr: 1 }), /worker stderr must be a function/);
+  assert.throws(() => fixture({ environment: { MODE: 1 } }), /worker environment values must be strings/);
 });

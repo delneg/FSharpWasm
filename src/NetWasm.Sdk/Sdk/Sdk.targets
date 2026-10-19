@@ -1,12 +1,18 @@
 <Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
-  <!-- Worker projects compile as ordinary libraries. Normalize before stock
-       SDK evaluation derives executable metadata from OutputType. -->
+  <!-- JsModule and worker projects compile as ordinary libraries. Normalize
+       before stock SDK evaluation derives executable metadata from OutputType.
+       The removed JsWebWorker name is normalized too, so its diagnostic can
+       name the replacement instead of failing inside the stock SDK. -->
   <PropertyGroup Condition="'$(OutputType)' == 'WitWebWorker'">
     <_NetWasmWorkerKind>wit</_NetWasmWorkerKind>
     <OutputType>Library</OutputType>
   </PropertyGroup>
-  <PropertyGroup Condition="'$(OutputType)' == 'JsWebWorker'">
+  <PropertyGroup Condition="'$(OutputType)' == 'JsModule'">
     <_NetWasmWorkerKind>jsexport</_NetWasmWorkerKind>
+    <OutputType>Library</OutputType>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(OutputType)' == 'JsWebWorker'">
+    <_NetWasmRemovedOutputType>JsWebWorker</_NetWasmRemovedOutputType>
     <OutputType>Library</OutputType>
   </PropertyGroup>
   <PropertyGroup>
@@ -135,21 +141,28 @@
            Text="NetWasmTarget must be 'wasm32' or 'wasm64'." />
   </Target>
 
+  <Target Name="NetWasmSdkRejectRemovedOutputType"
+          BeforeTargets="Restore;CoreCompile;Publish;NetWasmSdkResolveBuildEnvironment"
+          Condition="'$(_NetWasmRemovedOutputType)' == 'JsWebWorker'">
+    <Error Code="NWSDK074"
+           Text="OutputType JsWebWorker was replaced by JsModule. Set &lt;OutputType&gt;JsModule&lt;/OutputType&gt; and &lt;NetWasmJavaScriptHosts&gt;worker&lt;/NetWasmJavaScriptHosts&gt; to keep a Web Worker host." />
+  </Target>
+
   <Target Name="NetWasmSdkValidateWorkerOutput"
           BeforeTargets="Restore;CoreCompile;Publish;NetWasmSdkResolveBuildEnvironment"
           Condition="'$(_NetWasmWorkerKind)' != ''">
     <Error Code="NWSDK053"
            Condition="'$(OutputType)' != 'Library'"
-           Text="Declare WitWebWorker or JsWebWorker in the project file. A global OutputType override cannot be normalized for worker compilation." />
+           Text="Declare JsModule or WitWebWorker in the project file. A global OutputType override cannot be normalized for library compilation." />
     <Error Code="NWSDK054"
            Condition="'$(TargetFramework)' != '' AND '$(TargetFramework)' != 'netwasm0.1'"
-           Text="Web Worker output is supported only for netwasm0.1. Use Library for a desktop target." />
+           Text="JsModule and WitWebWorker output are supported only for netwasm0.1. Use Library for a desktop target." />
     <Error Code="NWSDK055"
            Condition="('$(_NetWasmWorkerKind)' == 'wit' AND '$(NetWasmRawWasm)' == 'true') OR ('$(_NetWasmWorkerKind)' == 'jsexport' AND '$(NetWasmRawWasm)' != 'true')"
-           Text="WitWebWorker requires component output; JsWebWorker requires raw WebAssembly output. Remove the conflicting NetWasmRawWasm setting." />
+           Text="WitWebWorker requires component output; JsModule requires raw WebAssembly output. Remove the conflicting NetWasmRawWasm setting." />
     <Error Code="NWSDK056"
            Condition="'$(NetWasmComponentContract)' != ''"
-           Text="Web worker outputs do not use command or async-command contracts. Remove NetWasmComponentContract and select the application NetWasmWitPath/NetWasmWorld for a WIT worker." />
+           Text="JsModule and WitWebWorker outputs do not use command or async-command contracts. Remove NetWasmComponentContract and select the application NetWasmWitPath/NetWasmWorld for a WIT worker." />
   </Target>
 
   <Target Name="NetWasmSdkRequireReferenceContract"

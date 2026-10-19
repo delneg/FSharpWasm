@@ -81,12 +81,13 @@ public sealed class WitWorkerCSharpClientWriter(
                 if (!methodNames.Add(method)) throw new InvalidDataException("Worker C# method names collide");
             }
             var resultType = export.Result is null ? "Task" : "Task<" + requests.Type(export.Result) + ">";
-            var parameters = export.Parameters.Select((parameter, number) => $"{requests.Type(parameter!.Type!)} argument{number}")
+            var names = ParameterNames(export.Parameters.Select(parameter => parameter!.Name).ToArray());
+            var parameters = export.Parameters.Select((parameter, number) => $"{requests.Type(parameter!.Type!)} {names[number]}")
                 .Append("CancellationToken cancellationToken = default");
             cs.AppendLine(CultureInfo.InvariantCulture, $"public async {resultType} {method}({string.Join(", ", parameters)}) {{");
             cs.AppendLine(CultureInfo.InvariantCulture, $"if (_closed) throw new ObjectDisposedException(nameof({request.ClassName})); cancellationToken.ThrowIfCancellationRequested(); var writer = Request(1); Writeu32(writer, {index}u);");
             foreach (var (parameter, number) in export.Parameters.Select((parameter, number) => (parameter!, number)))
-                cs.AppendLine(CultureInfo.InvariantCulture, $"Write{WitWorkerValueCodecRequest.Suffix(parameter.Type!)}(writer, argument{number});");
+                cs.AppendLine(CultureInfo.InvariantCulture, $"Write{WitWorkerValueCodecRequest.Suffix(parameter.Type!)}(writer, {names[number]});");
             cs.AppendLine("var reader = Response(await Invoke(_session, writer.Bytes, cancellationToken));");
             if (export.Result is not null)
                 cs.AppendLine(CultureInfo.InvariantCulture, $"var result = Read{WitWorkerValueCodecRequest.Suffix(export.Result)}(reader); reader.End(); return result;");
@@ -189,6 +190,30 @@ public sealed class WitWorkerCSharpClientWriter(
         function checkHeader(reader) { if (readu32(reader) !== 0x3143574e || readstring(reader) !== contractFingerprint) throw invalidWire(); }
         function response(status = 0) { const writer = new WireWriter(); writeu32(writer, 0x3143574e); writestring(writer, contractFingerprint); writeu8(writer, status); return writer; }
         """;
+
+    // The generated method declares writer, reader and result and takes a trailing
+    // cancellationToken, so a WIT parameter with one of those names, or a repeated
+    // one, falls back to argument{number}.
+    private string[] ParameterNames(string?[] witNames)
+    {
+        var taken = new HashSet<string>(["writer", "reader", "result", "cancellationToken"], StringComparer.Ordinal);
+        var names = new string[witNames.Length];
+        for (var number = 0; number < names.Length; number++)
+        {
+            var name = string.IsNullOrEmpty(witNames[number])
+                ? null
+                : _syntax.Format(new WitBindingSyntaxRequest.Variable(witNames[number]!));
+            if (name is not null && taken.Add(name.TrimStart('@'))) names[number] = name;
+        }
+        for (var number = 0; number < names.Length; number++)
+        {
+            if (names[number] is not null) continue;
+            var fallback = $"argument{number}";
+            while (!taken.Add(fallback)) fallback = "_" + fallback;
+            names[number] = fallback;
+        }
+        return names;
+    }
 }
 
 public static class WitWorkerCSharpClientComposition

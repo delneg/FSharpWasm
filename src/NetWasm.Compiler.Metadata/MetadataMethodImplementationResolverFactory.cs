@@ -38,7 +38,10 @@ public sealed class MetadataMethodImplementationResolverFactory(
             definitions,
             _methods.Create(snapshot),
             new ArrayMethodResolver(signatureComparer),
-            stackTypes);
+            stackTypes,
+            new MetadataBaseTypeIdentityResolver(definitions,
+                new MetadataAssemblyResolver(materialized.MetadataAssemblies,
+                    materialized.ReferenceAssemblyAliases, availability), signatures));
         return new MetadataMethodImplementationResolver(
             new MetadataAssemblyResolver(
                 materialized.MetadataAssemblies,

@@ -25,6 +25,16 @@ public sealed class WasmOptimizationSettingsResolverTests
                 ? ManagedConstantArgumentPropagation.Enabled : ManagedConstantArgumentPropagation.Disabled));
             var population = resolver.Resolve(preset, new(StaticArrayPopulationElimination: enabled
                 ? ManagedStaticArrayPopulationElimination.Enabled : ManagedStaticArrayPopulationElimination.Disabled));
+            var calls = resolver.Resolve(preset, new(ConstantCallFolding: enabled
+                ? ManagedConstantCallFolding.Enabled : ManagedConstantCallFolding.Disabled));
+            var bitTests = resolver.Resolve(preset, new(SwitchBitTests: enabled
+                ? ManagedSwitchBitTests.Enabled : ManagedSwitchBitTests.Disabled));
+            var devirtualization = resolver.Resolve(preset, new(Devirtualization: enabled
+                ? ManagedDevirtualization.Enabled : ManagedDevirtualization.Disabled));
+            var allocations = resolver.Resolve(preset, new(AllocationElimination: enabled
+                ? ManagedAllocationElimination.Enabled : ManagedAllocationElimination.Disabled));
+            var rotation = resolver.Resolve(preset, new(LoopRotation: enabled
+                ? ManagedLoopRotation.Enabled : ManagedLoopRotation.Disabled));
             Assert.Equal(baseline with
             {
                 ConstantArgumentPropagation = enabled ? ConstantArgumentPropagationPolicy.Conservative : ConstantArgumentPropagationPolicy.Disabled,
@@ -33,6 +43,26 @@ public sealed class WasmOptimizationSettingsResolverTests
             {
                 StaticArrayPopulationElimination = enabled ? StaticArrayPopulationEliminationPolicy.Conservative : StaticArrayPopulationEliminationPolicy.Disabled,
             }, population);
+            Assert.Equal(baseline with
+            {
+                ConstantCallFolding = enabled ? ConstantCallFoldingPolicy.Conservative : ConstantCallFoldingPolicy.Disabled,
+            }, calls);
+            Assert.Equal(baseline with
+            {
+                SwitchBitTests = enabled ? SwitchBitTestPolicy.Conservative : SwitchBitTestPolicy.Disabled,
+            }, bitTests);
+            Assert.Equal(baseline with
+            {
+                Devirtualization = enabled ? DevirtualizationPolicy.ExactType : DevirtualizationPolicy.Disabled,
+            }, devirtualization);
+            Assert.Equal(baseline with
+            {
+                AllocationElimination = enabled ? AllocationEliminationPolicy.Unused : AllocationEliminationPolicy.Disabled,
+            }, allocations);
+            Assert.Equal(baseline with
+            {
+                LoopRotation = enabled ? LoopRotationPolicy.Guarded : LoopRotationPolicy.Disabled,
+            }, rotation);
         }
     }
 
@@ -44,13 +74,40 @@ public sealed class WasmOptimizationSettingsResolverTests
             new(ConstantArgumentPropagation: (ManagedConstantArgumentPropagation)255)));
         Assert.Throws<ArgumentOutOfRangeException>(() => resolver.Resolve(FinalWasmOptimization.Oz,
             new(StaticArrayPopulationElimination: (ManagedStaticArrayPopulationElimination)255)));
+        Assert.Throws<ArgumentOutOfRangeException>(() => resolver.Resolve(FinalWasmOptimization.Oz,
+            new(ConstantCallFolding: (ManagedConstantCallFolding)255)));
+        Assert.Throws<ArgumentOutOfRangeException>(() => resolver.Resolve(FinalWasmOptimization.Oz,
+            new(SwitchBitTests: (ManagedSwitchBitTests)255)));
+        Assert.Throws<ArgumentOutOfRangeException>(() => resolver.Resolve(FinalWasmOptimization.Oz,
+            new(Devirtualization: (ManagedDevirtualization)255)));
+        Assert.Throws<ArgumentOutOfRangeException>(() => resolver.Resolve(FinalWasmOptimization.Oz,
+            new(AllocationElimination: (ManagedAllocationElimination)255)));
+        Assert.Throws<ArgumentOutOfRangeException>(() => resolver.Resolve(FinalWasmOptimization.Oz,
+            new(LoopRotation: (ManagedLoopRotation)255)));
         Assert.Throws<ArgumentException>(() => resolver.Resolve(FinalWasmOptimization.None,
             new(ConstantArgumentPropagation: ManagedConstantArgumentPropagation.Enabled)));
         Assert.Throws<ArgumentException>(() => resolver.Resolve(FinalWasmOptimization.None,
             new(StaticArrayPopulationElimination: ManagedStaticArrayPopulationElimination.Enabled)));
+        Assert.Throws<ArgumentException>(() => resolver.Resolve(FinalWasmOptimization.None,
+            new(ConstantCallFolding: ManagedConstantCallFolding.Enabled)));
+        Assert.Throws<ArgumentException>(() => resolver.Resolve(FinalWasmOptimization.None,
+            new(SwitchBitTests: ManagedSwitchBitTests.Enabled)));
+        Assert.Throws<ArgumentException>(() => resolver.Resolve(FinalWasmOptimization.None,
+            new(Devirtualization: ManagedDevirtualization.Enabled)));
+        Assert.Throws<ArgumentException>(() => resolver.Resolve(FinalWasmOptimization.None,
+            new(AllocationElimination: ManagedAllocationElimination.Enabled)));
+        Assert.Throws<ArgumentException>(() => resolver.Resolve(FinalWasmOptimization.None,
+            new(LoopRotation: ManagedLoopRotation.Enabled)));
+        Assert.Throws<ArgumentException>(() => resolver.Resolve(FinalWasmOptimization.None,
+            new(LoopInvariantFieldHoisting: ManagedLoopInvariantFieldHoisting.NullChecks)));
         Assert.Equal(resolver.Resolve(FinalWasmOptimization.None), resolver.Resolve(FinalWasmOptimization.None,
             new(ConstantArgumentPropagation: ManagedConstantArgumentPropagation.Disabled,
-                StaticArrayPopulationElimination: ManagedStaticArrayPopulationElimination.Disabled)));
+                StaticArrayPopulationElimination: ManagedStaticArrayPopulationElimination.Disabled,
+                ConstantCallFolding: ManagedConstantCallFolding.Disabled,
+                SwitchBitTests: ManagedSwitchBitTests.Disabled,
+                Devirtualization: ManagedDevirtualization.Disabled,
+                AllocationElimination: ManagedAllocationElimination.Disabled,
+                LoopRotation: ManagedLoopRotation.Disabled)));
     }
 
     [Theory]
@@ -71,8 +128,8 @@ public sealed class WasmOptimizationSettingsResolverTests
         AddressTakenValuePromotionPolicy.Disabled, ManagedMethodInliningPolicy.Disabled,
         BranchPrefixDuplicationPolicy.Speed)]
     [InlineData(FinalWasmOptimization.O3, WasmInlineAnnotationSelection.Preserve,
-        LoopInvariantFieldHoistingPolicy.Conservative, StaticDataViewEliminationPolicy.Conservative,
-        AddressTakenValuePromotionPolicy.Conservative, ManagedMethodInliningPolicy.Conservative,
+        LoopInvariantFieldHoistingPolicy.NullChecks, StaticDataViewEliminationPolicy.Conservative,
+        AddressTakenValuePromotionPolicy.References, ManagedMethodInliningPolicy.Speed,
         BranchPrefixDuplicationPolicy.Speed)]
     [InlineData(FinalWasmOptimization.Os, WasmInlineAnnotationSelection.SizeAware,
         LoopInvariantFieldHoistingPolicy.Disabled, StaticDataViewEliminationPolicy.Disabled,
@@ -109,7 +166,12 @@ public sealed class WasmOptimizationSettingsResolverTests
                 : ArrayBoundsCheckEliminationPolicy.Disabled,
             preset == FinalWasmOptimization.O3 ? LoopUnrollingPolicy.Bounded : LoopUnrollingPolicy.Disabled,
             WholeProgramDefault(preset) ? ConstantArgumentPropagationPolicy.Conservative : ConstantArgumentPropagationPolicy.Disabled,
-            WholeProgramDefault(preset) ? StaticArrayPopulationEliminationPolicy.Conservative : StaticArrayPopulationEliminationPolicy.Disabled);
+            WholeProgramDefault(preset) ? StaticArrayPopulationEliminationPolicy.Conservative : StaticArrayPopulationEliminationPolicy.Disabled,
+            WholeProgramDefault(preset) ? ConstantCallFoldingPolicy.Conservative : ConstantCallFoldingPolicy.Disabled,
+            preset is FinalWasmOptimization.None or FinalWasmOptimization.O0 ? SwitchBitTestPolicy.Disabled : SwitchBitTestPolicy.Conservative,
+            preset is FinalWasmOptimization.None or FinalWasmOptimization.O0 ? DevirtualizationPolicy.Disabled : DevirtualizationPolicy.ExactType,
+            preset is FinalWasmOptimization.None or FinalWasmOptimization.O0 ? AllocationEliminationPolicy.Disabled : AllocationEliminationPolicy.Unused,
+            preset == FinalWasmOptimization.O3 ? LoopRotationPolicy.Guarded : LoopRotationPolicy.Disabled);
         var actual = resolver.Resolve(preset);
         Assert.Equal(expected, actual);
         Assert.Equal(preset, actual.BackendPreset);
@@ -131,19 +193,21 @@ public sealed class WasmOptimizationSettingsResolverTests
                 FinalWasmOptimization.O2 or FinalWasmOptimization.O3
                 ? WasmInlineAnnotationSelection.Preserve
                 : WasmInlineAnnotationSelection.SizeAware;
-            var fieldHoisting = preset is FinalWasmOptimization.O2 or
-                FinalWasmOptimization.O3
-                ? LoopInvariantFieldHoistingPolicy.Conservative
-                : LoopInvariantFieldHoistingPolicy.Disabled;
+            var fieldHoisting = preset switch
+            {
+                FinalWasmOptimization.O2 => LoopInvariantFieldHoistingPolicy.Conservative,
+                FinalWasmOptimization.O3 => LoopInvariantFieldHoistingPolicy.NullChecks,
+                _ => LoopInvariantFieldHoistingPolicy.Disabled,
+            };
             var staticDataViews = preset is FinalWasmOptimization.O2 or
                 FinalWasmOptimization.O3
                 ? StaticDataViewEliminationPolicy.Conservative
                 : StaticDataViewEliminationPolicy.Disabled;
             var valuePromotion = preset == FinalWasmOptimization.O3
-                ? AddressTakenValuePromotionPolicy.Conservative
+                ? AddressTakenValuePromotionPolicy.References
                 : AddressTakenValuePromotionPolicy.Disabled;
             var methodInlining = preset == FinalWasmOptimization.O3
-                ? ManagedMethodInliningPolicy.Conservative
+                ? ManagedMethodInliningPolicy.Speed
                 : ManagedMethodInliningPolicy.Disabled;
             var branchPrefixDuplication = preset switch
             {
@@ -172,7 +236,12 @@ public sealed class WasmOptimizationSettingsResolverTests
                         : ArrayBoundsCheckEliminationPolicy.Disabled,
                     preset == FinalWasmOptimization.O3 ? LoopUnrollingPolicy.Bounded : LoopUnrollingPolicy.Disabled,
                     WholeProgramDefault(preset) ? ConstantArgumentPropagationPolicy.Conservative : ConstantArgumentPropagationPolicy.Disabled,
-                    WholeProgramDefault(preset) ? StaticArrayPopulationEliminationPolicy.Conservative : StaticArrayPopulationEliminationPolicy.Disabled),
+                    WholeProgramDefault(preset) ? StaticArrayPopulationEliminationPolicy.Conservative : StaticArrayPopulationEliminationPolicy.Disabled,
+                    WholeProgramDefault(preset) ? ConstantCallFoldingPolicy.Conservative : ConstantCallFoldingPolicy.Disabled,
+                    preset is FinalWasmOptimization.None or FinalWasmOptimization.O0 ? SwitchBitTestPolicy.Disabled : SwitchBitTestPolicy.Conservative,
+                    preset is FinalWasmOptimization.None or FinalWasmOptimization.O0 ? DevirtualizationPolicy.Disabled : DevirtualizationPolicy.ExactType,
+                    preset is FinalWasmOptimization.None or FinalWasmOptimization.O0 ? AllocationEliminationPolicy.Disabled : AllocationEliminationPolicy.Unused,
+                    preset == FinalWasmOptimization.O3 ? LoopRotationPolicy.Guarded : LoopRotationPolicy.Disabled),
                 resolver.Resolve(preset, new(hint)));
         }
     }
@@ -182,6 +251,8 @@ public sealed class WasmOptimizationSettingsResolverTests
         LoopInvariantFieldHoistingPolicy.Disabled)]
     [InlineData(ManagedLoopInvariantFieldHoisting.Enabled,
         LoopInvariantFieldHoistingPolicy.Conservative)]
+    [InlineData(ManagedLoopInvariantFieldHoisting.NullChecks,
+        LoopInvariantFieldHoistingPolicy.NullChecks)]
     public void ExplicitFieldHoistingOverridesEveryEnabledPreset(
         ManagedLoopInvariantFieldHoisting fieldHoisting,
         LoopInvariantFieldHoistingPolicy expected)
@@ -320,6 +391,8 @@ public sealed class WasmOptimizationSettingsResolverTests
         AddressTakenValuePromotionPolicy.Disabled)]
     [InlineData(ManagedAddressTakenValuePromotion.Enabled,
         AddressTakenValuePromotionPolicy.Conservative)]
+    [InlineData(ManagedAddressTakenValuePromotion.References,
+        AddressTakenValuePromotionPolicy.References)]
     public void ExplicitAddressTakenValuePromotionOverridesEveryEnabledPreset(
         ManagedAddressTakenValuePromotion option,
         AddressTakenValuePromotionPolicy expected)
@@ -349,13 +422,14 @@ public sealed class WasmOptimizationSettingsResolverTests
             settings.AddressTakenValuePromotion);
     }
 
-    [Fact]
-    public void EnabledAddressTakenValuePromotionRequiresFinalOptimization()
+    [Theory]
+    [InlineData(ManagedAddressTakenValuePromotion.Enabled)]
+    [InlineData(ManagedAddressTakenValuePromotion.References)]
+    public void EnabledAddressTakenValuePromotionRequiresFinalOptimization(ManagedAddressTakenValuePromotion option)
     {
         var error = Assert.Throws<ArgumentException>(() => Create().Resolve(
             FinalWasmOptimization.None,
-            new(AddressTakenValuePromotion:
-                ManagedAddressTakenValuePromotion.Enabled)));
+            new(AddressTakenValuePromotion: option)));
 
         Assert.Equal("options", error.ParamName);
     }
@@ -373,7 +447,7 @@ public sealed class WasmOptimizationSettingsResolverTests
 
     [Theory]
     [InlineData(ManagedMethodInlining.Disabled, ManagedMethodInliningPolicy.Disabled)]
-    [InlineData(ManagedMethodInlining.Enabled, ManagedMethodInliningPolicy.Conservative)]
+    [InlineData(ManagedMethodInlining.Enabled, ManagedMethodInliningPolicy.Speed)]
     public void ExplicitManagedMethodInliningOverridesEveryEnabledPreset(
         ManagedMethodInlining option,
         ManagedMethodInliningPolicy expected)

@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Text.Json.Serialization;
 
 namespace NetWasm.Compiler.ComponentModel.Browser.Plans;
@@ -8,4 +9,5 @@ namespace NetWasm.Compiler.ComponentModel.Browser.Plans;
     UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow)]
 [JsonSerializable(typeof(BrowserLinkPlan))]
 [JsonSerializable(typeof(BrowserLinkExecutionPlan))]
+[ExcludeFromCodeCoverage]
 internal sealed partial class BrowserLinkPlanJsonContext : JsonSerializerContext;

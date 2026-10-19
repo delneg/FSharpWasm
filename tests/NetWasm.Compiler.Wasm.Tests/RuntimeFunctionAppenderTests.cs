@@ -327,7 +327,8 @@ public sealed class RuntimeFunctionAppenderTests
             RuntimeInitializationPlan initialization,
             bool hasFinalizers,
             IFunctionIndexResolver functionIndices,
-            EntityKey? argumentFactory)
+            EntityKey? argumentFactory,
+            InteropImportPlan? interopImports)
         {
             Count++;
             return [4];
@@ -363,6 +364,8 @@ public sealed class RuntimeFunctionAppenderTests
 
     private sealed class FixedFunctionIndexResolver : IFunctionIndexResolver
     {
+        public int Resolve(InteropImportKey import) => Resolve(import.Method);
+
         public int Resolve(EntityKey method) => 0;
         public int Resolve(string method) => 0;
         public int Resolve(MethodInstanceModel method) => 0;

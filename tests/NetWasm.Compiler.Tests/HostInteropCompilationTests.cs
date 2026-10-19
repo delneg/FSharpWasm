@@ -104,6 +104,7 @@ public sealed class HostInteropCompilationTests
                 export =>
                 {
                     Assert.Equal("task_value", export.Name);
+                    Assert.Equal(["input"], export.ParameterNames.ToArray());
                     Assert.Equal("task", export.AsyncReturn);
                     Assert.Equal("i32", export.Result);
                     Assert.NotNull(export.StatusExport);
@@ -122,6 +123,47 @@ public sealed class HostInteropCompilationTests
                     Assert.Equal("exception-handle-v1", export.CompletionResult);
                 });
         }
+    }
+
+    [Fact]
+    public void CompilerRecordsExportParameterNamesAndNullability()
+    {
+        using var assets = TestAssets.Create();
+        var assembly = assets.CompileSource(
+            "ExportNullabilityFixture",
+            """
+            using System.Runtime.InteropServices.JavaScript;
+
+            public static class EntryPoint
+            {
+                public static int Run(int input) => input;
+
+            #nullable enable
+                [JSExport("greet")]
+                public static string Greet(string name, string? title, int count) => name;
+
+                [JSExport("maybe")]
+                public static string? Maybe(byte[] data) => null;
+            #nullable disable
+
+                [JSExport("oblivious")]
+                public static string Oblivious(string value) => value;
+            }
+            """);
+
+        var result = NetWasmCompiler.Compile(CompilerTestSupport.CreateReactorOptions(
+            assets, assembly, "EntryPoint", "Run", WasmTarget.Wasm32) with
+        { UseJavaScriptExportBoundary = true });
+
+        var exports = result.InteropManifest.Exports.ToDictionary(export => export.Name);
+        Assert.Equal(["name", "title", "count"], exports["greet"].ParameterNames.ToArray());
+        Assert.Equal([true, false, true], exports["greet"].NonNullableParameters.ToArray());
+        Assert.True(exports["greet"].NonNullableResult);
+        Assert.Equal([true], exports["maybe"].NonNullableParameters.ToArray());
+        Assert.False(exports["maybe"].NonNullableResult);
+        // Without nullable annotations a reference stays nullable.
+        Assert.Equal([false], exports["oblivious"].NonNullableParameters.ToArray());
+        Assert.False(exports["oblivious"].NonNullableResult);
     }
 
     [Fact]
@@ -434,6 +476,105 @@ public sealed class HostInteropCompilationTests
             Assert.Contains(result.FunctionImports,
                 import => import.Module == "netwasm.host.v1" &&
                     import.Name == "interop_copy_bytes");
+        }
+    }
+
+    [Fact]
+    public void CompilerEmitsJSObjectJavaScriptExportBoundary()
+    {
+        using var assets = TestAssets.Create();
+        var assembly = assets.CompileSource(
+            "HostObjectExportFixture",
+            """
+            using System.Runtime.InteropServices.JavaScript;
+
+            public static class EntryPoint
+            {
+                public static int Run(int input) => input;
+
+                [JSExport("pick")]
+                public static JSObject? Pick(JSObject? first, JSObject? second) => first ?? second;
+            }
+            """);
+
+        foreach (var target in new[] { WasmTarget.Wasm32, WasmTarget.Wasm64 })
+        {
+            var result = NetWasmCompiler.Compile(new CompilerOptions(
+                assembly,
+                [assets.CoreLib],
+                "EntryPoint",
+                "Run",
+                [],
+                target,
+                UseJavaScriptExportBoundary: true));
+
+            var export = Assert.Single(result.InteropManifest.Exports,
+                candidate => candidate.Name == "pick");
+            Assert.Equal(["object", "object"], export.Parameters.ToArray());
+            Assert.Equal("object", export.Result);
+            Assert.Contains(result.FunctionImports,
+                import => import.Module == "netwasm.host.v1" &&
+                    import.Name == "interop_release_handle");
+        }
+    }
+
+    [Fact]
+    public void CompilerEmitsTypedArrayJavaScriptBoundaries()
+    {
+        using var assets = TestAssets.Create();
+        var assembly = assets.CompileSource(
+            "TypedArrayHostBoundaryFixture",
+            """
+            using System;
+            using System.Runtime.InteropServices.JavaScript;
+
+            public delegate int SampleCallback(ushort[] samples);
+
+            public static class Host
+            {
+                [JSImport("scale", "consumer.arrays")]
+                public static extern long[] Scale(float[] values);
+
+                [JSImport("watch", "consumer.arrays")]
+                public static extern JSSubscription Watch(SampleCallback callback);
+            }
+
+            public static class EntryPoint
+            {
+                public static int Run(int input)
+                {
+                    using var subscription = Host.Watch(samples => samples.Length);
+                    return Host.Scale([1f, 2f]).Length + input;
+                }
+
+                [JSExport("average")]
+                public static double[] Average(int[] values, sbyte[] signs, uint[] flags, ulong[] ids, short[] deltas) =>
+                    [values.Length + signs.Length + flags.Length + ids.Length + deltas.Length];
+            }
+            """);
+
+        foreach (var target in new[] { WasmTarget.Wasm32, WasmTarget.Wasm64 })
+        {
+            var result = NetWasmCompiler.Compile(new CompilerOptions(
+                assembly,
+                [assets.CoreLib],
+                "EntryPoint",
+                "Run",
+                [],
+                target));
+
+            CompilerTestSupport.ValidateWithNode(result.ApplicationModule, assets.Directory);
+            var export = Assert.Single(result.InteropManifest.Exports, candidate => candidate.Name == "average");
+            Assert.Equal(["i32[]", "i8[]", "u32[]", "u64[]", "i16[]"], export.Parameters.ToArray());
+            Assert.Equal("f64[]", export.Result);
+            var scale = Assert.Single(result.InteropManifest.Imports, candidate => candidate.Name == "scale");
+            Assert.Equal(["f32[]"], scale.Parameters.ToArray());
+            Assert.Equal("i64[]", scale.Result);
+            Assert.Equal(["u16[]"], Assert.Single(result.InteropManifest.Callbacks).Parameters.ToArray());
+            Assert.Contains(result.FunctionImports,
+                import => import.Module == "netwasm.host.v1" && import.Name == "interop_byte_length");
+            Assert.Contains(result.FunctionImports,
+                import => import.Module == "netwasm.host.v1" && import.Name == "interop_copy_bytes");
         }
     }
 

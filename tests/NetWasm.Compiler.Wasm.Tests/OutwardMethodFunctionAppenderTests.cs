@@ -268,6 +268,48 @@ public sealed class OutwardMethodFunctionAppenderTests
             asynchronous ? wrappers.ArgumentFactory : entries.ArgumentFactory);
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void OnlyAJavaScriptAsyncExportReceivesStringArgumentsAsHandles(bool javaScript)
+    {
+        var wrappers = new RecordingAsyncWrapperEmitter();
+        var appender = new OutwardMethodFunctionAppender(
+            wrappers,
+            new RecordingAsyncHelperAppender(),
+            new RecordingEntryPointEmitter(),
+            new FixedFunctionTypeResolver(),
+            new RecordingBoundaryBuilder(),
+            WasmRuntimeImports.CreateCatalog());
+        var method = new FakeProgram().GetMethod(EmitterTestSupport.EntryKey) with
+        {
+            Signature = MethodSignatureModel.Create(
+                CliTypeIdentity.FromStackKind(CliValueKind.ManagedReference),
+                CliTypeIdentity.Primitive("string", CliValueKind.ManagedReference),
+                CliTypeIdentity.FromStackKind(CliValueKind.F8)),
+        };
+        var binding = CreateBinding(method);
+        var interopImports = new InteropImportPlan([], default, default, default, default, default, default);
+        var request = CreateRequest(method) with
+        {
+            AsyncBinding = binding,
+            AsyncNames = ManagedAsyncBoundaryNames.ForExport(binding),
+            AsyncKinds = javaScript
+                ? ManagedAsyncBoundaryKinds.Export
+                : ManagedAsyncBoundaryKinds.Export with { Start = ManagedBoundaryKind.ComponentAdapter },
+            Initialization = TestRuntimeInitialization.Create(64, new RuntimeImportSelection(
+                WasmModuleProfile.CoreApplication, false, IncludeExceptionCapture: true)),
+            InteropImports = interopImports,
+        };
+
+        appender.Append(request);
+
+        Assert.Equal(
+            [javaScript ? CliValueKind.I4 : CliValueKind.ManagedReference, CliValueKind.F8],
+            Assert.Single(request.Functions).Type.Parameters.ToArray());
+        Assert.Same(javaScript ? interopImports : null, wrappers.InteropImports);
+    }
+
     private static OutwardMethodFunctionAppender CreateAppender() => new(
         new RecordingAsyncWrapperEmitter(),
         new RecordingAsyncHelperAppender(),
@@ -323,6 +365,7 @@ public sealed class OutwardMethodFunctionAppenderTests
     {
         public int Count { get; private set; }
         public EntityKey? ArgumentFactory { get; private set; }
+        public InteropImportPlan? InteropImports { get; private set; }
 
         public byte[] Emit(
             MethodDefinitionModel method,
@@ -330,10 +373,12 @@ public sealed class OutwardMethodFunctionAppenderTests
             RuntimeInitializationPlan initialization,
             bool hasFinalizers,
             IFunctionIndexResolver functionIndices,
-            EntityKey? argumentFactory)
+            EntityKey? argumentFactory,
+            InteropImportPlan? interopImports)
         {
             Count++;
             ArgumentFactory = argumentFactory;
+            InteropImports = interopImports;
             return [1];
         }
     }
@@ -422,6 +467,8 @@ public sealed class OutwardMethodFunctionAppenderTests
 
     private sealed class FixedFunctionIndexResolver : IFunctionIndexResolver
     {
+        public int Resolve(InteropImportKey import) => Resolve(import.Method);
+
         public int Resolve(EntityKey method) => 0;
         public int Resolve(string method) => 0;
         public int Resolve(MethodInstanceModel method) => 0;

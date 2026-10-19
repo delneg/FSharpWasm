@@ -4,7 +4,7 @@ import { createBrowserRawLoader } from "./browser-raw-loader.mjs";
 import { createBrowserTimeZoneMaterializer } from "./browser-timezone-materializer.mjs";
 import { createBrowserVerifiedModuleImporter } from "./browser-verified-module-importer.mjs";
 import { createExecutionRequestValidator } from "./execution-request-validator.mjs";
-import { jsExportWorkerExecutionContract } from "./execution-contracts.mjs";
+import { jsExportExecutionContract } from "./execution-contracts.mjs";
 import { createManagedExceptionOutput } from "./managed-exception-output.mjs";
 import { createOutputFinalization } from "./output-finalization.mjs";
 import { createPreview2FilesystemScope } from "./preview2-filesystem-scope.mjs";
@@ -100,7 +100,7 @@ export function createBrowserRawExportSession(options) {
       }));
       if (manifest.buildFingerprint !== startup.buildFingerprint
           || manifest.deploymentKind !== "raw"
-          || manifest.executionContract !== jsExportWorkerExecutionContract) {
+          || manifest.executionContract !== jsExportExecutionContract) {
         throw new TypeError("browser raw export-session deployment identity is invalid");
       }
       const loaded = await loadArtifacts(Object.freeze({

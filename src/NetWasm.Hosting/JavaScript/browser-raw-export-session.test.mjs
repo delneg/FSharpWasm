@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { createHash, webcrypto } from "node:crypto";
 import test from "node:test";
 import { createBrowserRawExportSession } from "./browser-raw-export-session.mjs";
+import { timeZoneContainer } from "./timezone-sidecar-zones.test.mjs";
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
@@ -70,7 +71,7 @@ function fixture({
   applicationImports = [],
   configuration = {},
   consumerModules = Object.freeze(Object.create(null)),
-  executionContract = "netwasm:worker/jsexport@1.0.0",
+  executionContract = "netwasm:browser/jsexport@1.0.0",
   filesystemDisposeError = null,
   interopImports = [],
   interopExports = undefined,
@@ -211,10 +212,12 @@ test("pins deployment identity and the library hosting contract", async () => {
     buildFingerprint, manifestSha256: "5".repeat(64),
   } }), /integrity/);
 
-  const command = fixture({ executionContract: "wasi-command@0.2.11" });
-  await assert.rejects(() => command.open({ startup: {
-    buildFingerprint, manifestSha256: command.manifestSha256,
-  } }), /identity/);
+  for (const executionContract of ["wasi-command@0.2.11", "netwasm:worker/jsexport@1.0.0"]) {
+    const rejected = fixture({ executionContract });
+    await assert.rejects(() => rejected.open({ startup: {
+      buildFingerprint, manifestSha256: rejected.manifestSha256,
+    } }), /identity/);
+  }
 
   const wrongTarget = fixture({ manifestTarget: "wasm64" });
   await assert.rejects(() => wrongTarget.open({ startup: {
@@ -245,7 +248,7 @@ test("retains timezone resources until the persistent session closes", async () 
         clocks: [], environment: ["TZ"], network: "denyAll", preopens: [], randomness: false,
       },
     },
-    timeZoneBytes: Uint8Array.of(1, 2, 3),
+    timeZoneBytes: timeZoneContainer([["Australia/Melbourne", 1]]),
   });
   const session = await state.open({ startup: {
     buildFingerprint, manifestSha256: state.manifestSha256,

@@ -9,7 +9,9 @@ fi
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 mkdir -p "$1"
 output_dir="$(cd "$1" && pwd)"
-timezone_source="${TZDIR:-/usr/share/zoneinfo}"
+# Use the pinned IANA release that NetWasm.Toolchain ships: CoreLib requires its
+# data version, and a host's system zoneinfo can be a different release.
+timezone_source="$repo_root/src/NetWasm.Toolchain/timezones/zoneinfo"
 timezone_asset="$output_dir/timezones.nwtz"
 
 dotnet run \

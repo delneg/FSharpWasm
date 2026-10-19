@@ -11,5 +11,6 @@ internal interface IAsyncJSExportWrapperEmitter
         RuntimeInitializationPlan initialization,
         bool hasFinalizers,
         IFunctionIndexResolver functionIndices,
-        EntityKey? argumentFactory = null);
+        EntityKey? argumentFactory = null,
+        InteropImportPlan? interopImports = null);
 }

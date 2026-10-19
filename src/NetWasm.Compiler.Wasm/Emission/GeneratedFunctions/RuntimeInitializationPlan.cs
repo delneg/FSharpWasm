@@ -30,6 +30,10 @@ internal sealed record RuntimeInitializationPlan
 
     public int? NativeCallbackReadinessAddress { get; init; }
 
+    // Present when exports or host callbacks can re-enter the initializer; type, value-type
+    // and static-root registration then runs on the first entry only.
+    public int? StateRegistrationGuardAddress { get; init; }
+
     public int? StackTraceSymbolRegistrationGuardAddress { get; init; }
 
     public ImmutableArray<StackTraceSymbolData> StackTraceSymbols { get; init; } = [];

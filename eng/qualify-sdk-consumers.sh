@@ -2,7 +2,7 @@
 set -euo pipefail
 
 if [[ "$#" -lt 2 ]]; then
-  echo "usage: eng/qualify-sdk-consumers.sh <package-directory> <version> [--host-tools-version VERSION] [--sdk-evaluation-output PATH --producer-manifest PATH --asset-receipt-output PATH] [--artifact-directory ABSOLUTE_NEW_DIRECTORY] [--skip-test-consumers] [--collector-canary|--test-collectors]" >&2
+  echo "usage: eng/qualify-sdk-consumers.sh <package-directory> <version> [--host-tools-version VERSION] [--sdk-evaluation-output PATH --producer-manifest PATH --asset-receipt-output PATH] [--artifact-directory ABSOLUTE_NEW_DIRECTORY] [--skip-test-consumers|--skip-tunit-consumer] [--collector-canary|--test-collectors]" >&2
   exit 2
 fi
 
@@ -12,6 +12,7 @@ version="$2"
 shift 2
 host_tools_version="$version"
 skip_test_consumers=false
+skip_tunit_consumer=false
 collector_canary=false
 test_collectors=false
 sdk_evaluation_output=""
@@ -43,6 +44,12 @@ while [[ "$#" -gt 0 ]]; do
       skip_test_consumers=true
       shift
       ;;
+    # The TUnit consumer needs a released NetWasm.TUnit; the generic VSTest
+    # consumer needs only these packages, so CI keeps it on every host.
+    --skip-tunit-consumer)
+      skip_tunit_consumer=true
+      shift
+      ;;
     --sdk-evaluation-output)
       [[ "$#" -ge 2 ]] || { echo "--sdk-evaluation-output requires a path" >&2; exit 2; }
       sdk_evaluation_output="$2"
@@ -65,7 +72,8 @@ while [[ "$#" -gt 0 ]]; do
   esac
 done
 if [[ "$test_collectors" == true ]]; then
-  [[ "$collector_canary" == false && "$skip_test_consumers" == false && -n "$producer_manifest" ]] || {
+  [[ "$collector_canary" == false && "$skip_test_consumers" == false && "$skip_tunit_consumer" == false \
+    && -n "$producer_manifest" ]] || {
     echo "Test-collector qualification requires a producer manifest and cannot skip tests or run the app canary." >&2
     exit 2
   }
@@ -832,7 +840,17 @@ assert_run_42 "$work_root/transitive-desktop-run.log" \
   --no-restore --disable-build-servers
 fi
 
-if [[ "$skip_test_consumers" == false ]]; then
+cat > "$work_root/NuGet.Candidate.Config" <<EOF
+<configuration>
+  <packageSources>
+    <clear />
+    <add key="candidate" value="$dotnet_package_root" />
+    <add key="nuget.org" value="https://api.nuget.org/v3/index.json" />
+  </packageSources>
+</configuration>
+EOF
+
+if [[ "$skip_test_consumers" == false && "$skip_tunit_consumer" == false ]]; then
 selections=("")
 if [[ "$test_collectors" == true ]]; then
   selections=(Compact NetWasm Boehm)
@@ -863,15 +881,6 @@ cat > "$test_root/RuntimeHostTests.csproj" <<'EOF'
   </ItemGroup>
 </Project>
 EOF
-cat > "$work_root/NuGet.WithTUnit.Config" <<EOF
-<configuration>
-  <packageSources>
-    <clear />
-    <add key="candidate" value="$dotnet_package_root" />
-    <add key="nuget.org" value="https://api.nuget.org/v3/index.json" />
-  </packageSources>
-</configuration>
-EOF
 cat > "$test_root/Tests.cs" <<'EOF'
 using System.Threading.Tasks;
 using System;
@@ -897,7 +906,7 @@ public sealed class Tests
 EOF
 run_log "$test_log_root/tunit-restore.log" \
   dotnet restore "$test_root/RuntimeHostTests.csproj" \
-    --configfile "$work_root/NuGet.WithTUnit.Config" \
+    --configfile "$work_root/NuGet.Candidate.Config" \
     --disable-build-servers --nologo "${test_selection[@]}"
 if [[ "$test_collectors" == true ]]; then
   run_log "$test_log_root/sdk-evaluation.log" dotnet msbuild "$test_root/RuntimeHostTests.csproj" \
@@ -1037,13 +1046,15 @@ PY
   printf 'Executable test collectors PASS\n'
   exit 0
 fi
+fi
 
+if [[ "$skip_test_consumers" == false ]]; then
 adapter_project="$source_root/tests/NetWasm.Testing.VSTest.Tests.Adapter/NetWasm.Testing.VSTest.Tests.Adapter.csproj"
 adapter_feed="$consumer_root/vstest-adapter-packages"
 mkdir -p "$adapter_feed"
 run_log "$work_root/vstest-adapter-restore.log" \
   dotnet restore "$adapter_project" \
-    --configfile "$work_root/NuGet.WithTUnit.Config" \
+    --configfile "$work_root/NuGet.Candidate.Config" \
     --disable-build-servers --nologo
 run_log "$work_root/vstest-adapter-pack.log" \
   dotnet pack "$adapter_project" -c Release --no-restore \
@@ -1105,6 +1116,64 @@ expect_failure_contains "$work_root/vstest-failing-test.log" 'Failed!' \
   env NETWASM_VSTEST_FAIL_CANARY=1 dotnet test "$vstest_project" -c Debug \
     --no-build --no-restore --disable-build-servers --nologo
 assert_log_contains "$work_root/vstest-failing-test.log" 'NetWasm.GenericVSTest.Contract'
+fi
+
+# Publish every template boundary from the candidate packages on this host.
+# A WIT worker reads its WIT package by listing directories, which failed on
+# Windows (#90); the time zone app runs from the packaged zone closure.
+if [[ "$test_collectors" == false ]]; then
+  create_consumer() {
+    local name="$1"
+    shift
+    (cd "$work_root" && run_log "$work_root/$name-create.log" \
+      dotnet new netwasm-app -n "$name" -o "$consumer_root/$name" "$@")
+    cp "$app_root/global.json" "$consumer_root/$name/global.json"
+  }
+  require_file() {
+    [[ -f "$1" ]] || { echo "Expected published file is missing: $1" >&2; exit 1; }
+  }
+
+  create_consumer WitWorker --worker wit
+  (cd "$consumer_root/WitWorker" && run_log "$work_root/wit-worker-publish.log" \
+    dotnet publish WitWorker.csproj -c Release --disable-build-servers --nologo)
+  require_file "$consumer_root/WitWorker/bin/Release/netwasm0.1/publish/browser/WitWorker.worker-client.mjs"
+
+  create_consumer PageModule --host page
+  (cd "$consumer_root/PageModule" && run_log "$work_root/page-module-publish.log" \
+    dotnet publish PageModule.csproj -c Release --disable-build-servers --nologo)
+  require_file "$consumer_root/PageModule/bin/Release/netwasm0.1/publish/browser/PageModule.mjs"
+  require_file "$consumer_root/PageModule/bin/Release/netwasm0.1/publish/browser/PageModule.d.mts"
+
+  create_consumer ZoneApp
+  cat > "$consumer_root/ZoneApp/Program.cs" <<'EOF'
+var zone = System.TimeZoneInfo.Local;
+var instant = new System.DateTime(2026, 1, 15, 0, 0, 0, System.DateTimeKind.Utc);
+System.Console.WriteLine($"{zone.Id} {System.TimeZoneInfo.ConvertTimeFromUtc(instant, zone):yyyy-MM-dd HH:mm}");
+EOF
+  python3 - "$consumer_root/ZoneApp/ZoneApp.csproj" <<'PY'
+import sys
+from pathlib import Path
+
+project = Path(sys.argv[1])
+text = project.read_text(encoding="utf-8")
+assert text.count("</PropertyGroup>") == 1
+text = text.replace("</PropertyGroup>", "  <NetWasmTimeZoneMode>Selected</NetWasmTimeZoneMode>\n  </PropertyGroup>\n"
+                    "  <ItemGroup>\n    <NetWasmTimeZone Include=\"Australia/Melbourne\" />\n  </ItemGroup>")
+project.write_text(text, encoding="utf-8")
+PY
+  # Pass TZ through dotnet run: Git Bash on Windows drops a TZ such as
+  # Australia/Melbourne from the environment of native programs.
+  (cd "$consumer_root/ZoneApp" && run_log "$work_root/zone-app-run.log" \
+    dotnet run --project ZoneApp.csproj --disable-build-servers -e TZ=Australia/Melbourne)
+  zone_output="$(tr -d '\r' < "$work_root/zone-app-run.log" | tail -n 1)"
+  if [[ "$zone_output" != "Australia/Melbourne 2026-01-15 11:00" ]]; then
+    cat "$work_root/zone-app-run.log" >&2
+    echo "Unexpected time zone output: $zone_output" >&2
+    exit 1
+  fi
+  expect_failure_contains "$work_root/zone-app-unselected.log" 'Asia/Tokyo' \
+    bash -c 'cd "$1" && dotnet run --project ZoneApp.csproj --no-build --disable-build-servers -e TZ=Asia/Tokyo' \
+      _ "$consumer_root/ZoneApp"
 fi
 
 corrupt_package_root="$consumer_root/corrupt-host-package"

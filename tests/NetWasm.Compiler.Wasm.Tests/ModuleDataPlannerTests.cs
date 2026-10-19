@@ -97,6 +97,37 @@ public sealed class ModuleDataPlannerTests
         Assert.Equal(256, segment.Address);
         Assert.True(segment.Data.AsSpan().SequenceEqual("\0\0\0\0"u8));
         Assert.Empty(plan.StaticInitializerGuards);
+        Assert.Null(plan.StateRegistrationGuardAddress);
+    }
+
+    [Fact]
+    public void StateRegistrationGuardReservesOneZeroInitializedWordAfterCallbackReadiness()
+    {
+        var plan = new ModuleDataPlanner(
+            new RecordingLayoutProvider(),
+            new RecordingLayoutProvider(),
+            new ExceptionGroupEnumerator(),
+            new StructuredExceptionGroupKeyFactory()).Build(
+                [],
+                [],
+                [],
+                reserveNativeCallbackReadiness: true,
+                reserveStateRegistrationGuard: true);
+
+        Assert.Equal(256, plan.NativeCallbackReadinessAddress);
+        Assert.Equal(260, plan.StateRegistrationGuardAddress);
+        Assert.Equal(264, plan.StaticDataEnd);
+        Assert.Collection(plan.DataSegments,
+            segment =>
+            {
+                Assert.Equal(256, segment.Address);
+                Assert.True(segment.Data.AsSpan().SequenceEqual("\0\0\0\0"u8));
+            },
+            segment =>
+            {
+                Assert.Equal(260, segment.Address);
+                Assert.True(segment.Data.AsSpan().SequenceEqual("\0\0\0\0"u8));
+            });
     }
 
     [Fact]

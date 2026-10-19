@@ -32,8 +32,11 @@ internal sealed class ManagedMethodValuePlanBuilder(
             request.Method,
             request.RootMap,
             request.ByRefEffects,
-            request.Enabled));
-        var plan = _aggregates.Plan(new(request.Method, analysis));
+            request.Enabled)
+        {
+            References = request.References,
+        });
+        var plan = _aggregates.Plan(new(request.Method, analysis) { References = request.References });
         if (!IsEmissionSupported(plan) ||
             plan.Storages.Keys.Any(request.ReservedStorages.Contains) ||
             !_roots.TryProject(new(request.RootMap, plan), out var rootMap))
@@ -54,10 +57,12 @@ internal sealed class ManagedMethodValuePlanBuilder(
                 plan.Materializations.Any(materialization =>
                     materialization.Materialization.Storage == pair.Key)) &&
             plan.Lanes.Count(lane => lane.Storage == pair.Key) ==
-                pair.Value.Size / sizeof(int)) &&
-        plan.Accesses.Values.All(access =>
-            access.Access.Address.ByteOffset % sizeof(int) == 0 &&
-            (access.Access.Size, access.Access.StackKind) is
-                (sizeof(int), CliValueKind.I4) or (sizeof(long), CliValueKind.I8) &&
-            access.Reads.Length + access.Writes.Length == access.Access.Size / sizeof(int));
+                pair.Value.Lanes.Count()) &&
+        plan.Accesses.Values.All(access => access.Access.LaneOffsets.IsDefaultOrEmpty
+            ? access.Access.Address.ByteOffset % sizeof(int) == 0 &&
+                (access.Access.Size, access.Access.StackKind) is
+                    (sizeof(int), CliValueKind.I4) or (sizeof(long), CliValueKind.I8) &&
+                access.Reads.Length + access.Writes.Length == access.Access.Size / sizeof(int)
+            : access.Reads.Length + access.Writes.Length == access.Access.LaneOffsets.Length &&
+                (access.Access.StackKind != CliValueKind.ValueType || access.Reads.IsEmpty));
 }

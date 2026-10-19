@@ -12,7 +12,7 @@ internal sealed class HostCallbackFunctionTypeResolver :
             invoke.Signature.ReturnType,
             [CliValueKind.I4, .. invoke.Signature.ParameterSignatureTypes.Select(
                 type => InteropTypeClassifier.IsString(type) ||
-                        InteropTypeClassifier.IsByteArray(type)
+                        InteropTypeClassifier.IsValueArray(type)
                     ? CliValueKind.I4
                     : type.StackKind)]);
 }

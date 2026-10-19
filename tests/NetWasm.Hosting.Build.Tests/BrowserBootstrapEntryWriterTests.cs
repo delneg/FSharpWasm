@@ -24,6 +24,8 @@ public sealed class BrowserBootstrapEntryWriterTests
         Assert.DoesNotContain("\r", source, StringComparison.Ordinal);
         Assert.Contains("createBrowserNetWasmBootstrap", source, StringComparison.Ordinal);
         Assert.Contains("export const executeNetWasm", source, StringComparison.Ordinal);
+        Assert.Contains("/command-run.mjs\";", source, StringComparison.Ordinal);
+        Assert.Contains("export const runNetWasm = createCommandRun(executeNetWasm);", source, StringComparison.Ordinal);
         Assert.Contains("./deployment.json", source, StringComparison.Ordinal);
         Assert.DoesNotContain("function executeNetWasm(", source, StringComparison.Ordinal);
     }

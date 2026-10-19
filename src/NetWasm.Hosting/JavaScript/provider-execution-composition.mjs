@@ -75,8 +75,8 @@ function asContractAction(action) {
   return value => {
     try {
       return action(value);
-    } catch {
-      throw createContractError();
+    } catch (error) {
+      throw createContractError(undefined, error);
     }
   };
 }

@@ -6,6 +6,32 @@ namespace NetWasm.Compiler.Tests;
 public sealed class EnumAlgorithmsTests
 {
     [Theory]
+    [InlineData(1, ulong.MaxValue, 255UL, true)]
+    [InlineData(1, 255UL, 255UL, false)]
+    [InlineData(1, 128UL, 128UL, false)]
+    [InlineData(2, 255UL, 255UL, true)]
+    [InlineData(2, 256UL, 0UL, false)]
+    [InlineData(3, ulong.MaxValue, 65535UL, true)]
+    [InlineData(3, 65535UL, 65535UL, false)]
+    [InlineData(4, 65535UL, 65535UL, true)]
+    [InlineData(4, 65536UL, 0UL, false)]
+    [InlineData(5, ulong.MaxValue, 4294967295UL, true)]
+    [InlineData(5, 4294967295UL, 4294967295UL, false)]
+    [InlineData(6, 4294967295UL, 4294967295UL, true)]
+    [InlineData(6, 4294967296UL, 0UL, false)]
+    [InlineData(7, ulong.MaxValue, ulong.MaxValue, true)]
+    [InlineData(8, ulong.MaxValue, ulong.MaxValue, true)]
+    [InlineData(9, 65535UL, 65535UL, true)]
+    [InlineData(9, 65536UL, 0UL, false)]
+    [InlineData(8, 2UL, 1UL, false)]
+    public unsafe void ObjectNameLookupChecksRangeBeforeNarrowing(
+        int typeCode, ulong input, ulong constant, bool matches)
+    {
+        using var descriptor = Descriptor(typeCode, false, [(constant, "Value")]);
+        Assert.Equal(matches ? "Value" : null, EnumAlgorithms.GetName(descriptor.Address, input));
+    }
+
+    [Theory]
     [InlineData("Read", false, 1UL)]
     [InlineData("read", true, 1UL)]
     [InlineData("Read, Write", false, 3UL)]

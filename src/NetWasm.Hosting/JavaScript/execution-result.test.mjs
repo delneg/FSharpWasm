@@ -3,10 +3,92 @@ import test from "node:test";
 import {
   appendCleanupFailures,
   assertExecutionResult,
+  describeFailureCause,
   executionFailure,
   failedExecutionResult,
+  mapFailureDetails,
   normalExecutionResult,
 } from "./execution-result.mjs";
+import { createContractError } from "./contract-error.mjs";
+
+test("failures carry the caught cause as a redacted single-line detail", () => {
+  const result = failedExecutionResult(
+    "contractFailure",
+    "validation",
+    "contract.invalid",
+    "The execution request is invalid.",
+    new TypeError("platform capability 'clocks' was not granted"));
+
+  assert.deepEqual(result.primaryFailure, {
+    phase: "validation",
+    code: "contract.invalid",
+    message: "The execution request is invalid.",
+    detail: "TypeError: platform capability 'clocks' was not granted",
+  });
+  assert.equal(Object.isFrozen(result.primaryFailure), true);
+  assert.equal("detail" in executionFailure("execution", "host.failure", "Failed."), false);
+  assert.equal("detail" in executionFailure("execution", "host.failure", "Failed.", "   "), false);
+});
+
+test("describes error and non-error causes", () => {
+  assert.equal(describeFailureCause(new RangeError("too far")), "RangeError: too far");
+  assert.equal(describeFailureCause(new Error("")), "Error");
+  assert.equal(describeFailureCause({ name: "", message: "plain object" }), "Error: plain object");
+  assert.equal(describeFailureCause({ name: 7, message: "odd name" }), "Error: odd name");
+  assert.equal(describeFailureCause("a string"), "a string");
+  assert.equal(describeFailureCause(42), "42");
+  assert.equal(describeFailureCause(null), "null");
+  assert.equal(describeFailureCause({ toString() { throw new Error("hostile"); } }), undefined);
+  assert.equal(describeFailureCause(new Error("line one\nline\u0000two\t  three ")),
+    "Error: line one line two three");
+});
+
+test("describes the value a contract error wraps", () => {
+  const wrapped = createContractError(undefined, new TypeError("platform capability 'clocks' was not granted"));
+
+  assert.equal(describeFailureCause(createContractError(undefined, wrapped)),
+    "TypeError: platform capability 'clocks' was not granted");
+  assert.equal(describeFailureCause(createContractError("manifest digest mismatch")),
+    "Error: manifest digest mismatch");
+});
+
+test("maps failure details and drops details a transform empties", () => {
+  const outcome = appendCleanupFailures(
+    failedExecutionResult("hostFailure", "execution", "host.failure", "Failed.", new Error("primary")),
+    [cleanup(), executionFailure("cleanup", "host.release", "Release failed.", new Error("cleanup"))]);
+
+  const mapped = mapFailureDetails(outcome, detail => detail === "Error: primary" ? "  " : `${detail}\n!`);
+
+  assert.equal("detail" in mapped.primaryFailure, false);
+  assert.equal("detail" in mapped.cleanupFailures[0], false);
+  assert.equal(mapped.cleanupFailures[1].detail, "Error: cleanup !");
+  assert.equal(Object.isFrozen(mapped.cleanupFailures), true);
+  const normal = normalExecutionResult(3);
+  assert.equal(mapFailureDetails(normal, () => assert.fail("normal results have no failures")), normal);
+  assert.throws(() => mapFailureDetails(outcome, null), /failure detail transform is required/);
+  assert.throws(() => mapFailureDetails(outcome, () => 7), /failure detail transform must return text/);
+});
+
+test("truncates long causes to the detail limit", () => {
+  const detail = describeFailureCause(new Error("x".repeat(2000)));
+
+  assert.equal(detail.length, 1024);
+  assert.equal(detail.endsWith("\u2026"), true);
+  assert.equal(describeFailureCause(new Error("y".repeat(1017))).length, 1024);
+});
+
+test("rejects invalid failure details", () => {
+  for (const detail of ["", " padded", "a".repeat(1025), "bad\ncontrol", 7]) {
+    const result = {
+      schemaVersion: 1,
+      completionKind: "hostFailure",
+      exitCode: null,
+      primaryFailure: { phase: "execution", code: "host.failure", message: "Failed.", detail },
+      cleanupFailures: [],
+    };
+    assert.throws(() => assertExecutionResult(result), /execution failure detail is invalid/);
+  }
+});
 
 const cleanup = () => executionFailure(
   "cleanup",

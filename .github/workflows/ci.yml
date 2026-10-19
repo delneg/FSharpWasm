@@ -131,22 +131,43 @@ jobs:
         include:
           - lane: remaining projects
             compiler-shard: -1
-          - lane: compiler 1 of 8
+            project-lane: remaining
+          - lane: runtime pack 1 of 3
+            compiler-shard: -1
+            project-lane: runtime-pack
+            project-shard: 0
+          - lane: runtime pack 2 of 3
+            compiler-shard: -1
+            project-lane: runtime-pack
+            project-shard: 1
+          - lane: runtime pack 3 of 3
+            compiler-shard: -1
+            project-lane: runtime-pack
+            project-shard: 2
+          - lane: compiler 1 of 12
             compiler-shard: 0
-          - lane: compiler 2 of 8
+          - lane: compiler 2 of 12
             compiler-shard: 1
-          - lane: compiler 3 of 8
+          - lane: compiler 3 of 12
             compiler-shard: 2
-          - lane: compiler 4 of 8
+          - lane: compiler 4 of 12
             compiler-shard: 3
-          - lane: compiler 5 of 8
+          - lane: compiler 5 of 12
             compiler-shard: 4
-          - lane: compiler 6 of 8
+          - lane: compiler 6 of 12
             compiler-shard: 5
-          - lane: compiler 7 of 8
+          - lane: compiler 7 of 12
             compiler-shard: 6
-          - lane: compiler 8 of 8
+          - lane: compiler 8 of 12
             compiler-shard: 7
+          - lane: compiler 9 of 12
+            compiler-shard: 8
+          - lane: compiler 10 of 12
+            compiler-shard: 9
+          - lane: compiler 11 of 12
+            compiler-shard: 10
+          - lane: compiler 12 of 12
+            compiler-shard: 11
     steps:
       - name: Check out source
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -240,16 +261,36 @@ jobs:
           bash eng/verify-toolchain.sh
           bash src/NetWasm.Runtime.Pack/tools/regenerate-runtime-pack.sh --allow-emscripten
           bash eng/prepare-native-interop-test-tools.sh "$RUNNER_TEMP/native-interop-tools"
-          PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s eng/tests -p 'test_*.py'
+          if [[ "${{ matrix.project-lane }}" == remaining ]]; then
+            PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s eng/tests -p 'test_*.py'
+          fi
           dotnet restore NetWasm.slnx --disable-build-servers --nologo
+          if [[ "${{ matrix.project-lane }}" == remaining ]]; then
+            dotnet format whitespace NetWasm.slnx --no-restore --verify-no-changes --verbosity minimal
+          fi
           dotnet build NetWasm.slnx -c Release --no-restore --disable-build-servers --nologo
           NETWASM_TIMEZONE_ASSET_PATH="$(
             bash eng/prepare-timezone-test-asset.sh "$RUNNER_TEMP/timezone-assets"
           )"
           export NETWASM_TIMEZONE_ASSET_PATH
-          dotnet test NetWasm.slnx -c Release --no-build --no-restore \
-            --disable-build-servers --nologo \
-            --filter 'FullyQualifiedName!~NetWasm.Compiler.Tests.'
+          if [[ "${{ matrix.project-lane }}" == runtime-pack ]]; then
+            project=tests/NetWasm.Runtime.Pack.Tests/NetWasm.Runtime.Pack.Tests.csproj
+            listing="$RUNNER_TEMP/runtime-pack-tests.list"
+            dotnet test "$project" -c Release --no-build --no-restore \
+              --disable-build-servers --nologo --list-tests > "$listing"
+            filter="$(
+              python3 eng/create-compiler-test-shard-filter.py "$listing" \
+                --namespace NetWasm.Runtime.Pack.Tests. \
+                --shard-count 3 \
+                --shard-index '${{ matrix.project-shard }}'
+            )"
+            dotnet test "$project" -c Release --no-build --no-restore \
+              --disable-build-servers --nologo --filter "$filter"
+          else
+            dotnet test NetWasm.slnx -c Release --no-build --no-restore \
+              --disable-build-servers --nologo \
+              --filter 'FullyQualifiedName!~NetWasm.Compiler.Tests.&FullyQualifiedName!~NetWasm.Runtime.Pack.Tests.'
+          fi
 
       - name: Build compiler test binaries
         if: matrix.compiler-shard != -1
@@ -304,7 +345,7 @@ jobs:
             --disable-build-servers --nologo --list-tests > "$listing"
           filter="$(
             python3 eng/create-compiler-test-shard-filter.py "$listing" \
-              --shard-count 8 \
+              --shard-count 12 \
               --shard-index '${{ matrix.compiler-shard }}' \
               --timings eng/compiler-test-durations.json
           )"
@@ -717,12 +758,102 @@ jobs:
         run: |
           bash eng/qualify-sdk-consumers.sh \
             "$RUNNER_TEMP/packages" "${{ needs.verify-packages.outputs.version }}" \
-            --skip-test-consumers
+            --skip-tunit-consumer
+
+  browser-hosts:
+    needs: [impact, verify-packages]
+    if: needs.impact.outputs.scope == 'full'
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        host: [linux-x64, linux-arm64, macos-arm64, windows-x64, windows-arm64]
+        group: [applications, page, issue-89]
+        include:
+          - host: linux-x64
+            runner: ubuntu-24.04
+            rid: linux-x64
+          - host: linux-arm64
+            runner: ubuntu-24.04-arm
+            rid: linux-arm64
+          # Playwright's WebKit for macOS 14 is frozen and hangs on these pages.
+          - host: macos-arm64
+            runner: macos-15
+            rid: osx-arm64
+          - host: windows-x64
+            runner: windows-2025
+            rid: win-x64
+          - host: windows-arm64
+            runner: windows-11-vs2026-arm
+            rid: win-arm64
+          - group: applications
+            kinds: command worker wit
+          - group: page
+            kinds: page hosts timezone
+          - group: issue-89
+            kinds: issue89-method-group issue89-finalization issue89-static-roots
+    runs-on: ${{ matrix.runner }}
+    name: Browser / ${{ matrix.host }} / ${{ matrix.group }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Install .NET SDK
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6
+        with:
+          global-json-file: global.json
+      - name: Read pinned Node.js version
+        id: toolchain
+        shell: bash
+        run: |
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import json
+          from pathlib import Path
+          print(f"node={json.loads(Path('eng/toolchain.json').read_text())['node']}")
+          PY
+      - name: Install Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: ${{ steps.toolchain.outputs.node }}
+          package-manager-cache: false
+      - name: Install Playwright browsers
+        shell: bash
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund
+          npx --no-install playwright install --with-deps chromium firefox webkit
+      - name: Download candidate packages
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: runtime-pack-candidate
+          path: ${{ runner.temp }}/packages
+      - name: Download matching native host package
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: host-tools-${{ matrix.rid }}
+          path: ${{ runner.temp }}/packages
+      - name: Publish on this host and run in Chromium, Firefox and WebKit
+        shell: bash
+        run: |
+          python3 tests/end-to-end/browser-interop/browser_qualification.py \
+            --packages "$RUNNER_TEMP/packages" \
+            --version "${{ needs.verify-packages.outputs.version }}" \
+            --output "$RUNNER_TEMP/browser-hosts" \
+            --kinds ${{ matrix.kinds }} \
+            --profiles Debug Release
+      - name: Upload browser results
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: browser-hosts-${{ matrix.host }}-${{ matrix.group }}
+          path: |
+            ${{ runner.temp }}/browser-hosts/summary.json
+            ${{ runner.temp }}/browser-hosts/*/browser-result.json
+            ${{ runner.temp }}/browser-hosts/*/*.stderr
+          if-no-files-found: ignore
 
   ci:
     name: CI
     if: always()
-    needs: [impact, docs, ci-infrastructure, test, javascript-contracts, timings, package, host-tools, verify-packages, runtime-pack-hosts]
+    needs: [impact, docs, ci-infrastructure, test, javascript-contracts, timings, package, host-tools, verify-packages, runtime-pack-hosts, browser-hosts]
     runs-on: ubuntu-24.04
     steps:
       - name: Check out source
@@ -741,6 +872,7 @@ jobs:
           HOST_TOOLS_RESULT: ${{ needs.host-tools.result }}
           VERIFY_PACKAGES_RESULT: ${{ needs.verify-packages.result }}
           RUNTIME_PACK_HOSTS_RESULT: ${{ needs.runtime-pack-hosts.result }}
+          BROWSER_HOSTS_RESULT: ${{ needs.browser-hosts.result }}
         run: |
           python3 eng/verify-ci-results.py \
             --scope "$SCOPE" \
@@ -753,7 +885,8 @@ jobs:
             --package "$PACKAGE_RESULT" \
             --host-tools "$HOST_TOOLS_RESULT" \
             --verify-packages "$VERIFY_PACKAGES_RESULT" \
-            --runtime-pack-hosts "$RUNTIME_PACK_HOSTS_RESULT"
+            --runtime-pack-hosts "$RUNTIME_PACK_HOSTS_RESULT" \
+            --browser-hosts "$BROWSER_HOSTS_RESULT"
       - name: Create exact-tree qualification receipt
         if: github.event_name == 'pull_request' && needs.impact.outputs.scope == 'full'
         shell: bash

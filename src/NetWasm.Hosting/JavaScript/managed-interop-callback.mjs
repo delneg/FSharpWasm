@@ -2,6 +2,11 @@ import {
   NetWasmHostError,
   NetWasmManagedError,
 } from "./managed-errors.mjs";
+import {
+  describeValueArray,
+  isValueArrayAbiType,
+  valueArrayConstructor,
+} from "./interop-abi-types.mjs";
 import { normalizeInteropHandle } from "./interop-handle-table.mjs";
 import {
   liftInteropScalar,
@@ -60,10 +65,11 @@ export function createManagedInteropCallback(request) {
           transientHandles.push(stringHandle);
           return stringHandle;
         }
-        if (type === "bytes") {
-          if (value !== null && !(value instanceof Uint8Array)) {
-            throw new NetWasmHostError(
-              "a managed byte callback requires Uint8Array or null");
+        if (isValueArrayAbiType(type)) {
+          if (value !== null && !(value instanceof valueArrayConstructor(type))) {
+            throw new NetWasmHostError(type === "bytes"
+              ? "a managed byte callback requires Uint8Array or null"
+              : `a managed callback ${describeValueArray(type)}`);
           }
           if (value === null) return 0;
           const byteHandle = request.handles.acquire(value.slice());

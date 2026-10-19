@@ -133,14 +133,14 @@ async function executeRawCommand({
   let plan;
   try {
     plan = buildRawAbiPlan({ contractKey, abi });
-  } catch {
-    return closeOwnedScopes(rawAbiFailure(), closeInstanceScope, closeCallerScope);
+  } catch (error) {
+    return closeOwnedScopes(rawAbiFailure(error), closeInstanceScope, closeCallerScope);
   }
   let canonicalBinding;
   try {
     canonicalBinding = createRawCanonicalImportBinding({ adapter, providers, reactor: null });
-  } catch {
-    return closeOwnedScopes(rawAbiFailure(), closeInstanceScope, closeCallerScope);
+  } catch (error) {
+    return closeOwnedScopes(rawAbiFailure(error), closeInstanceScope, closeCallerScope);
   }
   const closeCanonicalScope = createExecutionScopeCloser([
     canonicalReleaseAction(canonicalBinding),
@@ -157,8 +157,8 @@ async function executeRawCommand({
       inventory: importInventory(plan),
       physicalProviders,
     });
-  } catch {
-    return closeScope(rawAbiFailure());
+  } catch (error) {
+    return closeScope(rawAbiFailure(error));
   }
   if (signal?.aborted) {
     return closeScope(preInstantiationCancellation());
@@ -166,20 +166,20 @@ async function executeRawCommand({
   let instance;
   try {
     instance = await instantiate(Object.freeze({ module, imports }));
-  } catch {
-    return closeScope(rawInstantiationFailure());
+  } catch (error) {
+    return closeScope(rawInstantiationFailure(error));
   }
   try {
     bindInstance(instance);
-  } catch {
-    return closeScope(rawInstanceBindingFailure());
+  } catch (error) {
+    return closeScope(rawInstanceBindingFailure(error));
   }
   let binding;
   try {
     bindRawCanonicalImportInstance({ binding: canonicalBinding, instance });
     binding = bindRawExecutionInstance({ instance, plan });
-  } catch {
-    return closeScope(rawExportFailure());
+  } catch (error) {
+    return closeScope(rawExportFailure(error));
   }
   const run = createTerminalManagedExport(
     "run",
@@ -244,8 +244,8 @@ async function executeRawProcess({
   let plan;
   try {
     plan = buildRawAbiPlan({ contractKey, abi });
-  } catch {
-    return closeBaseScope(rawAbiFailure());
+  } catch (error) {
+    return closeBaseScope(rawAbiFailure(error));
   }
   let canonicalBinding;
   try {
@@ -259,8 +259,8 @@ async function executeRawProcess({
         watch: reactor.watch,
       }),
     });
-  } catch {
-    return closeBaseScope(rawAbiFailure());
+  } catch (error) {
+    return closeBaseScope(rawAbiFailure(error));
   }
   const closeCanonicalScope = createExecutionScopeCloser([
     canonicalReleaseAction(canonicalBinding),
@@ -278,8 +278,8 @@ async function executeRawProcess({
       inventory: importInventory(plan),
       physicalProviders,
     });
-  } catch {
-    return closeScope(rawAbiFailure());
+  } catch (error) {
+    return closeScope(rawAbiFailure(error));
   }
   if (signal?.aborted) {
     return closeScope(preInstantiationCancellation());
@@ -288,10 +288,10 @@ async function executeRawProcess({
   let instance;
   try {
     instance = await instantiate(Object.freeze({ module, imports }));
-  } catch {
+  } catch (error) {
     return closeScope(initializationReactorUse
-      ? reactorInitializationFailure()
-      : rawInstantiationFailure());
+      ? reactorInitializationFailure(error)
+      : rawInstantiationFailure(error));
   }
   if (initializationReactorUse) {
     return closeScope(reactorInitializationFailure());
@@ -299,8 +299,8 @@ async function executeRawProcess({
 
   try {
     bindInstance(instance);
-  } catch {
-    return closeScope(rawInstanceBindingFailure());
+  } catch (error) {
+    return closeScope(rawInstanceBindingFailure(error));
   }
   let binding;
   try {
@@ -310,8 +310,8 @@ async function executeRawProcess({
       guestWake: binding.reactorGuest.wake,
       observeWake: error => observeWake(error),
     });
-  } catch {
-    return closeScope(rawExportFailure());
+  } catch (error) {
+    return closeScope(rawExportFailure(error));
   }
   guestEntryEnabled = true;
   let outcome;
@@ -325,8 +325,8 @@ async function executeRawProcess({
       },
       signal,
     });
-  } catch {
-    outcome = rawExecutionFailure();
+  } catch (error) {
+    outcome = rawExecutionFailure(error);
   } finally {
     guestEntryEnabled = false;
   }
@@ -350,12 +350,13 @@ function importInventory(plan) {
   });
 }
 
-function rawAbiFailure() {
+function rawAbiFailure(cause) {
   return failedExecutionResult(
     "contractFailure",
     "instantiation",
     "contract.raw-abi",
-    "The final raw module does not match its execution ABI, generated adapter, or providers.");
+    "The final raw module does not match its execution ABI, generated adapter, or providers.",
+    cause);
 }
 
 function canonicalReleaseAction(binding) {
@@ -366,44 +367,49 @@ function canonicalReleaseAction(binding) {
   });
 }
 
-function rawInstantiationFailure() {
+function rawInstantiationFailure(cause) {
   return failedExecutionResult(
     "hostFailure",
     "instantiation",
     "host.raw-instantiate",
-    "The execution host could not instantiate the raw module.");
+    "The execution host could not instantiate the raw module.",
+    cause);
 }
 
-function rawInstanceBindingFailure() {
+function rawInstanceBindingFailure(cause) {
   return failedExecutionResult(
     "hostFailure",
     "instantiation",
     "host.raw-instance-bind",
-    "The execution host could not bind services to the raw instance.");
+    "The execution host could not bind services to the raw instance.",
+    cause);
 }
 
-function rawExecutionFailure() {
+function rawExecutionFailure(cause) {
   return failedExecutionResult(
     "hostFailure",
     "execution",
     "host.raw-execution",
-    "The execution host could not execute the raw module.");
+    "The execution host could not execute the raw module.",
+    cause);
 }
 
-function rawExportFailure() {
+function rawExportFailure(cause) {
   return failedExecutionResult(
     "contractFailure",
     "instantiation",
     "contract.raw-exports",
-    "The instantiated raw module does not expose its declared execution boundary.");
+    "The instantiated raw module does not expose its declared execution boundary.",
+    cause);
 }
 
-function reactorInitializationFailure() {
+function reactorInitializationFailure(cause) {
   return failedExecutionResult(
     "contractFailure",
     "instantiation",
     "contract.reactor-initialization",
-    "The raw module used the reactor before guest entry.");
+    "The raw module used the reactor before guest entry.",
+    cause);
 }
 
 function preInstantiationCancellation() {

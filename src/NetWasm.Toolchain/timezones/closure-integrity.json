@@ -1,0 +1,1377 @@
+{
+  "schemaVersion": "1",
+  "files": [
+    {
+      "path": "zoneinfo/Africa/Abidjan",
+      "sha256": "d2efac4e5f23d88c95d72c1db42807170f52f43dd98a205af5a92a91b9f2d997"
+    },
+    {
+      "path": "zoneinfo/Africa/Algiers",
+      "sha256": "bda1698cd542c0e6e76dfbbcdab390cdd26f37a9d5826a57a50d5aab37f3b2a6"
+    },
+    {
+      "path": "zoneinfo/Africa/Bissau",
+      "sha256": "223bb10cfe846620c716f97f6c74ba34deec751c4b297965a28042f36f69a1a9"
+    },
+    {
+      "path": "zoneinfo/Africa/Cairo",
+      "sha256": "2dfb7e1822d085a4899bd56a526b041681c84b55617daee91499fd1990a989fb"
+    },
+    {
+      "path": "zoneinfo/Africa/Casablanca",
+      "sha256": "a7f132b9488727f34030a78a111d9b84f5e0bbb8f56c6eb83e26f26730394171"
+    },
+    {
+      "path": "zoneinfo/Africa/Ceuta",
+      "sha256": "0b0fb6fe714319b37c5aa22c56971abb2668a165fc8f72a6c763e70b47c7badf"
+    },
+    {
+      "path": "zoneinfo/Africa/El_Aaiun",
+      "sha256": "d9b5d8cf88070b1958cfef9a9bedb8fc252f8cbae64a29dd2b3690f8f58e96d1"
+    },
+    {
+      "path": "zoneinfo/Africa/Johannesburg",
+      "sha256": "6c1bcc752668e77585a308ae8543bd0bccd8e813865626e809bf94f3fe3d977e"
+    },
+    {
+      "path": "zoneinfo/Africa/Juba",
+      "sha256": "5159c8a843c9c072d3302fabe6a6501cdbfda29a1856c29dabeb5aff95d4c3f4"
+    },
+    {
+      "path": "zoneinfo/Africa/Khartoum",
+      "sha256": "318583a09dc070222d65d029a1e3a0b565830f1aaec13a27e6fe533863fbd3ea"
+    },
+    {
+      "path": "zoneinfo/Africa/Lagos",
+      "sha256": "cffeb0282ccbd7fba0e493ff8677a1e5a6dd5197885042e437f95a773f844846"
+    },
+    {
+      "path": "zoneinfo/Africa/Maputo",
+      "sha256": "444ed3a710414bc6bf43eb27e591da49d3be3db153449a6a0c9473f7e39fdbcb"
+    },
+    {
+      "path": "zoneinfo/Africa/Monrovia",
+      "sha256": "f95b095b9714e0a76f7e061a415bf895cbb399a28854531de369cee915ce05d5"
+    },
+    {
+      "path": "zoneinfo/Africa/Nairobi",
+      "sha256": "c89b2e253a8926a6cecf7eff34e4bfcdb7fe24daff22d84718c30deec0ea4968"
+    },
+    {
+      "path": "zoneinfo/Africa/Ndjamena",
+      "sha256": "f13dc0d199bd1a3d01be6eab77cf2ddc60172a229d1947c7948a98964608d0a3"
+    },
+    {
+      "path": "zoneinfo/Africa/Sao_Tome",
+      "sha256": "31d8f1a50dbaf2ecc9ed9c7566ba0552d454c2ab09e85ff263701857d157c352"
+    },
+    {
+      "path": "zoneinfo/Africa/Tripoli",
+      "sha256": "5b5769b460fbd13ee9a46a28d1f733150783888a749ee96d2cd3d5eba3300767"
+    },
+    {
+      "path": "zoneinfo/Africa/Tunis",
+      "sha256": "38554c10ce1e613d84cf46deba1114093488a5c165756c6c576b84a1364850d2"
+    },
+    {
+      "path": "zoneinfo/Africa/Windhoek",
+      "sha256": "c6e86fb9dacc1f86a59d59a8b924d023c60bf05fc76e0b05d8443b0192b3b87b"
+    },
+    {
+      "path": "zoneinfo/America/Adak",
+      "sha256": "201d4387025000a6e13c9f631cb7fccd6e4369dec7224052f9d86feb81353a53"
+    },
+    {
+      "path": "zoneinfo/America/Anchorage",
+      "sha256": "a190353523d2d8159dca66299c21c53bc0656154be965e4a2e0d84cfd09b113b"
+    },
+    {
+      "path": "zoneinfo/America/Araguaina",
+      "sha256": "1babfdc18159f040785907c8b2a45b6e288a7766f6ee3ed9b797458c16f3c76a"
+    },
+    {
+      "path": "zoneinfo/America/Argentina/Buenos_Aires",
+      "sha256": "26653c941c26cb6f6047a3a67b2b6f15d311c7a39b24a9d834798bc8c9975f63"
+    },
+    {
+      "path": "zoneinfo/America/Argentina/Catamarca",
+      "sha256": "b8c0895d719898d1121d5be3e5160167431cace744d788709b5ee5db9320456d"
+    },
+    {
+      "path": "zoneinfo/America/Argentina/Cordoba",
+      "sha256": "ba788d8a184c1e7af85cae16a7088f527ac04f460f9afcea07a7f48512ed5ef6"
+    },
+    {
+      "path": "zoneinfo/America/Argentina/Jujuy",
+      "sha256": "3c69807a1ca90b18f45c27a70925aaca50c83db28b2b40e5af024aff6e03e7dd"
+    },
+    {
+      "path": "zoneinfo/America/Argentina/La_Rioja",
+      "sha256": "526e97a155e1b2beb669dd665ae79b7ba358d191dab81751f6d3060e0a823878"
+    },
+    {
+      "path": "zoneinfo/America/Argentina/Mendoza",
+      "sha256": "c5c395b6f47255814053dd32d90630a72421a4c2f2029efe171be4bb89209747"
+    },
+    {
+      "path": "zoneinfo/America/Argentina/Rio_Gallegos",
+      "sha256": "17d64a478a3c80b1d7ed006e22331aa4621d9b3271a6ac1ba2e3e067932a0e96"
+    },
+    {
+      "path": "zoneinfo/America/Argentina/Salta",
+      "sha256": "875298ac33486a9bc3918862d4f681f160f5a9639ee2f8618032560c2195e237"
+    },
+    {
+      "path": "zoneinfo/America/Argentina/San_Juan",
+      "sha256": "008d8696d03cd263cdce11f163272e13021b3b500d5f222a05064ca63a8aa9d4"
+    },
+    {
+      "path": "zoneinfo/America/Argentina/San_Luis",
+      "sha256": "d88b4645c2d52b6c31f0cc89b076c8041780914e01f8c379c7567137267b5091"
+    },
+    {
+      "path": "zoneinfo/America/Argentina/Tucuman",
+      "sha256": "b703be16ab4d255f173b3593bc543ec6711c582a035076378295481b43336dff"
+    },
+    {
+      "path": "zoneinfo/America/Argentina/Ushuaia",
+      "sha256": "03a21ba55958f4820fa1228c15147d0cc44e7705d44837361ec012b9e3929eaa"
+    },
+    {
+      "path": "zoneinfo/America/Asuncion",
+      "sha256": "f727c68843615cd81ddbfd311d5b05fa12de264192a91b3ecc3f4ef78e4a2567"
+    },
+    {
+      "path": "zoneinfo/America/Bahia",
+      "sha256": "aa2edd03a1687c384bc553267762fc6cadc779a42773d5fe8e28a3c327e1b378"
+    },
+    {
+      "path": "zoneinfo/America/Bahia_Banderas",
+      "sha256": "32fad7189e4bcda1ce7a0b89ab1b33c63c4c85569f1956e4fa88d711ceff6042"
+    },
+    {
+      "path": "zoneinfo/America/Barbados",
+      "sha256": "8a66be42bae16b3bb841fbeed99d3e7ba13e193898927b8906ee9cdb2546f4b1"
+    },
+    {
+      "path": "zoneinfo/America/Belem",
+      "sha256": "69931482d1437473484a9ab241161b992d88043f81012dc26899e1bbaa272c26"
+    },
+    {
+      "path": "zoneinfo/America/Belize",
+      "sha256": "a647cb63629f3dc85b7896b5a56717996030a7866546fc562d57b35e7adb930b"
+    },
+    {
+      "path": "zoneinfo/America/Boa_Vista",
+      "sha256": "74cb5a1b5d641a526b8092601961036590269cefc77d3dcbe17f2923bd8b2c56"
+    },
+    {
+      "path": "zoneinfo/America/Bogota",
+      "sha256": "6757ab9d9646431ba513c28558761670cdd25758e7dbf404735434389cc745a9"
+    },
+    {
+      "path": "zoneinfo/America/Boise",
+      "sha256": "ec742c34f262521790805cf99152ef4e77f9c615c061a78036a0ec9312b3d95b"
+    },
+    {
+      "path": "zoneinfo/America/Cambridge_Bay",
+      "sha256": "ff8c51957dd6755a4472aa13ea6c83ecd7930979e7f4e624fe21f4d3a6f050ba"
+    },
+    {
+      "path": "zoneinfo/America/Campo_Grande",
+      "sha256": "8083625e0e62d9ee9187635ba366c5aa13c024be05e1c02a1a705a9e45d30d7c"
+    },
+    {
+      "path": "zoneinfo/America/Cancun",
+      "sha256": "11d574370d968cced59e3147a2ae63b126cbbae13b78fd4e13be2eb44c96246e"
+    },
+    {
+      "path": "zoneinfo/America/Caracas",
+      "sha256": "99434c15d0f364b6affde3c0d68701766a950627ab91e12ccd3205a4d0a6e49d"
+    },
+    {
+      "path": "zoneinfo/America/Cayenne",
+      "sha256": "e24ec8bf5c285f86ada9e3caadcbcc403d9593d4e699aeeb5bf016fd1eb6a427"
+    },
+    {
+      "path": "zoneinfo/America/Chicago",
+      "sha256": "feba326ebe88eac20017a718748c46c68469a1e7f5e7716dcb8f1d43a6e6f686"
+    },
+    {
+      "path": "zoneinfo/America/Chihuahua",
+      "sha256": "dcd8336de760f00cc0ab1b1b4121b48d5471f8bc58970d62de4c7e63397ed887"
+    },
+    {
+      "path": "zoneinfo/America/Ciudad_Juarez",
+      "sha256": "8abe1bdbb0e216b84bd07e1f650f769c46be041a0f7cb588cf7a61537ef77601"
+    },
+    {
+      "path": "zoneinfo/America/Costa_Rica",
+      "sha256": "ef8ad86ba96b80893296cf4f907a3c482625f683aa8ae1b94bb31676725e94fe"
+    },
+    {
+      "path": "zoneinfo/America/Coyhaique",
+      "sha256": "6de65753a2f0e63c765a9ddd3519058a87d71a66b674ce83b2abc94fd0921dd7"
+    },
+    {
+      "path": "zoneinfo/America/Cuiaba",
+      "sha256": "19126a92145736c3947208d975d43144825d4586b0f6933f60b59bba7f3c7648"
+    },
+    {
+      "path": "zoneinfo/America/Danmarkshavn",
+      "sha256": "6116407d40a856d68bd4bf8c60c60c1f5c3239a5509df528fe0167bcc5d2bb3c"
+    },
+    {
+      "path": "zoneinfo/America/Dawson",
+      "sha256": "ac01e1cae32eca37ff7b20364811bbe8c4417ff7e3ff18b9140ba2595420261c"
+    },
+    {
+      "path": "zoneinfo/America/Dawson_Creek",
+      "sha256": "6895c2c8fe23de0804e3018237e2eb4bd8690ffe73587cd04de4802935843d43"
+    },
+    {
+      "path": "zoneinfo/America/Denver",
+      "sha256": "32e819c00a43b3c348f539d700d425504f20b8d068c16418d26fa9b693e775c9"
+    },
+    {
+      "path": "zoneinfo/America/Detroit",
+      "sha256": "85e733f32a98d828f907ad46de02d9740559bd180af65d0ff7473f80dfae0f98"
+    },
+    {
+      "path": "zoneinfo/America/Edmonton",
+      "sha256": "b5e3d3820009abc262c82a3ebfa9261dd12fc210f77322ef121067b040866587"
+    },
+    {
+      "path": "zoneinfo/America/Eirunepe",
+      "sha256": "8f9784c648c56aab42f83f172b4ac6ce817dc8481b4a54db3ea546f562a111af"
+    },
+    {
+      "path": "zoneinfo/America/El_Salvador",
+      "sha256": "82f18df0b923fac1a6dbfaecf0e52300c7f5a0cb4aa765deb3a51f593d16aa05"
+    },
+    {
+      "path": "zoneinfo/America/Fort_Nelson",
+      "sha256": "7ab7ce0ebdc3ad2a73eb990074eed3b367466d9c6f75d10fea0c78057df2d89d"
+    },
+    {
+      "path": "zoneinfo/America/Fortaleza",
+      "sha256": "ae3892074ab5701b8c0ce33da2b5bfbb07b950e2c1c1395f8c5a2dc0e61ed665"
+    },
+    {
+      "path": "zoneinfo/America/Glace_Bay",
+      "sha256": "1bc0c62c609aa47fda60217f3a168be50a277fb14e02000fc1e94ee61b425817"
+    },
+    {
+      "path": "zoneinfo/America/Goose_Bay",
+      "sha256": "26068bb9e8214af5f683bdb914e7c882982fb2ac591b29163a1019586a506516"
+    },
+    {
+      "path": "zoneinfo/America/Grand_Turk",
+      "sha256": "e1838510f2bad017a5dbf7c2b18eaf499c5470c24a8e22adc8e7ff4349211305"
+    },
+    {
+      "path": "zoneinfo/America/Guatemala",
+      "sha256": "76e81480277a418e76c87907b943f88d15b3a39c78dfd2108a06980af105e3a4"
+    },
+    {
+      "path": "zoneinfo/America/Guayaquil",
+      "sha256": "8f652e228fb846048e95335fbbbee6859f76c1a35378a152be6a157a6268a13d"
+    },
+    {
+      "path": "zoneinfo/America/Guyana",
+      "sha256": "4746cebc24430bc49121ec6686c76e3dd1db6d13f02361af883f68b44c6252b9"
+    },
+    {
+      "path": "zoneinfo/America/Halifax",
+      "sha256": "4d9a667393f05a82df4df42843f6f7535ec113689529278d911d07a3c99b4e7f"
+    },
+    {
+      "path": "zoneinfo/America/Havana",
+      "sha256": "1d441e02e281b04908e522d98eaca75c808e51539a8e42b3287e6bf8ebf939d7"
+    },
+    {
+      "path": "zoneinfo/America/Hermosillo",
+      "sha256": "8b160a7acb4b992ee05a86e4f4aaba16d2d9a35caa6d601cb6b1542a5bb372dc"
+    },
+    {
+      "path": "zoneinfo/America/Indiana/Indianapolis",
+      "sha256": "90d2b2f4a8fd202b226187c209b020833300edec5ff86a463ccc685e8707532c"
+    },
+    {
+      "path": "zoneinfo/America/Indiana/Knox",
+      "sha256": "0acbd9e412b0daa55abf7c7f17c094f6d68974393b8d7e3509fb2a9acea35d5f"
+    },
+    {
+      "path": "zoneinfo/America/Indiana/Marengo",
+      "sha256": "7f7b50fa580c49403b9ef9fae295e12ad24bee65b319a8e809e81ae4c10949b2"
+    },
+    {
+      "path": "zoneinfo/America/Indiana/Petersburg",
+      "sha256": "03cf0e1ee334460de230b1e32a05eafddda36427554b2b5442cfbd5b429c1724"
+    },
+    {
+      "path": "zoneinfo/America/Indiana/Tell_City",
+      "sha256": "e1d5aa02bf58d815df2f8a40424fbcd5cde01a5d9c35d1d7383effc09861867f"
+    },
+    {
+      "path": "zoneinfo/America/Indiana/Vevay",
+      "sha256": "1fb551d86fbfb03fc2e519b83f78358910b515608f8389b43060f73f53cbcec9"
+    },
+    {
+      "path": "zoneinfo/America/Indiana/Vincennes",
+      "sha256": "eb6980c53ec03c509aa3281f96713374ea5ef9fb96d7239b23a9ba11451c4bb0"
+    },
+    {
+      "path": "zoneinfo/America/Indiana/Winamac",
+      "sha256": "69918cda347c087f411d252aed7ca08b078377a768ad72cf5e0db8e97b1b47ab"
+    },
+    {
+      "path": "zoneinfo/America/Inuvik",
+      "sha256": "e89fa66a90e7ae4f40d4bb6cc28137e2da92cbfb9f79d70404dc62c64ac48c8a"
+    },
+    {
+      "path": "zoneinfo/America/Iqaluit",
+      "sha256": "7de3a7c40374374afe335aa592b03824cc9ac28734b6a69ed2288108f0c0b389"
+    },
+    {
+      "path": "zoneinfo/America/Jamaica",
+      "sha256": "c256a089e50f45fe7e6de89efa1ed0b0e35b3738c6b26f2f32cf2e7f6f29c36f"
+    },
+    {
+      "path": "zoneinfo/America/Juneau",
+      "sha256": "93b8716f46864677e713e0c18b72e472303344fc807f4fc7c34bd515f8c679bd"
+    },
+    {
+      "path": "zoneinfo/America/Kentucky/Louisville",
+      "sha256": "b4fd3bdb157f9ffbc8423c71709efb0067868fac8bd4a3e99f77f089db3d8355"
+    },
+    {
+      "path": "zoneinfo/America/Kentucky/Monticello",
+      "sha256": "2ed7720a8f3906b5d0b3aae51fad589bef0aa961c7e8fc003a30f44318487733"
+    },
+    {
+      "path": "zoneinfo/America/La_Paz",
+      "sha256": "86a7c3f0b407ba97598638b67bddfff69390013f91ee6bb3ce33f49f27db1576"
+    },
+    {
+      "path": "zoneinfo/America/Lima",
+      "sha256": "1c78139c3527099ce26ef2f432b1bcab23aebe3998630ddedd1e556e7c4c66cf"
+    },
+    {
+      "path": "zoneinfo/America/Los_Angeles",
+      "sha256": "68977bb9ad6d186fefc6c7abd36010a66e30008dcb2d376087a41c49861e7268"
+    },
+    {
+      "path": "zoneinfo/America/Maceio",
+      "sha256": "dd1e439527b7da44039a8495216a5cca4da8eeaa21afeae58b0a834861483324"
+    },
+    {
+      "path": "zoneinfo/America/Managua",
+      "sha256": "c41cc5d350079f61367c3f10772f831c57b7e94aa878da4a3df0a176e04a59d9"
+    },
+    {
+      "path": "zoneinfo/America/Manaus",
+      "sha256": "17a44b38e78e8bd972999890990f6947cb45a4f67a120b8d74f7ce73a0615c31"
+    },
+    {
+      "path": "zoneinfo/America/Martinique",
+      "sha256": "7ccb3cd24394d9816f0b47fdcb67a37bdec9780b536016a65eb9e54ee9cd2f34"
+    },
+    {
+      "path": "zoneinfo/America/Matamoros",
+      "sha256": "7eaf8fa9d999ad0f7c52c1661c0f62be3059bf91840514ceb8b4390aee5a8d6f"
+    },
+    {
+      "path": "zoneinfo/America/Mazatlan",
+      "sha256": "0561f636a54f0353ecc842cf37fd8117c2a596bb26424aa0d5eba3b10be79f1f"
+    },
+    {
+      "path": "zoneinfo/America/Menominee",
+      "sha256": "02bbfd58b6df84d72946c5231c353be7b044770969d3c1addf4022c46de0674e"
+    },
+    {
+      "path": "zoneinfo/America/Merida",
+      "sha256": "4953441c26b38e899fb67b8f5416b2148f84f884345a696e1df4e91cfd21dddd"
+    },
+    {
+      "path": "zoneinfo/America/Metlakatla",
+      "sha256": "b709a27864d563657e53c9c5c6abf1edab18bfc1958de59d2edace23b500a552"
+    },
+    {
+      "path": "zoneinfo/America/Mexico_City",
+      "sha256": "528836f85316cf6a35da347ab0af6f7a625a98b7a8e8e105310477b34c53c647"
+    },
+    {
+      "path": "zoneinfo/America/Miquelon",
+      "sha256": "979b7104961ef474d166520b71b48bfc734362b8d46f4a2e79c372ed012483d7"
+    },
+    {
+      "path": "zoneinfo/America/Moncton",
+      "sha256": "5a6bfe6e4f5a28a7165b33a9735505bbaec739fc1a224d969a1dcb82a19cb72b"
+    },
+    {
+      "path": "zoneinfo/America/Monterrey",
+      "sha256": "622c5311226e6dfe990545f2ea0df6840336811e065d73ea394e2dbf42f7906d"
+    },
+    {
+      "path": "zoneinfo/America/Montevideo",
+      "sha256": "7501011389a364fb724632972ba67e6cc1c9745aa9c21233c431f8c74e2b2989"
+    },
+    {
+      "path": "zoneinfo/America/New_York",
+      "sha256": "e9ed07d7bee0c76a9d442d091ef1f01668fee7c4f26014c0a868b19fe6c18a95"
+    },
+    {
+      "path": "zoneinfo/America/Nome",
+      "sha256": "da2cccdfe3fe3ea27dcdae8c761cc57ccbcf14dabb1a29baf6d02f1303de636b"
+    },
+    {
+      "path": "zoneinfo/America/Noronha",
+      "sha256": "7de7910228d0a8aca5660a9ef389ca86c14bc9c4f9cc8066ee62c8bddc86c38c"
+    },
+    {
+      "path": "zoneinfo/America/North_Dakota/Beulah",
+      "sha256": "aad81ba8dbbc3370241c5da7fbfa12a6cd69613e12c607256e490f29b5da047b"
+    },
+    {
+      "path": "zoneinfo/America/North_Dakota/Center",
+      "sha256": "f5959b2bd60a92ab942f2054152dcbaff89dc5bb7b57bcb85b810ed0a9f6d2cc"
+    },
+    {
+      "path": "zoneinfo/America/North_Dakota/New_Salem",
+      "sha256": "0c7fdbb107ee5272b6a1b75bd3a2a08ac3b85cbaa1b75d815ddae052c659bde8"
+    },
+    {
+      "path": "zoneinfo/America/Nuuk",
+      "sha256": "2865eb30df98918a550a02dda5c7f030543bec4b11006b235021b7c8052f55fc"
+    },
+    {
+      "path": "zoneinfo/America/Ojinaga",
+      "sha256": "6f7f10ffb55d902673695c1bece5ee75d8a1240cd428f4d3a97726a419b59ed1"
+    },
+    {
+      "path": "zoneinfo/America/Panama",
+      "sha256": "91ac80fe976931c490d058c8ce8b5d71ffa6d4961f6ca13ea9c153f0b0bccea0"
+    },
+    {
+      "path": "zoneinfo/America/Paramaribo",
+      "sha256": "67b519bcd96077ea845078c43d85c890b35382331c0b393d11f51412653277b3"
+    },
+    {
+      "path": "zoneinfo/America/Phoenix",
+      "sha256": "8a5973d2c62e2cbf2520f2b44e4a2ee9d2f455c93f0f45bfdeb4533af1584664"
+    },
+    {
+      "path": "zoneinfo/America/Port-au-Prince",
+      "sha256": "d3d64025de083a23297dda54b85d54e3847f851b7a06fa409055ce9d83bdc8e3"
+    },
+    {
+      "path": "zoneinfo/America/Porto_Velho",
+      "sha256": "b92315da16568fe572061141c02f79d3071385f3778eae8a9727044a64132ce0"
+    },
+    {
+      "path": "zoneinfo/America/Puerto_Rico",
+      "sha256": "8491e557ff801a8306516b8ca5946ff5f2e6821af31477eb47d7d191cc5a6497"
+    },
+    {
+      "path": "zoneinfo/America/Punta_Arenas",
+      "sha256": "b51e6e21fd77e7501616aaea36d9979e14169ca444989699a8a0736964553134"
+    },
+    {
+      "path": "zoneinfo/America/Rankin_Inlet",
+      "sha256": "9d782a8cbdced815747a6f9793ca9545165bfd7d324261c4eaf9924af23d2b37"
+    },
+    {
+      "path": "zoneinfo/America/Recife",
+      "sha256": "6c9fc7134f89162a38fa8c29674a4b3bc5376a2d1f886bbc4072f40dec4b88b7"
+    },
+    {
+      "path": "zoneinfo/America/Regina",
+      "sha256": "ca3a93d3ca476c80987bcdc7f099ad68306f085a91bfb4dfcdedd8f31b97ba4c"
+    },
+    {
+      "path": "zoneinfo/America/Resolute",
+      "sha256": "0a7314d9d048fbadefb7cf89d10d51a29c7ef1bf694422e386faf270c21e7468"
+    },
+    {
+      "path": "zoneinfo/America/Rio_Branco",
+      "sha256": "d20a49525e3a8506e9d0fe978f54b4340ac859e02bcaeb835e3b2576f0791871"
+    },
+    {
+      "path": "zoneinfo/America/Santarem",
+      "sha256": "56664ff52e693ee705c72a80395f74f049965d066f8028162e6949253525d0b1"
+    },
+    {
+      "path": "zoneinfo/America/Santiago",
+      "sha256": "d020f0d77742314b28aae32ea68260ba99330143610cae84d2557151103ba2c0"
+    },
+    {
+      "path": "zoneinfo/America/Santo_Domingo",
+      "sha256": "0cab5a123f1f43ddb26c84d3594e019b5eb44bda732665156e36964677a7c54e"
+    },
+    {
+      "path": "zoneinfo/America/Sao_Paulo",
+      "sha256": "04c06744ee3fe078ef3b8b779e38eb30666bf993e67a092fcaf2fc28f63a64ce"
+    },
+    {
+      "path": "zoneinfo/America/Scoresbysund",
+      "sha256": "2beaa488c08216039ef1c70f300040fa50e373dbdbeb0a65b8138255f88174b2"
+    },
+    {
+      "path": "zoneinfo/America/Sitka",
+      "sha256": "6a24bb164dfb859a7367d56478941e17e06a4cb442d503930a03002704fc5310"
+    },
+    {
+      "path": "zoneinfo/America/St_Johns",
+      "sha256": "af5fb5eee2afdbb799dc9b15930fc32d941ba3ac2f8eeb95bbb0b6a43b263a02"
+    },
+    {
+      "path": "zoneinfo/America/Swift_Current",
+      "sha256": "45128e17bbd90bc56f6310fc3cfe09d7f8543dac8a04fecbbbcd1abd191f3c36"
+    },
+    {
+      "path": "zoneinfo/America/Tegucigalpa",
+      "sha256": "1333b3ee7b5396b78cabaf4967609c01bf0fb3df15f5b50c378f34b693c8cb0e"
+    },
+    {
+      "path": "zoneinfo/America/Thule",
+      "sha256": "f31b8f45a654f1180ee440aa1581d89a71e2a1cf35b0139a8a5915bbc634da2f"
+    },
+    {
+      "path": "zoneinfo/America/Tijuana",
+      "sha256": "8c2e7b321726e6345912da396796bdb3672bfc4bd1a91c65ee58b38e004d4ca5"
+    },
+    {
+      "path": "zoneinfo/America/Toronto",
+      "sha256": "a587a1a1607439f7bac283e1815f2bdbafb9649a453d18e06c2e44e6996d888f"
+    },
+    {
+      "path": "zoneinfo/America/Vancouver",
+      "sha256": "e182e20ec67c46a7dd0aedb3d45fb1395edcb14ff2af2ac694a5776b307bed31"
+    },
+    {
+      "path": "zoneinfo/America/Whitehorse",
+      "sha256": "4eb47a3c29d81be9920a504ca21aa53fcaa76215cc52cc9d23e2feaae5c5c723"
+    },
+    {
+      "path": "zoneinfo/America/Winnipeg",
+      "sha256": "ecffbf610ae77857289fb40a4933a79221a3129a450e7dd9e3c309d6aabc541c"
+    },
+    {
+      "path": "zoneinfo/America/Yakutat",
+      "sha256": "b45c2729bbf0872ca7e0b353027e727bf2560ddc6309eacd0edee83b05303b63"
+    },
+    {
+      "path": "zoneinfo/Antarctica/Casey",
+      "sha256": "55e68b3b14df0f28df197ab9525f7924420c5cd587496fb4377c8ea12ed52be7"
+    },
+    {
+      "path": "zoneinfo/Antarctica/Davis",
+      "sha256": "5c1d76744ab443edd793304d4cd0bb1b57f31fe5b1c5cb48b99a88df3a7cca92"
+    },
+    {
+      "path": "zoneinfo/Antarctica/Macquarie",
+      "sha256": "89eed195a53c4474e8ad5563f8c5fc4ad28cab1fe85dfe141f63d4aa9cdcc1ed"
+    },
+    {
+      "path": "zoneinfo/Antarctica/Mawson",
+      "sha256": "1232056ea45daf664905a2355efa16469b679d6d4b16b961c9dc430ee2108d22"
+    },
+    {
+      "path": "zoneinfo/Antarctica/Palmer",
+      "sha256": "1d3658d0cf2d77ba14c794443e04421eea8a8395777e32448b895804d2f812d8"
+    },
+    {
+      "path": "zoneinfo/Antarctica/Rothera",
+      "sha256": "ffd358f9ff2f928cd062b8db5073f96237080a0d3e2eec80f4f9c878ad76dd15"
+    },
+    {
+      "path": "zoneinfo/Antarctica/Troll",
+      "sha256": "7e3718a69c2bd459e312cb1e7be44b806380373a14c9f8ec7be4462b8e8f4761"
+    },
+    {
+      "path": "zoneinfo/Antarctica/Vostok",
+      "sha256": "29f7edc1dccae8f90c0f3d1df83df3e0728806063d2aab2a1e74e7aac3ccad48"
+    },
+    {
+      "path": "zoneinfo/Asia/Almaty",
+      "sha256": "94f2d65e4d9fd66598450645908aeaff91e486872c5018acd0cfb285d0c77014"
+    },
+    {
+      "path": "zoneinfo/Asia/Amman",
+      "sha256": "42fe1c5d7c3b28141613cf367208f4923437c21d6fa55d68ac9dafd898f1af65"
+    },
+    {
+      "path": "zoneinfo/Asia/Anadyr",
+      "sha256": "5aa2a71e8e481d2599d3c776b12e72b47b6fd0c40ca1cccfdd6f736c30eb6d85"
+    },
+    {
+      "path": "zoneinfo/Asia/Aqtau",
+      "sha256": "e27eb9e0566d0ecb1749f850b338d91b93a6b5b136ce8d4a6e259c62b149834d"
+    },
+    {
+      "path": "zoneinfo/Asia/Aqtobe",
+      "sha256": "d681474dbfb26dc4ea2d79b4af564e5607583131e51a836cf8f82fbb1e747771"
+    },
+    {
+      "path": "zoneinfo/Asia/Ashgabat",
+      "sha256": "fac7c69d1ba68a8eff06cf30f581f8c510d6823077c01796edcd02e7a42a93ae"
+    },
+    {
+      "path": "zoneinfo/Asia/Atyrau",
+      "sha256": "fd4f02394204f671bf1ca75d644d50d2c3eecf7accc1f8f099f9d50d8fef4a68"
+    },
+    {
+      "path": "zoneinfo/Asia/Baghdad",
+      "sha256": "4bea65288e3308ba88d22746001124de84536b3372ac88f64fdf3e12d5ad643f"
+    },
+    {
+      "path": "zoneinfo/Asia/Baku",
+      "sha256": "ebf86af7c4861b48f4240f2a631f7a59c20c6522d6e30e3ad105e1fce33f71c8"
+    },
+    {
+      "path": "zoneinfo/Asia/Bangkok",
+      "sha256": "85fff93d57a041c1524bad028d2f340bb87e4c63ab7d0e27726f3737c5666649"
+    },
+    {
+      "path": "zoneinfo/Asia/Barnaul",
+      "sha256": "df37948a62d332b219134bd7e971c5bc1dcca2a131a156c4e424a6e86574cdfd"
+    },
+    {
+      "path": "zoneinfo/Asia/Beirut",
+      "sha256": "fd9ff664083f88bf6f539d490c1f02074e2e5c10eb7f590b222b3e2675da4b6a"
+    },
+    {
+      "path": "zoneinfo/Asia/Bishkek",
+      "sha256": "20ea14ca300120b0a45eed6b8c222a4b002e7d16059257396000b88dd855c3a4"
+    },
+    {
+      "path": "zoneinfo/Asia/Chita",
+      "sha256": "2db4a54b6decc0590035449c83cce4351d2298035635f388698777f476cb7484"
+    },
+    {
+      "path": "zoneinfo/Asia/Colombo",
+      "sha256": "c39d8bedb813e26e6172046e7af20f63cdf1cad7e406690b86728cc29d7a2ac6"
+    },
+    {
+      "path": "zoneinfo/Asia/Damascus",
+      "sha256": "12d84685e6875a6cb922b2c273d3663378ef0124051edf13b01174ec8d6d81b8"
+    },
+    {
+      "path": "zoneinfo/Asia/Dhaka",
+      "sha256": "fb1ba527629586f2a9eab9592ccc9da70ee85d58ab93eae2107fb5f35c4f139e"
+    },
+    {
+      "path": "zoneinfo/Asia/Dili",
+      "sha256": "d80f6e166c12c28140e68d9e9352c0d2e72884f9cce368215af0fd0f94dd9c99"
+    },
+    {
+      "path": "zoneinfo/Asia/Dubai",
+      "sha256": "a667613e16894702b038dbf18993467854880a3956cf263d265147bfe1fdba96"
+    },
+    {
+      "path": "zoneinfo/Asia/Dushanbe",
+      "sha256": "9286279d85ae16c057775bc97d9b06769c276c51c4c2f9060664abaf1dca22cb"
+    },
+    {
+      "path": "zoneinfo/Asia/Famagusta",
+      "sha256": "085adcca077cb9d7b9c7a384b5f33f0f0d0a607a31a4f3f3ab8e8aa075718e37"
+    },
+    {
+      "path": "zoneinfo/Asia/Gaza",
+      "sha256": "b7463171440be7754d2a729b2a28e7d0e13f31aaf21329e89da6ec7be893b73b"
+    },
+    {
+      "path": "zoneinfo/Asia/Hebron",
+      "sha256": "e98d144872b1fb1a02c42aff5a90ae337a253f5bd41a7ceb7271a2c9015ca9d4"
+    },
+    {
+      "path": "zoneinfo/Asia/Ho_Chi_Minh",
+      "sha256": "104fb731857d439d5f3f42f1ab3a09c4e66cc7ed197c894ad70fa5c6e0803070"
+    },
+    {
+      "path": "zoneinfo/Asia/Hong_Kong",
+      "sha256": "6a5fcee243e5ab92698242d88c4699ceb7208a22ee97d342d11e41ebd2555a17"
+    },
+    {
+      "path": "zoneinfo/Asia/Hovd",
+      "sha256": "667e0f2c6943f944490ec6c2868af96ea593cee022976b5bac6256d23e532dbb"
+    },
+    {
+      "path": "zoneinfo/Asia/Irkutsk",
+      "sha256": "215ba85c2c1d788f8a2147c5904b7ac818ea60fdd5f464eb17efd62e77df1739"
+    },
+    {
+      "path": "zoneinfo/Asia/Jakarta",
+      "sha256": "4ef13306f4b37f314274eb0c019d10811f79240e717f790064e361cb98045d11"
+    },
+    {
+      "path": "zoneinfo/Asia/Jayapura",
+      "sha256": "8a1cd477e2fc1d456a1be35ad743323c4f986308d5163fb17abaa34cde04259b"
+    },
+    {
+      "path": "zoneinfo/Asia/Jerusalem",
+      "sha256": "254b964265b94e16b4a498f0eb543968dec25f4cf80fba29b3d38e4a775ae837"
+    },
+    {
+      "path": "zoneinfo/Asia/Kabul",
+      "sha256": "25911ba3c6d28ff2fb1e75d49b68005253650af2654498459121c2839a378209"
+    },
+    {
+      "path": "zoneinfo/Asia/Kamchatka",
+      "sha256": "298d4f949bd148d918ff9872241c63e430f079e61541a04ad396602f791d7026"
+    },
+    {
+      "path": "zoneinfo/Asia/Karachi",
+      "sha256": "881fa658c4d75327c1c00919773f3f526130d31b20c48b9bf8a348eda9338649"
+    },
+    {
+      "path": "zoneinfo/Asia/Kathmandu",
+      "sha256": "fd1b1f79259b0abf24338611262ed7bfa8401221d6d7820586c5ec7e16cf8e83"
+    },
+    {
+      "path": "zoneinfo/Asia/Khandyga",
+      "sha256": "6ca7e6c3a939a980d0b041c6dccbfe5588acdd8842795eea8a30f17f140d9ff8"
+    },
+    {
+      "path": "zoneinfo/Asia/Kolkata",
+      "sha256": "e90c341036cb7203200e293cb3b513267e104a39a594f35e195254e6bc0a17cf"
+    },
+    {
+      "path": "zoneinfo/Asia/Krasnoyarsk",
+      "sha256": "0f9284ff5c16483d98762c43cbc9f72c135a025135ff2dd3597c3a36bc4528a0"
+    },
+    {
+      "path": "zoneinfo/Asia/Kuching",
+      "sha256": "0f9aadc9627f48cf1b4d0789248621aaaa23c6554a6eb142d4460c0d4f46cd74"
+    },
+    {
+      "path": "zoneinfo/Asia/Macau",
+      "sha256": "32f02447246cac0dabd39d88b65c85e5b8761617918c8d233f0834b88887d989"
+    },
+    {
+      "path": "zoneinfo/Asia/Magadan",
+      "sha256": "1dc704117050bcc98ba02fc913eccffcc94b019d5698d2d02df337b49b79e4ce"
+    },
+    {
+      "path": "zoneinfo/Asia/Makassar",
+      "sha256": "3a126d0aa493114faee67d28a4154ee41bbec10cdc60fcbd4bfe9a02125780ec"
+    },
+    {
+      "path": "zoneinfo/Asia/Manila",
+      "sha256": "f314d21c542e615756dd385d36a896cd57ba16fef983fe6b4d061444bbf1ac9e"
+    },
+    {
+      "path": "zoneinfo/Asia/Nicosia",
+      "sha256": "d149e6d08153ec7c86790ec5def4daffe9257f2b0282bba5a853ba043d699595"
+    },
+    {
+      "path": "zoneinfo/Asia/Novokuznetsk",
+      "sha256": "a72c71b5252d6037959859340a0f85df795a652d222ad75ef7f1899cbf5fd0a3"
+    },
+    {
+      "path": "zoneinfo/Asia/Novosibirsk",
+      "sha256": "e4adbe1b1d794e19477e89725bce52e73444b4070c8de1c16162b813cc762dd6"
+    },
+    {
+      "path": "zoneinfo/Asia/Omsk",
+      "sha256": "1f25c8588b495c12951d4cd67103e2d4c99de992e6664f90851528f4abf65ce2"
+    },
+    {
+      "path": "zoneinfo/Asia/Oral",
+      "sha256": "5904f8a91982f5123f965f3307d16f9002fc7b319bf2aa2a59def9193942ee44"
+    },
+    {
+      "path": "zoneinfo/Asia/Pontianak",
+      "sha256": "8a7397c2e2ad8cabf5cff7a588f65222a8d2b7ac21b6ec613de1b56298d4fc14"
+    },
+    {
+      "path": "zoneinfo/Asia/Pyongyang",
+      "sha256": "ffe8371a70c0b5f0d7e17024b571fd8c5a2e2d40e63a8be78e839fbd1a540ec1"
+    },
+    {
+      "path": "zoneinfo/Asia/Qatar",
+      "sha256": "c2494663758f1a9fb3d4e5306ff28e1f3453c019ddb7545f0e0f54b6db77e86e"
+    },
+    {
+      "path": "zoneinfo/Asia/Qostanay",
+      "sha256": "1c88e59fc4083cd454e8c916cf23e2eaf0eb8e59956785f31717141ed5cc8bbb"
+    },
+    {
+      "path": "zoneinfo/Asia/Qyzylorda",
+      "sha256": "2592cd37a36e2e4a9a5847956826625bf80be81ac814bf65afae622bb9b254f8"
+    },
+    {
+      "path": "zoneinfo/Asia/Riyadh",
+      "sha256": "a02287eee69f37c475a3e8a35c6a13e54d49671c2fa0bcc9bbfd82ab28b68543"
+    },
+    {
+      "path": "zoneinfo/Asia/Sakhalin",
+      "sha256": "c73028afcda28407bec971300ba39688cce8f5be99fa8425dfd348914e4785bb"
+    },
+    {
+      "path": "zoneinfo/Asia/Samarkand",
+      "sha256": "cc929246dde512f77a42f83d6f8f500323b87132725674cac8f61ccae7691f19"
+    },
+    {
+      "path": "zoneinfo/Asia/Seoul",
+      "sha256": "2c8f4bb15dd77090b497e2a841ff3323ecbbae4f9dbb9edead2f8dd8fb5d8bb4"
+    },
+    {
+      "path": "zoneinfo/Asia/Shanghai",
+      "sha256": "64ffc2e43a94435a043c040d1d3af7e92d031adc78e7737af1861baa4eeef3e6"
+    },
+    {
+      "path": "zoneinfo/Asia/Singapore",
+      "sha256": "5e67952267aa709f212739bb4e302d8b59d6240c5ac0eaaaee32330e71d7da12"
+    },
+    {
+      "path": "zoneinfo/Asia/Srednekolymsk",
+      "sha256": "79f69a4fc8851eb71c729f9564a34cbed4ee3cb3631b957d247e4a287847dd22"
+    },
+    {
+      "path": "zoneinfo/Asia/Taipei",
+      "sha256": "0cc990c0ea4faa5db9b9edcd7fcbc028a4f87a6d3a0f567dac76cb222b718b19"
+    },
+    {
+      "path": "zoneinfo/Asia/Tashkent",
+      "sha256": "6a944fcb6e757d2472fe2c6c83704e64d9946c774ef3a3f9f8f7600b55f0b3b5"
+    },
+    {
+      "path": "zoneinfo/Asia/Tbilisi",
+      "sha256": "7d3d348baa1b893b23089d35781696b9147d07034fcca02a2cc3b5fd6557f04b"
+    },
+    {
+      "path": "zoneinfo/Asia/Tehran",
+      "sha256": "2dbd87f410815edcfcd7d14be84de0040ef0d913a22203e0c7e7f4f17a6a915a"
+    },
+    {
+      "path": "zoneinfo/Asia/Thimphu",
+      "sha256": "1b69d341510c98a956b7407be3f7d400beca437600bbffc9e87722898b362325"
+    },
+    {
+      "path": "zoneinfo/Asia/Tokyo",
+      "sha256": "a02b9e66044dc5c35c5f76467627fdcba4aee1cc958606b85c777095cad82ceb"
+    },
+    {
+      "path": "zoneinfo/Asia/Tomsk",
+      "sha256": "72bd142d981606741fcc38897989aaa40ed7a39411ceeaefac7b2b6d9b2784e4"
+    },
+    {
+      "path": "zoneinfo/Asia/Ulaanbaatar",
+      "sha256": "a9491746c4dcfeeec1f7427150b4aeef2cca6c6b467ca71f10521ab063c2d9e7"
+    },
+    {
+      "path": "zoneinfo/Asia/Urumqi",
+      "sha256": "17564e759643b151f00c98a792c47e86372a3f3a8e963bddade648585ba52716"
+    },
+    {
+      "path": "zoneinfo/Asia/Ust-Nera",
+      "sha256": "cec1bc9209f0d0572ce4dd96c0d4d59af5a44e5a707fb3a8f32ebc1dc5e3632c"
+    },
+    {
+      "path": "zoneinfo/Asia/Vladivostok",
+      "sha256": "5cc40b321e523db23a0b847750ee0a85b9c6e2159590735e7730907aac4593a0"
+    },
+    {
+      "path": "zoneinfo/Asia/Yakutsk",
+      "sha256": "3cf36b446820f6379f39433ee8cf17a9a226f8495f991652580b5218a2f33574"
+    },
+    {
+      "path": "zoneinfo/Asia/Yangon",
+      "sha256": "fd81c04aae19e5871420b21d844ce0dbb0862f36ab5073c31ecd438f44203463"
+    },
+    {
+      "path": "zoneinfo/Asia/Yekaterinburg",
+      "sha256": "e0dc845ba5e3af852c58f87adc720f2381ba193fed546d57920736c5bc068f30"
+    },
+    {
+      "path": "zoneinfo/Asia/Yerevan",
+      "sha256": "14cd29500e0d6d35816ff0ac2792822d5acba0d99a77b9e304aa85ac9043a311"
+    },
+    {
+      "path": "zoneinfo/Atlantic/Azores",
+      "sha256": "eba843c5a2bcc459e4b4b32ba4dc640f8af58069214be3c4a657aec33b86440d"
+    },
+    {
+      "path": "zoneinfo/Atlantic/Bermuda",
+      "sha256": "2cd18a7ccb2762fc089a34f2cd7acb84c3871c3bbba88ebb45b60d2afbc8d792"
+    },
+    {
+      "path": "zoneinfo/Atlantic/Canary",
+      "sha256": "ca62bdb9faa986f3630cade1ce290de067e4711dd07820623cac9573a16395b0"
+    },
+    {
+      "path": "zoneinfo/Atlantic/Cape_Verde",
+      "sha256": "a3dda92dd2c55ff6fdbd48aadeb36971ae2dba920edddc7dacdae73dc03ce3be"
+    },
+    {
+      "path": "zoneinfo/Atlantic/Faroe",
+      "sha256": "3626dd64f66d6a99d847f9b22199cc753692286b0e04682e8e3d3f4f636f033b"
+    },
+    {
+      "path": "zoneinfo/Atlantic/Madeira",
+      "sha256": "95863ce4c0b9f8650a1319b7e778b1c2d643c5ab186af4d35842efbf94572f11"
+    },
+    {
+      "path": "zoneinfo/Atlantic/South_Georgia",
+      "sha256": "23d48070f3ee9b2e977fd3fb760d9a135ea8c700c8ab2285aa29c94c2f97b203"
+    },
+    {
+      "path": "zoneinfo/Atlantic/Stanley",
+      "sha256": "b221235d302e4ee9bfe171ad4bdf0c044df85d6ff9c605d28445f938c9d2163a"
+    },
+    {
+      "path": "zoneinfo/Australia/Adelaide",
+      "sha256": "95dd846f153be6856098f7bbd37cfe23a6aa2e0d0a9afeb665c086ce44f9476d"
+    },
+    {
+      "path": "zoneinfo/Australia/Brisbane",
+      "sha256": "796e90cf37b6b74faca5e2669afb7524ccdb91269d20a744f385c773b254b467"
+    },
+    {
+      "path": "zoneinfo/Australia/Broken_Hill",
+      "sha256": "de4ff79634ef4b91927e8ed787ac3bd54811dda03060f06c9c227e9a51180aa4"
+    },
+    {
+      "path": "zoneinfo/Australia/Darwin",
+      "sha256": "7e7d08661216f7c1409f32e283efc606d5b92c0e788da8dd79e533838b421afa"
+    },
+    {
+      "path": "zoneinfo/Australia/Eucla",
+      "sha256": "8b5f97186f08e84d1d5c8756185e039647c32d686203127fde0329b7e9e6feee"
+    },
+    {
+      "path": "zoneinfo/Australia/Hobart",
+      "sha256": "18b412ce021fb16c4ebe628eae1a5fa1f5aa20d41fea1dfa358cb799caba81c8"
+    },
+    {
+      "path": "zoneinfo/Australia/Lindeman",
+      "sha256": "c4ce94771db6a0b3682d1d58ec64211ce628bfc9f0df140daa073f35543624ae"
+    },
+    {
+      "path": "zoneinfo/Australia/Lord_Howe",
+      "sha256": "a323c5433991a963eb497b7da4d1d09848bf3ef5f5d64d9c9649f388e4bab9df"
+    },
+    {
+      "path": "zoneinfo/Australia/Melbourne",
+      "sha256": "96fc7f31072e9cc73abb6b2622b97c5f8dbb6cbb17be3920a4249d8d80933413"
+    },
+    {
+      "path": "zoneinfo/Australia/Perth",
+      "sha256": "025d4339487853fa1f3144127959734b20f7c7b4948cff5d72149a0541a67968"
+    },
+    {
+      "path": "zoneinfo/Australia/Sydney",
+      "sha256": "42c3857585b16db2f8ffd47ba19faa60f473340de8d4fe9320ea7be861605906"
+    },
+    {
+      "path": "zoneinfo/Etc/GMT",
+      "sha256": "6d9f378883c079f86c0387a5547a92c449869d806e07de10084ab04f0249018d"
+    },
+    {
+      "path": "zoneinfo/Etc/GMT+1",
+      "sha256": "d50ce5d97f6b43f45711fd75c87d3dc10642affa61e947453fb134caef6cf884"
+    },
+    {
+      "path": "zoneinfo/Etc/GMT+10",
+      "sha256": "244432432425902d28e994dd7958d984220e87a70ae5317b1f4d0f925b3eb142"
+    },
+    {
+      "path": "zoneinfo/Etc/GMT+11",
+      "sha256": "b56bdcbd830509a13ad27255bc3aeba2feecb49becd4a4183b2ae1977773714b"
+    },
+    {
+      "path": "zoneinfo/Etc/GMT+12",
+      "sha256": "6fbd0712112babc2099aaf31edc399cb8791fffddfab9b871e98ef3c1107a8c0"
+    },
+    {
+      "path": "zoneinfo/Etc/GMT+2",
+      "sha256": "4fa129e7386c94129b61a10215407a8142a1de24d93f23285b59238689f1ad4a"
+    },
+    {
+      "path": "zoneinfo/Etc/GMT+3",
+      "sha256": "406a18ac4d386d427e3b32f7eddb763194f917158d2e92433d55e025bb2d6190"
+    },
+    {
+      "path": "zoneinfo/Etc/GMT+4",
+      "sha256": "456ae43648bec15ed7f9ca1ed15bee7c17ba2eb595a643c98226b94106049c1a"
+    },
+    {
+      "path": "zoneinfo/Etc/GMT+5",
+      "sha256": "a1199e0b8d5d8185d3fb3cf264844a5cdf48bdd2f60dae674eec261b6fe9ac80"
+    },
+    {
+      "path": "zoneinfo/Etc/GMT+6",
+      "sha256": "77a7409f089e8f2148da7ec0cc59455b4685013eb360d123048106d2ebb4b1b4"
+    },
+    {
+      "path": "zoneinfo/Etc/GMT+7",
+      "sha256": "4ea8d86f3774607a71d708ac160d3c275f704e983aced24b2e89e0658fe5a33b"
+    },
+    {
+      "path": "zoneinfo/Etc/GMT+8",
+      "sha256": "b61ffc6c832662044f09eb01adb981851af48d03bbc2177bd0b898f477f02729"
+    },
+    {
+      "path": "zoneinfo/Etc/GMT+9",
+      "sha256": "42ae44ea2512ec9309232993ed8a2a948f0cb6ab55cb49abf6deb3585b5673d6"
+    },
+    {
+      "path": "zoneinfo/Etc/GMT-1",
+      "sha256": "ef7175794f2e01018fde6728076abdf428df31a9c61479377de7e58e9f69602e"
+    },
+    {
+      "path": "zoneinfo/Etc/GMT-10",
+      "sha256": "7ca5963702c13a9d4e90a8ed735c3d2c85c94759934c3f8976f61f951cb522b5"
+    },
+    {
+      "path": "zoneinfo/Etc/GMT-11",
+      "sha256": "0f64bbf67ea9b1af6df7fdaf8f9c08ac5a471f63892dc08a3fabedc3315920d6"
+    },
+    {
+      "path": "zoneinfo/Etc/GMT-12",
+      "sha256": "99ee15ea599623c812afc1fb378d56003d04c30d5a9e1fc4177e10afd5284a72"
+    },
+    {
+      "path": "zoneinfo/Etc/GMT-13",
+      "sha256": "c5b99b1b505003a0e5a5afe2530106c89c56e1adedea599ac1d3ca004f2f6d1f"
+    },
+    {
+      "path": "zoneinfo/Etc/GMT-14",
+      "sha256": "3e95e8444061d36a85a6fc55323da957d200cd242f044ed73ef9cdf6a499f8a7"
+    },
+    {
+      "path": "zoneinfo/Etc/GMT-2",
+      "sha256": "bdeea158b75eba22e1a9a81a58ba8c0fa1cdc9b4b57214708ee75f4d9d9b6011"
+    },
+    {
+      "path": "zoneinfo/Etc/GMT-3",
+      "sha256": "37bee320b6a7b8b0d590bb1dba35d94aef9db078b0379308a7087b7cc5227eca"
+    },
+    {
+      "path": "zoneinfo/Etc/GMT-4",
+      "sha256": "2d2928e5f547a8f979cdfc231aa91b31afce167beda53ea8ff8c58c4dcfd9f9a"
+    },
+    {
+      "path": "zoneinfo/Etc/GMT-5",
+      "sha256": "b8b69247931bd7c1d14ec000e52bde63d3c027dedd3bc433216a8d5dedf065be"
+    },
+    {
+      "path": "zoneinfo/Etc/GMT-6",
+      "sha256": "25237e454029849e747e922fedc602eae9ebb6bcfd4b55a66bea620c79467bb7"
+    },
+    {
+      "path": "zoneinfo/Etc/GMT-7",
+      "sha256": "bd500e17cc54f53f444a7c3af1cd12157a5cbe4a28a5a8b04d1d336de7c71d25"
+    },
+    {
+      "path": "zoneinfo/Etc/GMT-8",
+      "sha256": "4bbc4541b14ca620d9cb8bf92f80fd7c2ae3448cf3a0b0b9a7c49edb7c62eeeb"
+    },
+    {
+      "path": "zoneinfo/Etc/GMT-9",
+      "sha256": "239bc736650af98ca0fd2d6c905378e15195cc1824b6316055088320a3b868c2"
+    },
+    {
+      "path": "zoneinfo/Etc/UTC",
+      "sha256": "8b85846791ab2c8a5463c83a5be3c043e2570d7448434d41398969ed47e3e6f2"
+    },
+    {
+      "path": "zoneinfo/Europe/Andorra",
+      "sha256": "8130798c2426bc8c372498b5fef01c398ba1b733c147a457531f60555ea9eae8"
+    },
+    {
+      "path": "zoneinfo/Europe/Astrakhan",
+      "sha256": "65e183663c15551a1e47e27ae36cc49cddba04f2f9f1589324b6f09e4ee92d79"
+    },
+    {
+      "path": "zoneinfo/Europe/Athens",
+      "sha256": "5c363e14151d751c901cdf06c502d9e1ac23b8e956973954763bfb39d5c53730"
+    },
+    {
+      "path": "zoneinfo/Europe/Belgrade",
+      "sha256": "3a95adb06156044fd2fa662841c0268c2b5af47c1b19000d9d299563d387093a"
+    },
+    {
+      "path": "zoneinfo/Europe/Berlin",
+      "sha256": "5ee475f71a0fc1a32faeb849f8c39c6e7aa66d6d41ec742b97b3a7436b3b0701"
+    },
+    {
+      "path": "zoneinfo/Europe/Brussels",
+      "sha256": "812f55aeb6e8cde9ddf4786e15eb4256b21e82cf5f5d28da1bad17d94570cac0"
+    },
+    {
+      "path": "zoneinfo/Europe/Bucharest",
+      "sha256": "9df83af9b5360fa0cc1166fd10c2014799319cdb1b0d2c7450a7c71ff673a857"
+    },
+    {
+      "path": "zoneinfo/Europe/Budapest",
+      "sha256": "94dc2ac5672206fc3d7a2f35550c082876c2fd90c98e980753a1c5838c025246"
+    },
+    {
+      "path": "zoneinfo/Europe/Chisinau",
+      "sha256": "7b4941ae82ed7958f8897d198bf937e7ccf5460065caca2728e2a471cb3e9d93"
+    },
+    {
+      "path": "zoneinfo/Europe/Dublin",
+      "sha256": "40e8d2a1c3b572284da39f6f4245b1bc814f452c44f5aa73d0a011571d5ccc43"
+    },
+    {
+      "path": "zoneinfo/Europe/Gibraltar",
+      "sha256": "6bced6a5a065bf123880053d3a940e90df155096e2ad55987fe55f14b4c8a12e"
+    },
+    {
+      "path": "zoneinfo/Europe/Helsinki",
+      "sha256": "184901ecbb158667a0b7b62eb9685e083bc3182edbecdc3d6d3743192f6a9097"
+    },
+    {
+      "path": "zoneinfo/Europe/Istanbul",
+      "sha256": "264e308e7743b5afee2d673c5b57567636dabc925bb0be513939996e856718a5"
+    },
+    {
+      "path": "zoneinfo/Europe/Kaliningrad",
+      "sha256": "b3b19749ed58bcc72cec089484735303a2389c03909ff2a6cff66a2583be2cc3"
+    },
+    {
+      "path": "zoneinfo/Europe/Kirov",
+      "sha256": "3fb4f665fe44a3aa382f80db83f05f8858d48138f47505e5af063e419d5e0559"
+    },
+    {
+      "path": "zoneinfo/Europe/Kyiv",
+      "sha256": "fb0ae91bd8cfb882853f5360055be7c6c3117fd2ff879cf727a4378e3d40c0d3"
+    },
+    {
+      "path": "zoneinfo/Europe/Lisbon",
+      "sha256": "92b07cb24689226bf934308d1f1bd33c306aa4da610c52cd5bce25077960502c"
+    },
+    {
+      "path": "zoneinfo/Europe/London",
+      "sha256": "c85495070dca42687df6a1c3ee780a27cbcb82f1844750ea6f642833a44d29b4"
+    },
+    {
+      "path": "zoneinfo/Europe/Madrid",
+      "sha256": "9a42d7d37ad6dedd2d9b328120f7bf9e852f6850c4af00baff964f659b161cea"
+    },
+    {
+      "path": "zoneinfo/Europe/Malta",
+      "sha256": "12129c6cf2f8efbeb9b56022439edcbac68ad9368842a64282d268119b3751dd"
+    },
+    {
+      "path": "zoneinfo/Europe/Minsk",
+      "sha256": "2a03e6d1f1f2727b60777c5b4e69839783b5dd787ff5edb352777c5c5494dbda"
+    },
+    {
+      "path": "zoneinfo/Europe/Moscow",
+      "sha256": "2a69287d1723e93f0f876f0f242866f09569d77b91bde7fa4d9d06b8fcd4883c"
+    },
+    {
+      "path": "zoneinfo/Europe/Paris",
+      "sha256": "ab77a1488a2dd4667a4f23072236e0d2845fe208405eec1b4834985629ba7af8"
+    },
+    {
+      "path": "zoneinfo/Europe/Prague",
+      "sha256": "1bd7dd8545e6cf1eb9d419f267a57b00e60857d115e5a309326e3878968b2d9c"
+    },
+    {
+      "path": "zoneinfo/Europe/Riga",
+      "sha256": "849dbfd26d6d696f48b80fa13323f99fe597ed83ab47485e2accc98609634569"
+    },
+    {
+      "path": "zoneinfo/Europe/Rome",
+      "sha256": "d5ade82cc4a232949b87d43157c84b2c355b66a6ac87cf6250ed6ead80b5018f"
+    },
+    {
+      "path": "zoneinfo/Europe/Samara",
+      "sha256": "9d72f42316d3eaabb5d0236e6831f1c785b539a02769a293b4827d37d5113285"
+    },
+    {
+      "path": "zoneinfo/Europe/Saratov",
+      "sha256": "ca0c23bd7375dd381a5b18e0eb2b161271d6371c2b56d9046eb93cb7d6f3555c"
+    },
+    {
+      "path": "zoneinfo/Europe/Simferopol",
+      "sha256": "b7397bc5d355499a6b342ba5e181392d2a6847d268ba398eabc55b6c1f301e27"
+    },
+    {
+      "path": "zoneinfo/Europe/Sofia",
+      "sha256": "84240a5df30dae7039c47370feecd38cacd5c38f81becab9a063b8c940afe6d6"
+    },
+    {
+      "path": "zoneinfo/Europe/Tallinn",
+      "sha256": "e1ae890b4688a4ccea215ecedf9ce81b42cb270910ab90285d9da2be489cebec"
+    },
+    {
+      "path": "zoneinfo/Europe/Tirane",
+      "sha256": "ced959c824bd5825de556f2706e9f74f28b91d463412d15b8816c473582e72ec"
+    },
+    {
+      "path": "zoneinfo/Europe/Ulyanovsk",
+      "sha256": "73c01de69ec22a3ff570203b95546970fa9b417198697f3772ebbab88171f818"
+    },
+    {
+      "path": "zoneinfo/Europe/Vienna",
+      "sha256": "6662379000c4e9b9eb24471caa1ef75d7058dfa2f51b80e4a624d0226b4dad49"
+    },
+    {
+      "path": "zoneinfo/Europe/Vilnius",
+      "sha256": "505cd15f7a2b09307c77d23397124fcb9794036a013ee0aed54265fb60fb0b75"
+    },
+    {
+      "path": "zoneinfo/Europe/Volgograd",
+      "sha256": "46016fb7b9b367e4ed20a2fd0551e6a0d64b21e2c8ba20dd5de635d20dbfbe4b"
+    },
+    {
+      "path": "zoneinfo/Europe/Warsaw",
+      "sha256": "4e22c33db79517472480b54491a49e0da299f3072d7490ce97f1c4fd6779acab"
+    },
+    {
+      "path": "zoneinfo/Europe/Zurich",
+      "sha256": "2b9418ed48e3d9551c84a4786e185bd2181d009866c040fbd729170d038629ef"
+    },
+    {
+      "path": "zoneinfo/Factory",
+      "sha256": "6851652b1f771d7a09a05e124ae4e50fc719b4903e9dee682b301ae9e5f65789"
+    },
+    {
+      "path": "zoneinfo/Indian/Chagos",
+      "sha256": "d9eaeb5f329d1487295342fe5d18521f184d69b2336c8e655d5dcfaba96de346"
+    },
+    {
+      "path": "zoneinfo/Indian/Maldives",
+      "sha256": "17bddf7d57c1a14a07aded3e0f0b2242b60970ba4f396f892469379fcf253395"
+    },
+    {
+      "path": "zoneinfo/Indian/Mauritius",
+      "sha256": "667aab7357218a695c889b1804e97436f2079eb35d0b19dc1b159ccead4f05e2"
+    },
+    {
+      "path": "zoneinfo/Pacific/Apia",
+      "sha256": "33740ab29ef943b1f55f769e13ff59a90962f5a12434209072d650e6c10abb4d"
+    },
+    {
+      "path": "zoneinfo/Pacific/Auckland",
+      "sha256": "8000e3a323e8fd0212414e9426b020707a771c368ca0e151747f9ddb7b814b27"
+    },
+    {
+      "path": "zoneinfo/Pacific/Bougainville",
+      "sha256": "85613ce9e5e7371faf0016e9efe61222a5b279c1cf30858b7ed565a00a0f84bf"
+    },
+    {
+      "path": "zoneinfo/Pacific/Chatham",
+      "sha256": "c617b155ce657c9fea02fd9ddc7ac823a95f452c4a6580408d8db3a58902184f"
+    },
+    {
+      "path": "zoneinfo/Pacific/Easter",
+      "sha256": "41bb9b06cff1425bcac1e027bab8721e320ae238bbec68781bebac5ee97a5d53"
+    },
+    {
+      "path": "zoneinfo/Pacific/Efate",
+      "sha256": "a12c4d710631e7ed45536ff21f31c8fa14fe74c25c3f1cf2e1799d2355315c0a"
+    },
+    {
+      "path": "zoneinfo/Pacific/Fakaofo",
+      "sha256": "a8ea1da5330a8f3b6f6485d52defdffe467a59c1e5f5f08b13d66ccaf74528b2"
+    },
+    {
+      "path": "zoneinfo/Pacific/Fiji",
+      "sha256": "8c1e456ceb029c7550436a213e25844143e11ba2726c1dcda20dea4fa5894342"
+    },
+    {
+      "path": "zoneinfo/Pacific/Galapagos",
+      "sha256": "fc625460e8d28888e83413b6a9dab6de2b0b309e0d0959370ca21119e0dcf010"
+    },
+    {
+      "path": "zoneinfo/Pacific/Gambier",
+      "sha256": "8004bb82bd471ffaded2e6272fa796a3928627e07941a88cf26576718e664311"
+    },
+    {
+      "path": "zoneinfo/Pacific/Guadalcanal",
+      "sha256": "3389135aa69241a57500c8722d2be6c2804917b5fd89cac82dbbd0270a7de348"
+    },
+    {
+      "path": "zoneinfo/Pacific/Guam",
+      "sha256": "131f739e67faacd7c6cdeea036964908caf54d3e2b925d929eb85e72b749b9f2"
+    },
+    {
+      "path": "zoneinfo/Pacific/Honolulu",
+      "sha256": "7f03d1bf5264e7ab023a2ef9b997ddfc8cb6936692407c770762b9c549523f33"
+    },
+    {
+      "path": "zoneinfo/Pacific/Kanton",
+      "sha256": "1cd4c02abb07fd1d96dd046529c98d95de4a71774fd328170a3128bdcd62fba4"
+    },
+    {
+      "path": "zoneinfo/Pacific/Kiritimati",
+      "sha256": "8589353a8cfe2e3d4fb9909b355d96248bce2ed0b04b0ab6bbaddc6f567edcd4"
+    },
+    {
+      "path": "zoneinfo/Pacific/Kosrae",
+      "sha256": "4348eb6f8cde0eb77ad5b53857c4ea8cc73421ea7cad667266a274baab2e9f1b"
+    },
+    {
+      "path": "zoneinfo/Pacific/Kwajalein",
+      "sha256": "4e667fd1ffb2490fac6810254575747f8f48b709dee755415e7eab59cad6a874"
+    },
+    {
+      "path": "zoneinfo/Pacific/Marquesas",
+      "sha256": "153c4f2535ad938f0b55bdcdd94eb828ba4bb26beed03401b9b4c283e76fc863"
+    },
+    {
+      "path": "zoneinfo/Pacific/Nauru",
+      "sha256": "f4048a80b1c1fbc9ec4c42b5029cdf4c7d3242d6cd026197f8923bb87662aa70"
+    },
+    {
+      "path": "zoneinfo/Pacific/Niue",
+      "sha256": "3a5957c6e927711edaf92326745a31e5acf5c6920f3216da85086d39b9a9b833"
+    },
+    {
+      "path": "zoneinfo/Pacific/Norfolk",
+      "sha256": "0cc757d419b5f25ccdba2096cf07de1d43111973d2f2fe405a787efc45ff019c"
+    },
+    {
+      "path": "zoneinfo/Pacific/Noumea",
+      "sha256": "b641f1c67c6c5d33aacf76335a2d269214c220e37383e5bb12949131d3e329d4"
+    },
+    {
+      "path": "zoneinfo/Pacific/Pago_Pago",
+      "sha256": "7c262b62985863aad47f13b0ef5db2e5cc917b5d38002de9a2ea83ddb0883458"
+    },
+    {
+      "path": "zoneinfo/Pacific/Palau",
+      "sha256": "68dd876d3d2b7aac0aaed2ca0caf4cdb36f47748a474d953aeb9ed571747ebaa"
+    },
+    {
+      "path": "zoneinfo/Pacific/Pitcairn",
+      "sha256": "5388c052ebec44da32f17acf6b5e98a5c5c272a1c9634bba26f08d80f1163b57"
+    },
+    {
+      "path": "zoneinfo/Pacific/Port_Moresby",
+      "sha256": "9c1dfa1c15994dd8774e53f40cb14dcf529143468721f1dba7b2c2e14ae9f5f0"
+    },
+    {
+      "path": "zoneinfo/Pacific/Rarotonga",
+      "sha256": "c0f12ca176f20e7ba17f39202ef52a852ceb331fc50f8dae00f96e48f321dc17"
+    },
+    {
+      "path": "zoneinfo/Pacific/Tahiti",
+      "sha256": "0517dff46dc4fa258a84e591d56bb4d99d223208ebc035d5f9736ba88b577536"
+    },
+    {
+      "path": "zoneinfo/Pacific/Tarawa",
+      "sha256": "53268a8a6b11f0b8e02fc67683ae48d074efaf7b4c66e036c1478107afd9a7d7"
+    },
+    {
+      "path": "zoneinfo/Pacific/Tongatapu",
+      "sha256": "3a9a4166a4c06626fd1d8ed4f400be25abceee6e8dc4f194b547cf40097da016"
+    },
+    {
+      "path": "zoneinfo/tzdata.zi",
+      "sha256": "6486fa5a07ba3c0ca7f8469fa404dc022cb0b58b46f355509bf78a1eb21d9aab"
+    },
+    {
+      "path": "zoneinfo/version",
+      "sha256": "b8b066b540bc2870e6f1f3cd76f1b0e6c3629b2e3a12f14ba9e47085a1abb781"
+    }
+  ]
+}

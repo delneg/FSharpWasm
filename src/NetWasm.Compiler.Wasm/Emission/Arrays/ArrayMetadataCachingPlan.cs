@@ -12,4 +12,10 @@ internal sealed record ArrayMetadataCachingPlan(
     public static ArrayMetadataCachingPlan Empty { get; } = new([], []);
 
     public ImmutableDictionary<StructuredBlockId, ImmutableArray<ArrayReferenceSlot>> LoopEntries { get; init; } = [];
+
+    // Arrays each loop checks for null on entry, keyed by its condition block.
+    public ImmutableDictionary<StructuredBlockId, ImmutableArray<ArrayReferenceSlot>> EntryNullChecks { get; init; } = [];
+
+    // Accesses whose array a loop entry has already checked for null.
+    public ImmutableHashSet<int> CheckedAccesses { get; init; } = [];
 }

@@ -5,6 +5,7 @@ import {
   createProviderExecutionComposition,
 } from "./provider-execution-composition.mjs";
 import { isContractError } from "./contract-error.mjs";
+import { describeFailureCause } from "./execution-result.mjs";
 
 const digest = "1".repeat(64);
 const environmentModule = "wasi:cli/environment@0.2.11";
@@ -126,7 +127,36 @@ test("rejects malformed composition dependencies before creating the catalog", (
   assert.throws(() => createProviderExecutionComposition(accessor), TypeError);
 });
 
-test("brands public validation failures without exposing dependency details", async () => {
+test("keeps an ungranted platform capability as the contract failure cause", async () => {
+  const wallClockModule = "wasi:clocks/wall-clock@0.2.11";
+  const datetime = `${wallClockModule}#datetime`;
+  const prepare = createProviderExecutionComposition(options({
+    createShim: () => ({
+      getImportObject: () => ({
+        [wallClockModule]: Object.freeze({ now() {}, resolution() {} }),
+      }),
+    }),
+  }));
+  const required = manifest();
+  await assert.rejects(() => prepare({
+    filesystem: null,
+    manifest: {
+      ...required,
+      requiredImportModules: [wallClockModule, reactorModule],
+      requiredImports: [
+        { interface: wallClockModule, name: "now", parameters: [], results: [datetime] },
+        ...required.requiredImports.filter(value => value.interface === reactorModule),
+      ],
+    },
+    request: executionRequest(),
+    signal: null,
+    stderr,
+    stdout,
+  }), error => isContractError(error)
+    && describeFailureCause(error) === "TypeError: platform capability 'wallClock' was not granted");
+});
+
+test("brands public validation failures and keeps their cause", async () => {
   const prepare = createProviderExecutionComposition(options());
   await assert.rejects(() => prepare({
     filesystem: null,
@@ -136,5 +166,6 @@ test("brands public validation failures without exposing dependency details", as
     stderr,
     stdout,
   }), error => isContractError(error)
-    && !error.message.includes("private-invalid-profile"));
+    && !error.message.includes("private-invalid-profile")
+    && error.cause instanceof Error);
 });

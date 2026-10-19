@@ -27,6 +27,7 @@ for target in wasm32 wasm64; do
             --reference "$corelib" \
             --entry 'NetWasm.Fixtures.JavaScriptInterop.EntryPoint::Run' \
             --wit "$wit" \
+            --javascript-export-boundary true \
             --target "$target" \
             --output "$artifact_root/application.$target.$repeat.wasm" \
             --interop-manifest "$artifact_root/interop.$target.$repeat.json" \
@@ -44,8 +45,8 @@ for target in wasm32 wasm64; do
         --target "$target" --configuration release \
         --output "$artifact_root/runtime.$target.wasm"
     merge_features=(
-        --enable-exception-handling --enable-bulk-memory --enable-multimemory
-        --enable-nontrapping-float-to-int -g)
+        --enable-exception-handling --enable-reference-types --enable-bulk-memory
+        --enable-multimemory --enable-nontrapping-float-to-int -g)
     if [[ "$target" = wasm64 ]]; then
         merge_features+=(--enable-memory64)
     fi

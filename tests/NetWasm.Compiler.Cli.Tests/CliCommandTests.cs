@@ -256,6 +256,11 @@ public sealed class CliCommandTests
             "--managed-loop-unrolling", "Enabled",
             "--managed-constant-argument-propagation", "Enabled",
             "--managed-static-array-population-elimination", "Disabled",
+            "--managed-constant-call-folding", "Disabled",
+            "--managed-switch-bit-tests", "Enabled",
+            "--managed-devirtualization", "Disabled",
+            "--managed-allocation-elimination", "Enabled",
+            "--managed-loop-rotation", "Enabled",
         ]);
 
         Assert.Equal(FinalWasmOptimization.O3, compiler.Options!.Optimization);
@@ -275,6 +280,11 @@ public sealed class CliCommandTests
         Assert.Equal(ManagedLoopUnrolling.Enabled, compiler.Options.OptimizationOverrides.LoopUnrolling);
         Assert.Equal(ManagedConstantArgumentPropagation.Enabled, compiler.Options.OptimizationOverrides.ConstantArgumentPropagation);
         Assert.Equal(ManagedStaticArrayPopulationElimination.Disabled, compiler.Options.OptimizationOverrides.StaticArrayPopulationElimination);
+        Assert.Equal(ManagedConstantCallFolding.Disabled, compiler.Options.OptimizationOverrides.ConstantCallFolding);
+        Assert.Equal(ManagedSwitchBitTests.Enabled, compiler.Options.OptimizationOverrides.SwitchBitTests);
+        Assert.Equal(ManagedDevirtualization.Disabled, compiler.Options.OptimizationOverrides.Devirtualization);
+        Assert.Equal(ManagedAllocationElimination.Enabled, compiler.Options.OptimizationOverrides.AllocationElimination);
+        Assert.Equal(ManagedLoopRotation.Enabled, compiler.Options.OptimizationOverrides.LoopRotation);
     }
 
     [Fact]

@@ -205,9 +205,42 @@ internal sealed class NumericConversionInstructionEmitter(
         var unsignedConversion = source is CliValueKind.F4 or CliValueKind.F8
             ? conversion.DestinationUnsigned
             : conversion.SourceUnsigned;
+        var saturating = source is CliValueKind.F4 or CliValueKind.F8 && !conversion.Checked && bits is 8 or 16;
+        if (saturating)
+        {
+            EmitSaturation(request, code, slot, source, bits, conversion.DestinationUnsigned);
+        }
         EmitConversion(request, code, destination, unsignedConversion);
-        EmitNarrowing(request, code, slot, bits, conversion.DestinationUnsigned);
+        if (!saturating)
+        {
+            EmitNarrowing(request, code, slot, bits, conversion.DestinationUnsigned);
+        }
     }
+
+    // .NET 11 saturates unchecked floating conversions to small integers at the
+    // destination's bounds. The bounds are integers, so clamping the value before
+    // truncation gives the same result without branches; NaN passes through min
+    // and max and truncates to 0.
+    private void EmitSaturation(
+        InstructionEmissionRequest request, IWasmInstructionWriter code,
+        int slot,
+        CliValueKind source,
+        int bits,
+        bool unsigned)
+    {
+        var local = GetStackLocal(request.Context, slot, source);
+        var single = source == CliValueKind.F4;
+        code.Write(WasmInstruction.WithOperand(WasmOpcodes.LocalGet, WasmInstructionOperand.Unsigned((uint)local)));
+        EmitFloatingConstant(code, single, unsigned ? (1 << bits) - 1 : (1 << (bits - 1)) - 1);
+        code.Write(WasmInstruction.NoOperand(single ? WasmOpcodes.F32Minimum : WasmOpcodes.F64Minimum));
+        EmitFloatingConstant(code, single, unsigned ? 0 : -(1 << (bits - 1)));
+        code.Write(WasmInstruction.NoOperand(single ? WasmOpcodes.F32Maximum : WasmOpcodes.F64Maximum));
+        code.Write(WasmInstruction.WithOperand(WasmOpcodes.LocalSet, WasmInstructionOperand.Unsigned((uint)local)));
+    }
+
+    private static void EmitFloatingConstant(IWasmInstructionWriter code, bool single, int value) => code.Write(single
+        ? WasmInstruction.WithOperand(WasmOpcodes.F32Constant, WasmInstructionOperand.Float32(value))
+        : WasmInstruction.WithOperand(WasmOpcodes.F64Constant, WasmInstructionOperand.Float64(value)));
 
     private void EmitNarrowing(
         InstructionEmissionRequest request, IWasmInstructionWriter code,

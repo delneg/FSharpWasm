@@ -81,8 +81,34 @@ namespace System
         public static string Format(Type enumType, object value, string format) =>
             InternalFormat(enumType, value, format);
 
-        public static string? GetName(Type enumType, object value) =>
-            InternalGetName(enumType, value);
+        public static string? GetName(Type enumType, object value)
+        {
+            ArgumentNullException.ThrowIfNull(enumType);
+            ArgumentNullException.ThrowIfNull(value);
+            var valueType = value.GetType();
+            var code = Type.GetTypeCode(valueType);
+            if (code is not (TypeCode.SByte or TypeCode.Byte or TypeCode.Int16 or
+                TypeCode.UInt16 or TypeCode.Int32 or TypeCode.UInt32 or TypeCode.Int64 or
+                TypeCode.UInt64 or TypeCode.Char))
+                throw new ArgumentException("Value must be an enum or an integer type.", nameof(value));
+            return EnumAlgorithms.GetName(InternalGetMetadata(enumType), ToUInt64(value, code));
+        }
+
+        // Adapted from upstream Enum.ToUInt64: signed values preserve their bits;
+        // checked Convert.ToUInt64 would reject negative enum constants.
+        private static ulong ToUInt64(object value, TypeCode code) => code switch
+        {
+            TypeCode.SByte => unchecked((ulong)(sbyte)value),
+            TypeCode.Byte => (byte)value,
+            TypeCode.Int16 => unchecked((ulong)(short)value),
+            TypeCode.UInt16 => (ushort)value,
+            TypeCode.Int32 => unchecked((ulong)(int)value),
+            TypeCode.UInt32 => (uint)value,
+            TypeCode.Int64 => unchecked((ulong)(long)value),
+            TypeCode.UInt64 => (ulong)value,
+            TypeCode.Char => (char)value,
+            _ => throw new InvalidOperationException("Unknown enum underlying type."),
+        };
 
         public static string? GetName<TEnum>(TEnum value) where TEnum : struct, Enum =>
             InternalGetName(value);
@@ -105,8 +131,29 @@ namespace System
         public static TEnum[] GetValues<TEnum>() where TEnum : struct, Enum =>
             InternalGetValues<TEnum>();
 
-        public static bool IsDefined(Type enumType, object value) =>
-            InternalIsDefined(enumType, value);
+        public static bool IsDefined(Type enumType, object value)
+        {
+            ArgumentNullException.ThrowIfNull(enumType);
+            ArgumentNullException.ThrowIfNull(value);
+            var underlying = GetUnderlyingType(enumType);
+            var valueType = value.GetType();
+            if (valueType.IsEnum)
+            {
+                if (valueType != enumType)
+                    throw new ArgumentException("Enum and value must have the same type.");
+                valueType = GetUnderlyingType(valueType);
+            }
+            if (value is string name)
+                return Array.IndexOf(GetNames(enumType), name) >= 0;
+            var code = Type.GetTypeCode(valueType);
+            if (code is not (TypeCode.SByte or TypeCode.Byte or TypeCode.Int16 or
+                TypeCode.UInt16 or TypeCode.Int32 or TypeCode.UInt32 or TypeCode.Int64 or
+                TypeCode.UInt64 or TypeCode.Char))
+                throw new InvalidOperationException("Unknown enum underlying type.");
+            if (underlying != valueType)
+                throw new ArgumentException("Value must have the enum's underlying type.");
+            return InternalIsDefined(enumType, value);
+        }
 
         public static bool IsDefined<TEnum>(TEnum value) where TEnum : struct, Enum =>
             InternalIsDefined(value);

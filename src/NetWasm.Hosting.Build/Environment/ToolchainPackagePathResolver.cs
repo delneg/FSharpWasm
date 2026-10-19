@@ -49,7 +49,14 @@ public sealed class ToolchainPackagePathResolver : IToolchainPackagePathResolver
             new HostingBundleClosureIntegrityVerifier())
             .Resolve(node, nodeCompatibility);
         var witPackages = new WitPackagePathResolver(assets).Resolve();
+        var timeZones = new TimeZoneSourcePathResolver(root, assets).Resolve();
         RequireOnePackageIdentity(manifest, wasmTools, raw, jco, bundle, witPackages);
+        if (!string.Equals(manifest.PackageId, timeZones.PackageId, StringComparison.Ordinal)
+            || !string.Equals(manifest.PackageVersion, timeZones.PackageVersion, StringComparison.Ordinal))
+        {
+            throw new InvalidDataException(
+                "The Toolchain time zone source must belong to one Toolchain package identity.");
+        }
 
         var preview2ShimRoot = Path.Combine(
             root,
@@ -73,7 +80,8 @@ public sealed class ToolchainPackagePathResolver : IToolchainPackagePathResolver
             wasmTools,
             raw,
             jco,
-            bundle);
+            bundle,
+            timeZones);
     }
 
     private static void RequireOnePackageIdentity(

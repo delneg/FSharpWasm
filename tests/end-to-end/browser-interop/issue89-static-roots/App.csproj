@@ -1,0 +1,19 @@
+<Project Sdk="NetWasm.Sdk">
+  <PropertyGroup>
+    <TargetFramework>netwasm0.1</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>Issue89StaticRoots</AssemblyName>
+    <Nullable>enable</Nullable>
+    <NetWasmComponentContract>async-command</NetWasmComponentContract>
+    <NetWasmRawWasm>true</NetWasmRawWasm>
+    <NetWasmPublishTarget>browser</NetWasmPublishTarget>
+    <!-- variants.json selects 0, 200 or 400 reachable static reference fields. -->
+    <StaticRootCount Condition="'$(StaticRootCount)' == ''">0</StaticRootCount>
+    <DefineConstants Condition="'$(StaticRootCount)' == '200'">$(DefineConstants);STATICS_200</DefineConstants>
+    <DefineConstants Condition="'$(StaticRootCount)' == '400'">$(DefineConstants);STATICS_200;STATICS_400</DefineConstants>
+  </PropertyGroup>
+  <ItemGroup>
+    <NetWasmJavaScriptModule Include="host.mjs" Module="repro.host" />
+    <Content Include="index.html;app.mjs" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

@@ -30,8 +30,8 @@ public sealed class WitWorkerHostEntryWriter : IWitWorkerHostEntryWriter
         var source = new StringBuilder();
         AppendLine(source, $"import {{ createBrowserComponentExportSession }} from {ModuleSpecifier(Path.Combine(request.HostingJavaScriptRoot, "browser-component-export-session.mjs"))};");
         AppendLine(source, $"import {{ createWorkerSessionHost }} from {ModuleSpecifier(Path.Combine(request.HostingJavaScriptRoot, "worker-session-host.mjs"))};");
-        AppendLine(source, $"import {{ WASIShim }} from {ModuleSpecifier(Path.Combine(request.Preview2ShimRoot, "dist", "common", "instantiation.js"))};");
-        AppendLine(source, $"import {{ createFilesystem, InMemoryFilesystemAdapter }} from {ModuleSpecifier(Path.Combine(request.Preview2ShimRoot, "dist", "browser", "filesystem.js"))};");
+        AppendLine(source, $"import {{ mergeEnvironment }} from {ModuleSpecifier(Path.Combine(request.HostingJavaScriptRoot, "session-options.mjs"))};");
+        BrowserHostSource.AppendImports(source, request.Preview2ShimRoot);
         source.AppendLine();
         source.AppendLine("const manifestUrl = new URL(\"./deployment.json\", import.meta.url).href;");
         source.AppendLine("let fatalScheduled = false;");
@@ -42,54 +42,22 @@ public sealed class WitWorkerHostEntryWriter : IWitWorkerHostEntryWriter
         source.AppendLine("  queueMicrotask(() => { throw error; });");
         source.AppendLine("  globalThis.close();");
         source.AppendLine("}");
-        source.AppendLine("const output = name => Object.freeze({");
-        source.AppendLine("  write(bytes) {");
-        source.AppendLine("    const text = new TextDecoder().decode(bytes);");
-        source.AppendLine("    console[name](text.endsWith(\"\\n\") ? text.slice(0, -1) : text);");
-        source.AppendLine("  },");
+        source.AppendLine("const configuration = Object.freeze({");
+        BrowserHostSource.AppendConfiguration(source, "  ",
+            request.ApplicationImports.IsDefault ? [] : request.ApplicationImports,
+            request.Arguments, request.Environment, request.Clocks, request.Network, request.Randomness);
         source.AppendLine("});");
-        source.AppendLine("const open = createBrowserComponentExportSession({");
-        source.AppendLine("  configuration: Object.freeze({");
-        source.AppendLine("    applicationImports: Object.freeze([");
-        foreach (var binding in request.ApplicationImports.IsDefault ? [] : request.ApplicationImports)
-        {
-            AppendLine(source, $"      Object.freeze({{ module: {Json(binding.Module)}, artifactPath: {Json(binding.ArtifactPath)}, sha256: {Json(binding.Sha256)} }}),");
-        }
-        source.AppendLine("    ]),");
-        AppendLine(source, $"    arguments: Object.freeze({Json(request.Arguments)}),");
-        source.AppendLine("    environment: Object.freeze([");
-        foreach (var variable in request.Environment)
-        {
-            AppendLine(source, $"      Object.freeze({{ name: {Json(variable.Name)}, value: {Json(variable.Value)} }}),");
-        }
-        source.AppendLine("    ]),");
-        source.AppendLine("    grants: Object.freeze({");
-        AppendLine(source, $"      clocks: Object.freeze({Json(request.Clocks)}),");
-        AppendLine(source, $"      environment: Object.freeze({Json(request.Environment.Select(variable => variable.Name))}),");
-        AppendLine(source, $"      network: {Json(request.Network)},");
-        source.AppendLine("      preopens: Object.freeze([]),");
-        AppendLine(source, $"      randomness: {request.Randomness.ToString().ToLowerInvariant()},");
-        source.AppendLine("    }),");
-        source.AppendLine("  }),");
+        source.AppendLine("const open = request => createBrowserComponentExportSession({");
+        source.AppendLine("  configuration: mergeEnvironment(configuration, request.environment),");
         source.AppendLine("  manifestUrl,");
         source.AppendLine("  platform: Object.freeze({");
-        source.AppendLine("    compileCoreModule: WebAssembly.compile.bind(WebAssembly),");
-        source.AppendLine("    createFilesystem({ preopens }) {");
-        source.AppendLine("      if (Object.keys(preopens).length !== 0) throw new TypeError(\"browser preopens require explicit capabilities\");");
-        source.AppendLine("      return createFilesystem({ adapter: new InMemoryFilesystemAdapter(), preopens: Object.freeze({}) });");
-        source.AppendLine("    },");
-        source.AppendLine("    createModuleUrl: bytes => URL.createObjectURL(new Blob([bytes], { type: \"text/javascript\" })),");
-        source.AppendLine("    createShim: configuration => new WASIShim(configuration),");
-        source.AppendLine("    digest: crypto.subtle.digest.bind(crypto.subtle),");
-        source.AppendLine("    fetch: globalThis.fetch.bind(globalThis),");
-        source.AppendLine("    importModule: url => import(url),");
-        source.AppendLine("    revokeModuleUrl: URL.revokeObjectURL.bind(URL),");
+        BrowserHostSource.AppendPlatformMembers(source, "    ");
         source.AppendLine("  }),");
-        source.AppendLine("  stderr: output(\"error\"),");
-        source.AppendLine("  stdout: output(\"log\"),");
-        source.AppendLine("});");
+        source.AppendLine("  stderr: request.stderr,");
+        source.AppendLine("  stdout: request.stdout,");
+        source.AppendLine("})({ startup: request.startup, notify: request.notify });");
         source.AppendLine("const host = createWorkerSessionHost({");
-        source.AppendLine("  openSession: request => open({ startup: request.startup, notify: request.notify }),");
+        source.AppendLine("  openSession: open,");
         source.AppendLine("  post: message => globalThis.postMessage(message),");
         source.AppendLine("  terminate: cause => cause === null ? globalThis.close() : fatal(cause),");
         source.AppendLine("});");

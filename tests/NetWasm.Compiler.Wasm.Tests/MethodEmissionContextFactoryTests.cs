@@ -4,6 +4,7 @@ using NetWasm.Compiler.ControlFlow.Structured;
 using NetWasm.Compiler.Core;
 using NetWasm.Compiler.Wasm.Emission;
 using NetWasm.Compiler.Wasm.Emission.Methods;
+using NetWasm.Compiler.Wasm.Emission.Values;
 using NetWasm.Compiler.Wasm.Emission.AddressTakenValues;
 
 namespace NetWasm.Compiler.Wasm.Tests;
@@ -226,6 +227,37 @@ public sealed class MethodEmissionContextFactoryTests
             result.LocalTypes[^5..],
             local => Assert.Equal(CliValueKind.I4, local));
         Assert.Same(plan, result.Context.AddressTakenAggregatePromotions.Plan);
+    }
+
+    [Fact]
+    public void AllocatesEachAggregateLaneWithItsOwnKind()
+    {
+        var storage = new ManagedAggregateStorageId(ManagedAggregateStorageKind.Local, 0);
+        ImmutableArray<ManagedAggregateSsaLane> lanes = [new(storage, 0), new(storage, 8), new(storage, 12)];
+        var plan = ManagedAggregateSsaPlan.Empty with
+        {
+            Storages = ImmutableDictionary<ManagedAggregateStorageId, ManagedAggregateStorage>.Empty.Add(storage,
+                new(storage, CliTypeIdentity.FromStackKind(CliValueKind.ValueType), 16, true)
+                {
+                    LaneShapes = [new(0, 8, CliValueKind.ManagedReference), new(8, 4, CliValueKind.I4), new(12, 4, CliValueKind.I4)],
+                }),
+            Lanes = lanes,
+        };
+
+        var result = MethodEmissionContextFactory.Create(
+            Header(CreateBody()),
+            new MethodRootMap(EntryKey, [], []),
+            0,
+            0,
+            [],
+            new ValueFrameLayout(20, [], [], [], []),
+            FilterEnvironmentLayout.Empty,
+            new ManagedMethodIdentity("Tests.Caller"),
+            plan);
+
+        Assert.Equal(
+            [CliValueKind.ManagedReference, CliValueKind.I4, CliValueKind.I4],
+            lanes.Select(lane => result.LocalTypes[result.Context.ManagedAggregateValues.LaneLocals[lane]]));
     }
 
     [Fact]

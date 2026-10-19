@@ -21,7 +21,12 @@ public sealed class BrowserOptimizationOverridesDeserializerTests
               "arrayBoundsCheckElimination":"Enabled",
               "loopUnrolling":"Disabled",
               "constantArgumentPropagation":"Enabled",
-              "staticArrayPopulationElimination":"Disabled"
+              "staticArrayPopulationElimination":"Disabled",
+              "constantCallFolding":"Enabled",
+              "switchBitTests":"Disabled",
+              "devirtualization":"Enabled",
+              "allocationElimination":"Disabled",
+              "loopRotation":"Enabled"
             }
             """);
         Assert.Equal(new WasmOptimizationOverrides(
@@ -35,7 +40,12 @@ public sealed class BrowserOptimizationOverridesDeserializerTests
             ManagedArrayBoundsCheckElimination.Enabled,
             ManagedLoopUnrolling.Disabled,
             ManagedConstantArgumentPropagation.Enabled,
-            ManagedStaticArrayPopulationElimination.Disabled), result);
+            ManagedStaticArrayPopulationElimination.Disabled,
+            ManagedConstantCallFolding.Enabled,
+            ManagedSwitchBitTests.Disabled,
+            ManagedDevirtualization.Enabled,
+            ManagedAllocationElimination.Disabled,
+            ManagedLoopRotation.Enabled), result);
     }
 
     [Fact]

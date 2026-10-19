@@ -76,4 +76,39 @@ public sealed class FunctionIndexResolverTests
         Assert.Equal(DiagnosticCode.RuntimeContract, constructed.Diagnostic.Code);
         Assert.Contains("missing", constructed.Diagnostic.Message);
     }
+
+    [Fact]
+    public void ResolvesTheRawInteropImportSeparatelyFromItsManagedEntry()
+    {
+        var program = new FakeProgram();
+        var resolver = new FunctionIndexResolver(
+            program,
+            program,
+            new FunctionIndexMap(
+                [],
+                [],
+                [],
+                ImmutableDictionary<EntityKey, WasmFunctionIndex>.Empty.Add(EntryKey, new(33)))
+            {
+                JSImportForwarders = ImmutableDictionary<EntityKey, WasmFunctionIndex>.Empty
+                    .Add(EntryKey, new(44)),
+            });
+
+        Assert.Equal(33, resolver.Resolve(new InteropImportKey(EntryKey)));
+        Assert.Equal(44, resolver.Resolve(EntryKey));
+    }
+
+    [Fact]
+    public void MissingInteropImportRetainsRuntimeContractDiagnostic()
+    {
+        var program = new FakeProgram();
+        var resolver = new FunctionIndexResolver(program, program, new FunctionIndexMap([], [], [], []));
+
+        var missing = Assert.Throws<CompilerException>(() =>
+            resolver.Resolve(new InteropImportKey(EntryKey)));
+
+        Assert.Equal(DiagnosticCode.RuntimeContract, missing.Diagnostic.Code);
+        Assert.Contains("Test.Type::Run", missing.Diagnostic.Message);
+        Assert.Contains("has no imported Wasm function", missing.Diagnostic.Message);
+    }
 }

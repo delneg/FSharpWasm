@@ -17,7 +17,8 @@ internal sealed class MetadataMethodReferenceResolver(
     ITypeDefinitionResolver typeDefinitions,
     IMethodRepository methods,
     IRuntimeProvidedMethodResolver runtimeProvidedMethods,
-    IMetadataStackTypeResolver stackTypes) : IMetadataMethodReferenceResolver
+    IMetadataStackTypeResolver stackTypes,
+    IBaseTypeIdentityResolver baseTypes) : IMetadataMethodReferenceResolver
 {
     public MethodInstanceModel Resolve(
         MetadataAssemblySnapshot source,
@@ -128,25 +129,42 @@ internal sealed class MetadataMethodReferenceResolver(
         }
 
         var declaringDefinition = ResolveTypeIdentity(declaringIdentity);
-        var matches = declaringDefinition.Methods
-            .Select(GetMethod)
-            .Where(method => method.Name == name &&
-                method.GenericArity == referenceSignature.GenericParameterCount)
-            .Where(method =>
-            {
-                var candidate = method.Signature.Substitute(typeArguments);
-                return signatureTypes.Compare(
-                           candidate.ReturnSignatureType,
-                           expected.ReturnSignatureType) &&
-                       candidate.ParameterSignatureTypes.Length ==
-                           expected.ParameterSignatureTypes.Length &&
-                       candidate.ParameterSignatureTypes.Zip(
-                               expected.ParameterSignatureTypes)
-                           .All(pair => signatureTypes.Compare(
-                               pair.First,
-                               pair.Second));
-            })
-            .ToArray();
+        HashSet<EntityKey>? visited = null;
+        MethodDefinitionModel[] matches;
+        while (true)
+        {
+            matches = declaringDefinition.Methods
+                .Select(GetMethod)
+                .Where(method => method.Name == name &&
+                    method.GenericArity == referenceSignature.GenericParameterCount)
+                .Where(method =>
+                {
+                    var candidate = method.Signature.Substitute(typeArguments);
+                    return signatureTypes.Compare(
+                               candidate.ReturnSignatureType,
+                               expected.ReturnSignatureType) &&
+                           candidate.ParameterSignatureTypes.Length ==
+                               expected.ParameterSignatureTypes.Length &&
+                           candidate.ParameterSignatureTypes.Zip(
+                                   expected.ParameterSignatureTypes)
+                               .All(pair => signatureTypes.Compare(
+                                   pair.First,
+                                   pair.Second));
+                })
+                .ToArray();
+            if (matches.Length != 0 || name is ".ctor" or ".cctor")
+                break;
+            visited ??= [];
+            if (!visited.Add(declaringDefinition.Key))
+                break;
+            var baseIdentity = baseTypes.GetBaseTypeIdentity(declaringIdentity);
+            if (baseIdentity is null)
+                break;
+            declaringIdentity = baseIdentity;
+            declaringDefinition = ResolveTypeIdentity(declaringIdentity);
+            typeArguments = declaringIdentity.Shape == CliTypeShape.GenericInstantiation
+                ? declaringIdentity.TypeArguments : [];
+        }
         var definitionMatch = matches.Length == 1
             ? matches[0]
             : throw new CompilerException(

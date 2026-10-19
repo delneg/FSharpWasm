@@ -14,7 +14,7 @@ internal sealed class JavaScriptImportResultKindResolver :
     {
         _ when InteropTypeClassifier.IsString(type) =>
             JavaScriptImportResultKind.String,
-        _ when InteropTypeClassifier.IsByteArray(type) =>
+        _ when InteropTypeClassifier.IsValueArray(type) =>
             JavaScriptImportResultKind.ByteArray,
         _ when InteropTypeClassifier.IsHostObject(type) =>
             JavaScriptImportResultKind.HostObject,

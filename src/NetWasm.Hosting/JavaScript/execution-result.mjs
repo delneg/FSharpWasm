@@ -1,3 +1,5 @@
+import { unwrapContractError } from "./contract-error.mjs";
+
 const completionKinds = new Set([
   "normal",
   "managedFailure",
@@ -17,6 +19,9 @@ const failurePhases = new Set([
 const cleanupPhases = new Set(["cleanup", "output"]);
 const failureCodePattern = /^[a-z][a-z0-9.-]*$/;
 const controlCharacterPattern = /\p{Cc}/u;
+const controlCharacterRuns = /\p{Cc}+/gu;
+const whitespaceRuns = /\s+/gu;
+const maxDetailLength = 1024;
 const minSignedInt32 = -0x80000000;
 const maxSignedInt32 = 0x7fffffff;
 
@@ -24,18 +29,79 @@ export function normalExecutionResult(exitCode) {
   return executionResult("normal", exitCode, null, []);
 }
 
-export function failedExecutionResult(completionKind, phase, code, message) {
+export function failedExecutionResult(completionKind, phase, code, message, cause) {
   return executionResult(
     completionKind,
     null,
-    executionFailure(phase, code, message),
+    executionFailure(phase, code, message, cause),
     []);
 }
 
-export function executionFailure(phase, code, message) {
-  const result = { phase, code, message };
+// A cause is the value a host caught. It contributes a single-line `detail`;
+// the stable code and message stay fixed for programmatic handling.
+export function executionFailure(phase, code, message, cause) {
+  return failure(phase, code, message,
+    cause === undefined ? undefined : describeFailureCause(cause));
+}
+
+export function describeFailureCause(cause) {
+  return normalizeDetail(causeText(unwrapContractError(cause)));
+}
+
+export function isFailureDetail(value) {
+  return typeof value === "string"
+    && value.length !== 0
+    && value.length <= maxDetailLength
+    && value.trim() === value
+    && !controlCharacterPattern.test(value);
+}
+
+// Hosts that must not disclose local paths rewrite each detail at their boundary.
+export function mapFailureDetails(result, transform) {
+  assertExecutionResult(result);
+  if (typeof transform !== "function") {
+    throw new TypeError("failure detail transform is required");
+  }
+  if (result.completionKind === "normal") return result;
+  const map = item => "detail" in item
+    ? failure(item.phase, item.code, item.message, normalizeDetail(transform(item.detail)))
+    : item;
+  return executionResult(
+    result.completionKind,
+    null,
+    map(result.primaryFailure),
+    result.cleanupFailures.map(map));
+}
+
+function failure(phase, code, message, detail) {
+  const result = detail === undefined
+    ? { phase, code, message }
+    : { phase, code, message, detail };
   assertFailure(result);
   return Object.freeze(result);
+}
+
+function causeText(cause) {
+  try {
+    if (cause !== null && typeof cause === "object" && typeof cause.message === "string") {
+      const name = typeof cause.name === "string" && cause.name.length !== 0 ? cause.name : "Error";
+      return cause.message.length === 0 ? name : `${name}: ${cause.message}`;
+    }
+    return String(cause);
+  } catch {
+    return "";
+  }
+}
+
+function normalizeDetail(text) {
+  if (typeof text !== "string") {
+    throw new TypeError("failure detail transform must return text");
+  }
+  const line = text.replace(controlCharacterRuns, " ").replace(whitespaceRuns, " ").trim();
+  if (line.length === 0) return undefined;
+  return line.length <= maxDetailLength
+    ? line
+    : `${line.slice(0, maxDetailLength - 1).trimEnd()}\u2026`;
 }
 
 export function appendCleanupFailures(outcome, cleanupFailures) {
@@ -123,5 +189,8 @@ function assertFailure(item) {
       || item.message.trim() !== item.message
       || controlCharacterPattern.test(item.message)) {
     throw new TypeError("execution failure message is invalid");
+  }
+  if ("detail" in item && !isFailureDetail(item.detail)) {
+    throw new TypeError("execution failure detail is invalid");
   }
 }

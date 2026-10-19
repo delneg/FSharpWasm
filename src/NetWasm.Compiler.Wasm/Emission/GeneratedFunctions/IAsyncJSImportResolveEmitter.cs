@@ -7,5 +7,6 @@ internal interface IAsyncJSImportResolveEmitter
 {
     byte[] Emit(
         JavaScriptAsyncMethodBinding binding,
-        IFunctionIndexResolver functionIndices);
+        IFunctionIndexResolver functionIndices,
+        InteropImportPlan interopImports);
 }

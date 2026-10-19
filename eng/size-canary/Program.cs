@@ -18,7 +18,7 @@ if (args is ["compile", var repository, var input, var application, var layout,
     };
     var repo = Path.GetFullPath(repository);
     var assembly = Path.GetFullPath(input);
-    var entry = new ManagedExecutableEntryPointSelector().SelectEntryPoint(
+    var entry = new ManagedExecutableEntryPointSelectorFactory().Create().SelectEntryPoint(
         assembly, File.ReadAllBytes(assembly));
     var coreLib = Path.Combine(repo, "src", "NetWasm.CoreLib", "bin",
         "Release", "net10.0", "NetWasm.CoreLib.dll");

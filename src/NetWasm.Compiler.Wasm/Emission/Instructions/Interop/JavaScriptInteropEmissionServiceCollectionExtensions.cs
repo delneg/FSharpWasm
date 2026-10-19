@@ -52,6 +52,8 @@ internal static class JavaScriptInteropEmissionServiceCollectionExtensions
             HostCallbackStringArgumentMarshaller>();
         services.AddSingleton<IHostCallbackByteArrayArgumentMarshaller,
             HostCallbackByteArrayArgumentMarshaller>();
+        services.AddSingleton<IHostCallbackHostObjectArgumentMarshaller,
+            HostCallbackHostObjectArgumentMarshaller>();
         return services;
     }
 }

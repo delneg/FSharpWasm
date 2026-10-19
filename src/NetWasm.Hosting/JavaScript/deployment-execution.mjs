@@ -60,9 +60,9 @@ export function createDeploymentExecution(options) {
     } catch (error) {
       if (input.signal?.aborted) return callerCancellation("validation");
       return isContractError(error)
-        ? contractFailure()
+        ? contractFailure(error)
         : hostFailure("validation", "host.validation",
-          "The execution host failed during validation.");
+          "The execution host failed during validation.", error);
     }
 
     let output;
@@ -74,9 +74,9 @@ export function createDeploymentExecution(options) {
       if (!Array.isArray(output.releaseActions) || !Object.isFrozen(output.releaseActions)) {
         throw new TypeError("output finalization release actions must be immutable");
       }
-    } catch {
+    } catch (error) {
       return hostFailure("validation", "host.output-prepare",
-        "The execution host could not prepare application output.");
+        "The execution host could not prepare application output.", error);
     }
 
     let outcome;
@@ -102,9 +102,9 @@ export function createDeploymentExecution(options) {
           } catch (error) {
             if (signal?.aborted) return callerCancellation("instantiation");
             return isContractError(error)
-              ? contractFailure()
+              ? contractFailure(error)
               : hostFailure("instantiation", "host.provider-prepare",
-                "The execution host could not prepare application providers.");
+                "The execution host could not prepare application providers.", error);
           }
 
           let result;
@@ -137,16 +137,16 @@ export function createDeploymentExecution(options) {
           return result;
         },
       }));
-    } catch {
+    } catch (error) {
       return input.signal?.aborted
         ? callerCancellation("execution")
-        : hostFailure("execution", "host.execution", "The execution host failed.");
+        : hostFailure("execution", "host.execution", "The execution host failed.", error);
     }
     try {
       assertExecutionResult(outcome);
       return outcome;
-    } catch {
-      return hostFailure("execution", "host.execution", "The execution host failed.");
+    } catch (error) {
+      return hostFailure("execution", "host.execution", "The execution host failed.", error);
     }
   });
 }
@@ -156,13 +156,14 @@ function callerCancellation(phase) {
     "callerCancellation", phase, "caller.cancelled", "Execution was cancelled by the caller.");
 }
 
-function contractFailure() {
+function contractFailure(cause) {
   return failedExecutionResult(
-    "contractFailure", "validation", "contract.invalid", "Execution contract validation failed.");
+    "contractFailure", "validation", "contract.invalid", "Execution contract validation failed.",
+    cause);
 }
 
-function hostFailure(phase, code, message) {
-  return failedExecutionResult("hostFailure", phase, code, message);
+function hostFailure(phase, code, message, cause) {
+  return failedExecutionResult("hostFailure", phase, code, message, cause);
 }
 
 function validateSignal(signal) {

@@ -1,13 +1,20 @@
+import { isFailureDetail } from "./execution-result.mjs";
+import { consoleLine, createLineOutput, readEnvironmentOverride } from "./session-options.mjs";
 import { readManagedExceptionDetails } from "./managed-exception-details.mjs";
 
 const optionKeys = ["generation", "operations", "startup", "worker"];
+const optionalOptionKeys = ["environment", "onNotification", "stderr", "stdout"];
+const outputStreams = new Set(["stderr", "stdout"]);
 const protocolVersion = 1;
 
 export class NetWasmWorkerError extends Error {
-  constructor(message, { category = "hostFailure", operation = null, remoteStack = null, managed = null } = {}) {
+  constructor(message, {
+    category = "hostFailure", detail = null, operation = null, remoteStack = null, managed = null,
+  } = {}) {
     super(message);
     this.name = "NetWasmWorkerError";
     this.category = category;
+    this.detail = detail;
     this.operation = operation;
     this.remoteStack = remoteStack;
     this.managed = managed === null ? null : readManagedExceptionDetails(managed);
@@ -15,12 +22,26 @@ export class NetWasmWorkerError extends Error {
 }
 
 export function createWorkerSessionClient(options) {
-  assertExactDataObject(options, Object.hasOwn(options ?? {}, "onNotification")
-    ? [...optionKeys, "onNotification"].sort() : optionKeys, "worker session client options");
+  assertExactDataObject(options, [
+    ...optionKeys,
+    ...optionalOptionKeys.filter(key => Object.hasOwn(options ?? {}, key)),
+  ].sort(), "worker session client options");
   let onNotification = options.onNotification ?? null;
   if (onNotification !== null && typeof onNotification !== "function") {
     throw new TypeError("worker notification handler must be a function");
   }
+  for (const name of ["stderr", "stdout"]) {
+    if (options[name] !== undefined && options[name] !== null && typeof options[name] !== "function") {
+      throw new TypeError(`worker ${name} must be a function`);
+    }
+  }
+  const environment = readEnvironmentOverride(options.environment ?? undefined, "worker environment")
+    ?? Object.freeze({});
+  const output = Object.freeze({
+    stderr: createLineOutput(options.stderr ?? consoleLine("error")),
+    stdout: createLineOutput(options.stdout ?? consoleLine("log")),
+  });
+  let outputFlushed = false;
   validateGeneration(options.generation);
   const operations = snapshotOperations(options.operations);
   const startup = snapshotStartup(options.startup);
@@ -55,7 +76,7 @@ export function createWorkerSessionClient(options) {
   worker.addEventListener("messageerror", onMessageError);
 
   try {
-    worker.postMessage({ ...baseMessage("initialize"), startup });
+    worker.postMessage({ ...baseMessage("initialize"), environment, startup });
   } catch (cause) {
     fail(cause);
   }
@@ -132,6 +153,10 @@ export function createWorkerSessionClient(options) {
     if (state === "terminated") return;
     const response = validateResponse(message, options.generation);
     if (response === null) return;
+    if (response.kind === "output") {
+      output[response.stream].sink.write(response.bytes);
+      return;
+    }
     if (response.kind === "notification") {
       if (onNotification !== null) {
         try {
@@ -219,6 +244,7 @@ export function createWorkerSessionClient(options) {
     const error = terminalFailure;
     const wasStarting = state === "starting";
     state = "failed";
+    flushOutput();
     if (wasStarting) rejectReady(error);
     rejectRequest(active, error);
     active = null;
@@ -231,6 +257,7 @@ export function createWorkerSessionClient(options) {
   function terminate(cause, graceful) {
     const wasStarting = state === "starting";
     state = "terminated";
+    flushOutput();
     removeListeners();
     try { worker.terminate(); } catch {}
     if (cause !== null) {
@@ -242,6 +269,14 @@ export function createWorkerSessionClient(options) {
       resolveDispose?.();
     }
     active = null;
+  }
+
+  // Delivers each stream's final partial line once the guest can write no more.
+  function flushOutput() {
+    if (outputFlushed) return;
+    outputFlushed = true;
+    output.stdout.flush();
+    output.stderr.flush();
   }
 
   function removeListeners() {
@@ -346,6 +381,13 @@ function validateResponse(value, generation) {
     throw new TypeError("worker response protocol is invalid");
   }
   if (value.generation !== generation) return null;
+  if (value.kind === "output") {
+    assertKeys(descriptors, ["bytes", "generation", "kind", "protocolVersion", "stream"], "worker output");
+    if (!outputStreams.has(value.stream) || !(value.bytes instanceof Uint8Array)) {
+      throw new TypeError("worker output is invalid");
+    }
+    return value;
+  }
   if (value.kind === "notification") {
     assertKeys(descriptors,
       ["arguments", "generation", "kind", "operation", "protocolVersion"], "worker notification");
@@ -388,8 +430,8 @@ function validateError(value) {
   }
   const descriptors = Object.getOwnPropertyDescriptors(value);
   assertKeys(descriptors, Object.hasOwn(descriptors, "managed")
-    ? ["category", "managed", "message", "operation", "stack"]
-    : ["category", "message", "operation", "stack"], "worker failure envelope");
+    ? ["category", "detail", "managed", "message", "operation", "stack"]
+    : ["category", "detail", "message", "operation", "stack"], "worker failure envelope");
   if (Object.values(descriptors).some(descriptor => !descriptor.enumerable || !("value" in descriptor))) {
     throw new TypeError("worker failure envelope must contain data properties");
   }
@@ -397,6 +439,7 @@ function validateError(value) {
   if (typeof value.category !== "string" || typeof value.message !== "string"
       || value.message.length === 0 && managed?.message !== ""
       || managed !== null && value.category !== "guestFailure"
+      || value.detail !== null && !isFailureDetail(value.detail)
       || value.operation !== null && typeof value.operation !== "string"
       || value.stack !== null && typeof value.stack !== "string") {
     throw new TypeError("worker failure envelope is invalid");
@@ -406,6 +449,7 @@ function validateError(value) {
 function remoteError(value) {
   return new NetWasmWorkerError(value.message, {
     category: value.category,
+    detail: value.detail,
     operation: value.operation,
     remoteStack: value.stack,
     managed: value.managed ?? null,

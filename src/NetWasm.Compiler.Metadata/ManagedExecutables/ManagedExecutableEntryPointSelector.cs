@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Reflection.Emit;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
@@ -12,6 +13,11 @@ namespace NetWasm.Compiler.Metadata.ManagedExecutables;
 
 public sealed class ManagedExecutableEntryPointSelector : IManagedExecutableEntryPointSelector
 {
+    private readonly IRawCilInstructionReader _instructions;
+
+    internal ManagedExecutableEntryPointSelector(IRawCilInstructionReader instructions) =>
+        _instructions = instructions ?? throw new ArgumentNullException(nameof(instructions));
+
     public ManagedExecutableEntryPointSelection SelectEntryPoint(
         string assemblyPath, ReadOnlyMemory<byte> image, int? selectedMethodToken = null)
     {
@@ -26,7 +32,7 @@ public sealed class ManagedExecutableEntryPointSelector : IManagedExecutableEntr
         }
     }
 
-    private static ManagedExecutableEntryPointSelection ReadPortableExecutable(
+    private ManagedExecutableEntryPointSelection ReadPortableExecutable(
         string assemblyPath, ReadOnlyMemory<byte> image, int? selectedMethodToken)
     {
         using var stream = new MemoryStream(image.ToArray(), writable: false);
@@ -56,6 +62,7 @@ public sealed class ManagedExecutableEntryPointSelector : IManagedExecutableEntr
 
         var synchronousAbi = ReadAbi(metadata, method, assemblyPath);
         var asyncEntryPoint = selectedMethodToken is null ? TryReadAsyncEntryPoint(
+            pe,
             metadata,
             method,
             synchronousAbi,
@@ -72,7 +79,8 @@ public sealed class ManagedExecutableEntryPointSelector : IManagedExecutableEntr
             synchronousAbi);
     }
 
-    private static ManagedExecutableEntryPointSelection? TryReadAsyncEntryPoint(
+    private ManagedExecutableEntryPointSelection? TryReadAsyncEntryPoint(
+        PEReader pe,
         MetadataReader metadata,
         MethodDefinition selectedMethod,
         ManagedExecutableEntryPointAbi selectedAbi,
@@ -83,10 +91,16 @@ public sealed class ManagedExecutableEntryPointSelector : IManagedExecutableEntr
             return null;
         }
 
-        var candidates = metadata.GetTypeDefinition(selectedMethod.GetDeclaringType())
-            .GetMethods()
+        // Follow the generated wrapper rather than guessing among same-type Main
+        // overloads. Top-level statements use <Main>$ for the actual async method.
+        var candidates = _instructions.Read(pe.GetMethodBody(selectedMethod.RelativeVirtualAddress).GetILBytes()!)
+            .Where(instruction => instruction.OpCode == OpCodes.Call && instruction.Token is { } token &&
+                (uint)token >> 24 == 0x06)
+            .Select(instruction => MetadataTokens.MethodDefinitionHandle(instruction.Token!.Value & 0x00ffffff))
+            .Distinct()
             .Select(handle => (Handle: handle, Method: metadata.GetMethodDefinition(handle)))
-            .Where(candidate => metadata.GetString(candidate.Method.Name) == "Main")
+            .Where(candidate => candidate.Method.GetDeclaringType() == selectedMethod.GetDeclaringType() &&
+                metadata.GetString(candidate.Method.Name) is "Main" or "<Main>$")
             .Select(candidate => TryReadAsyncCandidate(
                 metadata,
                 candidate.Handle,

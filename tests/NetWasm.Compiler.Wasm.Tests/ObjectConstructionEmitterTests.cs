@@ -553,6 +553,8 @@ public sealed class ObjectConstructionEmitterTests
 
     private sealed class RecordingFunctionIndexResolver : IFunctionIndexResolver
     {
+        public int Resolve(InteropImportKey import) => Resolve(import.Method);
+
         public EntityKey? Definition { get; private set; }
 
         public string? Constructed { get; private set; }

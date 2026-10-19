@@ -50,7 +50,10 @@ public sealed class MetadataMethodBodyReaderFactory(
             typeDefinitions,
             methods,
             new ArrayMethodResolver(signatureComparer),
-            stackTypes);
+            stackTypes,
+            new MetadataBaseTypeIdentityResolver(typeDefinitions,
+                new MetadataAssemblyResolver(materialized.MetadataAssemblies,
+                    materialized.ReferenceAssemblyAliases, availability), signatureTypes));
         var symbols = _symbols.Create(snapshot);
         var methodBodies = new MetadataMethodBodyBlockReader(symbols);
         var fieldReferences = new MetadataFieldReferenceResolver(

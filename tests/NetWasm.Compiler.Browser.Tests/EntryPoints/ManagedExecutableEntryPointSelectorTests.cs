@@ -13,7 +13,7 @@ public sealed class ManagedExecutableEntryPointSelectorTests
     [Fact]
     public void SelectsSynchronousMainFromVirtualBytesWithoutOpeningTheNamedPath()
     {
-        var entry = new ManagedExecutableEntryPointSelector().SelectEntryPoint("virtual/absent.dll",
+        var entry = new ManagedExecutableEntryPointSelectorFactory().Create().SelectEntryPoint("virtual/absent.dll",
             File.ReadAllBytes(typeof(SyncMarker).Assembly.Location));
 
         Assert.Equal("Container+Program", entry.TypeName);
@@ -28,7 +28,7 @@ public sealed class ManagedExecutableEntryPointSelectorTests
         var image = File.ReadAllBytes(typeof(AsyncMarker).Assembly.Location);
         using var pe = new PEReader(new MemoryStream(image, writable: false));
         var wrapperToken = pe.PEHeaders.CorHeader!.EntryPointTokenOrRelativeVirtualAddress;
-        var selector = new ManagedExecutableEntryPointSelector();
+        var selector = new ManagedExecutableEntryPointSelectorFactory().Create();
 
         var selected = selector.SelectEntryPoint("virtual/async.dll", image);
         var explicitEntry = selector.SelectEntryPoint("virtual/async.dll", image, selected.MetadataToken);
@@ -48,7 +48,7 @@ public sealed class ManagedExecutableEntryPointSelectorTests
     [InlineData(0x02000001)]
     public void RejectsAnExplicitTokenThatIsNotAMethod(int token)
     {
-        var failure = Assert.Throws<CompilerException>(() => new ManagedExecutableEntryPointSelector().SelectEntryPoint(
+        var failure = Assert.Throws<CompilerException>(() => new ManagedExecutableEntryPointSelectorFactory().Create().SelectEntryPoint(
             "virtual/app.dll", File.ReadAllBytes(typeof(SyncMarker).Assembly.Location), token));
         Assert.Equal(DiagnosticCode.InvalidEntryPoint, failure.Diagnostic.Code);
     }
@@ -57,7 +57,7 @@ public sealed class ManagedExecutableEntryPointSelectorTests
     public void MalformedVirtualPePreservesCompilerDiagnostic()
     {
         var failure = Assert.Throws<CompilerException>(() =>
-            new ManagedExecutableEntryPointSelector().SelectEntryPoint("virtual/bad.dll", new byte[] { 1, 2, 3 }));
+            new ManagedExecutableEntryPointSelectorFactory().Create().SelectEntryPoint("virtual/bad.dll", new byte[] { 1, 2, 3 }));
         Assert.Equal(DiagnosticCode.InvalidEntryPoint, failure.Diagnostic.Code);
     }
 }

@@ -23,7 +23,8 @@ internal sealed class AggregateFieldHoistingPlanner(
     private readonly LoopInvariantFieldHoistingPolicy _policy = policy switch
     {
         LoopInvariantFieldHoistingPolicy.Disabled or
-        LoopInvariantFieldHoistingPolicy.Conservative => policy,
+        LoopInvariantFieldHoistingPolicy.Conservative or
+        LoopInvariantFieldHoistingPolicy.NullChecks => policy,
         _ => throw new ArgumentOutOfRangeException(nameof(policy)),
     };
 

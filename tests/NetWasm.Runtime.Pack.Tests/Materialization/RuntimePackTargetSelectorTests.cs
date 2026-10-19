@@ -11,9 +11,9 @@ public sealed class RuntimePackTargetSelectorTests
     public static IEnumerable<object[]> ProfileCases()
     {
         foreach (var target in new[] { "wasm32", "wasm64" })
-        foreach (var collector in new[] { "Compact", "NetWasm", "Boehm", "Bump" })
-        foreach (var mode in Enum.GetValues<RuntimeWasmOptimization>())
-            yield return [target, collector, mode];
+            foreach (var collector in new[] { "Compact", "NetWasm", "Boehm", "Bump" })
+                foreach (var mode in Enum.GetValues<RuntimeWasmOptimization>())
+                    yield return [target, collector, mode];
     }
 
     [Theory]

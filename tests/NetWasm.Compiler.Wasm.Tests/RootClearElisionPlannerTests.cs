@@ -58,7 +58,8 @@ public sealed class RootClearElisionPlannerTests
         var context = Context([new(0, [], []), new(1, [], [])]);
         var method = Method([I(0, CilOperation.Call)]);
         var second = new StructuredBlockDefinition(new(1), 1, [I(1, CilOperation.Call)], [],
-            new StructuredFallthroughExit(null)) { EndOffset = 2 };
+            new StructuredFallthroughExit(null))
+        { EndOffset = 2 };
         var plan = _planner.Plan(method with { Blocks = method.Blocks.Add(second.Id, second) }, context);
         Assert.Empty(plan[(1, false)]);
     }
@@ -70,7 +71,8 @@ public sealed class RootClearElisionPlannerTests
         var method = Method([I(0, CilOperation.Call), I(1, CilOperation.Call), I(2, CilOperation.Call)]);
         var clone = new StructuredBlockDefinition(new(1), 1,
             [I(1, CilOperation.Call), I(2, CilOperation.Call)], [],
-            new StructuredFallthroughExit(null)) { EndOffset = 3 };
+            new StructuredFallthroughExit(null))
+        { EndOffset = 3 };
 
         var plan = _planner.Plan(method with { Blocks = method.Blocks.Add(clone.Id, clone) }, context);
 
@@ -92,11 +94,14 @@ public sealed class RootClearElisionPlannerTests
         var access = new ManagedAggregateSsaAccess(new(1, new(0),
             new(new(ManagedAggregateStorageKind.Local, 0), 0, CliTypeIdentity.FromStackKind(CliValueKind.I4)),
             4, CliValueKind.I4, false), [], []);
-        context = context with { ManagedAggregateValues = context.ManagedAggregateValues with
+        context = context with
         {
-            Plan = context.ManagedAggregateValues.Plan with
-            { Accesses = ImmutableDictionary<int, ManagedAggregateSsaAccess>.Empty.Add(1, access) },
-        } };
+            ManagedAggregateValues = context.ManagedAggregateValues with
+            {
+                Plan = context.ManagedAggregateValues.Plan with
+                { Accesses = ImmutableDictionary<int, ManagedAggregateSsaAccess>.Empty.Add(1, access) },
+            }
+        };
         var plan = _planner.Plan(Method([I(0, CilOperation.Call), I(1, CilOperation.LoadObject), I(2, CilOperation.Call)]), context);
         Assert.False(plan.ContainsKey((1, false)));
         Assert.Contains(0, plan[(2, false)]);
@@ -124,7 +129,8 @@ public sealed class RootClearElisionPlannerTests
         var definition = new MethodDefinitionModel(EntryKey, TypeKey, "Run", true,
             MethodSignatureModel.Create(CliValueKind.Void), 1);
         var block = new StructuredBlockDefinition(new(0), 0, instructions, [],
-            new StructuredFallthroughExit(null)) { EndOffset = instructions.Length };
+            new StructuredFallthroughExit(null))
+        { EndOffset = instructions.Length };
         return new(new(definition, null, 1, [], [], instructions), new(0),
             ImmutableDictionary<StructuredBlockId, StructuredBlockDefinition>.Empty.Add(block.Id, block),
             StructuredSequence.Empty, [], [], []);

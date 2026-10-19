@@ -107,6 +107,11 @@ public sealed class CompileCliOptionsTests
             "--managed-loop-unrolling", "Enabled",
             "--managed-constant-argument-propagation", "Enabled",
             "--managed-static-array-population-elimination", "Disabled",
+            "--managed-constant-call-folding", "Enabled",
+            "--managed-switch-bit-tests", "Disabled",
+            "--managed-devirtualization", "Enabled",
+            "--managed-allocation-elimination", "Disabled",
+            "--managed-loop-rotation", "Disabled",
         ]);
 
         Assert.Equal(expected, options.Optimization);
@@ -120,6 +125,11 @@ public sealed class CompileCliOptionsTests
         Assert.Equal("Enabled", options.ManagedLoopUnrolling);
         Assert.Equal("Enabled", options.ManagedConstantArgumentPropagation);
         Assert.Equal("Disabled", options.ManagedStaticArrayPopulationElimination);
+        Assert.Equal("Enabled", options.ManagedConstantCallFolding);
+        Assert.Equal("Disabled", options.ManagedSwitchBitTests);
+        Assert.Equal("Enabled", options.ManagedDevirtualization);
+        Assert.Equal("Disabled", options.ManagedAllocationElimination);
+        Assert.Equal("Disabled", options.ManagedLoopRotation);
     }
 
     [Fact]
@@ -143,6 +153,11 @@ public sealed class CompileCliOptionsTests
     [InlineData("--managed-loop-unrolling")]
     [InlineData("--managed-constant-argument-propagation")]
     [InlineData("--managed-static-array-population-elimination")]
+    [InlineData("--managed-constant-call-folding")]
+    [InlineData("--managed-switch-bit-tests")]
+    [InlineData("--managed-devirtualization")]
+    [InlineData("--managed-allocation-elimination")]
+    [InlineData("--managed-loop-rotation")]
     public void RejectsRepeatedPromotionAndInliningSelections(string option)
     {
         var exception = Assert.Throws<CompilerException>(() => CompileCliOptions.Parse([
@@ -175,6 +190,11 @@ public sealed class CompileCliOptionsTests
         Assert.Null(options.ManagedLoopUnrolling);
         Assert.Null(options.ManagedConstantArgumentPropagation);
         Assert.Null(options.ManagedStaticArrayPopulationElimination);
+        Assert.Null(options.ManagedConstantCallFolding);
+        Assert.Null(options.ManagedSwitchBitTests);
+        Assert.Null(options.ManagedDevirtualization);
+        Assert.Null(options.ManagedAllocationElimination);
+        Assert.Null(options.ManagedLoopRotation);
         Assert.Throws<CompilerException>(() => CompileCliOptions.Parse([
             "--input", "application.dll",
             "--output", "application.wasm",

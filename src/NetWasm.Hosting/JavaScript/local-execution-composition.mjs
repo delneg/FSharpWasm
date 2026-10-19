@@ -3,6 +3,7 @@ import { isAbsolute } from "node:path";
 import { createContractError } from "./contract-error.mjs";
 import { createDeploymentExecution } from "./deployment-execution.mjs";
 import { createExecutionRequestValidator } from "./execution-request-validator.mjs";
+import { createFailureDetailRedaction } from "./failure-detail-redaction.mjs";
 import { createLocalArtifactTransport } from "./local-artifact-transport.mjs";
 import { createLocalDeploymentManifestLoader } from "./local-deployment-manifest-loader.mjs";
 import { createLocalTimeZoneMaterializer } from "./local-timezone-materializer.mjs";
@@ -61,14 +62,15 @@ export function createLocalExecutionComposition(
     selectTimeZone: selectTimeZoneSidecar,
     validateRequest: asContractAction(validateRequest),
   });
-  return createNetWasmExecutionFacade(executeDeployment);
+  const redactFailureDetails = createFailureDetailRedaction({ isAbsoluteHostPath: isAbsolute });
+  return createNetWasmExecutionFacade(async input => redactFailureDetails(await executeDeployment(input)));
 }
 
 function asContractStrategy(resolve, kind) {
   try {
     return resolve(kind);
-  } catch {
-    throw createContractError();
+  } catch (error) {
+    throw createContractError(undefined, error);
   }
 }
 
@@ -76,8 +78,8 @@ function asContractAction(action) {
   return value => {
     try {
       return action(value);
-    } catch {
-      throw createContractError();
+    } catch (error) {
+      throw createContractError(undefined, error);
     }
   };
 }

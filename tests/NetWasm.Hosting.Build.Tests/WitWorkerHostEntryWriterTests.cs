@@ -30,7 +30,11 @@ public sealed class WitWorkerHostEntryWriterTests
         Assert.Contains("createBrowserComponentExportSession", source, StringComparison.Ordinal);
         Assert.DoesNotContain("createBrowserRawExportSession", source, StringComparison.Ordinal);
         Assert.Contains("createWorkerSessionHost", source, StringComparison.Ordinal);
-        Assert.Contains("openSession: request => open({ startup: request.startup, notify: request.notify })", source,
+        Assert.Contains("configuration: mergeEnvironment(configuration, request.environment),", source,
+            StringComparison.Ordinal);
+        Assert.Contains("})({ startup: request.startup, notify: request.notify });", source, StringComparison.Ordinal);
+        Assert.Contains("stdout: request.stdout,", source, StringComparison.Ordinal);
+        Assert.Contains("openSession: open,", source,
             StringComparison.Ordinal);
         Assert.Contains("artifactPath: \"imports/events.mjs\"", source, StringComparison.Ordinal);
         Assert.Contains("module: \"example:app/events\"", source, StringComparison.Ordinal);

@@ -315,6 +315,38 @@ public sealed class FrontendArtifactCodecTests
         Assert.Equal(encoded.ToArray(), encoder.Encode(decoded).ToArray());
     }
 
+    [Fact]
+    public void RoundTripPreservesJSExportParameterNames()
+    {
+        var snapshot = CreateStressSnapshot();
+        snapshot = snapshot with
+        {
+            Analysis = snapshot.Analysis with
+            {
+                Method = snapshot.Analysis.Method with
+                {
+                    Definition = snapshot.Analysis.Method.Definition with
+                    {
+                        JSExport = new InteropExportDeclaration("published")
+                        {
+                            ParameterNames = ["total", ""],
+                            NonNullableParameters = [true, false],
+                            NonNullableResult = true,
+                        },
+                    },
+                },
+            },
+        };
+        var encoder = new FrontendArtifactEncoder();
+        var encoded = encoder.Encode(snapshot);
+        var decoded = new FrontendArtifactDecoder().Decode(encoded).Analysis.Method.Definition.JSExport;
+
+        Assert.Equal("published", decoded!.ExportName);
+        Assert.Equal(["total", ""], decoded.ParameterNames.ToArray());
+        Assert.Equal([true, false], decoded.NonNullableParameters.ToArray());
+        Assert.True(decoded.NonNullableResult);
+    }
+
     [Theory]
     [InlineData(null)]
     [InlineData(0)]

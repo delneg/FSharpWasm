@@ -84,7 +84,15 @@ internal sealed class WholeProgramAnalyzerFactory(
         if (optimizationSettings.ConstantArgumentPropagation is not (ConstantArgumentPropagationPolicy.Disabled or
             ConstantArgumentPropagationPolicy.Conservative) ||
             optimizationSettings.StaticArrayPopulationElimination is not (StaticArrayPopulationEliminationPolicy.Disabled or
-            StaticArrayPopulationEliminationPolicy.Conservative))
+            StaticArrayPopulationEliminationPolicy.Conservative) ||
+            optimizationSettings.ConstantCallFolding is not (ConstantCallFoldingPolicy.Disabled or
+            ConstantCallFoldingPolicy.Conservative) ||
+            optimizationSettings.SwitchBitTests is not (SwitchBitTestPolicy.Disabled or
+            SwitchBitTestPolicy.Conservative) ||
+            optimizationSettings.Devirtualization is not (DevirtualizationPolicy.Disabled or
+            DevirtualizationPolicy.ExactType) ||
+            optimizationSettings.AllocationElimination is not (AllocationEliminationPolicy.Disabled or
+            AllocationEliminationPolicy.Unused))
             throw new ArgumentOutOfRangeException(nameof(optimizationSettings));
         var baseTypes = baseTypeResolvers.Create(
             typeFinder,
@@ -124,6 +132,18 @@ internal sealed class WholeProgramAnalyzerFactory(
         specializer = attributeQueries.Create(specializer, metadata, typeRepository, fieldRepository,
             methodRepository, typeFinder, typeDefinitions, typeIdentities, methodInstances,
             relationships, baseTypes, calls, types, symbols);
+        var operands = new ConstantOperandReader(calls, fieldRepository, typeRepository, methodRepository);
+        IMethodRewriteRule ConstantCalls() => new ConstantCallRewriter(graphBuilders.Create(), calls,
+            new ConstantCallEvaluator(methodBodies, calls, typeDefinitions, methodRepository, intrinsics, operands,
+                new ConstantComparisonEvaluator(typeDefinitions)),
+            operands);
+        IMethodRewriteRule? constantCallFolding = optimizationSettings.ConstantCallFolding == ConstantCallFoldingPolicy.Conservative
+            ? new ConstantCallFoldingRule(ConstantCalls(), new MethodSpecializer(
+            [
+                new ConstantBranchRewriter(graphBuilders.Create()),
+                new UnreachableInstructionRewriter(graphBuilders.Create()),
+            ]))
+            : null;
         var optimizer = optimizers.Create(
             methodBodies,
             typeRepository,
@@ -131,6 +151,20 @@ internal sealed class WholeProgramAnalyzerFactory(
             methodRepository,
             specializer,
             calls,
+            intrinsics,
+            // Folding before inlining sees constant arguments before they are spilled to locals.
+            new MethodSpecializer(constantCallFolding is null ? [] : [constantCallFolding]),
+            dispatchTargets.Create(
+                typeFinder,
+                typeDefinitions,
+                methodRepository,
+                methodImplementations,
+                implementedInterfaces,
+                methodInstances,
+                symbols,
+                relationships,
+                baseTypes),
+            new FinalizerResolver(typeDefinitions, methodRepository, baseTypes),
             optimizationSettings);
         var concurrency = SelectConcurrency(
             OperatingSystem.IsBrowser(), Environment.ProcessorCount);
@@ -239,11 +273,14 @@ internal sealed class WholeProgramAnalyzerFactory(
                 new CallArgumentConstantCollector(calls),
                 new MethodSpecializer(
                 [
-                    new ConstantCallRewriter(graphBuilders.Create(), calls,
-                        new ConstantCallEvaluator(methodBodies, calls, typeDefinitions, methodRepository, intrinsics)),
+                    ConstantCalls(),
                     new ConstantBranchRewriter(graphBuilders.Create()),
                     new UnreachableInstructionRewriter(graphBuilders.Create()),
                 ])));
+        }
+        if (constantCallFolding is not null)
+        {
+            reducers.Add(new ConstantCallProgramReducer(constantCallFolding));
         }
         if (optimizationSettings.StaticArrayPopulationElimination == StaticArrayPopulationEliminationPolicy.Conservative)
         {

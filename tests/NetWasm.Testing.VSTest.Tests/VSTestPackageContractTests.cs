@@ -2,6 +2,8 @@ using System.Diagnostics;
 using System.IO.Compression;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
+using System.Security.Cryptography;
+using System.Text.Json;
 using System.Xml.Linq;
 using NetWasm.Testing.VSTest.Hosting;
 
@@ -118,6 +120,7 @@ public sealed class VSTestPackageContractTests
 
             var targets = ReadText(package, "buildTransitive/NetWasm.Testing.VSTest.targets");
             AssertBuildTransitiveContract(targets);
+            AssertTestHostMatchesItsManifest(package);
 
             var nuspec = XDocument.Parse(
                 ReadText(package, "NetWasm.Testing.VSTest.nuspec"),
@@ -193,6 +196,22 @@ public sealed class VSTestPackageContractTests
         Assert.Equal(2, properties.Length);
         Assert.Equal($"'$({propertyName})' != ''", properties[0].Attribute("Condition")!.Value);
         Assert.Equal($"'$({propertyName})' == ''", properties[1].Attribute("Condition")!.Value);
+    }
+
+    // The provider refuses to launch a testhost whose files differ from its manifest.
+    private static void AssertTestHostMatchesItsManifest(ZipArchive package)
+    {
+        const string root = "tools/net10.0/any/testhost/";
+        using var manifest = JsonDocument.Parse(ReadText(package, root + "testhost.manifest.json"));
+        foreach (var file in manifest.RootElement.GetProperty("Files").EnumerateArray())
+        {
+            var entry = package.GetEntry(root + file.GetProperty("RelativePath").GetString());
+            Assert.NotNull(entry);
+            using var stream = entry.Open();
+            Assert.Equal(
+                file.GetProperty("Sha256").GetString(),
+                Convert.ToHexStringLower(SHA256.HashData(stream)));
+        }
     }
 
     private static string ReadText(ZipArchive package, string path)

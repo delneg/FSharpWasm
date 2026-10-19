@@ -23,6 +23,7 @@ public sealed class ManagedCompilerOptimizationOverridesParser :
             ["Auto"] = ManagedLoopInvariantFieldHoisting.Auto,
             ["Disabled"] = ManagedLoopInvariantFieldHoisting.Disabled,
             ["Enabled"] = ManagedLoopInvariantFieldHoisting.Enabled,
+            ["NullChecks"] = ManagedLoopInvariantFieldHoisting.NullChecks,
         }.ToFrozenDictionary(StringComparer.Ordinal);
 
     private static readonly FrozenDictionary<string, ManagedStaticDataViewElimination>
@@ -41,6 +42,7 @@ public sealed class ManagedCompilerOptimizationOverridesParser :
             ["Auto"] = ManagedAddressTakenValuePromotion.Auto,
             ["Disabled"] = ManagedAddressTakenValuePromotion.Disabled,
             ["Enabled"] = ManagedAddressTakenValuePromotion.Enabled,
+            ["References"] = ManagedAddressTakenValuePromotion.References,
         }.ToFrozenDictionary(StringComparer.Ordinal);
 
     private static readonly FrozenDictionary<string, ManagedMethodInlining>
@@ -93,6 +95,46 @@ public sealed class ManagedCompilerOptimizationOverridesParser :
             ["Enabled"] = ManagedStaticArrayPopulationElimination.Enabled,
         }.ToFrozenDictionary(StringComparer.Ordinal);
 
+    private static readonly FrozenDictionary<string, ManagedConstantCallFolding> ConstantCallFoldingValues =
+        new Dictionary<string, ManagedConstantCallFolding>(StringComparer.Ordinal)
+        {
+            ["Auto"] = ManagedConstantCallFolding.Auto,
+            ["Disabled"] = ManagedConstantCallFolding.Disabled,
+            ["Enabled"] = ManagedConstantCallFolding.Enabled,
+        }.ToFrozenDictionary(StringComparer.Ordinal);
+
+    private static readonly FrozenDictionary<string, ManagedSwitchBitTests> SwitchBitTestValues =
+        new Dictionary<string, ManagedSwitchBitTests>(StringComparer.Ordinal)
+        {
+            ["Auto"] = ManagedSwitchBitTests.Auto,
+            ["Disabled"] = ManagedSwitchBitTests.Disabled,
+            ["Enabled"] = ManagedSwitchBitTests.Enabled,
+        }.ToFrozenDictionary(StringComparer.Ordinal);
+
+    private static readonly FrozenDictionary<string, ManagedDevirtualization> DevirtualizationValues =
+        new Dictionary<string, ManagedDevirtualization>(StringComparer.Ordinal)
+        {
+            ["Auto"] = ManagedDevirtualization.Auto,
+            ["Disabled"] = ManagedDevirtualization.Disabled,
+            ["Enabled"] = ManagedDevirtualization.Enabled,
+        }.ToFrozenDictionary(StringComparer.Ordinal);
+
+    private static readonly FrozenDictionary<string, ManagedAllocationElimination> AllocationEliminationValues =
+        new Dictionary<string, ManagedAllocationElimination>(StringComparer.Ordinal)
+        {
+            ["Auto"] = ManagedAllocationElimination.Auto,
+            ["Disabled"] = ManagedAllocationElimination.Disabled,
+            ["Enabled"] = ManagedAllocationElimination.Enabled,
+        }.ToFrozenDictionary(StringComparer.Ordinal);
+
+    private static readonly FrozenDictionary<string, ManagedLoopRotation> LoopRotationValues =
+        new Dictionary<string, ManagedLoopRotation>(StringComparer.Ordinal)
+        {
+            ["Auto"] = ManagedLoopRotation.Auto,
+            ["Disabled"] = ManagedLoopRotation.Disabled,
+            ["Enabled"] = ManagedLoopRotation.Enabled,
+        }.ToFrozenDictionary(StringComparer.Ordinal);
+
     public WasmOptimizationOverrides? Parse(
         string? loopInvariantFieldHoisting,
         string? staticDataViewElimination,
@@ -103,7 +145,12 @@ public sealed class ManagedCompilerOptimizationOverridesParser :
         string? arrayBoundsCheckElimination = null,
         string? loopUnrolling = null,
         string? constantArgumentPropagation = null,
-        string? staticArrayPopulationElimination = null)
+        string? staticArrayPopulationElimination = null,
+        string? constantCallFolding = null,
+        string? switchBitTests = null,
+        string? devirtualization = null,
+        string? allocationElimination = null,
+        string? loopRotation = null)
     {
         var fieldHoisting = ParseFieldHoisting(loopInvariantFieldHoisting);
         var staticDataViews = ParseStaticDataViews(staticDataViewElimination);
@@ -127,6 +174,21 @@ public sealed class ManagedCompilerOptimizationOverridesParser :
         var staticArrayPopulationEliminationValue = StaticArrayPopulationEliminationValues.TryGetValue(staticArrayPopulationElimination ?? "Auto", out var staticArrayPopulationEliminationParsed)
             ? staticArrayPopulationEliminationParsed
             : throw ComponentException.Invalid("Managed static array population elimination must be Auto, Disabled or Enabled.");
+        var constantCallFoldingValue = ConstantCallFoldingValues.TryGetValue(constantCallFolding ?? "Auto", out var constantCallFoldingParsed)
+            ? constantCallFoldingParsed
+            : throw ComponentException.Invalid("Managed constant call folding must be Auto, Disabled or Enabled.");
+        var switchBitTestsValue = SwitchBitTestValues.TryGetValue(switchBitTests ?? "Auto", out var switchBitTestsParsed)
+            ? switchBitTestsParsed
+            : throw ComponentException.Invalid("Managed switch bit tests must be Auto, Disabled or Enabled.");
+        var devirtualizationValue = DevirtualizationValues.TryGetValue(devirtualization ?? "Auto", out var devirtualizationParsed)
+            ? devirtualizationParsed
+            : throw ComponentException.Invalid("Managed devirtualization must be Auto, Disabled or Enabled.");
+        var allocationEliminationValue = AllocationEliminationValues.TryGetValue(allocationElimination ?? "Auto", out var allocationEliminationParsed)
+            ? allocationEliminationParsed
+            : throw ComponentException.Invalid("Managed allocation elimination must be Auto, Disabled or Enabled.");
+        var loopRotationValue = LoopRotationValues.TryGetValue(loopRotation ?? "Auto", out var loopRotationParsed)
+            ? loopRotationParsed
+            : throw ComponentException.Invalid("Managed loop rotation must be Auto, Disabled or Enabled.");
         return fieldHoisting == ManagedLoopInvariantFieldHoisting.Auto &&
                staticDataViews == ManagedStaticDataViewElimination.Auto &&
                valuePromotion == ManagedAddressTakenValuePromotion.Auto &&
@@ -136,7 +198,12 @@ public sealed class ManagedCompilerOptimizationOverridesParser :
                arrayBoundsCheckEliminationValue == ManagedArrayBoundsCheckElimination.Auto &&
                loopUnrollingValue == ManagedLoopUnrolling.Auto &&
                constantArgumentPropagationValue == ManagedConstantArgumentPropagation.Auto &&
-               staticArrayPopulationEliminationValue == ManagedStaticArrayPopulationElimination.Auto
+               staticArrayPopulationEliminationValue == ManagedStaticArrayPopulationElimination.Auto &&
+               constantCallFoldingValue == ManagedConstantCallFolding.Auto &&
+               switchBitTestsValue == ManagedSwitchBitTests.Auto &&
+               devirtualizationValue == ManagedDevirtualization.Auto &&
+               allocationEliminationValue == ManagedAllocationElimination.Auto &&
+               loopRotationValue == ManagedLoopRotation.Auto
             ? null
             : new(
                 LoopInvariantFieldHoisting: fieldHoisting,
@@ -148,7 +215,12 @@ public sealed class ManagedCompilerOptimizationOverridesParser :
                 ArrayBoundsCheckElimination: arrayBoundsCheckEliminationValue,
                 LoopUnrolling: loopUnrollingValue,
                 ConstantArgumentPropagation: constantArgumentPropagationValue,
-                StaticArrayPopulationElimination: staticArrayPopulationEliminationValue);
+                StaticArrayPopulationElimination: staticArrayPopulationEliminationValue,
+                ConstantCallFolding: constantCallFoldingValue,
+                SwitchBitTests: switchBitTestsValue,
+                Devirtualization: devirtualizationValue,
+                AllocationElimination: allocationEliminationValue,
+                LoopRotation: loopRotationValue);
     }
 
     private static ManagedLoopInvariantFieldHoisting ParseFieldHoisting(string? value) =>

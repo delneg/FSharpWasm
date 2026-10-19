@@ -151,6 +151,8 @@ internal sealed class ExpressionIntrinsicEmissionFixture : INullableTypeResolver
 
     public sealed class RecordingFunctions : IFunctionIndexResolver
     {
+        public int Resolve(InteropImportKey import) => Resolve(import.Method);
+
         public List<MethodInstanceModel> Methods { get; } = [];
         public int Resolve(EntityKey method) => throw new NotSupportedException();
         public int Resolve(string method) => throw new NotSupportedException();

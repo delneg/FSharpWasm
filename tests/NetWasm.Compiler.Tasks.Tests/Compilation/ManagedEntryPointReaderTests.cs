@@ -43,7 +43,7 @@ public sealed class ManagedEntryPointReaderTests
     public void DesktopAdapterUsesSharedBytePolicyForAsyncTaskIntStringMain()
     {
         var path = typeof(Fixtures.AsyncStringArgumentsManagedExecutable.Marker).Assembly.Location;
-        var selected = new ManagedExecutableEntryPointSelector().SelectEntryPoint(path, File.ReadAllBytes(path));
+        var selected = new ManagedExecutableEntryPointSelectorFactory().Create().SelectEntryPoint(path, File.ReadAllBytes(path));
         var desktop = new ManagedEntryPointReader().Read(path);
 
         Assert.Equal(selected.TypeName, desktop.TypeName);

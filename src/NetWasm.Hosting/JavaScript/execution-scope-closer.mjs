@@ -14,11 +14,15 @@ export function createExecutionScopeCloser(releaseActions = []) {
         || typeof action.release !== "function") {
       throw new TypeError("execution release action is invalid");
     }
-    const failure = executionFailure(action.phase ?? "cleanup", action.code, action.message);
+    const phase = action.phase ?? "cleanup";
+    const failure = executionFailure(phase, action.code, action.message);
     if (failure.phase !== "cleanup" && failure.phase !== "output") {
       throw new TypeError("execution release action phase must be cleanup or output");
     }
-    return Object.freeze({ release: action.release, failure });
+    return Object.freeze({
+      release: action.release,
+      fail: cause => executionFailure(phase, action.code, action.message, cause),
+    });
   });
 
   let closed = false;
@@ -33,8 +37,8 @@ export function createExecutionScopeCloser(releaseActions = []) {
     for (const action of actions) {
       try {
         await action.release();
-      } catch {
-        cleanupFailures.push(action.failure);
+      } catch (error) {
+        cleanupFailures.push(action.fail(error));
       }
     }
     return appendCleanupFailures(outcome, cleanupFailures);

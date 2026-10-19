@@ -1,5 +1,9 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
 using NetWasm.Compiler.Core;
 using NetWasm.Compiler.Wasm.Encoding;
+using NetWasm.Compiler.Wasm.Emission.Instructions.Interop;
 using NetWasm.Compiler.Wasm.Emission.Planning;
 
 namespace NetWasm.Compiler.Wasm.Emission.GeneratedFunctions;
@@ -11,7 +15,10 @@ internal sealed class AsyncJSExportWrapperEmitter(
     IRuntimeStateInitializer runtimeInitialization,
     IImplicitExceptionEmitter exceptions,
     IReferenceComparisonEmitter references,
-    IGeneratedFunctionWriterFactory writers) : IAsyncJSExportWrapperEmitter
+    IGeneratedFunctionWriterFactory writers,
+    IHostCallbackStringArgumentMarshaller stringArguments,
+    IHostCallbackByteArrayArgumentMarshaller valueArrayArguments,
+    IHostCallbackHostObjectArgumentMarshaller hostObjectArguments) : IAsyncJSExportWrapperEmitter
 {
     public byte[] Emit(
         MethodDefinitionModel method,
@@ -19,7 +26,8 @@ internal sealed class AsyncJSExportWrapperEmitter(
         RuntimeInitializationPlan initialization,
         bool hasFinalizers,
         IFunctionIndexResolver functionIndices,
-        EntityKey? argumentFactory = null)
+        EntityKey? argumentFactory = null,
+        InteropImportPlan? interopImports = null)
     {
         var wrapperParameterCount = argumentFactory is null
             ? method.Signature.ParameterTypes.Length
@@ -29,6 +37,21 @@ internal sealed class AsyncJSExportWrapperEmitter(
         var rootFrameLocal = handleLocal + 1;
         var valueFrameLocal = rootFrameLocal + 1;
         var finalizerExceptionLocal = valueFrameLocal + 1;
+        // String, array, and JSObject parameters arrive as host handles. They become
+        // managed objects in an argument root frame that lives until the method returns.
+        var referenceParameters = argumentFactory is null && interopImports is not null
+            ? method.Signature.ParameterSignatureTypes
+                .Select((type, index) => (Type: type, Index: index))
+                .Where(parameter => InteropTypeClassifier.IsJavaScriptReference(parameter.Type))
+                .ToArray()
+            : [];
+        var rootSlots = referenceParameters
+            .Select((parameter, slot) => (parameter.Index, Slot: slot))
+            .ToDictionary(parameter => parameter.Index, parameter => parameter.Slot);
+        var argumentFrameLocal = finalizerExceptionLocal + 1;
+        var temporaryI4 = argumentFrameLocal + 1;
+        var objectTemporary = temporaryI4 + 1;
+        var argumentLocal = objectTemporary + 1;
         var code = writers.Create();
         WasmLocalDeclarationWriter.Write(
             code.Bytes,
@@ -38,9 +61,56 @@ internal sealed class AsyncJSExportWrapperEmitter(
                 CliValueKind.ManagedAddress,
                 CliValueKind.ManagedAddress,
                 CliValueKind.ManagedReference,
+                .. (referenceParameters.Length == 0
+                    ? Array.Empty<CliValueKind>()
+                    : [CliValueKind.ManagedAddress, CliValueKind.I4, CliValueKind.ManagedReference,
+                        CliValueKind.ManagedReference]),
             ],
             layouts.Target);
         runtimeInitialization.Initialize(code, initialization);
+        if (referenceParameters.Length != 0)
+        {
+            code.Instructions.Write(WasmInstruction.WithOperand(
+                WasmOpcodes.I32Constant,
+                WasmInstructionOperand.Signed(referenceParameters.Length)));
+            code.Instructions.Write(WasmInstruction.WithOperand(
+                WasmOpcodes.Call,
+                WasmInstructionOperand.Unsigned((uint)runtimeImports.Resolve(
+                    RuntimeImportSymbol.RootFrameEnter, initialization.RuntimeImportSelection))));
+            code.Instructions.Write(WasmInstruction.WithOperand(
+                WasmOpcodes.LocalSet,
+                WasmInstructionOperand.Unsigned((uint)argumentFrameLocal)));
+            code.Instructions.Write(WasmInstruction.WithOperand(
+                WasmOpcodes.Block,
+                WasmInstructionOperand.BlockType(WasmOpcodes.EmptyBlockType)));
+            code.Instructions.Write(WasmInstruction.WithOperand(
+                WasmOpcodes.Block,
+                WasmInstructionOperand.BlockType((byte)WasmValueType.ExnRef)));
+            code.Instructions.Write(WasmInstruction.WithOperand(
+                WasmOpcodes.TryTable,
+                WasmInstructionOperand.TryTableCatchAllRef(WasmOpcodes.EmptyBlockType, 0)));
+            var target = new InteropMarshallingTarget(interopImports!);
+            foreach (var parameter in referenceParameters)
+            {
+                if (InteropTypeClassifier.IsString(parameter.Type))
+                {
+                    stringArguments.Emit(code.Instructions, parameter.Index, argumentLocal,
+                        temporaryI4, objectTemporary, target);
+                }
+                else if (InteropTypeClassifier.IsJSObject(parameter.Type))
+                {
+                    hostObjectArguments.Emit(code.Instructions, parameter.Type, parameter.Index,
+                        argumentLocal);
+                }
+                else
+                {
+                    valueArrayArguments.Emit(code.Instructions, parameter.Type, parameter.Index,
+                        argumentLocal, temporaryI4, objectTemporary, target);
+                }
+                ManagedMemoryEmitter.EmitRootSlotStore(code.Instructions, layouts.Target,
+                    argumentFrameLocal, rootSlots[parameter.Index], argumentLocal);
+            }
+        }
         if (binding.Return.Kind == JavaScriptAsyncReturnKind.ValueTask)
         {
             var valueLayout = valueLayouts.GetValueLayout(
@@ -63,7 +133,9 @@ internal sealed class AsyncJSExportWrapperEmitter(
                 code,
                 method.Signature.ParameterTypes.Length,
                 argumentFactory,
-                functionIndices);
+                functionIndices,
+                rootSlots,
+                argumentFrameLocal);
             code.Instructions.Write(WasmInstruction.WithOperand(
                 WasmOpcodes.Call,
                 WasmInstructionOperand.Unsigned((uint)functionIndices.Resolve(
@@ -92,7 +164,9 @@ internal sealed class AsyncJSExportWrapperEmitter(
                 code,
                 method.Signature.ParameterTypes.Length,
                 argumentFactory,
-                functionIndices);
+                functionIndices,
+                rootSlots,
+                argumentFrameLocal);
             code.Instructions.Write(WasmInstruction.WithOperand(
                 WasmOpcodes.Call,
                 WasmInstructionOperand.Unsigned((uint)functionIndices.Resolve(
@@ -100,6 +174,20 @@ internal sealed class AsyncJSExportWrapperEmitter(
             code.Instructions.Write(WasmInstruction.WithOperand(
                 WasmOpcodes.LocalSet,
                 WasmInstructionOperand.Unsigned((uint)taskLocal)));
+        }
+        if (referenceParameters.Length != 0)
+        {
+            // Normal completion leaves the argument frame and skips the handler;
+            // a failure leaves it and rethrows the original exception.
+            code.Instructions.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
+            LeaveFrame(code, argumentFrameLocal, initialization);
+            code.Instructions.Write(WasmInstruction.WithOperand(
+                WasmOpcodes.Branch,
+                WasmInstructionOperand.Unsigned(1)));
+            code.Instructions.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
+            LeaveFrame(code, argumentFrameLocal, initialization);
+            code.Instructions.Write(WasmInstruction.NoOperand(WasmOpcodes.ThrowRef));
+            code.Instructions.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
         }
 
         EmitReferenceNullCheck(code, taskLocal);
@@ -178,11 +266,27 @@ internal sealed class AsyncJSExportWrapperEmitter(
         return code.Snapshots.Read();
     }
 
-    private static void EmitArguments(
+    private void LeaveFrame(
+        GeneratedFunctionWriterLease code,
+        int frameLocal,
+        RuntimeInitializationPlan initialization)
+    {
+        code.Instructions.Write(WasmInstruction.WithOperand(
+            WasmOpcodes.LocalGet,
+            WasmInstructionOperand.Unsigned((uint)frameLocal)));
+        code.Instructions.Write(WasmInstruction.WithOperand(
+            WasmOpcodes.Call,
+            WasmInstructionOperand.Unsigned((uint)runtimeImports.Resolve(
+                RuntimeImportSymbol.RootFrameLeave, initialization.RuntimeImportSelection))));
+    }
+
+    private void EmitArguments(
         GeneratedFunctionWriterLease code,
         int count,
         EntityKey? argumentFactory,
-        IFunctionIndexResolver functionIndices)
+        IFunctionIndexResolver functionIndices,
+        Dictionary<int, int> rootSlots,
+        int argumentFrameLocal)
     {
         if (argumentFactory is { } factory)
         {
@@ -194,6 +298,18 @@ internal sealed class AsyncJSExportWrapperEmitter(
 
         for (var index = 0; index < count; index++)
         {
+            if (rootSlots.TryGetValue(index, out var slot))
+            {
+                code.Instructions.Write(WasmInstruction.WithOperand(
+                    WasmOpcodes.LocalGet,
+                    WasmInstructionOperand.Unsigned((uint)argumentFrameLocal)));
+                ManagedMemoryEmitter.EmitLoadBySize(
+                    code.Instructions,
+                    layouts.Target,
+                    slot * layouts.Target.ObjectReferenceSize,
+                    layouts.Target.ObjectReferenceSize);
+                continue;
+            }
             code.Instructions.Write(WasmInstruction.WithOperand(
                 WasmOpcodes.LocalGet,
                 WasmInstructionOperand.Unsigned((uint)index)));

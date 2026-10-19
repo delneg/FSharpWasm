@@ -45,6 +45,9 @@ internal sealed record MethodEmissionContext(
 
     public bool RecordOriginalBlockOwnership { get; init; } = true;
 
+    // Loops test their condition before entry and at the bottom of each iteration.
+    public bool RotateLoops { get; init; }
+
     public ArrayMetadataCachingLayout ArrayMetadata { get; init; } = ArrayMetadataCachingLayout.Empty;
 
     public TerminalBranchValueFramePlacement? TerminalBranchValueFramePlacement { get; init; }

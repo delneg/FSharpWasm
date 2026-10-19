@@ -21,6 +21,7 @@ internal static class CallEmissionServiceCollectionExtensions
             VirtualDispatchEmissionPlanBuilder>();
         services.AddSingleton<DelegateInvokeCallEmitter>();
         services.AddSingleton<VirtualDispatchCallEmitter>();
+        services.AddSingleton<IJSImportInvocationEmitter, JSImportInvocationEmitter>();
         services.AddSingleton<JSImportCallEmitter>();
         services.AddSingleton<AsyncJSImportCallEmitter>();
         services.AddSingleton<DirectCallEmitter>();

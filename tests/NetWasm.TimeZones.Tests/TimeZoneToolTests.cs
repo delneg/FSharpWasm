@@ -453,6 +453,41 @@ public sealed class TimeZoneToolTests
     }
 
     [Fact]
+    public void CatalogReaderTakesAliasesFromTheCompactSourceWhenLinksWereCopied()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        var area = Path.Combine(directory, "Area");
+        Directory.CreateDirectory(area);
+        try
+        {
+            File.WriteAllText(Path.Combine(directory, "version"), "2026c\n");
+            File.WriteAllBytes(Path.Combine(area, "Canonical"), BuildTzif("UTC0"));
+            File.WriteAllBytes(Path.Combine(area, "Copied"), BuildTzif("UTC0"));
+            File.WriteAllText(Path.Combine(directory, "tzdata.zi"),
+                "# version 2026c\nZ Area/Canonical 0 - UTC\nL Area/Canonical Area/Copied\nL Area/Canonical Area/Absent\n");
+            var reader = As<ITimeZoneCatalogReader>(new TimeZoneCatalogReader(
+                new IanaVersionReader(),
+                new TzifParser(new PosixFutureRuleExpander(new PosixRuleParser()))));
+
+            var catalog = reader.Read(directory);
+
+            Assert.Equal(["Area/Canonical"], catalog.Definitions.Keys);
+            Assert.Equal("Area/Canonical", catalog.Aliases["Area/Copied"]);
+            Assert.Equal("Area/Canonical", catalog.Aliases["Area/Absent"]);
+
+            File.WriteAllText(Path.Combine(directory, "tzdata.zi"), "L Area/Canonical\n");
+            Assert.Throws<InvalidDataException>(() => reader.Read(directory));
+            File.WriteAllText(Path.Combine(directory, "tzdata.zi"), "L Area/Missing Area/Dangling\n");
+            Assert.Contains("targets missing zone",
+                Assert.Throws<InvalidOperationException>(() => reader.Read(directory)).Message);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
     public void CatalogReaderRejectsEmptyMissingAndEscapingAliasCatalogs()
     {
         var directory = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));

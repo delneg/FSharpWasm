@@ -104,6 +104,12 @@
     <None Include="wit-packages/**/*"
           Pack="true"
           PackagePath="tools/wit-packages/%(RecursiveDir)%(Filename)%(Extension)" />
+    <!-- Zone files have no extension, and NuGet treats an extensionless
+         PackagePath as a folder, appending the item's recursive path. Name
+         only the root folder and let pack add each file's relative path. -->
+    <None Include="timezones/**/*"
+          Pack="true"
+          PackagePath="tools/timezones/" />
     <None Include="wit/**/*" Pack="true" PackagePath="tools/wit/%(RecursiveDir)%(Filename)%(Extension)" />
     <None Include="async-wit/**/*" Pack="true" PackagePath="tools/async-wit/%(RecursiveDir)%(Filename)%(Extension)" />
     <None Include="wit/*.wit"

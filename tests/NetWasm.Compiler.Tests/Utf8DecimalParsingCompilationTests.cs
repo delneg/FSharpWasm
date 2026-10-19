@@ -17,7 +17,8 @@ public sealed class Utf8DecimalParsingCompilationTests
         var executor = (ICompilationScenarioExecutor)new CompilationScenarioExecutor(assets);
         var result = executor.Execute(new CompilationScenario(
             "Utf8DecimalParsing", Source, "Utf8DecimalParsing.EntryPoint",
-            optimize, target, 41, []) { Optimization = FinalWasmOptimization.None });
+            optimize, target, 41, [])
+        { Optimization = FinalWasmOptimization.None });
         Assert.Equal(42, result);
     }
 

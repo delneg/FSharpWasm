@@ -263,6 +263,20 @@ if [[ "$(uname -s)" = Darwin ]]; then
 fi
 cc -std=c11 -O1 -Wall -Wextra -Werror -ffunction-sections -fdata-sections \
   "${frame_linker_flags[@]}" -I"$workspace_dir/src/NetWasm.Runtime" \
+  -I"$workspace_dir/src/NetWasm.Runtime/collector" \
+  "${netwasm_gc_sources[@]}" "$script_dir/nullable_array_readback_contract.c" \
+  -o "$output_dir/nullable_array_readback_contract"
+"$output_dir/nullable_array_readback_contract"
+cc -std=c11 -O1 -Wall -Wextra -Werror -ffunction-sections -fdata-sections \
+  -DNULLABLE_READBACK_TEST_HOOKS "${frame_linker_flags[@]}" \
+  -I"$workspace_dir/src/NetWasm.Runtime" -I"$workspace_dir/src/NetWasm.Runtime/collector" \
+  "${netwasm_gc_sources[@]}" "$script_dir/nullable_array_readback_contract.c" \
+  -o "$output_dir/nullable_array_readback_hooks_contract"
+"$output_dir/nullable_array_readback_hooks_contract"
+echo "Nullable array readback and collector lifetime contract PASS"
+
+cc -std=c11 -O1 -Wall -Wextra -Werror -ffunction-sections -fdata-sections \
+  "${frame_linker_flags[@]}" -I"$workspace_dir/src/NetWasm.Runtime" \
   "$script_dir/frame_arena_contract.c" -o "$output_dir/frame_arena_contract"
 "$output_dir/frame_arena_contract"
 cc -std=c11 -O1 -Wall -Wextra -Werror -ffunction-sections -fdata-sections \

@@ -171,17 +171,18 @@ test("maps contract, host, identity, and mid-validation cancellation failures", 
   }) });
   assert.equal((await identity.execute(execution())).primaryFailure.code, "contract.invalid");
 
-  for (const overrides of [
-    { loadManifest() { throw new Error("private transport"); } },
-    { selectTimeZone() { throw new Error("private selector"); } },
-    { resolveStrategy() { return null; } },
+  for (const [overrides, detail] of [
+    [{ loadManifest() { throw new Error("private transport"); } }, "Error: private transport"],
+    [{ selectTimeZone() { throw new Error("private selector"); } }, "Error: private selector"],
+    [{ resolveStrategy() { return null; } },
+      "TypeError: artifact Strategy resolver returned an invalid action"],
   ]) {
     const f = fixture(overrides);
     const outcome = await f.execute(execution());
     assert.deepEqual([outcome.completionKind, outcome.primaryFailure.code], [
       "hostFailure", "host.validation",
     ]);
-    assert.doesNotMatch(JSON.stringify(outcome), /private/);
+    assert.equal(outcome.primaryFailure.detail, detail);
   }
 
   const controller = new AbortController();
@@ -203,17 +204,23 @@ test("maps output preparation failures before filesystem allocation", async () =
 
 test("maps provider contract, host, and cancellation failures", async () => {
   const cases = [
-    [() => { throw createContractError(); }, "contractFailure", "contract.invalid"],
-    [() => { throw new Error("private provider"); }, "hostFailure", "host.provider-prepare"],
+    [() => { throw createContractError(); }, "contractFailure", "contract.invalid",
+      "Error: NetWasm execution contract validation failed."],
+    [() => {
+      throw createContractError(undefined, new TypeError("platform capability 'wallClock' was not granted"));
+    }, "contractFailure", "contract.invalid", "TypeError: platform capability 'wallClock' was not granted"],
+    [() => { throw new Error("private provider"); }, "hostFailure", "host.provider-prepare",
+      "Error: private provider"],
     [({ signal }) => { signal.controller.abort(); throw new Error("private"); },
-      "callerCancellation", "caller.cancelled"],
+      "callerCancellation", "caller.cancelled", undefined],
   ];
-  for (const [prepare, kind, code] of cases) {
+  for (const [prepare, kind, code, detail] of cases) {
     const controller = new AbortController();
     controller.signal.controller = controller;
     const f = fixture({ prepareProviders: prepare });
     const outcome = await f.execute(execution({ signal: controller.signal }));
     assert.deepEqual([outcome.completionKind, outcome.primaryFailure.code], [kind, code]);
+    assert.equal(outcome.primaryFailure.detail, detail);
     assert.equal(f.calls.some(([name]) => name === "strategy"), false);
   }
 });
@@ -239,7 +246,8 @@ test("maps unexpected resource workflow rejection and caller cancellation", asyn
     assert.deepEqual([outcome.completionKind, outcome.primaryFailure.phase], [
       cancelled ? "callerCancellation" : "hostFailure", "execution",
     ]);
-    assert.doesNotMatch(JSON.stringify(outcome), /private/);
+    assert.equal(outcome.primaryFailure.detail,
+      cancelled ? undefined : "Error: private workflow detail");
   }
 });
 

@@ -172,7 +172,7 @@ test("maps loader failures and cancellation without preparing or entering the gu
     releaseActions: [release("caller", () => calls.push("caller-close"))],
   }));
   assert.equal(failedResult.primaryFailure.code, "host.raw-load");
-  assert.doesNotMatch(JSON.stringify(failedResult), /private/);
+  assert.equal(failedResult.primaryFailure.detail, "Error: private loader detail");
   assert.deepEqual(calls, ["load", "caller-close"]);
 
   const before = new AbortController();
@@ -239,7 +239,9 @@ test("maps interop preparation failures before instantiation", async () => {
       instantiate() { calls.push("instantiate"); },
     }));
     assert.equal(result.primaryFailure.code, "host.interop-prepare");
-    assert.doesNotMatch(JSON.stringify(result), /private/);
+    assertDetail(result.primaryFailure, prepareInterop === invalidPreparations[0]
+      ? "Error: private interop detail"
+      : /^TypeError: \S/u);
   }
   assert.deepEqual(calls, []);
 });
@@ -279,7 +281,13 @@ test("contains instantiation, binding, and execution-boundary failures", async (
         : "host.raw-instantiate";
     assert.equal(result.primaryFailure.code, expectedCode);
     assert.equal(closes, loaderFailure ? 0 : 1);
-    assert.doesNotMatch(JSON.stringify(result), /private/);
+    assertDetail(result.primaryFailure, {
+      "instantiate": "Error: private instantiate detail",
+      "invalid-result": /^TypeError: \S/u,
+      "bind": "Error: private bind detail",
+      "loaded-accessor": "Error: private loaded boundary detail",
+      "loaded-null": /^TypeError: \S/u,
+    }[mode]);
   }
 });
 
@@ -302,7 +310,8 @@ test("records interop and caller cleanup failures in ownership order", async () 
   assert.deepEqual(calls, ["interop-close", "caller-close"]);
   assert.equal(result.primaryFailure.code, "host.interop-close");
   assert.deepEqual(result.cleanupFailures.map(value => value.code), ["host.caller-close"]);
-  assert.doesNotMatch(JSON.stringify(result), /private/);
+  assert.deepEqual([result.primaryFailure, ...result.cleanupFailures].map(value => value.detail),
+    ["Error: private interop close", "Error: private caller close"]);
 });
 
 test("contains unexpected raw executor failures and closes managed interop", async () => {
@@ -332,7 +341,7 @@ test("contains unexpected raw executor failures and closes managed interop", asy
   assert.equal(abortedReads, 4);
   assert.equal(result.primaryFailure.code, "host.raw-execution");
   assert.deepEqual(calls, ["interop-close"]);
-  assert.doesNotMatch(JSON.stringify(result), /private/);
+  assert.equal(result.primaryFailure.detail, "Error: private signal detail");
 });
 
 test("validates the factory and exact request before loading", async () => {
@@ -409,3 +418,8 @@ test("observes an asynchronous process and closes delivery before interop teardo
   assert.throws(() => delivery.assertAsyncDeliveryAvailable(), /unavailable/);
   delivery.observeAsyncCompletion(new Error("late completion"));
 });
+
+function assertDetail(failure, expected) {
+  if (expected instanceof RegExp) assert.match(failure.detail, expected);
+  else assert.equal(failure.detail, expected);
+}

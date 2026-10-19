@@ -75,13 +75,21 @@ public sealed record WasmEmissionRequest(
 
     public bool UseJavaScriptExportBoundary { get; init; }
 
+    // Exports and host callbacks enter managed code repeatedly; a command's entry point
+    // and a component's initialize export run once per instance.
+    public bool HasReenterableHostEntries =>
+        RequestedExports.Count != 0 || !HostCallbacks.IsEmpty;
+
     public bool StructuredDiagnostics { get; init; }
 
     public bool EnableAddressTakenAggregatePromotion { get; init; }
+    public bool EnableAggregateReferenceLanes { get; init; }
 
     public bool EnableBranchValueFramePlacement { get; init; }
 
     public bool EnableArrayMetadataCaching { get; init; }
+    public bool HoistArrayNullChecks { get; init; }
+    public bool EnableLoopRotation { get; init; }
     public bool EnableScalarCallPreservation { get; init; }
 
     public ImmutableDictionary<EntityKey, ImmutableArray<WasmSourceLocation>>

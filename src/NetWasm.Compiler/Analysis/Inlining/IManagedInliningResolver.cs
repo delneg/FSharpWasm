@@ -10,7 +10,11 @@ internal interface IManagedInliningResolver
 
 internal sealed record ManagedInliningRequest(
     MethodInstanceModel Caller,
-    CilInstruction Call);
+    CilInstruction Call)
+{
+    // The call came from a callee inlined in an earlier round.
+    public bool Nested { get; init; }
+}
 
 internal sealed record ManagedInliningPlan(
     MethodInstanceModel Method,

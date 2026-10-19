@@ -1,4 +1,5 @@
 import { createRawArtifactPlan } from "./raw-artifact-plan.mjs";
+import { runtimeFeatureIds } from "./runtime-feature-ids.mjs";
 import { parseStackTraceSymbols } from "./stack-trace-symbol-reader.mjs";
 
 const requestKeys = new Set([
@@ -48,11 +49,7 @@ const nativeCallbackKeys = [
   "runtimeImportSymbol",
 ];
 const nativeValueTypes = new Set(["i32", "i64", "f32", "f64"]);
-const supportedRuntimeFeatures = new Set([
-  "ephemeron-handles",
-  "local-time",
-  "structured-command-diagnostics",
-]);
+const supportedRuntimeFeatures = new Set(runtimeFeatureIds);
 const digestPattern = /^[0-9a-f]{64}$/u;
 const decoder = new TextDecoder("utf-8", { fatal: true });
 

@@ -13,11 +13,14 @@ public sealed class RuntimeNativeArchiveSnapshotterTests
         var source = directory.Write("libmule.a", "!<arch>\noriginal bytes");
         var owned = Directory.CreateDirectory(Path.Combine(directory.Path, "owned")).FullName;
         var provider = new RuntimeNativeLibrary("mule", "wasm32", source, RuntimePackTestData.Digest);
-        var reader = new RecordingReader { OnRead = path =>
+        var reader = new RecordingReader
+        {
+            OnRead = path =>
         {
             Assert.Equal("!<arch>\noriginal bytes", File.ReadAllText(path));
             File.WriteAllText(source, "changed original");
-        } };
+        }
+        };
         var snapshotter = Assert.IsAssignableFrom<IRuntimeNativeArchiveSnapshotter>(new RuntimeNativeArchiveSnapshotter(reader));
 
         var result = Assert.Single(snapshotter.Snapshot(new([provider], owned)));

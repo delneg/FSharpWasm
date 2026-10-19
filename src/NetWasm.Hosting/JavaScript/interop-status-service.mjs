@@ -1,4 +1,10 @@
-import { isScalarAbiType } from "./interop-abi-types.mjs";
+import {
+  describeValueArray,
+  isHostObject,
+  isScalarAbiType,
+  isValueArrayAbiType,
+  valueArrayConstructor,
+} from "./interop-abi-types.mjs";
 import { normalizeInteropHandle } from "./interop-handle-table.mjs";
 import {
   liftInteropScalar,
@@ -11,8 +17,8 @@ import {
 } from "./managed-interop-callback.mjs";
 import {
   projectManagedInteropMemoryOffset,
-  readManagedInteropBytes,
   readManagedInteropString,
+  readManagedInteropValueArray,
 } from "./managed-interop-memory-codec.mjs";
 import { NetWasmHostError } from "./managed-errors.mjs";
 
@@ -97,13 +103,13 @@ function liftArgument(request, value, index, callbackHandles, observeAsyncComple
       memory: request.getMemory(),
     });
   }
-  if (type === "bytes") {
-    return readManagedInteropBytes({
+  if (isValueArrayAbiType(type)) {
+    return readManagedInteropValueArray({
       reference: value,
       target: request.target,
       targetLayout: request.targetLayout,
       memory: request.getMemory(),
-    });
+    }, valueArrayConstructor(type));
   }
   if (type === "object" || type === "subscription") {
     return value === 0 ? null : request.handles.get(value);
@@ -182,19 +188,14 @@ function startAsyncOperation(request, asyncHandle, argumentsForService, observeA
       if (!operation.active) return;
       operation.active = false;
       request.pendingAsyncOperations.delete(asyncHandle);
-      let normalized;
+      let resolution;
       try {
-        normalized = request.descriptor.result === "void"
-          ? undefined
-          : lowerInteropScalar({ type: request.descriptor.result, value });
+        resolution = prepareAsyncResolution(request, asyncHandle, resolve, value);
       } catch {
         settleAsyncCompletion(request, () => reject(asyncHandle), observeAsyncCompletion);
         return;
       }
-      settleAsyncCompletion(request, () => {
-        if (request.descriptor.result === "void") resolve(asyncHandle);
-        else resolve(asyncHandle, normalized);
-      }, observeAsyncCompletion);
+      settleAsyncCompletion(request, resolution, observeAsyncCompletion);
     },
     () => {
       if (!operation.active) return;
@@ -203,6 +204,44 @@ function startAsyncOperation(request, asyncHandle, argumentsForService, observeA
       settleAsyncCompletion(request, () => reject(asyncHandle), observeAsyncCompletion);
     });
   return request.statusAbi.successStatus;
+}
+
+function prepareAsyncResolution(request, asyncHandle, resolve, value) {
+  const { descriptor: { result }, handles } = request;
+  if (result === "void") return () => resolve(asyncHandle);
+  if (isScalarAbiType(result)) {
+    const normalized = lowerInteropScalar({ type: result, value });
+    return () => resolve(asyncHandle, normalized);
+  }
+  requireTransferResult(result, value);
+  // The resolve export copies a string or array before returning, so its handle
+  // ends here. A JSObject wrapper owns its handle once resolve succeeds.
+  return () => {
+    const handle = value === null ? 0 : handles.acquire(value);
+    let transferred = false;
+    try {
+      resolve(asyncHandle, handle);
+      transferred = result === "object";
+    } finally {
+      if (handle !== 0 && !transferred) handles.release(handle);
+    }
+  };
+}
+
+function requireTransferResult(type, result) {
+  if (result === null) return;
+  if (type === "string" && typeof result !== "string") {
+    throw new NetWasmHostError("a string host service must return string or null");
+  }
+  if (isValueArrayAbiType(type) && !(result instanceof valueArrayConstructor(type))) {
+    throw new NetWasmHostError(type === "bytes"
+      ? "a byte-array host service must return Uint8Array or null"
+      : `a host service result: ${describeValueArray(type)}`);
+  }
+  if (type === "object" && !isHostObject(result)) {
+    throw new NetWasmHostError(
+      "a JSObject host service must return an object, function, or null");
+  }
 }
 
 function settleAsyncCompletion(request, action, observeAsyncCompletion) {
@@ -240,31 +279,11 @@ function writeResult(request, result, descriptorAddress, callbackHandles) {
     });
     return;
   }
-  if (descriptor.result === "string") {
-    if (result !== null && typeof result !== "string") {
-      throw new NetWasmHostError("a string host service must return string or null");
-    }
-    writeHandle(handles, result === null ? 0 : handles.acquire(result), memory, byteOffset);
-    return;
-  }
-  if (descriptor.result === "bytes") {
-    if (result !== null && !(result instanceof Uint8Array)) {
-      throw new NetWasmHostError(
-        "a byte-array host service must return Uint8Array or null");
-    }
-    writeHandle(
-      handles,
-      result === null ? 0 : handles.acquire(result.slice()),
-      memory,
-      byteOffset);
-    return;
-  }
-  if (descriptor.result === "object") {
-    if (result !== null && !isHostObject(result)) {
-      throw new NetWasmHostError(
-        "a JSObject host service must return an object, function, or null");
-    }
-    writeHandle(handles, result === null ? 0 : handles.acquire(result), memory, byteOffset);
+  if (descriptor.result === "string" || descriptor.result === "object"
+      || isValueArrayAbiType(descriptor.result)) {
+    requireTransferResult(descriptor.result, result);
+    const value = result !== null && isValueArrayAbiType(descriptor.result) ? result.slice() : result;
+    writeHandle(handles, value === null ? 0 : handles.acquire(value), memory, byteOffset);
     return;
   }
   if (descriptor.result === "subscription" || descriptor.result === "promise") {
@@ -288,9 +307,6 @@ function writeHandle(_handles, handle, memory, byteOffset) {
   new DataView(memory.buffer).setInt32(byteOffset, handle, true);
 }
 
-function isHostObject(value) {
-  return (typeof value === "object" && value !== null) || typeof value === "function";
-}
 
 function assertExactDataObject(value, keys, label) {
   if (value === null || typeof value !== "object" || Array.isArray(value)

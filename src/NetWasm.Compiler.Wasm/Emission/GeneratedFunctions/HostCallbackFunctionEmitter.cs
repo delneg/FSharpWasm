@@ -31,7 +31,7 @@ internal sealed class HostCallbackFunctionEmitter(
         var referenceParameters = invoke.Signature.ParameterSignatureTypes
             .Select((type, index) => (Type: type, Index: index))
             .Where(parameter => InteropTypeClassifier.IsString(parameter.Type) ||
-                                InteropTypeClassifier.IsByteArray(parameter.Type))
+                                InteropTypeClassifier.IsValueArray(parameter.Type))
             .ToArray();
         var delegateLocal = invoke.Signature.ParameterTypes.Length + 1;
         var temporaryI4 = delegateLocal + 1;
@@ -111,7 +111,7 @@ internal sealed class HostCallbackFunctionEmitter(
                         code.Instructions.Write(WasmInstruction.WithOperand(WasmOpcodes.LocalGet,
                             WasmInstructionOperand.Unsigned((uint)referenceLocals[index])));
                     }
-                    else if (InteropTypeClassifier.IsByteArray(type))
+                    else if (InteropTypeClassifier.IsValueArray(type))
                     {
                         byteArrayArguments.Emit(
                             code.Instructions,

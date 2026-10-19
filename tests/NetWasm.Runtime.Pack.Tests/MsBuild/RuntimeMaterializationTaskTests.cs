@@ -122,7 +122,8 @@ public sealed class RuntimeMaterializationTaskTests
             179_904,
             262_144,
             8_589_934_592,
-            Metrics()) { InternalRuntimeExports = [new("native", 0), new("__heap_base", 3)] };
+            Metrics())
+        { InternalRuntimeExports = [new("native", 0), new("__heap_base", 3)] };
         var actor = new RecordingMaterializer(materialization);
         var build = new RecordingBuildEngine();
         var task = Create(actor, build);

@@ -156,7 +156,8 @@ internal static class CompilerTestSupport
         bool drainReactor = false,
         string? observeExportName = null,
         WasmTarget target = WasmTarget.Wasm32,
-        bool inputIsInt64 = false)
+        bool inputIsInt64 = false,
+        bool assertStaticRootsRegisterOnce = false)
     {
         var path = Path.Combine(directory, "application.wasm");
         File.WriteAllBytes(path, module);
@@ -168,6 +169,7 @@ internal static class CompilerTestSupport
         var expectedEnvironmentReadsText = expectedEnvironmentReadsBeforeRun?.ToString(
             System.Globalization.CultureInfo.InvariantCulture) ?? "null";
         var drainReactorText = drainReactor ? "true" : "false";
+        var assertStaticRootsRegisterOnceText = assertStaticRootsRegisterOnce ? "true" : "false";
         var observeExportText = System.Text.Json.JsonSerializer.Serialize(
             observeExportName ?? exportName);
         var memoryDescriptorText = target == WasmTarget.Wasm64
@@ -176,7 +178,7 @@ internal static class CompilerTestSupport
         var script =
             "const fs=require('node:fs');" +
             $"const memory=new WebAssembly.Memory({memoryDescriptorText});" +
-            "let heap=16;let initialized=false;let environmentReads=0;" +
+            "let heap=16;let initialized=false;let environmentReads=0;let staticRootRegistrations=0;" +
             "let lastException=0;" +
             "let terminalExceptionType=0;let terminalExceptionMessage=null;" +
             "let departedExceptionFrame=null;" +
@@ -299,12 +301,13 @@ internal static class CompilerTestSupport
             "clone=rectangularArray(rank,dims,type,element,size||0,size===undefined?1:0,bounded);}" +
             "else clone=array(length,type,element,size||4);" +
             "return arrayCopy(source,sourceIndex,clone,0,length)===0?clone:0;};" +
-            "const arrayGetValue=(array,index)=>{const v=new DataView(memory.buffer)," +
+            "const arrayGetValue=(array,index,underlying,payloadOffset)=>{const v=new DataView(memory.buffer)," +
             "length=v.getInt32(array+4,true);if(index<0||index>=length)throw Error('array index out of range');" +
-            "const data=v.getInt32(array+8,true),element=v.getInt32(array+12,true),size=valueTypeSizes.get(element);" +
+            "const data=v.getInt32(array+8,true);let element=v.getInt32(array+12,true),size=valueTypeSizes.get(element);" +
             "if(size===undefined)return v.getUint32(data+index*4,true);" +
+            "let slot=data+index*size;if(underlying){if(!v.getUint8(slot))return 0;slot+=payloadOffset;element=underlying;size=valueTypeSizes.get(element);}" +
             "const boxed=allocate(typeSizes.get(element),element),payload=valueTypePayloadOffsets.get(element);" +
-            "new Uint8Array(memory.buffer,boxed+payload,size).set(new Uint8Array(memory.buffer,data+index*size,size));" +
+            "new Uint8Array(memory.buffer,boxed+payload,size).set(new Uint8Array(memory.buffer,slot,size));" +
             "return boxed;};" +
             "const beginThrow=exception=>{lastException=exception;" +
             "const v=new DataView(memory.buffer);" +
@@ -332,7 +335,7 @@ internal static class CompilerTestSupport
             "typeBases.set(type,base);typeSizes.set(type,size);const ids=new Set(),v=new DataView(memory.buffer);" +
             "for(let i=0;i<count;i++)ids.add(v.getInt32(Number(assignables)+i*4,true));typeAssignable.set(type,ids);if(isInterface)typeInterfaces.add(type);}," +
             "register_value_type:(type,size,boxedPayloadOffset)=>{valueTypeSizes.set(type,size);valueTypePayloadOffsets.set(type,boxedPayloadOffset);}," +
-            "register_static_root:z,root_frame_enter:rootEnter,root_frame_leave:rootLeave," +
+            "register_static_root:()=>{staticRootRegistrations++;},root_frame_enter:rootEnter,root_frame_leave:rootLeave," +
             "value_frame_enter:valueEnter,value_frame_leave:valueLeave," +
             "handle_new:()=>0,handle_get:()=>0,handle_release:z," +
             "begin_throw:beginThrow,begin_rethrow:beginThrow," +
@@ -413,9 +416,13 @@ internal static class CompilerTestSupport
             "const expectedEnvironmentReads=" + expectedEnvironmentReadsText + ";" +
             "if(expectedEnvironmentReads!==null&&environmentReads!==expectedEnvironmentReads)" +
             "throw Error(`expected ${expectedEnvironmentReads} environment reads before run, got ${environmentReads}`);" +
-            "let result=0;for(let i=0;i<" + invocationCountText + ";i++)" +
+            "let result=0,firstEntryStaticRoots=null;for(let i=0;i<" + invocationCountText + ";i++){" +
             "result=x.instance.exports[" + System.Text.Json.JsonSerializer.Serialize(exportName) + "](" +
-            inputText + ");" +
+            inputText + ");if(i===0)firstEntryStaticRoots=staticRootRegistrations;}" +
+            "if(" + assertStaticRootsRegisterOnceText + "){" +
+            "if(!(firstEntryStaticRoots>0))throw Error('no static roots were registered by the first entry');" +
+            "if(staticRootRegistrations!==firstEntryStaticRoots)" +
+            "throw Error(`static roots re-registered: ${firstEntryStaticRoots} after the first entry, ${staticRootRegistrations} in total`);}" +
             "if(" + drainReactorText + "){" +
             "const wake=x.instance.exports['cm32p2|netwasm:runtime/reactor-guest@1|wake'];" +
             "while(watchedTokens.length){const token=watchedTokens.shift();" +

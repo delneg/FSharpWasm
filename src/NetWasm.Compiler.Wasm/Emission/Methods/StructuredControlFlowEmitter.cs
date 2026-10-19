@@ -171,6 +171,20 @@ internal sealed class StructuredControlFlowEmitter(
                         exceptionLeaveDepth,
                         dispatcherContinueDepth);
                     break;
+                case StructuredLoop loop when context.RotateLoops:
+                    arraySnapshots.Emit(code, context, loop.Condition.Block);
+                    EmitRotatedLoop(
+                        code,
+                        loop,
+                        method,
+                        context,
+                        emitBlock,
+                        emitExceptionRegion,
+                        loopBreakDepth,
+                        loopContinueDepth,
+                        exceptionLeaveDepth,
+                        dispatcherContinueDepth);
+                    break;
                 case StructuredLoop loop:
                     arraySnapshots.Emit(code, context, loop.Condition.Block);
                     EmitLoop(
@@ -346,6 +360,113 @@ internal sealed class StructuredControlFlowEmitter(
                 : null);
         code.Write(WasmInstruction.WithOperand(
             WasmOpcodes.Branch,
+            WasmInstructionOperand.Unsigned(0)));
+        code.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
+        code.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
+        Emit(
+            code,
+            method,
+            loop.ExitBody,
+            context,
+            emitBlock,
+            emitExceptionRegion,
+            loopBreakDepth: outerLoopBreakDepth is int exitBreakDepth
+                ? exitBreakDepth + 1
+                : null,
+            loopContinueDepth: outerLoopContinueDepth is int exitContinueDepth
+                ? exitContinueDepth + 1
+                : null,
+            exceptionLeaveDepth: exceptionLeaveDepth is int exitLeaveDepth
+                ? exitLeaveDepth + 1
+                : null,
+            dispatcherContinueDepth: dispatcherContinueDepth is int exitDispatcherDepth
+                ? exitDispatcherDepth + 1
+                : null);
+        code.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
+    }
+
+    private void EmitRotatedLoop(
+        IWasmInstructionWriter code,
+        StructuredLoop loop,
+        StructuredMethod method,
+        MethodEmissionContext context,
+        Func<StructuredBlockOccurrence, bool, bool, ConditionValue> emitBlock,
+        Action<StructuredExceptionRegion, MethodEmissionContext, bool, int?, int?, int?>
+            emitExceptionRegion,
+        int? outerLoopBreakDepth,
+        int? outerLoopContinueDepth,
+        int? exceptionLeaveDepth,
+        int? dispatcherContinueDepth)
+    {
+        // The condition guards entry and repeats at the bottom, so each
+        // iteration falls through its body and takes only the back edge.
+        code.Write(WasmInstruction.WithOperand(
+            WasmOpcodes.Block,
+            WasmInstructionOperand.BlockType(WasmOpcodes.EmptyBlockType)));
+        code.Write(WasmInstruction.WithOperand(
+            WasmOpcodes.Block,
+            WasmInstructionOperand.BlockType(WasmOpcodes.EmptyBlockType)));
+        EmitConditionValue(
+            code,
+            context,
+            emitBlock(
+                loop.Condition,
+                true,
+                loop.Condition.Role == StructuredBlockRole.Owner));
+        if (loop.ContinueWhenConditionTrue)
+        {
+            code.Write(WasmInstruction.NoOperand(WasmOpcodes.I32EqualZero));
+        }
+        code.Write(WasmInstruction.WithOperand(
+            WasmOpcodes.BranchIf,
+            WasmInstructionOperand.Unsigned(0)));
+        code.Write(WasmInstruction.WithOperand(
+            WasmOpcodes.Loop,
+            WasmInstructionOperand.BlockType(WasmOpcodes.EmptyBlockType)));
+        code.Write(WasmInstruction.WithOperand(
+            WasmOpcodes.Block,
+            WasmInstructionOperand.BlockType(WasmOpcodes.EmptyBlockType)));
+        Emit(
+            code,
+            method,
+            loop.Body,
+            context,
+            emitBlock,
+            emitExceptionRegion,
+            3,
+            0,
+            exceptionLeaveDepth is int leaveDepth ? leaveDepth + 4 : null,
+            dispatcherContinueDepth is int bodyDispatcherDepth
+                ? bodyDispatcherDepth + 4
+                : null);
+        code.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
+        // A continue in the continuation still reaches the condition.
+        code.Write(WasmInstruction.WithOperand(
+            WasmOpcodes.Block,
+            WasmInstructionOperand.BlockType(WasmOpcodes.EmptyBlockType)));
+        Emit(
+            code,
+            method,
+            loop.ContinueBody,
+            context,
+            emitBlock,
+            emitExceptionRegion,
+            3,
+            0,
+            exceptionLeaveDepth is int continueLeaveDepth
+                ? continueLeaveDepth + 4
+                : null,
+            dispatcherContinueDepth is int continueDispatcherDepth
+                ? continueDispatcherDepth + 4
+                : null);
+        code.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
+        EmitConditionValue(code, context, emitBlock(loop.Condition, true, false));
+        if (!loop.ContinueWhenConditionTrue)
+        {
+            code.Write(WasmInstruction.NoOperand(WasmOpcodes.I32EqualZero));
+        }
+        code.Write(WasmInstruction.WithOperand(
+            WasmOpcodes.BranchIf,
             WasmInstructionOperand.Unsigned(0)));
         code.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
         code.Write(WasmInstruction.NoOperand(WasmOpcodes.End));

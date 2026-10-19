@@ -1,0 +1,71 @@
+using System;
+
+namespace NetWasm.Correctness.FloatingSmallSaturation;
+
+public static class EntryPoint
+{
+    // Unchecked float and double conversions to sbyte, byte, short, ushort and
+    // char. .NET 11 saturates them at the destination's bounds and converts NaN
+    // to 0; earlier runtimes wrapped out-of-range values.
+    private static readonly double[] Values =
+    [
+        double.NaN, double.PositiveInfinity, double.NegativeInfinity, double.MaxValue, double.MinValue,
+        1e30, -1e30, 4294967296.0, 2147483648.0, -2147483649.0, 1e10, -1e10,
+        65536.0, 65535.9, 32768.0, 32767.9, -32768.9, -32769.0, 300.7, -200.5,
+        256.0, 255.9, 128.0, 127.9, -128.9, -129.0, 0.99, -0.5, -1.0, -0.0, double.Epsilon,
+    ];
+
+    public static int Run(int input)
+    {
+        var value = Values[input % Values.Length];
+        var destination = input / Values.Length;
+        return destination < 5 ? FromDouble(value, destination) : FromSingle((float)value, destination - 5);
+    }
+
+    private static int FromDouble(double value, int destination) => destination switch
+    {
+        0 => unchecked((sbyte)value),
+        1 => unchecked((byte)value),
+        2 => unchecked((short)value),
+        3 => unchecked((ushort)value),
+        _ => unchecked((char)value),
+    };
+
+    private static int FromSingle(float value, int destination) => destination switch
+    {
+        0 => unchecked((sbyte)value),
+        1 => unchecked((byte)value),
+        2 => unchecked((short)value),
+        3 => unchecked((ushort)value),
+        _ => unchecked((char)value),
+    };
+
+    // Independent reference captured from all 310 inputs on .NET 11 RC2
+    // (11.0.0-rc.2.26504.105), using the unchanged Run method. Do not derive
+    // these results from the implementation under test.
+    private static readonly int[] ReferenceResults =
+    [
+        0, 127, -128, 127, -128, 127, -128, 127, 127, -128, 127, -128, 127, 127, 127, 127,
+        -128, -128, 127, -128, 127, 127, 127, 127, -128, -128, 0, 0, -1, 0, 0, 0,
+        255, 0, 255, 0, 255, 0, 255, 255, 0, 255, 0, 255, 255, 255, 255, 0,
+        0, 255, 0, 255, 255, 128, 127, 0, 0, 0, 0, 0, 0, 0, 0, 32767,
+        -32768, 32767, -32768, 32767, -32768, 32767, 32767, -32768, 32767, -32768, 32767, 32767, 32767, 32767, -32768, -32768,
+        300, -200, 256, 255, 128, 127, -128, -129, 0, 0, -1, 0, 0, 0, 65535, 0,
+        65535, 0, 65535, 0, 65535, 65535, 0, 65535, 0, 65535, 65535, 32768, 32767, 0, 0, 300,
+        0, 256, 255, 128, 127, 0, 0, 0, 0, 0, 0, 0, 0, 65535, 0, 65535,
+        0, 65535, 0, 65535, 65535, 0, 65535, 0, 65535, 65535, 32768, 32767, 0, 0, 300, 0,
+        256, 255, 128, 127, 0, 0, 0, 0, 0, 0, 0, 0, 127, -128, 127, -128,
+        127, -128, 127, 127, -128, 127, -128, 127, 127, 127, 127, -128, -128, 127, -128, 127,
+        127, 127, 127, -128, -128, 0, 0, -1, 0, 0, 0, 255, 0, 255, 0, 255,
+        0, 255, 255, 0, 255, 0, 255, 255, 255, 255, 0, 0, 255, 0, 255, 255,
+        128, 127, 0, 0, 0, 0, 0, 0, 0, 0, 32767, -32768, 32767, -32768, 32767, -32768,
+        32767, 32767, -32768, 32767, -32768, 32767, 32767, 32767, 32767, -32768, -32768, 300, -200, 256, 255, 128,
+        127, -128, -129, 0, 0, -1, 0, 0, 0, 65535, 0, 65535, 0, 65535, 0, 65535,
+        65535, 0, 65535, 0, 65535, 65535, 32768, 32767, 0, 0, 300, 0, 256, 255, 128, 127,
+        0, 0, 0, 0, 0, 0, 0, 0, 65535, 0, 65535, 0, 65535, 0, 65535, 65535,
+        0, 65535, 0, 65535, 65535, 32768, 32767, 0, 0, 300, 0, 256, 255, 128, 127, 0,
+        0, 0, 0, 0, 0, 0,
+    ];
+
+    public static int Reference(int input) => ReferenceResults[input];
+}

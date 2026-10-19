@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using NetWasm.Compiler.Core;
 using NetWasm.Runtime.Pack.Materialization;
 using NetWasm.Runtime.Pack.Tests.TestSupport;
 
@@ -51,6 +52,24 @@ public sealed class RuntimeLayoutReaderTests
             reader.Read(selectedPath).RuntimeFeatures.ToArray());
         Assert.Empty(reader.Read(emptyPath).RuntimeFeatures);
         Assert.False(reader.Read(emptyPath).RuntimeFeatures.IsDefault);
+    }
+
+    [Fact]
+    public void ReadsEveryRuntimeFeatureTheCompilerCanRecord()
+    {
+        using var directory = new TemporaryDirectory();
+        var path = directory.Write("layout.json", JsonSerializer.Serialize(new
+        {
+            schemaVersion = 3,
+            target = "wasm32",
+            applicationStaticDataEnd = 0,
+            runtimeFeatures = NetWasmRuntimeFeatureIds.All,
+            nativeImports = Array.Empty<object>(),
+        }));
+
+        Assert.Equal(
+            NetWasmRuntimeFeatureIds.All.ToArray(),
+            new RuntimeLayoutReader().Read(path).RuntimeFeatures.ToArray());
     }
 
     [Theory]

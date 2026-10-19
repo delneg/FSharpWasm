@@ -8,6 +8,8 @@
   </PropertyGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="NetWasm.TimeZones.Tests" />
+    <InternalsVisibleTo Include="NetWasm.Hosting.Build" />
+    <InternalsVisibleTo Include="NetWasm.Hosting.Build.Tests" />
     <InternalsVisibleTo Include="NetWasm.CoreLib.SurfaceAudit.Tests" />
   </ItemGroup>
 </Project>

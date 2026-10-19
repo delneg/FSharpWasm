@@ -50,6 +50,13 @@ export async function runAsyncJavaScriptInterop(
         never: () => new Promise(() => {}),
         signal: value => { equal(value, 17, "Task import argument"); },
         signal_value: async value => { equal(value, 18, "ValueTask import argument"); },
+        resolve_text: async value => value === null ? null : `${value}!`,
+        resolve_doubles: async values => values.length === 0
+          ? null
+          : Float64Array.from(values, value => value * 1.5),
+        resolve_object: value => Promise.resolve(value < 0 ? null : { value: value * 10 }),
+        object_value: host => host.value,
+        reenter: depth => managed.exports.nest(depth),
       },
     },
   });
@@ -60,6 +67,20 @@ export async function runAsyncJavaScriptInterop(
   equal(await managed.exports.immediate_value_task(11), 15, "immediate ValueTask");
   equal(await managed.exports.task_void(17), undefined, "void Task");
   equal(await managed.exports.value_task_void(18), undefined, "void ValueTask");
+  // "tag!" is 4 characters; 2, 4 and 6 each times 1.5 sum to 18; the object carries 3 * 10.
+  equal(await managed.exports.reference_round_trip("tag", Int32Array.of(2, 4, 6)), 4048,
+    "string and array arguments with string, array, and JSObject async results");
+  equal(await managed.exports.null_references(null), 15, "null async references");
+  var page = { value: 41 };
+  equal(managed.exports.echo_object(page), page, "JSObject export identity");
+  equal(managed.exports.echo_object(null), null, "null JSObject export");
+  equal(managed.exports.read_object(page), 41, "JSObject export argument");
+  equal(await managed.exports.read_object_later(page), 42, "async JSObject export argument");
+  // 32 nested export calls are allowed; the 33rd is refused and the managed
+  // caller observes it as a JSException. The session stays usable afterwards.
+  equal(managed.exports.nest(31), 1024, "re-entrant exports at the depth limit");
+  equal(managed.exports.nest(32), -1, "re-entrant exports beyond the depth limit");
+  equal(managed.exports.nest(3), 16, "re-entrant exports after refusal");
   await rejects(
     () => managed.exports.fault(11),
     error => error instanceof NetWasmManagedError,
@@ -71,7 +92,11 @@ export async function runAsyncJavaScriptInterop(
   var canceledByDispose = managed.exports.observe_cancellation(11);
   await Promise.resolve();
   managed.dispose();
-  equal(await canceledByDispose, 16, "adapter-disposal cancellation");
+  // Closing the session cancels pending imports and rejects pending exports.
+  await rejects(
+    () => canceledByDispose,
+    error => error?.message === "NetWasm export session is closed",
+    "adapter-disposal rejection");
   equal(managed.instance.exports.test_handle_count(), 0, "managed handles");
   equal(managed.handles.count, 0, "JavaScript handles");
 }

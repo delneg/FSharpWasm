@@ -148,3 +148,41 @@ internal sealed class HostCallbackByteArrayArgumentMarshaller(
         }
     }
 }
+
+internal sealed class HostCallbackHostObjectArgumentMarshaller(
+    ITargetLayout layouts,
+    ITypeLayoutProvider typeLayouts,
+    IRuntimeImportResolver runtimeImports,
+    IImplicitExceptionEmitter exceptions,
+    IAddressInstructionEmitter addresses) : IHostCallbackHostObjectArgumentMarshaller
+{
+    public void Emit(
+        IWasmInstructionWriter code,
+        CliTypeIdentity objectType,
+        int handleParameter,
+        int destination)
+    {
+        var objectLayout = typeLayouts.GetObjectLayout(objectType);
+        code.Write(WasmInstruction.WithOperand(WasmOpcodes.LocalGet, WasmInstructionOperand.Unsigned((uint)(handleParameter))));
+        code.Write(WasmInstruction.NoOperand(WasmOpcodes.I32EqualZero));
+        code.Write(WasmInstruction.WithOperand(WasmOpcodes.If, WasmInstructionOperand.BlockType(WasmOpcodes.EmptyBlockType)));
+        addresses.Emit(code, 0);
+        code.Write(WasmInstruction.WithOperand(WasmOpcodes.LocalSet, WasmInstructionOperand.Unsigned((uint)(destination))));
+        code.Write(WasmInstruction.NoOperand(WasmOpcodes.Else));
+        addresses.Emit(code, objectLayout.Size);
+        code.Write(WasmInstruction.WithOperand(WasmOpcodes.I32Constant, WasmInstructionOperand.Signed(objectLayout.TypeId)));
+        code.Write(WasmInstruction.WithOperand(WasmOpcodes.Call, WasmInstructionOperand.Unsigned((uint)(runtimeImports.Resolve(RuntimeImportSymbol.Allocate)))));
+        code.Write(WasmInstruction.WithOperand(WasmOpcodes.LocalSet, WasmInstructionOperand.Unsigned((uint)(destination))));
+        code.Write(WasmInstruction.WithOperand(WasmOpcodes.LocalGet, WasmInstructionOperand.Unsigned((uint)(destination))));
+        addresses.Emit(code, AddressOperation.EqualZero);
+        code.Write(WasmInstruction.WithOperand(WasmOpcodes.If, WasmInstructionOperand.BlockType(WasmOpcodes.EmptyBlockType)));
+        exceptions.Emit(code, ManagedExceptionKind.OutOfMemory);
+        code.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
+        code.Write(WasmInstruction.WithOperand(WasmOpcodes.LocalGet, WasmInstructionOperand.Unsigned((uint)(destination))));
+        addresses.Emit(code, layouts.Target.ObjectHeaderSize);
+        addresses.Emit(code, AddressOperation.Add);
+        code.Write(WasmInstruction.WithOperand(WasmOpcodes.LocalGet, WasmInstructionOperand.Unsigned((uint)(handleParameter))));
+        code.Write(WasmInstruction.WithOperand(WasmOpcodes.I32Store, WasmInstructionOperand.Memory(2, 0)));
+        code.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
+    }
+}

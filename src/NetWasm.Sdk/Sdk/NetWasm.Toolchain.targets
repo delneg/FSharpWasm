@@ -44,6 +44,9 @@
     <NetWasmHostingBrowserModulePath Condition="'$(NetWasmHostingBrowserModulePath)' == '' AND '$(NetWasmHostingJavaScriptRoot)' != '' AND '$(NetWasmRawWasm)' == 'true'">$([System.IO.Path]::Combine('$(NetWasmHostingJavaScriptRoot)', 'browser-raw-bootstrap.mjs'))</NetWasmHostingBrowserModulePath>
     <NetWasmHostingBrowserModulePath Condition="'$(NetWasmHostingBrowserModulePath)' == '' AND '$(NetWasmHostingJavaScriptRoot)' != ''">$([System.IO.Path]::Combine('$(NetWasmHostingJavaScriptRoot)', 'browser-component-bootstrap.mjs'))</NetWasmHostingBrowserModulePath>
     <NetWasmBrowserPublishDir Condition="'$(NetWasmBrowserPublishDir)' == '' AND '$(PublishDir)' != ''">$([System.IO.Path]::GetFullPath($([System.IO.Path]::Combine('$(MSBuildProjectDirectory)', '$(PublishDir)', 'browser'))))</NetWasmBrowserPublishDir>
+    <NetWasmJavaScriptHosts Condition="'$(NetWasmJavaScriptHosts)' == '' AND '$(_NetWasmWorkerKind)' == 'jsexport'">page</NetWasmJavaScriptHosts>
+    <_NetWasmJavaScriptPageHost>$([System.String]::Copy(';$(NetWasmJavaScriptHosts.Replace(' ', '').ToLowerInvariant());').Contains(';page;'))</_NetWasmJavaScriptPageHost>
+    <_NetWasmJavaScriptWorkerHost>$([System.String]::Copy(';$(NetWasmJavaScriptHosts.Replace(' ', '').ToLowerInvariant());').Contains(';worker;'))</_NetWasmJavaScriptWorkerHost>
     <NetWasmWorkerPublishDir Condition="'$(NetWasmWorkerPublishDir)' == '' AND '$(PublishDir)' != ''">$([System.IO.Path]::GetFullPath($([System.IO.Path]::Combine('$(MSBuildProjectDirectory)', '$(PublishDir)', 'browser'))))</NetWasmWorkerPublishDir>
 
     <NetWasmPublishTarget Condition="'$(NetWasmPublishTarget)' == '' AND '$(NetWasmPublishMode)' != ''">$(NetWasmPublishMode)</NetWasmPublishTarget>
@@ -154,6 +157,8 @@
       <Output TaskParameter="JcoVersion" PropertyName="NetWasmJcoVersion" />
       <Output TaskParameter="Preview2ShimVersion" PropertyName="NetWasmPreview2ShimVersion" />
       <Output TaskParameter="Preview2ShimRoot" PropertyName="NetWasmPreview2ShimRoot" />
+      <Output TaskParameter="TimeZoneSourceRoot" PropertyName="NetWasmTimeZoneSourceRoot" />
+      <Output TaskParameter="TimeZoneDataVersion" PropertyName="NetWasmTimeZoneDataVersion" />
       <Output TaskParameter="HostingBundleCommandPath" PropertyName="NetWasmHostingBundleCommandPath" />
       <Output TaskParameter="RolldownVersion" PropertyName="NetWasmRolldownVersion" />
     </NetWasmResolveBuildEnvironmentTask>
@@ -272,15 +277,15 @@
     <ItemGroup>
       <Compile Include="@(_NetWasmReferencedWorkerContract->'$(_NetWasmWorkerGeneratedDirectory)/%(WorkerProjectName).g.cs')" />
       <FileWrites Include="@(_NetWasmReferencedWorkerContract->'$(_NetWasmWorkerGeneratedDirectory)/%(WorkerProjectName).g.cs');@(_NetWasmReferencedWorkerContract->'$(_NetWasmWorkerGeneratedDirectory)/%(WorkerProjectName).mjs')" />
-      <NetWasmWorkerJavaScriptModule Include="@(_NetWasmReferencedWorkerContract->'$(_NetWasmWorkerGeneratedDirectory)/%(WorkerProjectName).mjs')">
+      <NetWasmJavaScriptModule Include="@(_NetWasmReferencedWorkerContract->'$(_NetWasmWorkerGeneratedDirectory)/%(WorkerProjectName).mjs')">
         <Module>netwasm:worker/%(_NetWasmReferencedWorkerContract.WorkerProjectName)</Module>
         <NetWasmGeneratedWorkerClient>true</NetWasmGeneratedWorkerClient>
-      </NetWasmWorkerJavaScriptModule>
+      </NetWasmJavaScriptModule>
     </ItemGroup>
   </Target>
 
   <Target Name="NetWasmSdkPublishReferencedWorkers"
-          AfterTargets="NetWasmSdkPublishJsWorker;NetWasmSdkPublishBrowser"
+          AfterTargets="NetWasmSdkPublishJsModule;NetWasmSdkPublishBrowser"
           Condition="'$(TargetFramework)' == 'netwasm0.1' AND '@(_NetWasmWorkerReference)' != '' AND '$(DesignTimeBuild)' != 'true'">
     <PropertyGroup>
       <_NetWasmWorkerCallerPublishDir Condition="'$(_NetWasmWorkerKind)' == 'jsexport'">$(NetWasmWorkerPublishDir)</_NetWasmWorkerCallerPublishDir>
@@ -402,10 +407,87 @@
     </ItemGroup>
   </Target>
 
+  <!--
+    Time zone sidecar (docs/timezone-assets.md). An application chooses the zones
+    it ships: NetWasmTimeZone items (Selected, implied by the items) or
+    NetWasmTimeZoneMode=Full. Publish writes <program>.wasm.tz-info from the
+    pinned Toolchain zone source only when the final artifact keeps local-time;
+    TZ stays an explicit execution setting.
+  -->
+  <Target Name="NetWasmSdkPrepareTimeZoneSidecar"
+          DependsOnTargets="_NetWasmSdkResolveTimeZoneSidecar;_NetWasmSdkWriteTimeZoneSidecar"
+          Condition="'$(TargetFramework)' == 'netwasm0.1' AND '$(DesignTimeBuild)' != 'true'">
+    <ItemGroup Condition="'$(_NetWasmTimeZoneSidecarRequired)' == 'true'">
+      <_NetWasmTimeZoneSidecar Include="$(_NetWasmTimeZoneSidecarPath)">
+        <RelativePath>$(AssemblyName).wasm.tz-info</RelativePath>
+        <Role>timezone-data</Role>
+        <MediaType>application/octet-stream</MediaType>
+        <SchemaVersion>1</SchemaVersion>
+      </_NetWasmTimeZoneSidecar>
+      <FileWrites Include="$(_NetWasmTimeZoneSidecarPath);$(_NetWasmTimeZoneSidecarInputsPath)" />
+    </ItemGroup>
+  </Target>
+
+  <Target Name="_NetWasmSdkResolveTimeZoneSidecar"
+          DependsOnTargets="NetWasmSdkResolveBuildEnvironment">
+    <PropertyGroup>
+      <_NetWasmTimeZoneMode>$(NetWasmTimeZoneMode)</_NetWasmTimeZoneMode>
+      <_NetWasmTimeZoneMode Condition="'$(_NetWasmTimeZoneMode)' == '' AND '@(NetWasmTimeZone)' != ''">Selected</_NetWasmTimeZoneMode>
+      <_NetWasmTimeZoneSidecarPath>$([System.IO.Path]::Combine('$(NetWasmIntermediateOutputPath)', '$(AssemblyName).wasm.tz-info'))</_NetWasmTimeZoneSidecarPath>
+      <_NetWasmTimeZoneSidecarInputsPath>$(_NetWasmTimeZoneSidecarPath).inputs</_NetWasmTimeZoneSidecarInputsPath>
+      <_NetWasmTimeZoneSidecarRequired>false</_NetWasmTimeZoneSidecarRequired>
+    </PropertyGroup>
+    <ItemGroup>
+      <_NetWasmTimeZoneSidecar Remove="@(_NetWasmTimeZoneSidecar)" />
+      <_NetWasmTimeZoneRuntimeFeature Remove="@(_NetWasmTimeZoneRuntimeFeature)" />
+    </ItemGroup>
+    <Error Code="NWSDK083"
+           Condition="'$(_NetWasmTimeZoneMode)' != '' AND '$(_NetWasmTimeZoneMode)' != 'Selected' AND '$(_NetWasmTimeZoneMode)' != 'Full'"
+           Text="NetWasmTimeZoneMode must be Selected or Full, not '$(NetWasmTimeZoneMode)'." />
+    <Error Code="NWSDK084"
+           Condition="'$(_NetWasmTimeZoneMode)' == 'Selected' AND '@(NetWasmTimeZone)' == ''"
+           Text="NetWasmTimeZoneMode Selected needs at least one NetWasmTimeZone item, such as &lt;NetWasmTimeZone Include=&quot;Australia/Melbourne&quot; /&gt;." />
+    <Error Code="NWSDK079"
+           Condition="'$(_NetWasmTimeZoneMode)' == 'Full' AND '@(NetWasmTimeZone)' != ''"
+           Text="NetWasmTimeZoneMode Full already ships every zone; remove the NetWasmTimeZone items." />
+    <NetWasmReadCompilerBuildMetadataTask Condition="'$(_NetWasmTimeZoneMode)' != ''"
+                                          MetadataPath="$(NetWasmCompilerMetadataPath)">
+      <Output TaskParameter="DeploymentRuntimeFeatures" ItemName="_NetWasmTimeZoneRuntimeFeature" />
+    </NetWasmReadCompilerBuildMetadataTask>
+    <PropertyGroup>
+      <_NetWasmTimeZoneSidecarRequired Condition="'$(_NetWasmTimeZoneMode)' != '' AND '@(_NetWasmTimeZoneRuntimeFeature->WithMetadataValue('Identity', 'local-time'))' != ''">true</_NetWasmTimeZoneSidecarRequired>
+    </PropertyGroup>
+    <Warning Code="NWSDK080"
+             Condition="'$(_NetWasmTimeZoneMode)' != '' AND '$(_NetWasmTimeZoneSidecarRequired)' != 'true'"
+             Text="No reachable local-time API uses the selected time zones, so the deployment omits the time zone sidecar." />
+    <Error Code="NWSDK085"
+           Condition="'$(_NetWasmTimeZoneSidecarRequired)' == 'true' AND ('$(NetWasmTimeZoneSourceRoot)' == '' OR !Exists('$(NetWasmTimeZoneSourceRoot)'))"
+           Text="The resolved NetWasm.Toolchain package does not provide the pinned time zone source." />
+    <ItemGroup Condition="'$(_NetWasmTimeZoneSidecarRequired)' == 'true'">
+      <_NetWasmTimeZoneSidecarInput Include="mode=$(_NetWasmTimeZoneMode);iana=$(NetWasmTimeZoneDataVersion);source=$(NetWasmTimeZoneSourceRoot)" />
+      <_NetWasmTimeZoneSidecarInput Include="@(NetWasmTimeZone->'zone=%(Identity)')" />
+    </ItemGroup>
+    <WriteLinesToFile Condition="'$(_NetWasmTimeZoneSidecarRequired)' == 'true'"
+                      File="$(_NetWasmTimeZoneSidecarInputsPath)"
+                      Lines="@(_NetWasmTimeZoneSidecarInput)"
+                      Overwrite="true"
+                      WriteOnlyWhenDifferent="true" />
+  </Target>
+
+  <Target Name="_NetWasmSdkWriteTimeZoneSidecar"
+          Condition="'$(_NetWasmTimeZoneSidecarRequired)' == 'true'"
+          Inputs="$(_NetWasmTimeZoneSidecarInputsPath)"
+          Outputs="$(_NetWasmTimeZoneSidecarPath)">
+    <NetWasmWriteTimeZoneSidecarTask SourceRoot="$(NetWasmTimeZoneSourceRoot)"
+                                     Mode="$(_NetWasmTimeZoneMode)"
+                                     Zones="@(NetWasmTimeZone)"
+                                     OutputPath="$(_NetWasmTimeZoneSidecarPath)" />
+  </Target>
+
   <Target Name="NetWasmSdkPrepareLocalDeployment"
           AfterTargets="NetWasmSdkComponentize"
           BeforeTargets="Run"
-          DependsOnTargets="NetWasmSdkComponentize;NetWasmValidateCompilerArtifacts;NetWasmSdkResolveExecutionArguments"
+          DependsOnTargets="NetWasmSdkComponentize;NetWasmValidateCompilerArtifacts;NetWasmSdkResolveExecutionArguments;NetWasmSdkPrepareTimeZoneSidecar"
           Condition="'$(TargetFramework)' == 'netwasm0.1' AND '$(OutputType)' == 'Exe' AND '$(NoBuild)' != 'true' AND '$(DesignTimeBuild)' != 'true'">
     <NetWasmReadCompilerBuildMetadataTask MetadataPath="$(NetWasmCompilerMetadataPath)">
       <Output TaskParameter="Target" PropertyName="_NetWasmCompilerMetadataTarget" />
@@ -459,6 +541,7 @@
         <MediaType>application/wasm</MediaType>
       </_NetWasmDeploymentArtifact>
       <_NetWasmDeploymentArtifact Include="@(_NetWasmComponentDeploymentArtifact)" />
+      <_NetWasmDeploymentArtifact Include="@(_NetWasmTimeZoneSidecar)" />
       <_NetWasmDeploymentArtifact Include="$(NetWasmLocalLauncherBuildPath)">
         <RelativePath>netwasm.host.mjs</RelativePath>
         <Role>hosting-javascript</Role>
@@ -607,7 +690,7 @@
     <NetWasmWriteBrowserBootstrapEntryTask HostingBrowserModulePath="$(NetWasmHostingBrowserModulePath)"
                                            Preview2ShimRoot="$(NetWasmPreview2ShimRoot)"
                                            OutputPath="$(_NetWasmBrowserEntryPath)"
-                                           Modules="@(NetWasmWorkerJavaScriptModule)" />
+                                           Modules="@(NetWasmJavaScriptModule)" />
     <NetWasmBundleJavaScriptTask NodePath="$(NetWasmNodePath)"
                                 CommandPath="$(NetWasmHostingBundleCommandPath)"
                                 EntryPath="$(_NetWasmBrowserEntryPath)"
@@ -621,6 +704,7 @@
         <MediaType>application/wasm</MediaType>
       </_NetWasmBrowserDeploymentArtifact>
       <_NetWasmBrowserDeploymentArtifact Include="@(_NetWasmComponentDeploymentArtifact)" />
+      <_NetWasmBrowserDeploymentArtifact Include="@(_NetWasmTimeZoneSidecar)" />
       <_NetWasmBrowserDeploymentArtifact Include="$(_NetWasmBrowserBundlePath)">
         <RelativePath>netwasm.browser.mjs</RelativePath>
         <Role>hosting-javascript</Role>
@@ -675,19 +759,57 @@
                                 Artifacts="@(_NetWasmBrowserDeploymentArtifact)"
                                 RequiredImportModules="@(_NetWasmDeploymentRequiredImportModule)"
                                 RequiredImports="@(_NetWasmDeploymentRequiredImport)"
-                                Exports="@(_NetWasmDeploymentExport)" />
+                                Exports="@(_NetWasmDeploymentExport)">
+      <Output TaskParameter="BuildFingerprint" PropertyName="_NetWasmBrowserBuildFingerprint" />
+      <Output TaskParameter="ManifestSha256" PropertyName="_NetWasmBrowserManifestSha256" />
+    </NetWasmWriteDeploymentTask>
+    <!-- Written after deployment.json, whose digest it pins, so it is not a manifest artifact. -->
+    <NetWasmWriteCommandRunModuleTask BundleFileName="netwasm.browser.mjs"
+                                      BuildFingerprint="$(_NetWasmBrowserBuildFingerprint)"
+                                      ManifestSha256="$(_NetWasmBrowserManifestSha256)"
+                                      OutputPath="$([System.IO.Path]::Combine('$(NetWasmBrowserPublishDir)', '$(AssemblyName).mjs'))"
+                                      DeclarationPath="$([System.IO.Path]::Combine('$(NetWasmBrowserPublishDir)', '$(AssemblyName).d.mts'))"
+                                      Arguments="@(_NetWasmExecutionArgument)"
+                                      EnvironmentVariables="@(NetWasmEnvironmentVariable)"
+                                      Clocks="@(NetWasmClockGrant)"
+                                      Network="$(NetWasmNetworkPolicy)"
+                                      Randomness="$(NetWasmRandomness)" />
   </Target>
 
-  <Target Name="NetWasmSdkPublishJsWorker"
+  <Target Name="NetWasmSdkValidateJavaScriptHosts"
+          BeforeTargets="CoreCompile;Publish"
+          Condition="'$(TargetFramework)' == 'netwasm0.1' AND '$(_NetWasmWorkerKind)' == 'jsexport'">
+    <ItemGroup>
+      <_NetWasmJavaScriptHostEntry Include="$(NetWasmJavaScriptHosts)" />
+      <_NetWasmJavaScriptHost Include="@(_NetWasmJavaScriptHostEntry->Trim()->ToLowerInvariant())" />
+      <_NetWasmUnknownJavaScriptHost Include="@(_NetWasmJavaScriptHost)"
+                                     Exclude="page;worker" />
+    </ItemGroup>
+    <RemoveDuplicates Inputs="@(_NetWasmJavaScriptHost)">
+      <Output TaskParameter="Filtered" ItemName="_NetWasmUniqueJavaScriptHost" />
+    </RemoveDuplicates>
+    <Error Code="NWSDK076"
+           Condition="'@(_NetWasmJavaScriptHost)' == '' OR '@(_NetWasmUnknownJavaScriptHost)' != '' OR '@(_NetWasmJavaScriptHost->Count())' != '@(_NetWasmUniqueJavaScriptHost->Count())'"
+           Text="NetWasmJavaScriptHosts must list page, worker, or both, each once. Found '$(NetWasmJavaScriptHosts)'." />
+  </Target>
+
+  <Target Name="NetWasmSdkRejectRenamedJavaScriptModuleItem"
+          BeforeTargets="CoreCompile;Publish"
+          Condition="'$(TargetFramework)' == 'netwasm0.1' AND '@(NetWasmWorkerJavaScriptModule)' != ''">
+    <Error Code="NWSDK075"
+           Text="The NetWasmWorkerJavaScriptModule item was renamed to NetWasmJavaScriptModule. Rename '@(NetWasmWorkerJavaScriptModule)' in the project file." />
+  </Target>
+
+  <Target Name="NetWasmSdkPublishJsModule"
           BeforeTargets="Publish"
-          DependsOnTargets="NetWasmSdkComponentize;NetWasmValidateCompilerArtifacts;NetWasmSdkValidateFinalArtifactForNoBuild;NetWasmSdkResolveExecutionArguments"
+          DependsOnTargets="NetWasmSdkComponentize;NetWasmValidateCompilerArtifacts;NetWasmSdkValidateFinalArtifactForNoBuild;NetWasmSdkResolveExecutionArguments;NetWasmSdkPrepareTimeZoneSidecar"
           Condition="'$(TargetFramework)' == 'netwasm0.1' AND '$(_NetWasmWorkerKind)' == 'jsexport' AND '$(DesignTimeBuild)' != 'true'">
     <Error Code="NWSDK048"
            Condition="'$(NetWasmWorkerPublishDir)' == '' OR !$([System.IO.Path]::IsPathFullyQualified('$(NetWasmWorkerPublishDir)'))"
            Text="NetWasmWorkerPublishDir must be an absolute output directory." />
     <Error Code="NWSDK049"
            Condition="'$(NetWasmNodePath)' == '' OR !Exists('$(NetWasmNodePath)') OR '$(NetWasmHostingBundleCommandPath)' == '' OR !Exists('$(NetWasmHostingBundleCommandPath)')"
-           Text="JSExport worker publish requires the validated Node executable and JavaScript bundler." />
+           Text="JsModule publish requires the validated Node executable and JavaScript bundler." />
     <PropertyGroup>
       <_NetWasmWorkerHostEntryPath>$([System.IO.Path]::Combine('$(NetWasmIntermediateOutputPath)', '$(AssemblyName).worker-entry.mjs'))</_NetWasmWorkerHostEntryPath>
       <_NetWasmWorkerHostBundlePath>$([System.IO.Path]::Combine('$(NetWasmIntermediateOutputPath)', '$(AssemblyName).worker.mjs'))</_NetWasmWorkerHostBundlePath>
@@ -697,6 +819,10 @@
       <_NetWasmWorkerClientPath>$([System.IO.Path]::Combine('$(NetWasmWorkerPublishDir)', '$(_NetWasmWorkerClientFileName)'))</_NetWasmWorkerClientPath>
       <_NetWasmWorkerDeclarationPath>$([System.IO.Path]::Combine('$(NetWasmWorkerPublishDir)', '$(AssemblyName).worker-client.d.mts'))</_NetWasmWorkerDeclarationPath>
       <_NetWasmWorkerManifestPath>$([System.IO.Path]::Combine('$(NetWasmWorkerPublishDir)', 'deployment.json'))</_NetWasmWorkerManifestPath>
+      <_NetWasmPageHostEntryPath>$([System.IO.Path]::Combine('$(NetWasmIntermediateOutputPath)', '$(AssemblyName).page-entry.mjs'))</_NetWasmPageHostEntryPath>
+      <_NetWasmPageHostBundlePath>$([System.IO.Path]::Combine('$(NetWasmIntermediateOutputPath)', 'netwasm.page.mjs'))</_NetWasmPageHostBundlePath>
+      <_NetWasmPageModulePath>$([System.IO.Path]::Combine('$(NetWasmWorkerPublishDir)', '$(AssemblyName).mjs'))</_NetWasmPageModulePath>
+      <_NetWasmPageDeclarationPath>$([System.IO.Path]::Combine('$(NetWasmWorkerPublishDir)', '$(AssemblyName).d.mts'))</_NetWasmPageDeclarationPath>
     </PropertyGroup>
 
     <NetWasmReadCompilerBuildMetadataTask MetadataPath="$(NetWasmCompilerMetadataPath)">
@@ -705,13 +831,13 @@
     </NetWasmReadCompilerBuildMetadataTask>
     <Error Code="NWSDK050"
            Condition="'$(_NetWasmWorkerCompilerTarget)' != '$(NetWasmTarget)'"
-           Text="The compiler metadata target does not match the worker deployment target." />
+           Text="The compiler metadata target does not match the JsModule deployment target." />
     <Error Code="NWSDK064"
            Condition="!Exists('$(NetWasmRawBindingManifestPath)')"
-           Text="JSExport worker publish requires the persisted raw binding manifest from the matching build." />
+           Text="JsModule publish requires the persisted raw binding manifest from the matching build." />
     <Error Code="NWSDK065"
            Condition="'@(NetWasmPreopen)' != '' OR '@(NetWasmApplicationImport)' != ''"
-           Text="JSExport browser workers do not support host filesystem preopens or external application providers." />
+           Text="JsModule deployments do not support host filesystem preopens or external application providers." />
     <ItemGroup>
       <NetWasmClockGrant Include="wall;monotonic"
                          Condition="'@(NetWasmClockGrant)' == ''" />
@@ -727,17 +853,37 @@
       <Output TaskParameter="RequiredImportModules" ItemName="_NetWasmWorkerRequiredImportModule" />
     </NetWasmReadRawBindingManifestTask>
 
-    <NetWasmWriteWorkerHostEntryTask HostingJavaScriptRoot="$(NetWasmHostingJavaScriptRoot)"
+    <NetWasmWritePageHostEntryTask Condition="'$(_NetWasmJavaScriptPageHost)' == 'true'"
+                                   HostingJavaScriptRoot="$(NetWasmHostingJavaScriptRoot)"
+                                   Preview2ShimRoot="$(NetWasmPreview2ShimRoot)"
+                                   OutputPath="$(_NetWasmPageHostEntryPath)"
+                                   Imports="@(_NetWasmWorkerJavaScriptImport)"
+                                   Modules="@(NetWasmJavaScriptModule)"
+                                   Arguments="@(_NetWasmExecutionArgument)"
+                                   EnvironmentVariables="@(NetWasmEnvironmentVariable)"
+                                   Clocks="@(NetWasmClockGrant)"
+                                   Network="$(NetWasmNetworkPolicy)"
+                                   Randomness="$(NetWasmRandomness)" />
+    <NetWasmBundleJavaScriptTask Condition="'$(_NetWasmJavaScriptPageHost)' == 'true'"
+                                NodePath="$(NetWasmNodePath)"
+                                CommandPath="$(NetWasmHostingBundleCommandPath)"
+                                EntryPath="$(_NetWasmPageHostEntryPath)"
+                                OutputPath="$(_NetWasmPageHostBundlePath)"
+                                Platform="browser"
+                                Minify="$(NetWasmMinifyJavaScript)" />
+    <NetWasmWriteWorkerHostEntryTask Condition="'$(_NetWasmJavaScriptWorkerHost)' == 'true'"
+                                     HostingJavaScriptRoot="$(NetWasmHostingJavaScriptRoot)"
                                      Preview2ShimRoot="$(NetWasmPreview2ShimRoot)"
                                      OutputPath="$(_NetWasmWorkerHostEntryPath)"
                                      Imports="@(_NetWasmWorkerJavaScriptImport)"
-                                     Modules="@(NetWasmWorkerJavaScriptModule)"
+                                     Modules="@(NetWasmJavaScriptModule)"
                                      Arguments="@(_NetWasmExecutionArgument)"
                                      EnvironmentVariables="@(NetWasmEnvironmentVariable)"
                                      Clocks="@(NetWasmClockGrant)"
                                      Network="$(NetWasmNetworkPolicy)"
                                      Randomness="$(NetWasmRandomness)" />
-    <NetWasmBundleJavaScriptTask NodePath="$(NetWasmNodePath)"
+    <NetWasmBundleJavaScriptTask Condition="'$(_NetWasmJavaScriptWorkerHost)' == 'true'"
+                                NodePath="$(NetWasmNodePath)"
                                 CommandPath="$(NetWasmHostingBundleCommandPath)"
                                 EntryPath="$(_NetWasmWorkerHostEntryPath)"
                                 OutputPath="$(_NetWasmWorkerHostBundlePath)"
@@ -749,7 +895,15 @@
         <Role>application</Role>
         <MediaType>application/wasm</MediaType>
       </_NetWasmWorkerDeploymentArtifact>
-      <_NetWasmWorkerDeploymentArtifact Include="$(_NetWasmWorkerHostBundlePath)">
+      <_NetWasmWorkerDeploymentArtifact Include="@(_NetWasmTimeZoneSidecar)" />
+      <_NetWasmWorkerDeploymentArtifact Include="$(_NetWasmPageHostBundlePath)"
+                                        Condition="'$(_NetWasmJavaScriptPageHost)' == 'true'">
+        <RelativePath>netwasm.page.mjs</RelativePath>
+        <Role>hosting-javascript</Role>
+        <MediaType>text/javascript</MediaType>
+      </_NetWasmWorkerDeploymentArtifact>
+      <_NetWasmWorkerDeploymentArtifact Include="$(_NetWasmWorkerHostBundlePath)"
+                                        Condition="'$(_NetWasmJavaScriptWorkerHost)' == 'true'">
         <RelativePath>$(_NetWasmWorkerFileName)</RelativePath>
         <Role>worker-javascript</Role>
         <MediaType>text/javascript</MediaType>
@@ -792,7 +946,7 @@
                                 Profile="$(NetWasmProfile)"
                                 Target="$(NetWasmTarget)"
                                 FeatureSet="$(NetWasmFeatureSet)"
-                                ExecutionContract="netwasm:worker/jsexport@1.0.0"
+                                ExecutionContract="netwasm:browser/jsexport@1.0.0"
                                 SdkVersion="$(NetWasmSdkVersion)"
                                 CompilerVersion="$(NetWasmCompilerVersion)"
                                 RuntimeVersion="$(NetWasmRuntimeVersion)"
@@ -807,14 +961,23 @@
       <Output TaskParameter="ManifestSha256" PropertyName="_NetWasmWorkerManifestSha256" />
     </NetWasmWriteDeploymentTask>
 
-    <NetWasmWriteWorkerClientEntryTask HostingJavaScriptRoot="$(NetWasmHostingJavaScriptRoot)"
+    <NetWasmWritePageModuleTask Condition="'$(_NetWasmJavaScriptPageHost)' == 'true'"
+                                PageFileName="netwasm.page.mjs"
+                                BuildFingerprint="$(_NetWasmWorkerBuildFingerprint)"
+                                ManifestSha256="$(_NetWasmWorkerManifestSha256)"
+                                OutputPath="$(_NetWasmPageModulePath)"
+                                DeclarationPath="$(_NetWasmPageDeclarationPath)"
+                                Exports="@(_NetWasmWorkerJavaScriptExport)" />
+    <NetWasmWriteWorkerClientEntryTask Condition="'$(_NetWasmJavaScriptWorkerHost)' == 'true'"
+                                       HostingJavaScriptRoot="$(NetWasmHostingJavaScriptRoot)"
                                        WorkerFileName="$(_NetWasmWorkerFileName)"
                                        BuildFingerprint="$(_NetWasmWorkerBuildFingerprint)"
                                        ManifestSha256="$(_NetWasmWorkerManifestSha256)"
                                        OutputPath="$(_NetWasmWorkerClientEntryPath)"
                                        DeclarationPath="$(_NetWasmWorkerDeclarationPath)"
                                        Exports="@(_NetWasmWorkerJavaScriptExport)" />
-    <NetWasmBundleJavaScriptTask NodePath="$(NetWasmNodePath)"
+    <NetWasmBundleJavaScriptTask Condition="'$(_NetWasmJavaScriptWorkerHost)' == 'true'"
+                                NodePath="$(NetWasmNodePath)"
                                 CommandPath="$(NetWasmHostingBundleCommandPath)"
                                 EntryPath="$(_NetWasmWorkerClientEntryPath)"
                                 OutputPath="$(_NetWasmWorkerClientPath)"
@@ -824,7 +987,7 @@
 
   <Target Name="NetWasmSdkPublishWitWorker"
           BeforeTargets="Publish"
-          DependsOnTargets="NetWasmSdkGetWitWorkerContract;NetWasmSdkComponentize;NetWasmValidateCompilerArtifacts;NetWasmSdkValidateFinalArtifactForNoBuild;NetWasmSdkResolveExecutionArguments"
+          DependsOnTargets="NetWasmSdkGetWitWorkerContract;NetWasmSdkComponentize;NetWasmValidateCompilerArtifacts;NetWasmSdkValidateFinalArtifactForNoBuild;NetWasmSdkResolveExecutionArguments;NetWasmSdkPrepareTimeZoneSidecar"
           Condition="'$(TargetFramework)' == 'netwasm0.1' AND '$(_NetWasmWorkerKind)' == 'wit' AND '$(DesignTimeBuild)' != 'true'">
     <Error Code="NWSDK067"
            Condition="'$(NetWasmWorkerPublishDir)' == '' OR !$([System.IO.Path]::IsPathFullyQualified('$(NetWasmWorkerPublishDir)'))"
@@ -915,6 +1078,7 @@
         <MediaType>application/wasm</MediaType>
       </_NetWasmWitWorkerDeploymentArtifact>
       <_NetWasmWitWorkerDeploymentArtifact Include="@(_NetWasmWitWorkerComponentArtifact)" />
+      <_NetWasmWitWorkerDeploymentArtifact Include="@(_NetWasmTimeZoneSidecar)" />
       <_NetWasmWitWorkerDeploymentArtifact Include="$(_NetWasmWitWorkerHostBundlePath)">
         <RelativePath>$(_NetWasmWitWorkerFileName)</RelativePath>
         <Role>worker-javascript</Role>
@@ -975,7 +1139,7 @@
           BeforeTargets="Run"
           Condition="'$(TargetFramework)' == 'netwasm0.1' AND '$(_NetWasmWorkerKind)' != ''">
     <Error Code="NWSDK052"
-           Text="Web worker projects are published for a browser caller and cannot be run directly." />
+           Text="JsModule and WitWebWorker projects are published for a browser page and cannot be run directly." />
   </Target>
 
   <Target Name="NetWasmSdkRejectLibraryLifecycle"

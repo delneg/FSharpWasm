@@ -33,6 +33,7 @@
                       PrivateAssets="all" />
     <ProjectReference Include="../NetWasm.Hosting/NetWasm.Hosting.csproj" PrivateAssets="all" />
     <ProjectReference Include="../NetWasm.Toolchain/NetWasm.Toolchain.csproj" PrivateAssets="all" />
+    <ProjectReference Include="../../tools/NetWasm.TimeZones/NetWasm.TimeZones.csproj" PrivateAssets="all" />
   </ItemGroup>
 
   <ItemGroup>

@@ -1,9 +1,12 @@
+using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Linq;
 using NetWasm.Compiler.Core;
 using NetWasm.Compiler.Wasm.Emission;
 using NetWasm.Compiler.Wasm.Emission.GeneratedFunctions;
+using NetWasm.Compiler.Wasm.Emission.Instructions.Interop;
 using NetWasm.Compiler.Wasm.Emission.Planning;
+using NetWasm.Compiler.Wasm.Encoding;
 
 namespace NetWasm.Compiler.Wasm.Tests;
 
@@ -17,14 +20,12 @@ public sealed class AsyncJSImportCompletionEmitterTests
         var imports = WasmRuntimeImports.CreateCatalog();
         var layouts = new RecordingLayoutProvider();
         var binding = CreateBinding(CliValueKind.I4);
-        var emitter = new AsyncJSImportResolveEmitter(
-            layouts,
-            imports,
-            new GeneratedFunctionWriterFactory());
+        var emitter = CreateResolveEmitter(layouts, imports);
 
         var body = ((IAsyncJSImportResolveEmitter)emitter).Emit(
             binding,
-            CreateFunctionIndices());
+            CreateFunctionIndices(),
+            EmptyInteropImports());
 
         Assert.Contains(
             Call(imports.Resolve(RuntimeImportSymbol.HandleGet)),
@@ -44,16 +45,67 @@ public sealed class AsyncJSImportCompletionEmitterTests
                 JavaScriptAsyncReturnKind.Task,
                 null),
         };
-        var emitter = new AsyncJSImportResolveEmitter(
-            new RecordingLayoutProvider(),
-            imports,
-            new GeneratedFunctionWriterFactory());
+        var emitter = CreateResolveEmitter(new RecordingLayoutProvider(), imports);
 
         var body = ((IAsyncJSImportResolveEmitter)emitter).Emit(
             binding,
-            CreateFunctionIndices());
+            CreateFunctionIndices(),
+            EmptyInteropImports());
 
         Assert.Contains(Call(imports.Resolve(RuntimeImportSymbol.HandleRelease)), Calls(body));
+    }
+
+    [Theory]
+    [InlineData("string")]
+    [InlineData("f64[]")]
+    [InlineData("JSObject")]
+    public void ResolveEmitterMarshalsAReferenceResultFromItsHandle(string kind)
+    {
+        var imports = WasmRuntimeImports.CreateCatalog();
+        var result = ReferenceResult(kind);
+        var binding = CreateBinding(CliValueKind.ManagedReference) with
+        {
+            Return = new(JavaScriptAsyncReturnKind.Task, result),
+        };
+        var strings = new RecordingStringResults();
+        var arrays = new RecordingArrayResults();
+        var objects = new RecordingObjectResults();
+        var emitter = new AsyncJSImportResolveEmitter(
+            new RecordingLayoutProvider(),
+            imports,
+            new GeneratedFunctionWriterFactory(),
+            strings,
+            arrays,
+            objects);
+
+        var body = ((IAsyncJSImportResolveEmitter)emitter).Emit(
+            binding,
+            CreateFunctionIndices(),
+            EmptyInteropImports());
+
+        // The value handle is the second parameter; the managed value lands in the
+        // local after the task.
+        Assert.Equal(kind == "string" ? [(1, 3)] : [], strings.Calls);
+        Assert.Equal(kind == "f64[]" ? [(result, 1, 3)] : [], arrays.Calls);
+        Assert.Equal(kind == "JSObject" ? [(result, 1, 3)] : [], objects.Calls);
+        Assert.Contains(Call(imports.Resolve(RuntimeImportSymbol.HandleRelease)), Calls(body));
+    }
+
+    [Theory]
+    [InlineData("string")]
+    [InlineData("f64[]")]
+    [InlineData("JSObject")]
+    public void ResolvesReferenceResultsAsHandles(string kind)
+    {
+        var binding = CreateBinding(CliValueKind.ManagedReference) with
+        {
+            Return = new(JavaScriptAsyncReturnKind.Task, ReferenceResult(kind)),
+        };
+
+        var type = ((IAsyncJSImportResolveTypeResolver)new AsyncJSImportResolveTypeResolver(
+            new RecordingLayoutProvider())).Resolve(binding);
+
+        Assert.Equal([CliValueKind.I4, CliValueKind.I4], type.Parameters.ToArray());
     }
 
     [Fact]
@@ -183,6 +235,53 @@ public sealed class AsyncJSImportCompletionEmitterTests
             instance,
             instance,
             instance);
+    }
+
+    private static AsyncJSImportResolveEmitter CreateResolveEmitter(
+        RecordingLayoutProvider layouts,
+        RuntimeImportCatalog imports) => new(
+        layouts,
+        imports,
+        new GeneratedFunctionWriterFactory(),
+        new RecordingStringResults(),
+        new RecordingArrayResults(),
+        new RecordingObjectResults());
+
+    private static InteropImportPlan EmptyInteropImports() =>
+        new InteropImportPlan([], default, default, default, default, default, default);
+
+    private static CliTypeIdentity ReferenceResult(string kind) => kind switch
+    {
+        "string" => CliTypeIdentity.Primitive("string", CliValueKind.ManagedReference, isValueType: false),
+        "f64[]" => CliTypeIdentity.SzArray(CliTypeIdentity.Primitive("f8", CliValueKind.F8)),
+        _ => CliTypeIdentity.Named(
+            Assembly, "System.Runtime.InteropServices.JavaScript", "JSObject", isValueType: false),
+    };
+
+    private sealed class RecordingStringResults : IHostCallbackStringArgumentMarshaller
+    {
+        public List<(int Handle, int Destination)> Calls { get; } = [];
+
+        public void Emit(IWasmInstructionWriter code, int handleParameter, int destination,
+            int temporaryI4, int objectTemporary, InteropMarshallingTarget target) =>
+            Calls.Add((handleParameter, destination));
+    }
+
+    private sealed class RecordingArrayResults : IHostCallbackByteArrayArgumentMarshaller
+    {
+        public List<(CliTypeIdentity Type, int Handle, int Destination)> Calls { get; } = [];
+
+        public void Emit(IWasmInstructionWriter code, CliTypeIdentity arrayType, int handleParameter,
+            int destination, int temporaryI4, int objectTemporary, InteropMarshallingTarget target) =>
+            Calls.Add((arrayType, handleParameter, destination));
+    }
+
+    private sealed class RecordingObjectResults : IHostCallbackHostObjectArgumentMarshaller
+    {
+        public List<(CliTypeIdentity Type, int Handle, int Destination)> Calls { get; } = [];
+
+        public void Emit(IWasmInstructionWriter code, CliTypeIdentity objectType, int handleParameter,
+            int destination) => Calls.Add((objectType, handleParameter, destination));
     }
 
     private static FunctionIndexResolver CreateFunctionIndices()

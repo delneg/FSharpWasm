@@ -34,6 +34,27 @@ public sealed class FunctionIndexMapTests
     }
 
     [Fact]
+    public void JSImportForwarderShadowsTheRawImportOnlyForManagedResolution()
+    {
+        var imported = Key(0x06000020);
+        var map = new FunctionIndexMap(
+            [],
+            [],
+            [],
+            ImmutableDictionary<EntityKey, WasmFunctionIndex>.Empty.Add(imported, new(33)))
+        {
+            JSImportForwarders = ImmutableDictionary<EntityKey, WasmFunctionIndex>.Empty
+                .Add(imported, new(44)),
+        };
+
+        Assert.True(map.TryGetMethod(imported, out var managed));
+        Assert.True(map.TryGetInteropImport(imported, out var raw));
+        Assert.Equal(44, managed.Value);
+        Assert.Equal(33, raw.Value);
+        Assert.False(map.TryGetInteropImport(EntryKey, out _));
+    }
+
+    [Fact]
     public void MissingDelegateHelperIsRejected()
     {
         var map = new FunctionIndexMap(

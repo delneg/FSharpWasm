@@ -335,7 +335,7 @@ internal static class WasmRuntimeImports
             WasmFunctionType.Create(
                 CliValueKind.ManagedReference,
                 CliValueKind.ManagedReference,
-                CliValueKind.I4))),
+                CliValueKind.I4, CliValueKind.I4, CliValueKind.NativeInt))),
         new(RuntimeImportSymbol.ArrayCopy, new WasmFunctionImport(
             RuntimeAbi.RuntimeModule,
             RuntimeAbi.RuntimeArrayCopy,

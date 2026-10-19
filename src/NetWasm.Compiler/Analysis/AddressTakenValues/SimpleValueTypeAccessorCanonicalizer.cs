@@ -26,7 +26,8 @@ internal sealed class SimpleValueTypeAccessorCanonicalizer(
     private readonly AddressTakenValuePromotionPolicy _policy = policy switch
     {
         AddressTakenValuePromotionPolicy.Disabled or
-        AddressTakenValuePromotionPolicy.Conservative => policy,
+        AddressTakenValuePromotionPolicy.Conservative or
+        AddressTakenValuePromotionPolicy.References => policy,
         _ => throw new ArgumentOutOfRangeException(nameof(policy)),
     };
 

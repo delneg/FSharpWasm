@@ -47,6 +47,7 @@ public sealed class CompilerBuildMetadataReaderTests
     [InlineData("{\"schemaVersion\":2,\"target\":\"wasm32\",\"runtimeFeatures\":[],\"functionImports\":[]}")]
     [InlineData("{\"schemaVersion\":1,\"target\":\"unknown\",\"runtimeFeatures\":[],\"functionImports\":[]}")]
     [InlineData("{\"schemaVersion\":1,\"target\":\"wasm32\",\"runtimeFeatures\":[\"future\"],\"functionImports\":[]}")]
+    [InlineData("{\"schemaVersion\":1,\"target\":\"wasm32\",\"runtimeFeatures\":[null],\"functionImports\":[]}")]
     [InlineData("{\"schemaVersion\":1,\"target\":\"wasm32\",\"runtimeFeatures\":[],\"functionImports\":[],\"extra\":true}")]
     public void RejectsUnsupportedOrNonCanonicalMetadata(string json)
     {

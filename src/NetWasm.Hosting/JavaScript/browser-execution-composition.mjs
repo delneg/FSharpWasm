@@ -93,8 +93,8 @@ export function createBrowserExecutionComposition(
 function asContractStrategy(resolve, kind) {
   try {
     return resolve(kind);
-  } catch {
-    throw createContractError();
+  } catch (error) {
+    throw createContractError(undefined, error);
   }
 }
 
@@ -106,8 +106,8 @@ function asContractAction(action) {
   return value => {
     try {
       return action(value);
-    } catch {
-      throw createContractError();
+    } catch (error) {
+      throw createContractError(undefined, error);
     }
   };
 }

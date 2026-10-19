@@ -17,4 +17,9 @@ public sealed record WasmOptimizationOverrides(
         ManagedArrayBoundsCheckElimination.Auto,
     ManagedLoopUnrolling LoopUnrolling = ManagedLoopUnrolling.Auto,
     ManagedConstantArgumentPropagation ConstantArgumentPropagation = ManagedConstantArgumentPropagation.Auto,
-    ManagedStaticArrayPopulationElimination StaticArrayPopulationElimination = ManagedStaticArrayPopulationElimination.Auto);
+    ManagedStaticArrayPopulationElimination StaticArrayPopulationElimination = ManagedStaticArrayPopulationElimination.Auto,
+    ManagedConstantCallFolding ConstantCallFolding = ManagedConstantCallFolding.Auto,
+    ManagedSwitchBitTests SwitchBitTests = ManagedSwitchBitTests.Auto,
+    ManagedDevirtualization Devirtualization = ManagedDevirtualization.Auto,
+    ManagedAllocationElimination AllocationElimination = ManagedAllocationElimination.Auto,
+    ManagedLoopRotation LoopRotation = ManagedLoopRotation.Auto);

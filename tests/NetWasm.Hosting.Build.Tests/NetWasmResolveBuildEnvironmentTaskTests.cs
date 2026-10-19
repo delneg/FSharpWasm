@@ -50,6 +50,8 @@ public sealed class NetWasmResolveBuildEnvironmentTaskTests
         Assert.Equal("1.28.1+netwasm.2", task.JcoVersion);
         Assert.Equal("0.24.1", task.Preview2ShimVersion);
         Assert.Equal(PathFor("preview2-shim"), task.Preview2ShimRoot);
+        Assert.Equal(PathFor("zoneinfo"), task.TimeZoneSourceRoot);
+        Assert.Equal("2026c", task.TimeZoneDataVersion);
         Assert.Equal(PathFor("bundle.mjs"), task.HostingBundleCommandPath);
         Assert.Equal("1.2.4", task.RolldownVersion);
         Assert.Equal("1.256.0", task.WasmToolsVersion);
@@ -164,7 +166,8 @@ public sealed class NetWasmResolveBuildEnvironmentTaskTests
                     PathFor("bundle-lock"),
                     PathFor("bundle-integrity"),
                     PathFor("bundle-notices"),
-                    PathFor("bundle-policy"))));
+                    PathFor("bundle-policy")),
+                new("NetWasm.Toolchain", "0.1.0-preview.29", PathFor("zoneinfo"), "2026c")));
     }
 
     private static string PathFor(string name) => Path.Combine(Root, name);

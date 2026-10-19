@@ -33,7 +33,7 @@ public sealed class SdkRoutingTests
 
     [Theory]
     [InlineData("WitWebWorker", "wit")]
-    [InlineData("JsWebWorker", "jsexport")]
+    [InlineData("JsModule", "jsexport")]
     public void WorkerOutputCompilesAsALibraryAndRestoresHostTools(
         string outputType,
         string workerKind)
@@ -54,6 +54,73 @@ public sealed class SdkRoutingTests
         Assert.Equal("true", project.Property("NetWasmRequiresHostTools"));
         Assert.Contains(project.Items("PackageReference"),
             package => package.StartsWith("NetWasm.HostTools.", StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData("", "page", "True", "False")]
+    [InlineData("<NetWasmJavaScriptHosts>worker</NetWasmJavaScriptHosts>", "worker", "False", "True")]
+    [InlineData("<NetWasmJavaScriptHosts> Page; Worker </NetWasmJavaScriptHosts>", " Page; Worker ", "True", "True")]
+    public void JsModuleSelectsItsJavaScriptHosts(string hosts, string expected, string page, string worker)
+    {
+        using var project = EvaluationProject.Create($"""
+            <TargetFramework>netwasm0.1</TargetFramework>
+            <OutputType>JsModule</OutputType>
+            {hosts}
+            """);
+
+        Assert.Equal(expected, project.Property("NetWasmJavaScriptHosts"));
+        Assert.Equal(page, project.Property("_NetWasmJavaScriptPageHost"));
+        Assert.Equal(worker, project.Property("_NetWasmJavaScriptWorkerHost"));
+        Assert.Equal(0, project.RunTarget("NetWasmSdkValidateJavaScriptHosts").ExitCode);
+    }
+
+    [Theory]
+    [InlineData(";")]
+    [InlineData("tab")]
+    [InlineData("page;tab")]
+    [InlineData("page;page")]
+    public void JsModuleRejectsUnknownOrRepeatedHosts(string hosts)
+    {
+        using var project = EvaluationProject.Create($"""
+            <TargetFramework>netwasm0.1</TargetFramework>
+            <OutputType>JsModule</OutputType>
+            <NetWasmJavaScriptHosts>{hosts}</NetWasmJavaScriptHosts>
+            """);
+
+        var (exitCode, output) = project.RunTarget("NetWasmSdkValidateJavaScriptHosts");
+        Assert.NotEqual(0, exitCode);
+        Assert.Contains("NWSDK076", output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void RemovedJsWebWorkerOutputTypeNamesItsReplacement()
+    {
+        using var project = EvaluationProject.Create("""
+            <TargetFramework>netwasm0.1</TargetFramework>
+            <OutputType>JsWebWorker</OutputType>
+            """);
+
+        Assert.Equal("Library", project.Property("OutputType"));
+        Assert.Equal("JsWebWorker", project.Property("_NetWasmRemovedOutputType"));
+        Assert.Empty(project.Property("_NetWasmWorkerKind"));
+        var (exitCode, output) = project.RunTarget("NetWasmSdkRejectRemovedOutputType");
+        Assert.NotEqual(0, exitCode);
+        Assert.Contains("NWSDK074", output, StringComparison.Ordinal);
+        Assert.Contains("<OutputType>JsModule</OutputType>", output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void RenamedJavaScriptModuleItemNamesItsReplacement()
+    {
+        using var project = EvaluationProject.Create("""
+            <TargetFramework>netwasm0.1</TargetFramework>
+            <OutputType>JsModule</OutputType>
+            """, projectItems: """<NetWasmWorkerJavaScriptModule Include="host.mjs" Module="app.host" />""");
+
+        var (exitCode, output) = project.RunTarget("NetWasmSdkRejectRenamedJavaScriptModuleItem");
+        Assert.NotEqual(0, exitCode);
+        Assert.Contains("NWSDK075", output, StringComparison.Ordinal);
+        Assert.Contains("NetWasmJavaScriptModule", output, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -97,7 +164,7 @@ public sealed class SdkRoutingTests
     [Theory]
     [InlineData("Exe", false)]
     [InlineData("Exe", true)]
-    [InlineData("JsWebWorker", true)]
+    [InlineData("JsModule", true)]
     [InlineData("WitWebWorker", false)]
     public void EffectiveWitPathsFollowSdkDefaultsAfterCompilerTargetsImport(
         string outputType,
@@ -119,7 +186,7 @@ public sealed class SdkRoutingTests
         Assert.Equal(
             project.Property("NetWasmCompilerWitPath"),
             project.Property("_NetWasmCompilerWitPath"));
-        if (outputType != "JsWebWorker")
+        if (outputType != "JsModule")
         {
             Assert.NotEmpty(project.Property("_NetWasmComponentWitPath"));
             Assert.Equal(
@@ -559,6 +626,11 @@ public sealed class SdkRoutingTests
         Assert.Equal("Auto", defaultPolicy.Property("NetWasmManagedLoopUnrolling"));
         Assert.Equal("Auto", defaultPolicy.Property("NetWasmManagedConstantArgumentPropagation"));
         Assert.Equal("Auto", defaultPolicy.Property("NetWasmManagedStaticArrayPopulationElimination"));
+        Assert.Equal("Auto", defaultPolicy.Property("NetWasmManagedConstantCallFolding"));
+        Assert.Equal("Auto", defaultPolicy.Property("NetWasmManagedSwitchBitTests"));
+        Assert.Equal("Auto", defaultPolicy.Property("NetWasmManagedDevirtualization"));
+        Assert.Equal("Auto", defaultPolicy.Property("NetWasmManagedAllocationElimination"));
+        Assert.Equal("Auto", defaultPolicy.Property("NetWasmManagedLoopRotation"));
     }
 
     [Theory]
@@ -577,6 +649,11 @@ public sealed class SdkRoutingTests
     [InlineData("NetWasmManagedLoopUnrolling")]
     [InlineData("NetWasmManagedConstantArgumentPropagation")]
     [InlineData("NetWasmManagedStaticArrayPopulationElimination")]
+    [InlineData("NetWasmManagedConstantCallFolding")]
+    [InlineData("NetWasmManagedSwitchBitTests")]
+    [InlineData("NetWasmManagedDevirtualization")]
+    [InlineData("NetWasmManagedAllocationElimination")]
+    [InlineData("NetWasmManagedLoopRotation")]
     public void PreservesExplicitCompilerReductionSelections(string property)
     {
         using var project = EvaluationProject.Create(
@@ -615,6 +692,11 @@ public sealed class SdkRoutingTests
                      "$(NetWasmManagedLoopUnrolling)",
                      "$(NetWasmManagedConstantArgumentPropagation)",
                      "$(NetWasmManagedStaticArrayPopulationElimination)",
+                     "$(NetWasmManagedConstantCallFolding)",
+                     "$(NetWasmManagedSwitchBitTests)",
+                     "$(NetWasmManagedDevirtualization)",
+                     "$(NetWasmManagedAllocationElimination)",
+                     "$(NetWasmManagedLoopRotation)",
                  })
         {
             Assert.Contains(value, frontendIdentityContract, StringComparison.Ordinal);
@@ -637,6 +719,11 @@ public sealed class SdkRoutingTests
         Assert.Equal("$(NetWasmManagedLoopUnrolling)", (string?)compilation.Attribute("ManagedLoopUnrolling"));
         Assert.Equal("$(NetWasmManagedConstantArgumentPropagation)", (string?)compilation.Attribute("ManagedConstantArgumentPropagation"));
         Assert.Equal("$(NetWasmManagedStaticArrayPopulationElimination)", (string?)compilation.Attribute("ManagedStaticArrayPopulationElimination"));
+        Assert.Equal("$(NetWasmManagedConstantCallFolding)", (string?)compilation.Attribute("ManagedConstantCallFolding"));
+        Assert.Equal("$(NetWasmManagedSwitchBitTests)", (string?)compilation.Attribute("ManagedSwitchBitTests"));
+        Assert.Equal("$(NetWasmManagedDevirtualization)", (string?)compilation.Attribute("ManagedDevirtualization"));
+        Assert.Equal("$(NetWasmManagedAllocationElimination)", (string?)compilation.Attribute("ManagedAllocationElimination"));
+        Assert.Equal("$(NetWasmManagedLoopRotation)", (string?)compilation.Attribute("ManagedLoopRotation"));
         foreach (var value in new[]
                  {
                      "$(_NetWasmCanonicalOptimization)",
@@ -815,7 +902,8 @@ public sealed class SdkRoutingTests
             bool includeStockProjectReference = false,
             string configuration = "Release",
             bool includeCompilerTargets = false,
-            bool compilerTargetsBeforeSdk = false)
+            bool compilerTargetsBeforeSdk = false,
+            string projectItems = "")
         {
             var root = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "netwasm-sdk-evaluation", Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(root);
@@ -865,6 +953,7 @@ public sealed class SdkRoutingTests
                     <Platform>AnyCPU</Platform>
                     <RuntimeIdentifier>test-rid</RuntimeIdentifier>
                   </PropertyGroup>
+                  {(projectItems.Length == 0 ? string.Empty : $"<ItemGroup>{projectItems}</ItemGroup>")}
                   {(includePackageReference ? "<ItemGroup><PackageReference Include=\"Example.Package\" Version=\"[1.0.0]\" PrivateAssets=\"all\" IncludeAssets=\"compile\" ExcludeAssets=\"runtime\" /></ItemGroup>" : string.Empty)}
                   {(includeProjectReference || includeStockProjectReference ? "<ItemGroup><ProjectReference Include=\"Referenced.csproj\" PrivateAssets=\"all\" IncludeAssets=\"compile\" ExcludeAssets=\"runtime\" /></ItemGroup>" : string.Empty)}
                   {(compilerTargetsBeforeSdk ? $"<Import Project=\"{Escape(compilerTargetsPath)}\" />" : string.Empty)}
@@ -872,6 +961,10 @@ public sealed class SdkRoutingTests
                   {(includeCompilerTargets ? $"<Import Project=\"{Escape(compilerTargetsPath)}\" />" : string.Empty)}
                   <Target Name="PrintNetWasmRouting" DependsOnTargets="$(NetWasmSdkPackRouteProbeDependsOn);NetWasmSdkCollectInnerPackageReferences{(collectPackEvidence ? ";NetWasmCollectPackEvidence" : string.Empty)}">
                     <Message Importance="High" Text="__NETWASM_PROP__OutputType=$(OutputType)" />
+                    <Message Importance="High" Text="__NETWASM_PROP___NetWasmRemovedOutputType=$(_NetWasmRemovedOutputType)" />
+                    <Message Importance="High" Text="__NETWASM_PROP__NetWasmJavaScriptHosts=$(NetWasmJavaScriptHosts)" />
+                    <Message Importance="High" Text="__NETWASM_PROP___NetWasmJavaScriptPageHost=$(_NetWasmJavaScriptPageHost)" />
+                    <Message Importance="High" Text="__NETWASM_PROP___NetWasmJavaScriptWorkerHost=$(_NetWasmJavaScriptWorkerHost)" />
                     <Message Importance="High" Text="__NETWASM_PROP___NetWasmWorkerKind=$(_NetWasmWorkerKind)" />
                     <Message Importance="High" Text="__NETWASM_PROP___NetWasmCompileAsLibrary=$(_NetWasmCompileAsLibrary)" />
                     <Message Importance="High" Text="__NETWASM_PROP__NetWasmRawWasm=$(NetWasmRawWasm)" />
@@ -917,6 +1010,11 @@ public sealed class SdkRoutingTests
                     <Message Importance="High" Text="__NETWASM_PROP__NetWasmManagedLoopUnrolling=$(NetWasmManagedLoopUnrolling)" />
                     <Message Importance="High" Text="__NETWASM_PROP__NetWasmManagedConstantArgumentPropagation=$(NetWasmManagedConstantArgumentPropagation)" />
                     <Message Importance="High" Text="__NETWASM_PROP__NetWasmManagedStaticArrayPopulationElimination=$(NetWasmManagedStaticArrayPopulationElimination)" />
+                    <Message Importance="High" Text="__NETWASM_PROP__NetWasmManagedConstantCallFolding=$(NetWasmManagedConstantCallFolding)" />
+                    <Message Importance="High" Text="__NETWASM_PROP__NetWasmManagedSwitchBitTests=$(NetWasmManagedSwitchBitTests)" />
+                    <Message Importance="High" Text="__NETWASM_PROP__NetWasmManagedDevirtualization=$(NetWasmManagedDevirtualization)" />
+                    <Message Importance="High" Text="__NETWASM_PROP__NetWasmManagedAllocationElimination=$(NetWasmManagedAllocationElimination)" />
+                    <Message Importance="High" Text="__NETWASM_PROP__NetWasmManagedLoopRotation=$(NetWasmManagedLoopRotation)" />
                     <Message Importance="High" Text="__NETWASM_PROP___NetWasmCanonicalOptimization=$(_NetWasmCanonicalOptimization)" />
                     <Message Importance="High" Text="__NETWASM_PROP__NetWasmRefPackageVersion=$(NetWasmRefPackageVersion)" />
                     <Message Importance="High" Text="__NETWASM_ITEM__NetWasmSdkProfile=@(NetWasmSdkProfile->'%(Identity)|%(CanonicalFolder)', '{ItemSeparator}')" />
@@ -994,6 +1092,37 @@ public sealed class SdkRoutingTests
         }
 
         public string Property(string name) => properties.GetValueOrDefault(name, string.Empty);
+
+        // Runs one SDK target against the same project and returns MSBuild's
+        // exit code with its combined output, for diagnostics the probe cannot print.
+        public (int ExitCode, string Output) RunTarget(string target)
+        {
+            using var process = new Process
+            {
+                StartInfo = new ProcessStartInfo
+                {
+                    FileName = "dotnet",
+                    WorkingDirectory = FindRepositoryRoot(),
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                }
+            };
+            foreach (var argument in new[]
+                     {
+                         "msbuild", System.IO.Path.Combine(root, "Routing.csproj"), $"/t:{target}",
+                         "/nologo", "/v:minimal", "/m:1", "/nr:false"
+                     })
+            {
+                process.StartInfo.ArgumentList.Add(argument);
+            }
+            process.Start();
+            var outputTask = process.StandardOutput.ReadToEndAsync();
+            var errorTask = process.StandardError.ReadToEndAsync();
+            process.WaitForExit();
+            return (process.ExitCode, outputTask.GetAwaiter().GetResult() + errorTask.GetAwaiter().GetResult());
+        }
 
         public string ProjectDirectory => root;
 

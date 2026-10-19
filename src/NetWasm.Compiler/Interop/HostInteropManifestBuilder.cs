@@ -34,7 +34,7 @@ internal sealed class HostInteropManifestBuilder : IHostInteropManifestBuilder
                 Export: export,
                 Method: program.Methods[export.Method].Method.Definition))
             .Where(pair => pair.Method.JSExport is not null)
-            .Select(pair => BuildExport(pair.Export.Name, pair.Method, layouts))
+            .Select(pair => BuildExport(pair.Export.Name, pair.Method, pair.Method.JSExport!, layouts))
             .OrderBy(export => export.Name, StringComparer.Ordinal)
             .ToImmutableArray();
         var callbacks = program.HostCallbacks.Select(callback => new HostInteropCallback(
@@ -108,6 +108,7 @@ internal sealed class HostInteropManifestBuilder : IHostInteropManifestBuilder
     private static HostInteropExport BuildExport(
         string name,
         MethodDefinitionModel method,
+        InteropExportDeclaration declaration,
         ManagedLayoutSnapshot layouts)
     {
         var asyncReturn = JavaScriptAsyncSignature.Classify(
@@ -117,6 +118,9 @@ internal sealed class HostInteropManifestBuilder : IHostInteropManifestBuilder
             [.. method.Signature.ParameterSignatureTypes.Select(type => ToAbiType(type, layouts))],
             ToAsyncAbiType(asyncReturn, method.Signature.ReturnSignatureType, layouts))
         {
+            ParameterNames = declaration.ParameterNames,
+            NonNullableParameters = declaration.NonNullableParameters,
+            NonNullableResult = declaration.NonNullableResult,
             AsyncReturn = asyncReturn.IsAsync ? ToAsyncKind(asyncReturn) : null,
             StatusExport = asyncReturn.IsAsync
                 ? JavaScriptAsyncAbiNames.ExportStatus(method.Key)
@@ -159,7 +163,7 @@ internal sealed class HostInteropManifestBuilder : IHostInteropManifestBuilder
         "primitive:nativeint" => layouts.Target.UsesMemory64 ? "i64" : "i32",
         "primitive:nativeuint" => layouts.Target.UsesMemory64 ? "u64" : "u32",
         _ when IsString(type) => "string",
-        _ when IsByteArray(type) => "bytes",
+        _ when JavaScriptValueArray.IsSupported(type) => JavaScriptValueArray.GetAbiType(type),
         _ when IsJSObject(type) => "object",
         _ when IsJSSubscription(type) => "subscription",
         _ => throw new InvalidOperationException(
@@ -167,10 +171,6 @@ internal sealed class HostInteropManifestBuilder : IHostInteropManifestBuilder
     };
 
     private static bool IsString(CliTypeIdentity type) => type.CanonicalName == "primitive:string";
-
-    private static bool IsByteArray(CliTypeIdentity type) =>
-        type.Shape == CliTypeShape.SzArray &&
-            type.ElementType!.CanonicalName == "primitive:u1";
 
     private static bool IsJSObject(CliTypeIdentity type) =>
         type.FullName == "System.Runtime.InteropServices.JavaScript.JSObject";

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Immutable;
 using System.Linq;
 using NetWasm.Compiler.Core;
 using NetWasm.Compiler.Wasm.Emission.Instructions;
@@ -33,6 +34,11 @@ internal sealed class ManagedAggregateValueInstructionEmitter(
         }
         var kind = access.Access.StackKind;
         var lanes = access.Reads.IsEmpty ? access.Writes : access.Reads;
+        if (!access.Access.LaneOffsets.IsDefaultOrEmpty)
+        {
+            EmitLaneAccess(request, code, access, lanes);
+            return true;
+        }
         if ((access.Access.Size, kind) is not
                 ((sizeof(int), CliValueKind.I4) or (sizeof(long), CliValueKind.I8)) ||
             lanes.Length != access.Access.Size / sizeof(int) ||
@@ -84,6 +90,43 @@ internal sealed class ManagedAggregateValueInstructionEmitter(
         return true;
     }
 
+    // A reference or byref field is one lane of its own kind; initobj zeroes
+    // every lane and consumes the address.
+    private void EmitLaneAccess(
+        InstructionEmissionRequest request,
+        IWasmInstructionWriter code,
+        ManagedAggregateSsaAccess access,
+        ImmutableArray<ManagedAggregateSsaLaneValue> lanes)
+    {
+        var values = request.Context.ManagedAggregateValues;
+        if (access.Access.StackKind == CliValueKind.ValueType)
+        {
+            foreach (var lane in lanes)
+            {
+                var shape = values.Plan.Storages[lane.Lane.Storage].Lane(lane.Lane.ByteOffset);
+                code.Write(shape.Size == sizeof(long)
+                    ? WasmInstruction.WithOperand(WasmOpcodes.I64Constant, WasmInstructionOperand.Signed64(0))
+                    : WasmInstruction.WithOperand(WasmOpcodes.I32Constant, WasmInstructionOperand.Signed(0)));
+                WriteLocalSet(code, values.LaneLocals[lane.Lane]);
+            }
+            request.Stack.RemoveAt(request.Stack.Count - 1);
+            return;
+        }
+        var kind = access.Access.StackKind;
+        if (!access.Reads.IsEmpty)
+        {
+            var receiver = request.Stack.Count - 1;
+            WriteLocalGet(code, values.LaneLocals[lanes[0].Lane]);
+            WriteLocalSet(code, GetStackLocal(request, receiver, kind));
+            request.Stack[receiver] = kind;
+            return;
+        }
+        var destination = request.Stack.Count - 2;
+        WriteLocalGet(code, GetStackLocal(request, destination + 1, kind));
+        WriteLocalSet(code, values.LaneLocals[lanes[0].Lane]);
+        request.Stack.RemoveRange(destination, 2);
+    }
+
     private void FlushMaterializations(
         InstructionEmissionRequest request,
         IWasmInstructionWriter code)
@@ -118,7 +161,7 @@ internal sealed class ManagedAggregateValueInstructionEmitter(
                     code,
                     _layouts.Target,
                     0,
-                    sizeof(int));
+                    request.Context.ManagedAggregateValues.Plan.Storages[storage].Lane(lane.Lane.ByteOffset).Size);
             }
         }
     }

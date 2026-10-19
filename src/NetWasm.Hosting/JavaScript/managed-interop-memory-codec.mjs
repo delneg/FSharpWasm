@@ -56,9 +56,7 @@ export function writeManagedInteropString(request) {
 
 export function readManagedInteropBytes(request) {
   assertExactDataObject(request, readKeys, "managed interop byte-array read");
-  if (isNullReference(request.reference, request.target)) return null;
-  const { byteOffset, length } = readByteRange(request);
-  return new Uint8Array(request.memory.buffer, byteOffset, length).slice();
+  return readManagedInteropValueArray(request, Uint8Array);
 }
 
 export function writeManagedInteropBytes(request) {
@@ -66,14 +64,37 @@ export function writeManagedInteropBytes(request) {
   if (!(request.value instanceof Uint8Array)) {
     throw new TypeError("managed interop byte-array value is invalid");
   }
-  const { byteOffset, length } = readByteRange(request);
-  if (length !== request.value.byteLength) {
-    throw new NetWasmHostError("managed byte-array result destination is invalid");
-  }
-  new Uint8Array(request.memory.buffer, byteOffset, length).set(request.value);
+  writeManagedInteropValueArray(request);
 }
 
-function readByteRange(request) {
+// Copies a managed array of primitive numbers out as a typed array.
+export function readManagedInteropValueArray(request, constructor) {
+  assertExactDataObject(request, readKeys, "managed interop value-array read");
+  if (typeof constructor?.BYTES_PER_ELEMENT !== "number") {
+    throw new TypeError("managed interop value-array type is invalid");
+  }
+  if (isNullReference(request.reference, request.target)) return null;
+  const { byteOffset, length } = readElementRange(request, constructor.BYTES_PER_ELEMENT);
+  return new constructor(request.memory.buffer.slice(
+    byteOffset, byteOffset + length * constructor.BYTES_PER_ELEMENT));
+}
+
+// Copies a typed array into a managed array the guest allocated with its length.
+export function writeManagedInteropValueArray(request) {
+  assertExactDataObject(request, writeKeys, "managed interop value-array write");
+  const value = request.value;
+  if (!ArrayBuffer.isView(value) || value instanceof DataView) {
+    throw new TypeError("managed interop value-array value is invalid");
+  }
+  const { byteOffset, length } = readElementRange(request, value.BYTES_PER_ELEMENT);
+  if (length !== value.length) {
+    throw new NetWasmHostError("managed array result destination is invalid");
+  }
+  new Uint8Array(request.memory.buffer, byteOffset, value.byteLength)
+    .set(new Uint8Array(value.buffer, value.byteOffset, value.byteLength));
+}
+
+function readElementRange(request, elementSize) {
   const address = toMemoryOffset(request.reference, request.target, request.memory);
   const view = new DataView(request.memory.buffer);
   const length = view.getInt32(address + request.targetLayout.arrayLengthOffset, true);
@@ -81,9 +102,9 @@ function readByteRange(request) {
     ? view.getUint32(address + request.targetLayout.arrayDataPointerOffset, true)
     : view.getBigUint64(address + request.targetLayout.arrayDataPointerOffset, true);
   const byteOffset = toMemoryOffset(dataAddress, request.target, request.memory);
-  if (length < 0 || !Number.isSafeInteger(byteOffset + length)
-      || byteOffset + length > request.memory.buffer.byteLength) {
-    throw new NetWasmHostError("managed byte array is outside linear memory");
+  const end = byteOffset + length * elementSize;
+  if (length < 0 || !Number.isSafeInteger(end) || end > request.memory.buffer.byteLength) {
+    throw new NetWasmHostError("managed array is outside linear memory");
   }
   return { byteOffset, length };
 }

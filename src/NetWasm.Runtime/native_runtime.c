@@ -1977,7 +1977,8 @@ int32_t array_get_lower_bound(netwasm_reference_t array, u32 dimension)
    reference array element, so the managed emitter translates only the
    reserved sentinel into OutOfMemoryException. */
 NETWASM_EXPORT("array_get_value")
-netwasm_reference_t array_get_value(netwasm_reference_t array, u32 index)
+netwasm_reference_t array_get_value(netwasm_reference_t array, u32 index,
+    u32 nullable_underlying_type_id, netwasm_address_t nullable_value_offset)
 {
     u32 array_type_id;
     u32 element_type_id;
@@ -1985,6 +1986,7 @@ netwasm_reference_t array_get_value(netwasm_reference_t array, u32 index)
     TypeDescriptor *element;
     netwasm_reference_t data;
     netwasm_reference_t boxed;
+    netwasm_address_t slot_offset;
 
     if (array == 0) {
         __builtin_trap();
@@ -2011,11 +2013,26 @@ netwasm_reference_t array_get_value(netwasm_reference_t array, u32 index)
         return ((netwasm_reference_t *)(uintptr_t)data)[index];
     }
 
+    slot_offset = (netwasm_address_t)index * element->value_size;
+    if (nullable_underlying_type_id != 0) {
+        if (*(const unsigned char *)(uintptr_t)(data + slot_offset) == 0) {
+            return 0;
+        }
+        if (nullable_underlying_type_id >= type_capacity ||
+            !type_descriptors[nullable_underlying_type_id].value_registered) {
+            __builtin_trap();
+        }
+        slot_offset += nullable_value_offset;
+        element_type_id = nullable_underlying_type_id;
+        element = &type_descriptors[element_type_id];
+    }
+    allocation_root = array;
     collect_for_allocation_test();
     boxed = (netwasm_reference_t)(uintptr_t)collector_allocate_exact(
         element->size,
         element->descriptor);
     if (boxed == 0) {
+        allocation_root = 0;
         return (netwasm_reference_t)1;
     }
     *(u32 *)(uintptr_t)boxed = element_type_id;
@@ -2023,8 +2040,7 @@ netwasm_reference_t array_get_value(netwasm_reference_t array, u32 index)
     collector_move_value_range(
         boxed,
         (void *)(uintptr_t)(boxed + element->boxed_payload_offset),
-        (const void *)(uintptr_t)(data +
-            (netwasm_address_t)index * element->value_size),
+        (const void *)(uintptr_t)(data + slot_offset),
         1,
         element->value_size,
         element->value_descriptor);

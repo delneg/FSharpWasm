@@ -20,5 +20,6 @@
     <ProjectReference Include="../../src/NetWasm.Hosting/NetWasm.Hosting.csproj" />
     <ProjectReference Include="../../src/NetWasm.Hosting.Build/NetWasm.Hosting.Build.csproj" />
     <ProjectReference Include="../../src/NetWasm.Toolchain/NetWasm.Toolchain.csproj" />
+    <ProjectReference Include="../../tools/NetWasm.TimeZones/NetWasm.TimeZones.csproj" />
   </ItemGroup>
 </Project>

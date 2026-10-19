@@ -73,13 +73,15 @@ test("classifies managed failures, traps and host failures", async () => {
   const trap = new WebAssembly.RuntimeError("trap");
   const empty = new Error("");
   empty.stack = undefined;
-  for (const [cause, expected] of [
-    [managed, "guestFailure"], [trap, "trap"], [new Error("host"), "hostFailure"],
-    ["private", "hostFailure"], [empty, "hostFailure"],
+  for (const [cause, expected, detail] of [
+    [managed, "guestFailure", "NetWasmManagedError: managed export managed failed"], [trap, "trap", "RuntimeError: trap"],
+    [new Error("host"), "hostFailure", "Error: host"], ["thrown text", "hostFailure", "thrown text"],
+    [empty, "hostFailure", "Error"],
   ]) {
     const state = fixture({ exports: { fail() { throw cause; } } });
     await state.dispatcher.receive(invoke({ operation: "fail", arguments: [] }));
     assert.equal(state.messages[0].error.category, expected);
+    assert.equal(state.messages[0].error.detail, detail);
     assert.equal(state.messages[0].error.operation, "fail");
     if (cause === empty) {
       assert.equal(state.messages[0].error.message, "worker invocation failed");

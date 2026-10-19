@@ -33,6 +33,15 @@ public sealed class NetWasmExecutionResultValidatorTests
     }
 
     [Fact]
+    public void AcceptsFailuresWithBoundedSingleLineDetail()
+    {
+        var detail = ExecutionResultFixture.Failure() with { Detail = "TypeError: platform capability 'wallClock' was not granted" };
+        var cleanup = ExecutionResultFixture.Failure(NetWasmFailurePhase.Cleanup, "cleanup.failed", "Cleanup failed.");
+        var longest = cleanup with { Detail = new string('x', NetWasmExecutionFailure.MaxDetailLength) };
+        _subject.Validate(ExecutionResultFixture.Failed(primary: detail, cleanupFailures: [longest]));
+    }
+
+    [Fact]
     public void RejectsNullResult() => Assert.Throws<ArgumentNullException>(() => _subject.Validate(null!));
 
     [Theory]
@@ -73,6 +82,12 @@ public sealed class NetWasmExecutionResultValidatorTests
         {
             data.Add(failed with { PrimaryFailure = failure with { Message = message! } });
             data.Add(failed with { CleanupFailures = [cleanup with { Message = message! }] });
+        }
+
+        foreach (var detail in new[] { "", " ", " padded", "two\nlines", new string('x', NetWasmExecutionFailure.MaxDetailLength + 1) })
+        {
+            data.Add(failed with { PrimaryFailure = failure with { Detail = detail } });
+            data.Add(failed with { CleanupFailures = [cleanup with { Detail = detail }] });
         }
 
         return data;

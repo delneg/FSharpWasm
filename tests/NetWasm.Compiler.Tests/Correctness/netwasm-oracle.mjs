@@ -773,7 +773,7 @@ var runtimeValues = {
     const shape = memory64 ? view.getBigInt64(address + 32, true) : view.getInt32(address + 20, true);
     return view.getInt32(asNumber(plus(shape, rank * 8 + dimension * 4)), true);
   },
-  array_get_value(array, index) {
+  array_get_value(array, index, underlying, payloadOffset) {
     const view = createRefreshableDataView(memory);
     const address = asNumber(array);
     const length = view.getInt32(address + (memory64 ? 8 : 4), true);
@@ -781,17 +781,24 @@ var runtimeValues = {
     const data = memory64
       ? view.getBigUint64(address + 16, true)
       : view.getUint32(address + 8, true);
-    const element = view.getInt32(address + (memory64 ? 24 : 12), true);
-    const valueSize = valueTypeSizes.get(element);
+    let element = view.getInt32(address + (memory64 ? 24 : 12), true);
+    let valueSize = valueTypeSizes.get(element);
     if (valueSize === undefined) {
       return memory64
         ? view.getBigUint64(asNumber(plus(data, index * 8)), true)
         : view.getUint32(asNumber(plus(data, index * 4)), true);
     }
+    let slot = plus(data, index * valueSize);
+    if (underlying) {
+      if (!view.getUint8(asNumber(slot))) return memory64 ? 0n : 0;
+      slot = plus(slot, asNumber(payloadOffset));
+      element = underlying;
+      valueSize = valueTypeSizes.get(element);
+    }
     const boxed = allocate(typeSizes.get(element), element);
     const payload = valueTypePayloadOffsets.get(element);
     new Uint8Array(memory.buffer, asNumber(plus(boxed, payload)), valueSize).set(
-      new Uint8Array(memory.buffer, asNumber(plus(data, index * valueSize)), valueSize));
+      new Uint8Array(memory.buffer, asNumber(slot), valueSize));
     return boxed;
   },
   array_copy: copyArray,

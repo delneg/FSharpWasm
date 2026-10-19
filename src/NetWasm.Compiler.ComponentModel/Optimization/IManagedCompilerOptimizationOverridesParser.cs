@@ -12,5 +12,10 @@ public interface IManagedCompilerOptimizationOverridesParser
         string? arrayBoundsCheckElimination = null,
         string? loopUnrolling = null,
         string? constantArgumentPropagation = null,
-        string? staticArrayPopulationElimination = null);
+        string? staticArrayPopulationElimination = null,
+        string? constantCallFolding = null,
+        string? switchBitTests = null,
+        string? devirtualization = null,
+        string? allocationElimination = null,
+        string? loopRotation = null);
 }

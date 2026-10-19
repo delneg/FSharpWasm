@@ -27,20 +27,21 @@ using NetWasm.Compiler.ComponentModel;
 using NetWasm.Compiler.Core;
 using NetWasm.TestInfrastructure;
 namespace NetWasm.Compiler.Tests;
+
 public sealed class MultiExitScannerCompilationTests
 {
- [Theory]
- [InlineData(WasmTarget.Wasm32, false)]
- [InlineData(WasmTarget.Wasm32, true)]
- [InlineData(WasmTarget.Wasm64, false)]
- [InlineData(WasmTarget.Wasm64, true)]
- public void PreservesSharedCleanupAfterScanningLoops(WasmTarget target, bool optimize)
- {
-  using var assets=TestAssets.Create();
-  var executor=(ICompilationScenarioExecutor)new CompilationScenarioExecutor(assets);
-  Assert.Equal(42, executor.Execute(new CompilationScenario("MultiExitScanner", Source, "MultiExitScanner.EntryPoint", optimize, target, 41, []) { Optimization=FinalWasmOptimization.None }));
- }
- private const string Source = """
+    [Theory]
+    [InlineData(WasmTarget.Wasm32, false)]
+    [InlineData(WasmTarget.Wasm32, true)]
+    [InlineData(WasmTarget.Wasm64, false)]
+    [InlineData(WasmTarget.Wasm64, true)]
+    public void PreservesSharedCleanupAfterScanningLoops(WasmTarget target, bool optimize)
+    {
+        using var assets = TestAssets.Create();
+        var executor = (ICompilationScenarioExecutor)new CompilationScenarioExecutor(assets);
+        Assert.Equal(42, executor.Execute(new CompilationScenario("MultiExitScanner", Source, "MultiExitScanner.EntryPoint", optimize, target, 41, []) { Optimization = FinalWasmOptimization.None }));
+    }
+    private const string Source = """
     // Adapted from Markdig LinkHelper at 1a1bbecc467a800dd6b39e68825df50309f6065c.
     // Copyright (c) Alexandre Mutel. Licensed under the BSD 2-Clause license.
     using System;

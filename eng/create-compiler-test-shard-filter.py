@@ -25,14 +25,16 @@ class ShardItem:
     weight: float
 
 
-def parse_test_cases(lines: list[str]) -> dict[str, list[str]]:
+def parse_test_cases(
+    lines: list[str], namespace: str = TEST_NAMESPACE
+) -> dict[str, list[str]]:
     cases: dict[str, list[str]] = {}
     for line in lines:
         if not line.startswith("    "):
             continue
 
         display_name = line.strip()
-        if not display_name.startswith(TEST_NAMESPACE):
+        if not display_name.startswith(namespace):
             continue
 
         qualified_method = display_name.split("(", 1)[0]
@@ -42,7 +44,7 @@ def parse_test_cases(lines: list[str]) -> dict[str, list[str]]:
         cases.setdefault(qualified_method, []).append(display_name)
 
     if not cases:
-        raise ValueError("The test listing contained no NetWasm compiler tests.")
+        raise ValueError(f"The test listing contained no {namespace.rstrip('.')} tests.")
 
     return cases
 
@@ -263,13 +265,15 @@ def create_vstest_filter(items: list[str | ShardItem]) -> str:
 def main() -> int:
     parser = argparse.ArgumentParser(
         description=(
-            "Create a deterministic VSTest filter for one compiler-test shard."
+            "Create a deterministic VSTest filter for one test shard."
         )
     )
     parser.add_argument("test_listing", type=Path)
     parser.add_argument("--shard-count", type=int, required=True)
     parser.add_argument("--shard-index", type=int, required=True)
     parser.add_argument("--timings", type=Path)
+    # Other test projects shard the same way by their own namespace.
+    parser.add_argument("--namespace", default=TEST_NAMESPACE)
     parser.add_argument(
         "--split-threshold-seconds",
         type=float,
@@ -282,7 +286,7 @@ def main() -> int:
 
     try:
         test_cases = parse_test_cases(
-            args.test_listing.read_text(encoding="utf-8").splitlines()
+            args.test_listing.read_text(encoding="utf-8").splitlines(), args.namespace
         )
         method_counts = Counter({name: len(cases) for name, cases in test_cases.items()})
         weights = None

@@ -2,6 +2,7 @@ using NetWasm.Compiler.Wasm.Encoding;
 using System;
 using NetWasm.Compiler.Core;
 using NetWasm.Compiler.Wasm.Emission.Methods;
+using NetWasm.Compiler.Wasm.Emission.Values;
 
 namespace NetWasm.Compiler.Wasm.Emission.Instructions.Runtime;
 
@@ -68,7 +69,11 @@ internal sealed class RootPublicationEmitter(
                 EmitAddressAdd(code);
             }
 
-            if (rootsBySlot[rootSlot] is { } source)
+            if (rootsBySlot[rootSlot] is { } promoted && TryGetPromotedLane(context, promoted, out var lane))
+            {
+                code.Write(WasmInstruction.WithOperand(WasmOpcodes.LocalGet, WasmInstructionOperand.Unsigned((uint)lane)));
+            }
+            else if (rootsBySlot[rootSlot] is { } source)
             {
                 EmitSourceValue(code, context, source);
                 var guarded = source.IsIndirect &&
@@ -109,6 +114,23 @@ internal sealed class RootPublicationEmitter(
                 0,
                 layouts.Target.ObjectReferenceSize);
         }
+    }
+
+    // A reference or byref field of a promoted aggregate lives in its lane
+    // local; the value frame holds it only around materializations.
+    private static bool TryGetPromotedLane(MethodEmissionContext context, RootSource source, out int local)
+    {
+        local = -1;
+        var kind = source.Kind switch
+        {
+            RootSourceKind.Argument => ManagedAggregateStorageKind.Argument,
+            RootSourceKind.Local => ManagedAggregateStorageKind.Local,
+            _ => (ManagedAggregateStorageKind?)null,
+        };
+        return source.IsIndirect && kind is { } storage &&
+            context.ManagedAggregateValues.LaneLocals.TryGetValue(
+                new(new(storage, source.Index), source.ByteOffset),
+                out local);
     }
 
     private void EmitSourceValue(IWasmInstructionWriter code, MethodEmissionContext context, RootSource source)
