@@ -6,7 +6,7 @@ internal sealed class ManagedEntryPointReader : IManagedEntryPointReader
 {
     private readonly IManagedExecutableEntryPointSelector _entries;
 
-    public ManagedEntryPointReader() : this(new ManagedExecutableEntryPointSelector()) { }
+    public ManagedEntryPointReader() : this(new ManagedExecutableEntryPointSelectorFactory().Create()) { }
 
     public ManagedEntryPointReader(IManagedExecutableEntryPointSelector entries) =>
         _entries = entries ?? throw new ArgumentNullException(nameof(entries));

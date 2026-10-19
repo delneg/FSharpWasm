@@ -48,15 +48,15 @@ result, not a language-wide size ranking.
 
 The 46.7 KiB program is the baseline, not the boundary.
 
-**C# 15** · **Web Workers** · **static `.a` interop** · **WIT/WASI P2** ·
+**C# 15** · **JavaScript modules and Web Workers** · **static `.a` interop** · **WIT/WASI P2** ·
 **expression trees** · **HTTP/JSON/XML/Regex** · **reflection-free DI** ·
 **TUnit/VSTest** · **wasm64** · **four allocation strategies**
 
 Today NetWasm can:
 
 - build, run, publish and test projects through the ordinary `dotnet` CLI;
-- publish browser [C# Web Workers](docs/web-workers.md) with generated
-  JavaScript clients;
+- publish C# exports as typed [JavaScript modules](docs/javascript-interop.md)
+  that run in the page or in a [Web Worker](docs/web-workers.md);
 - link compatible Wasm [`.a` archives](docs/static-native-interop.md) and
   generate bounded C ABI marshalling;
 - [generate C# bindings from WIT](docs/wit-bindings.md) and produce standalone
@@ -67,7 +67,7 @@ Today NetWasm can:
 - dual-target libraries for `netwasm0.1` and desktop .NET.
 
 The profile is deliberately smaller than desktop .NET. It already supports
-complete applications, portable libraries, test projects and browser workers.
+complete applications, portable libraries, test projects and browser modules.
 
 ## Try it
 
@@ -277,7 +277,7 @@ There is no sign-in, activation, telemetry or technical enforcement.
 
 [Licensing guide](docs/licensing.md) ·
 [Third-party notices](THIRD-PARTY-NOTICES.md) ·
-Commercial licensing: <zion.sati@netwasm.com>
+Commercial licensing: <zionsatidev@gmail.com>
 
 ## Bring a workload
 

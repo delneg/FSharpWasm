@@ -12,7 +12,7 @@ Install the templates, then choose one of the two worker boundaries:
 ```bash
 dotnet new install NetWasm.Templates
 dotnet new netwasm-app -n ReportWorker --worker wit
-# or: dotnet new netwasm-app -n ReportWorker --worker jsexport
+# or: dotnet new netwasm-app -n ReportWorker --host worker
 cd ReportWorker
 dotnet publish -c Release
 ```
@@ -24,7 +24,7 @@ a generated worker client, and orderly disposal.
 | Worker kind | Select it when | Output boundary |
 | --- | --- | --- |
 | `--worker wit` | The application contract should be language-neutral and explicitly described by WIT. | A WebAssembly Component with generated WIT bindings. |
-| `--worker jsexport` | JavaScript should call managed methods declared with `[JSExport]`, and managed code may use application-supplied `[JSImport]` modules. | Raw WebAssembly with the NetWasm JavaScript interop ABI. |
+| `--host worker` | JavaScript should call managed methods declared with `[JSExport]`, and managed code may use application-supplied `[JSImport]` modules. | Raw WebAssembly with the NetWasm JavaScript interop ABI. |
 
 Worker projects select their boundary with `OutputType` and do not use the
 ordinary `command` or `async-command` entry contracts:
@@ -34,7 +34,8 @@ ordinary `command` or `async-command` entry contracts:
 <OutputType>WitWebWorker</OutputType>
 
 <!-- JSExport worker -->
-<OutputType>JsWebWorker</OutputType>
+<OutputType>JsModule</OutputType>
+<NetWasmJavaScriptHosts>worker</NetWasmJavaScriptHosts>
 ```
 
 ## Call the generated client
@@ -65,8 +66,22 @@ Promises. `dispose()` lets accepted calls finish before closing the worker;
 `terminate()` stops it immediately and rejects pending calls. New calls are
 rejected after either operation.
 
+Besides `onNotification`, `createWorker()` accepts `environment`, which adds or
+replaces environment variables for that worker over the project's
+`NetWasmEnvironmentVariable` items, and `stdout` and `stderr`, which receive the
+worker's output one line at a time on the page (the console by default).
+
+A `JsModule` can run on the page instead, where exports return values directly
+and import modules can use the DOM; see
+[JavaScript interop](javascript-interop.md#call-c-from-a-page). A `JSObject` cannot
+cross into a worker, so a worker-hosted export may not take or return one
+(NWSDK081).
+
 The generated `*.worker-client.d.mts` file lists the available method names and
-their TypeScript signatures. The template's `app.mjs` calls the matching
+their TypeScript signatures, with parameters named after the C# or WIT
+parameters. A C# string, array or `JSObject` declared non-nullable is typed
+without `| null`. A name that is reserved in JavaScript, or that the generated client
+uses itself, becomes `argument0`, `argument1` and so on. The template's `app.mjs` calls the matching
 boundary.
 
 When an exported `Task` or `ValueTask` faults, the Promise rejects with the
@@ -128,8 +143,8 @@ The generated client exposes that method as `worker.run(total)`. Reachable
 
 ```xml
 <ItemGroup>
-  <NetWasmWorkerJavaScriptModule Include="notifications.mjs"
-                                 Module="example.notifications" />
+  <NetWasmJavaScriptModule Include="notifications.mjs"
+                           Module="example.notifications" />
 </ItemGroup>
 ```
 

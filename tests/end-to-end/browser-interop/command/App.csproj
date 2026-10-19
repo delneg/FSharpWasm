@@ -1,0 +1,17 @@
+<Project Sdk="NetWasm.Sdk">
+  <PropertyGroup>
+    <TargetFramework>netwasm0.1</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>BrowserCommand</AssemblyName>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <NetWasmRawWasm>true</NetWasmRawWasm>
+    <NetWasmComponentContract>async-command</NetWasmComponentContract>
+    <NetWasmPublishTarget>browser</NetWasmPublishTarget>
+  </PropertyGroup>
+  <ItemGroup>
+    <NetWasmJavaScriptModule Include="page-host.mjs" Module="app.host" />
+    <Content Include="index.html;app.mjs" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

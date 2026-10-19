@@ -8,8 +8,10 @@ export function adaptCommandProcessResult(result) {
       exitCode: normalizeExitCode(result.exitCode),
     });
   }
+  const failure = result.primaryFailure;
+  const detail = "detail" in failure ? ` Detail: ${failure.detail}` : "";
   return Object.freeze({
-    diagnostic: `NetWasm ${result.completionKind}: ${result.primaryFailure.code}: ${result.primaryFailure.message}\n`,
+    diagnostic: `NetWasm ${result.completionKind}: ${failure.code}: ${failure.message}${detail}\n`,
     exitCode: 1,
   });
 }

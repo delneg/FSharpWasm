@@ -163,6 +163,24 @@ internal static class EnumAlgorithms
         return true;
     }
 
+    internal static string? GetName(nint address, ulong value)
+    {
+        var metadata = new EnumMetadataView(address);
+        // Match upstream's range check before narrowing; truncation must not turn
+        // an out-of-range input into a declared value of a smaller enum.
+        var inRange = metadata.UnderlyingTypeCode switch
+        {
+            1 => unchecked((long)value) >= sbyte.MinValue && unchecked((long)value) <= sbyte.MaxValue,
+            2 => value <= byte.MaxValue,
+            3 => unchecked((long)value) >= short.MinValue && unchecked((long)value) <= short.MaxValue,
+            4 or 9 => value <= ushort.MaxValue,
+            5 => unchecked((long)value) >= int.MinValue && unchecked((long)value) <= int.MaxValue,
+            6 => value <= uint.MaxValue,
+            _ => true,
+        };
+        return inRange ? GetName(metadata, Normalize(value, metadata.UnderlyingTypeCode)) : null;
+    }
+
     private static string? GetName(EnumMetadataView metadata, ulong value)
     {
         var names = metadata.Names;

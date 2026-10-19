@@ -43,39 +43,75 @@ internal sealed class RuntimeStateInitializer(
             var guardAddress = plan.StackTraceSymbolRegistrationGuardAddress ??
                 throw new InvalidOperationException(
                     "Stack-trace symbol registration requires a guard address.");
-            addresses.Emit(code.Instructions, guardAddress);
-            code.Instructions.Write(WasmInstruction.WithOperand(
-                WasmOpcodes.I32Load,
-                WasmInstructionOperand.Memory(2, 0)));
-            code.Instructions.Write(WasmInstruction.NoOperand(
-                WasmOpcodes.I32EqualZero));
-            code.Instructions.Write(WasmInstruction.WithOperand(
-                WasmOpcodes.If,
-                WasmInstructionOperand.BlockType(WasmOpcodes.EmptyBlockType)));
-            foreach (var symbol in plan.StackTraceSymbols)
+            EmitOnce(code, guardAddress, () =>
             {
-                code.Instructions.Write(WasmInstruction.WithOperand(
-                    WasmOpcodes.I32Constant,
-                    WasmInstructionOperand.Signed(symbol.Id)));
-                addresses.Emit(code.Instructions, symbol.Address);
-                code.Instructions.Write(WasmInstruction.WithOperand(
-                    WasmOpcodes.I32Constant,
-                    WasmInstructionOperand.Signed(symbol.Length)));
-                code.Instructions.Write(WasmInstruction.WithOperand(
-                    WasmOpcodes.Call,
-                    WasmInstructionOperand.Unsigned((uint)runtimeImports.Resolve(
-                        RuntimeImportSymbol.StackTraceRegisterSymbol,
-                        plan.RuntimeImportSelection))));
-            }
-            addresses.Emit(code.Instructions, guardAddress);
+                foreach (var symbol in plan.StackTraceSymbols)
+                {
+                    code.Instructions.Write(WasmInstruction.WithOperand(
+                        WasmOpcodes.I32Constant,
+                        WasmInstructionOperand.Signed(symbol.Id)));
+                    addresses.Emit(code.Instructions, symbol.Address);
+                    code.Instructions.Write(WasmInstruction.WithOperand(
+                        WasmOpcodes.I32Constant,
+                        WasmInstructionOperand.Signed(symbol.Length)));
+                    code.Instructions.Write(WasmInstruction.WithOperand(
+                        WasmOpcodes.Call,
+                        WasmInstructionOperand.Unsigned((uint)runtimeImports.Resolve(
+                            RuntimeImportSymbol.StackTraceRegisterSymbol,
+                            plan.RuntimeImportSelection))));
+                }
+            });
+        }
+        if (plan.StateRegistrationGuardAddress is int registrationGuard)
+        {
+            EmitOnce(code, registrationGuard, () => RegisterState(code));
+        }
+        else
+        {
+            RegisterState(code);
+        }
+        if (plan.NativeCallbackReadinessAddress is int readinessAddress)
+        {
+            addresses.Emit(code.Instructions, readinessAddress);
             code.Instructions.Write(WasmInstruction.WithOperand(
                 WasmOpcodes.I32Constant,
                 WasmInstructionOperand.Signed(1)));
             code.Instructions.Write(WasmInstruction.WithOperand(
                 WasmOpcodes.I32Store,
                 WasmInstructionOperand.Memory(2, 0)));
-            code.Instructions.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
         }
+        foreach (var initializer in plan.ModuleInitializers)
+        {
+            InitializeModule(code, initializer);
+        }
+    }
+
+    // Registrations persist for the instance, so a zero-initialized module-data flag
+    // limits them to the first entry that runs this initializer.
+    private void EmitOnce(GeneratedFunctionWriterLease code, int guardAddress, Action emitBody)
+    {
+        addresses.Emit(code.Instructions, guardAddress);
+        code.Instructions.Write(WasmInstruction.WithOperand(
+            WasmOpcodes.I32Load,
+            WasmInstructionOperand.Memory(2, 0)));
+        code.Instructions.Write(WasmInstruction.NoOperand(
+            WasmOpcodes.I32EqualZero));
+        code.Instructions.Write(WasmInstruction.WithOperand(
+            WasmOpcodes.If,
+            WasmInstructionOperand.BlockType(WasmOpcodes.EmptyBlockType)));
+        emitBody();
+        addresses.Emit(code.Instructions, guardAddress);
+        code.Instructions.Write(WasmInstruction.WithOperand(
+            WasmOpcodes.I32Constant,
+            WasmInstructionOperand.Signed(1)));
+        code.Instructions.Write(WasmInstruction.WithOperand(
+            WasmOpcodes.I32Store,
+            WasmInstructionOperand.Memory(2, 0)));
+        code.Instructions.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
+    }
+
+    private void RegisterState(GeneratedFunctionWriterLease code)
+    {
         foreach (var descriptor in descriptors.TypeDescriptors)
         {
             EmitTypeDescriptor(
@@ -144,20 +180,6 @@ internal sealed class RuntimeStateInitializer(
                 WasmOpcodes.Call,
                 WasmInstructionOperand.Unsigned((uint)runtimeImports.Resolve(
                     RuntimeImportSymbol.RegisterStaticRoot))));
-        }
-        if (plan.NativeCallbackReadinessAddress is int readinessAddress)
-        {
-            addresses.Emit(code.Instructions, readinessAddress);
-            code.Instructions.Write(WasmInstruction.WithOperand(
-                WasmOpcodes.I32Constant,
-                WasmInstructionOperand.Signed(1)));
-            code.Instructions.Write(WasmInstruction.WithOperand(
-                WasmOpcodes.I32Store,
-                WasmInstructionOperand.Memory(2, 0)));
-        }
-        foreach (var initializer in plan.ModuleInitializers)
-        {
-            InitializeModule(code, initializer);
         }
     }
 

@@ -133,7 +133,7 @@
       "id": "wasm-tools.command",
       "version": "1",
       "relativePath": "tools/wasm-tools/run-wasm-tools.mjs",
-      "sha256": "74e9bebe318528973147a3dea342ce7aac29f6c28c041a09d3de421c0cf4c1ec"
+      "sha256": "b78a821f582843a994a448599cd7c0893a8748bf5eb0e747bb592370144c68e6"
     },
     {
       "id": "wasm-tools.module",
@@ -278,6 +278,12 @@
       "version": "1",
       "relativePath": "tools/bundler/closure-policy.json",
       "sha256": "8e9e089f1d500eadf41353ca86b20005d52d253f3702d92a42e440823ab87383"
+    },
+    {
+      "id": "timezones.closure-integrity",
+      "version": "2026c",
+      "relativePath": "tools/timezones/closure-integrity.json",
+      "sha256": "8b8bfb8c1a23b24342c1b6c22cd11a29dcd2432de7efd052940623b59a5855b6"
     }
   ]
 }

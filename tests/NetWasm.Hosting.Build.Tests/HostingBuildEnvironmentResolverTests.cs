@@ -474,7 +474,9 @@ public sealed class HostingBuildEnvironmentResolverTests
                 new("NetWasm.Toolchain", "0.1.0-preview.24", "1.28.1", "0.24.1",
                     node.AbsolutePath, nodeCompatibility.Version, "jco", "lock", "integrity", "notices", "policy"),
                 new("NetWasm.Toolchain", "0.1.0-preview.24", "1.2.4",
-                    node.AbsolutePath, nodeCompatibility.Version, "bundle", "rolldown", "lock", "integrity", "notices", "policy"));
+                    node.AbsolutePath, nodeCompatibility.Version, "bundle", "rolldown", "lock", "integrity", "notices", "policy"),
+                new("NetWasm.Toolchain", "0.1.0-preview.24",
+                    Path.Combine(packageRoot, "tools", "timezones", "zoneinfo"), "2026c"));
         }
     }
 }

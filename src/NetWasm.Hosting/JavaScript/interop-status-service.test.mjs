@@ -183,12 +183,31 @@ test("lifts every host-service argument family and writes a scalar result", () =
   assert.equal(nulls(0, 0, 0, 0, 0, 0), 0);
 });
 
+test("lifts typed array arguments with their element type", () => {
+  const memory = new WebAssembly.Memory({ initial: 1 });
+  const view = new DataView(memory.buffer);
+  view.setInt32(64 + layout.arrayLengthOffset, 2, true);
+  view.setUint32(64 + layout.arrayDataPointerOffset, 128, true);
+  new Uint16Array(memory.buffer, 128, 2).set([65_535, 7]);
+  const invoke = createInteropStatusService(request({
+    descriptor: descriptor({ parameters: ["u16[]"] }),
+    getMemory: () => memory,
+    service(values) {
+      assert.ok(values instanceof Uint16Array);
+      assert.deepEqual([...values], [65_535, 7]);
+    },
+  }));
+  assert.equal(invoke(64, 0), 0);
+});
+
 test("writes every reference-shaped host-service result", () => {
   const cases = [
     ["string", "value", value => assert.equal(value, "value")],
     ["string", null, value => assert.equal(value, null)],
     ["bytes", new Uint8Array([1, 2]), value => assert.deepEqual([...value], [1, 2])],
     ["bytes", null, value => assert.equal(value, null)],
+    ["i64[]", BigInt64Array.of(-1n, 2n), value => assert.deepEqual([...value], [-1n, 2n])],
+    ["f32[]", null, value => assert.equal(value, null)],
     ["object", { key: 1 }, value => assert.deepEqual(value, { key: 1 })],
     ["object", () => 1, value => assert.equal(value(), 1)],
     ["object", null, value => assert.equal(value, null)],
@@ -201,7 +220,7 @@ test("writes every reference-shaped host-service result", () => {
     if (value === null) assert.equal(handle, 0);
     else {
       assertValue(state.handles.get(handle));
-      if (result === "bytes") assert.notStrictEqual(state.handles.get(handle), value);
+      if (result === "bytes" || result === "i64[]") assert.notStrictEqual(state.handles.get(handle), value);
     }
   }
 
@@ -220,7 +239,8 @@ test("writes every reference-shaped host-service result", () => {
 
 test("maps invalid synchronous service values and invocations to host failure", () => {
   const cases = [
-    ["i32", "not an integer"], ["string", 1], ["bytes", []], ["object", 1],
+    ["i32", "not an integer"], ["string", 1], ["bytes", []], ["u16[]", Int16Array.of(1)],
+    ["object", 1],
     ["subscription", {}], ["promise", {}], ["unknown", null],
   ];
   for (const [result, value] of cases) {
@@ -374,6 +394,82 @@ test("settles and cancels task-style asynchronous services", async () => {
     settle();
     await tick();
     assert.deepEqual(calls, [["cancel", 9]]);
+  }
+});
+
+test("settles task-style services with string, typed array, and object values", async () => {
+  const host = { title: "host" };
+  for (const [result, value, verify] of [
+    ["string", "text", resolved => assert.equal(resolved, "text")],
+    ["f64[]", Float64Array.of(1.5), resolved => assert.deepEqual([...resolved], [1.5])],
+    ["bytes", null, resolved => assert.equal(resolved, null)],
+    ["object", host, resolved => assert.strictEqual(resolved, host)],
+  ]) {
+    const handles = createInteropHandleTable();
+    const calls = [];
+    const state = request({
+      descriptor: descriptor({
+        asyncReturn: "task", resolveExport: "resolve", rejectExport: "reject",
+        cancelExport: "cancel", result,
+      }),
+      handles,
+      getInstance: () => ({ exports: {
+        resolve(asyncHandle, valueHandle) {
+          calls.push(asyncHandle);
+          verify(valueHandle === 0 ? null : handles.get(valueHandle));
+        },
+        reject: () => calls.push("reject"),
+        cancel() {},
+      } }),
+      service: () => Promise.resolve(value),
+    });
+    assert.equal(createInteropStatusService(state)(5, 0), 0);
+    await tick();
+    assert.deepEqual(calls, [5]);
+    // A copied value's handle ends with resolve; an object's now belongs to its wrapper.
+    assert.equal(handles.count, result === "object" ? 1 : 0);
+  }
+});
+
+test("rejects mistyped reference settlements and releases handles a failed resolve kept", async () => {
+  for (const [result, value] of [
+    ["string", 1], ["u16[]", Int16Array.of(1)], ["bytes", []], ["object", 1],
+  ]) {
+    const calls = [];
+    const state = request({
+      descriptor: descriptor({
+        asyncReturn: "task", resolveExport: "resolve", rejectExport: "reject",
+        cancelExport: "cancel", result,
+      }),
+      getInstance: () => ({ exports: {
+        resolve: () => calls.push("resolve"), reject: () => calls.push("reject"), cancel() {},
+      } }),
+      service: () => Promise.resolve(value),
+    });
+    createInteropStatusService(state)(3, 0);
+    await tick();
+    assert.deepEqual(calls, ["reject"]);
+  }
+
+  for (const result of ["object", "string"]) {
+    const handles = createInteropHandleTable();
+    const failures = [];
+    const state = request({
+      descriptor: descriptor({
+        asyncReturn: "task", resolveExport: "resolve", rejectExport: "reject",
+        cancelExport: "cancel", result,
+      }),
+      handles,
+      getInstance: () => ({ exports: {
+        resolve() { throw new Error("resolve failed"); }, reject() {}, cancel() {},
+      } }),
+      observeAsyncFailure: cause => failures.push(cause),
+      service: () => Promise.resolve(result === "object" ? {} : "text"),
+    });
+    createInteropStatusService(state)(4, 0);
+    await tick();
+    assert.equal(failures.length, 1);
+    assert.equal(handles.count, 0);
   }
 });
 

@@ -109,7 +109,8 @@ test("filesystem acquisition failure closes the caller without attempting later 
   }
   const f = fixture();
   f.request.createFilesystem = () => { throw new Error("private factory detail"); };
-  assertFailure(await executeWithTimeZoneResources(f.request), "host.filesystem-prepare", "instantiation");
+  assertFailure(await executeWithTimeZoneResources(f.request), "host.filesystem-prepare", "instantiation",
+    "Error: private factory detail");
   assert.deepEqual(f.calls, ["caller-release"]);
 });
 
@@ -127,10 +128,14 @@ test("captures filesystem disposal before validating the remaining provider shap
 });
 
 test("materializer creation failures still release the filesystem and caller", async () => {
-  for (const createMaterializer of [() => null, () => { throw new Error("private factory detail"); }]) {
+  for (const [createMaterializer, detail] of [
+    [() => null, undefined],
+    [() => { throw new Error("private factory detail"); }, "Error: private factory detail"],
+  ]) {
     const f = fixture();
     f.request.createMaterializer = createMaterializer;
-    assertFailure(await executeWithTimeZoneResources(f.request), "host.timezone-materialize", "instantiation");
+    assertFailure(await executeWithTimeZoneResources(f.request), "host.timezone-materialize", "instantiation",
+      detail);
     assert.deepEqual(f.calls, ["filesystem", "filesystem-release", "caller-release"]);
   }
 });
@@ -150,15 +155,20 @@ test("invalid or failed mount acquisition releases the provider without entering
 
   const throwing = fixture();
   throwing.request.createMaterializer = () => async () => { throw new Error("private transport detail"); };
-  assertFailure(await executeWithTimeZoneResources(throwing.request), "host.timezone-materialize", "instantiation");
+  assertFailure(await executeWithTimeZoneResources(throwing.request), "host.timezone-materialize", "instantiation",
+    "Error: private transport detail");
   assert.deepEqual(throwing.calls, ["filesystem", "filesystem-release", "caller-release"]);
 });
 
 test("execution exceptions and invalid outcomes close all resources with a fixed failure", async () => {
-  for (const execute of [async () => null, async () => { throw new Error("private execution detail"); }]) {
+  for (const [execute, detail] of [
+    [async () => null, undefined],
+    [async () => { throw new Error("private execution detail"); }, "Error: private execution detail"],
+  ]) {
     const f = fixture();
     f.request.execute = execute;
-    assertFailure(await executeWithTimeZoneResources(f.request), "host.deployment-execute", "execution");
+    assertFailure(await executeWithTimeZoneResources(f.request), "host.deployment-execute", "execution",
+      detail);
     assert.deepEqual(f.calls, ["filesystem", "materializer", "materialize", "mount",
       "mount-release", "filesystem-release", "caller-release"]);
   }
@@ -230,16 +240,20 @@ test("cleanup failures do not prevent later cleanup and preserve failure precede
     assert.deepEqual(outcome.cleanupFailures.map(failure => failure.code),
       primary === null ? ["host.filesystem-cleanup", "caller"] : ["mount", "host.filesystem-cleanup", "caller"]);
     assert.deepEqual(f.calls.slice(-3), ["mount-release", "filesystem-release", "caller-release"]);
-    assert.doesNotMatch(JSON.stringify(outcome), /private/);
+    assert.equal(outcome.primaryFailure.detail, primary === null ? "Error: private cleanup detail" : undefined);
+    assert.deepEqual(outcome.cleanupFailures.map(failure => failure.detail),
+      Array(outcome.cleanupFailures.length).fill("Error: private cleanup detail"));
   }
 });
 
-function assertFailure(outcome, code, phase) {
+// Failures caused by an invalid value report the TypeError the host raised.
+function assertFailure(outcome, code, phase, detail = /^TypeError: \S/u) {
   assert.equal(outcome.completionKind, "hostFailure");
   assert.equal(outcome.primaryFailure.code, code);
   assert.equal(outcome.primaryFailure.phase, phase);
   assert.deepEqual(outcome.cleanupFailures, []);
-  assert.doesNotMatch(JSON.stringify(outcome), /private/);
+  if (detail instanceof RegExp) assert.match(outcome.primaryFailure.detail, detail);
+  else assert.equal(outcome.primaryFailure.detail, detail);
 }
 
 function assertCancellation(outcome, phase) {

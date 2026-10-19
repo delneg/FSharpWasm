@@ -1,6 +1,7 @@
 import { isAbsolute, resolve } from "node:path";
 
 import { assertExecutionResult, failedExecutionResult } from "./execution-result.mjs";
+import { createFailureDetailRedaction } from "./failure-detail-redaction.mjs";
 import { validateOutputSink } from "./output-sink-stream.mjs";
 
 const factoryKeys = [
@@ -21,6 +22,7 @@ const invocationKeys = [
 ];
 const optionNames = new Set(["--descriptor", "--request", "--result"]);
 const replaceResultOption = "--replace-result";
+const redactFailureDetails = createFailureDetailRedaction({ isAbsoluteHostPath: isAbsolute });
 
 export function createLocalLauncherCommand(options) {
   assertExactDataObject(options, factoryKeys, "local launcher command options");
@@ -70,14 +72,16 @@ export function createLocalLauncherCommand(options) {
         stdout: invocation.stdout,
       }));
       assertExecutionResult(result);
-    } catch {
+    } catch (error) {
       result = failedExecutionResult(
         "hostFailure",
         "validation",
         "host.launcher-input",
-        "The local execution launcher could not read or execute its request.");
+        "The local execution launcher could not read or execute its request.",
+        error);
     }
 
+    result = redactFailureDetails(result);
     await options.writeResultText(paths.result, `${JSON.stringify(result)}\n`);
     return result;
   });

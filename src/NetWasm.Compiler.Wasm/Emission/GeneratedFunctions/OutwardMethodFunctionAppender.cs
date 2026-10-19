@@ -50,6 +50,10 @@ internal sealed class OutwardMethodFunctionAppender(
                 : runtimeImports.Resolve(
                     RuntimeImportSymbol.ManagedExceptionCapture,
                     request.Initialization.RuntimeImportSelection);
+            // Only a JavaScript boundary passes string and array arguments as host handles.
+            var javaScriptArguments = kinds.Start == ManagedBoundaryKind.AsynchronousExportStart
+                ? request.InteropImports
+                : null;
             var completion = new AsyncTaskCompletionPlan(
                 request.FunctionIndices.Resolve(binding.GetVoidResult ??
                     throw new InvalidOperationException("An asynchronous boundary requires task fault observation.")),
@@ -59,7 +63,10 @@ internal sealed class OutwardMethodFunctionAppender(
                 request.GeneratedFunctionName,
                 new(
                     request.ArgumentFactory is null
-                        ? request.Method.Signature.ParameterTypes
+                        ? [.. request.Method.Signature.ParameterSignatureTypes.Select((type, index) =>
+                            javaScriptArguments is not null && InteropTypeClassifier.IsJavaScriptReference(type)
+                                ? CliValueKind.I4
+                                : request.Method.Signature.ParameterTypes[index])]
                         : [],
                     CliValueKind.I4),
                 asyncWrappers.Emit(
@@ -68,7 +75,8 @@ internal sealed class OutwardMethodFunctionAppender(
                     request.Initialization,
                     request.HasFinalizers,
                     request.FunctionIndices,
-                    request.ArgumentFactory)));
+                    request.ArgumentFactory,
+                    javaScriptArguments)));
             asyncHelpers.Append(
                 request.Functions,
                 request.ImportCount,
@@ -85,11 +93,8 @@ internal sealed class OutwardMethodFunctionAppender(
             var isJSExport = request.SynchronousKind == ManagedBoundaryKind.SynchronousExport &&
                 request.InteropImports is not null &&
                 (request.Method.Signature.ParameterSignatureTypes.Any(
-                    type => InteropTypeClassifier.IsString(type) ||
-                        InteropTypeClassifier.IsByteArray(type)) ||
-                 InteropTypeClassifier.IsString(
-                     request.Method.Signature.ReturnSignatureType) ||
-                 InteropTypeClassifier.IsByteArray(
+                    InteropTypeClassifier.IsJavaScriptReference) ||
+                 InteropTypeClassifier.IsJavaScriptReference(
                      request.Method.Signature.ReturnSignatureType));
             var type = isJSExport
                 ? RequireJSExportTypes().Resolve(request.Method)

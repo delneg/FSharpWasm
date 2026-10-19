@@ -26,6 +26,11 @@ public sealed class FrontendArtifactCacheActorTests
     [InlineData(1)]
     [InlineData(2)]
     [InlineData(3)]
+    [InlineData(4)]
+    [InlineData(5)]
+    [InlineData(6)]
+    [InlineData(7)]
+    [InlineData(8)]
     public void BodyAffectingOverridesGetIndependentCacheNamespaces(int feature)
     {
         var builder = new FrontendArtifactCacheIdentityBuilder(
@@ -40,7 +45,12 @@ public sealed class FrontendArtifactCacheActorTests
             0 => new WasmOptimizationOverrides(ArrayBoundsCheckElimination: ManagedArrayBoundsCheckElimination.Disabled),
             1 => new WasmOptimizationOverrides(LoopUnrolling: ManagedLoopUnrolling.Disabled),
             2 => new WasmOptimizationOverrides(ConstantArgumentPropagation: ManagedConstantArgumentPropagation.Disabled),
-            _ => new WasmOptimizationOverrides(StaticArrayPopulationElimination: ManagedStaticArrayPopulationElimination.Disabled),
+            3 => new WasmOptimizationOverrides(StaticArrayPopulationElimination: ManagedStaticArrayPopulationElimination.Disabled),
+            4 => new WasmOptimizationOverrides(ConstantCallFolding: ManagedConstantCallFolding.Disabled),
+            5 => new WasmOptimizationOverrides(SwitchBitTests: ManagedSwitchBitTests.Disabled),
+            6 => new WasmOptimizationOverrides(Devirtualization: ManagedDevirtualization.Disabled),
+            7 => new WasmOptimizationOverrides(AllocationElimination: ManagedAllocationElimination.Disabled),
+            _ => new WasmOptimizationOverrides(LoopRotation: ManagedLoopRotation.Disabled),
         };
 
         var enabledContext = builder.Build(options);
@@ -784,7 +794,8 @@ public sealed class FrontendArtifactCacheActorTests
                 ArrayBoundsCheckElimination: ManagedArrayBoundsCheckElimination.Disabled,
                 LoopUnrolling: ManagedLoopUnrolling.Disabled,
                 BranchPrefixDuplication:
-                    ManagedBranchPrefixDuplication.Disabled),
+                    ManagedBranchPrefixDuplication.Disabled,
+                LoopRotation: ManagedLoopRotation.Disabled),
         });
         Assert.NotNull(o3);
         Assert.NotNull(o2);

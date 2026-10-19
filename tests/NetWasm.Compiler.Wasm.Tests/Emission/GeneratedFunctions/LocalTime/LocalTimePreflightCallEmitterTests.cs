@@ -75,6 +75,8 @@ public sealed class LocalTimePreflightCallEmitterTests
     private sealed class RecordingFunctionIndexResolver(int index) :
         IFunctionIndexResolver
     {
+        public int Resolve(InteropImportKey import) => Resolve(import.Method);
+
         public EntityKey? Method { get; private set; }
 
         public int Resolve(EntityKey method)

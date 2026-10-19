@@ -9,5 +9,6 @@ internal interface IManagedMethodInliner
     CilMethodBody Inline(
         MethodInstanceModel caller,
         CilMethodBody body,
-        IReadOnlyDictionary<int, ImmutableArray<CliValueKind>> instructionEntryStacks);
+        IReadOnlyDictionary<int, ImmutableArray<CliValueKind>> instructionEntryStacks,
+        bool nested = false);
 }

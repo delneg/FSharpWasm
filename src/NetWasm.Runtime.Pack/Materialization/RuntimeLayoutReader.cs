@@ -113,6 +113,8 @@ internal sealed class RuntimeLayoutReader : IRuntimeLayoutReader
         {
             return true;
         }
+        // Mirrors NetWasmRuntimeFeatureIds.All; this package takes no compiler dependency,
+        // so RuntimeLayoutReaderTests reads every compiler feature to catch drift.
         string[] known =
         [
             "ephemeron-handles",

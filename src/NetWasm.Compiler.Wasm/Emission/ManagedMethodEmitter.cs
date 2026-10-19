@@ -59,7 +59,9 @@ internal sealed class ManagedMethodEmitter(
         ManagedAggregateSsaPlan? managedAggregateValues = null,
         bool enableBranchValueFramePlacement = false,
         bool enableArrayMetadataCaching = false,
-        bool enableScalarCallPreservation = false)
+        bool enableScalarCallPreservation = false,
+        bool hoistArrayNullChecks = false,
+        bool rotateLoops = false)
     {
         ArgumentNullException.ThrowIfNull(method);
         ArgumentNullException.ThrowIfNull(structured);
@@ -106,7 +108,7 @@ internal sealed class ManagedMethodEmitter(
             AddressTakenScalarPromotions = new(placement.IncomingScalarLocals.ToImmutableDictionary(
                 index => index, index => emissionStructure.Header.LocalSignatureTypes[index]), []),
         };
-        var arrayPlan = arrayMetadata.Plan(emissionStructure, enableArrayMetadataCaching);
+        var arrayPlan = arrayMetadata.Plan(emissionStructure, enableArrayMetadataCaching, hoistArrayNullChecks);
         var authoritative = authoritativeLayouts.Plan(rootMap,
             authoritativeSources.Select(rootMap, allocationLayout, filterEnvironment, arrayPlan));
         rootMap = authoritative.RootMap;
@@ -126,6 +128,7 @@ internal sealed class ManagedMethodEmitter(
             StackTraceMethodId = stackTraceMethodId,
             RuntimeImportSelection = runtimeImportSelection,
             AuthoritativeRootSlots = authoritative.Slots,
+            RotateLoops = rotateLoops,
         };
         if (placement is not null)
         {

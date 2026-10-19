@@ -712,7 +712,8 @@ public sealed class WasmModulePlannerTests
             new TestStructuredMethodEmissionPlanner(
                 new ManagedMethodIdentityFactory(),
                 new TestCilTypeIdentityResolver()),
-            new StaticInitializerFunctionPlanner(layouts, program));
+            new StaticInitializerFunctionPlanner(layouts, program),
+            new JSImportForwarderPlanner(program));
 
         var target = targetFactory.Create(request);
 

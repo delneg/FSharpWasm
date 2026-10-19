@@ -27,6 +27,10 @@ internal sealed class ManagedMethodOptimizerFactory(
         IMethodRepository methods,
         IMethodSpecializer specializer,
         ICalledMethodResolver calledMethods,
+        IRuntimeIntrinsicRegistry intrinsics,
+        IMethodSpecializer constantCallFolding,
+        IDispatchTargetResolver dispatchTargets,
+        IFinalizerResolver finalizers,
         WasmOptimizationSettings settings)
     {
         ArgumentNullException.ThrowIfNull(methodBodies);
@@ -35,6 +39,10 @@ internal sealed class ManagedMethodOptimizerFactory(
         ArgumentNullException.ThrowIfNull(methods);
         ArgumentNullException.ThrowIfNull(specializer);
         ArgumentNullException.ThrowIfNull(calledMethods);
+        ArgumentNullException.ThrowIfNull(intrinsics);
+        ArgumentNullException.ThrowIfNull(constantCallFolding);
+        ArgumentNullException.ThrowIfNull(dispatchTargets);
+        ArgumentNullException.ThrowIfNull(finalizers);
         ArgumentNullException.ThrowIfNull(settings);
         var graphBuilder = _graphBuilders.Create();
         var stackValidator = _stackValidators.Create(types, fields, methods);
@@ -50,6 +58,7 @@ internal sealed class ManagedMethodOptimizerFactory(
         var induction = new ArrayLoopInductionAnalyzer(new ControlFlowNaturalLoopAnalyzer(dominance), dominance);
         return new ManagedMethodOptimizationPipeline(
             staticDataViews,
+            constantCallFolding,
             new ManagedMethodInliner(
                 new ManagedInliningResolver(
                     methodBodies,
@@ -59,7 +68,9 @@ internal sealed class ManagedMethodOptimizerFactory(
                         graphBuilder,
                         stackValidator),
                     settings.ManagedMethodInlining,
-                    new MethodInitializationTriggerClassifier(types)),
+                    new MethodInitializationTriggerClassifier(types),
+                    intrinsics,
+                    ManagedInliningResolver.SmallBodyInstructionLimit),
                 new TerminalContinuationInliningPlanner()),
             graphBuilder,
             stackValidator,
@@ -76,6 +87,10 @@ internal sealed class ManagedMethodOptimizerFactory(
             new ArrayLoopUnroller(graphBuilder, stackValidator,
                 // Bound expanded CIL work, not a presumed native cache capacity.
                 new ArrayLoopUnrollingPlanner(induction, expandedBodyBudget: 128),
-                settings.LoopUnrolling == LoopUnrollingPolicy.Bounded));
+                settings.LoopUnrolling == LoopUnrollingPolicy.Bounded),
+            new Devirtualization.ExactReceiverDevirtualizer(calledMethods, dispatchTargets, graphBuilder, stackValidator,
+                dominance, settings.Devirtualization == DevirtualizationPolicy.ExactType),
+            new Allocations.UnusedAllocationEliminator(methodBodies, calledMethods, finalizers,
+                settings.AllocationElimination == AllocationEliminationPolicy.Unused));
     }
 }

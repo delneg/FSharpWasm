@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Collections.Immutable;
 using NetWasm.Compiler.Core;
 using NetWasm.Compiler.Wasm.Encoding;
@@ -50,6 +51,7 @@ public sealed class SynchronousJSExportEmitterTests
             runtime,
             strings,
             byteArrays,
+            new RecordingHostObjectMarshaller(),
             terminal,
             terminal,
             new AddressInstructionEmitter(layouts),
@@ -102,6 +104,50 @@ public sealed class SynchronousJSExportEmitterTests
         Assert.DoesNotContain(
             (byte)imports.Resolve(RuntimeImportSymbol.RootFrameLeave),
             Calls(body));
+    }
+
+    [Theory]
+    [InlineData(WasmTarget.Wasm32)]
+    [InlineData(WasmTarget.Wasm64)]
+    public void JSObjectExportWrapsParametersAndReturnsTheResultHandle(WasmTarget target)
+    {
+        var layouts = new RecordingLayoutProvider(WasmTargetLayout.For(target));
+        var imports = WasmRuntimeImports.CreateCatalog();
+        var program = new FakeProgram();
+        var jsObject = CliTypeIdentity.Named(
+            Assembly, "System.Runtime.InteropServices.JavaScript", "JSObject", isValueType: false);
+        var method = program.GetMethod(EntryKey) with
+        {
+            Signature = MethodSignatureModel.Create(jsObject, CliTypeIdentity.FromStackKind(CliValueKind.I4), jsObject),
+        };
+        var indices = new FunctionIndexMap(
+            ImmutableDictionary<EntityKey, WasmFunctionIndex>.Empty.Add(EntryKey, new(30)), [], [], []);
+        var hostObjects = new RecordingHostObjectMarshaller();
+        var terminal = new RecordingTerminalBoundary();
+        var emitter = new SynchronousJSExportEmitter(
+            layouts,
+            imports,
+            new RecordingRuntimeInitializer(),
+            new RecordingStringMarshaller(),
+            new RecordingByteArrayMarshaller(),
+            hostObjects,
+            terminal,
+            terminal,
+            new AddressInstructionEmitter(layouts),
+            new GeneratedFunctionWriterFactory());
+
+        var body = emitter.Emit(
+            method,
+            TestRuntimeInitialization.Create(512),
+            hasFinalizers: false,
+            new FunctionIndexResolver(program, program, indices),
+            EmptyInteropImports());
+
+        Assert.Equal([(jsObject, 1)], hostObjects.Calls);
+        // The parameter wrapper is rooted; the result leaves as its i32 handle.
+        Assert.Equal(CliValueKind.I4, terminal.ResultType);
+        Assert.Contains(WasmOpcodes.I32Load, body);
+        Assert.Single(Calls(body), call => call == (byte)imports.Resolve(RuntimeImportSymbol.RootFrameEnter));
     }
 
     private static InteropImportPlan EmptyInteropImports() => new(
@@ -158,6 +204,17 @@ public sealed class SynchronousJSExportEmitterTests
             InteropMarshallingTarget target) => Called = true;
     }
 
+    private sealed class RecordingHostObjectMarshaller : IHostCallbackHostObjectArgumentMarshaller
+    {
+        public List<(CliTypeIdentity Type, int Parameter)> Calls { get; } = [];
+
+        public void Emit(
+            IWasmInstructionWriter code,
+            CliTypeIdentity objectType,
+            int handleParameter,
+            int destination) => Calls.Add((objectType, handleParameter));
+    }
+
     private sealed class RecordingTerminalBoundary :
         IManagedTerminalExceptionBoundaryEmitter,
         IManagedTerminalTrapBoundaryEmitter
@@ -167,6 +224,7 @@ public sealed class SynchronousJSExportEmitterTests
         public bool TrapCalled { get; private set; }
         public int? ReportFunctionIndex { get; private set; }
         public int? RaiseFunctionIndex { get; private set; }
+        public CliValueKind? ResultType { get; private set; }
 
         public void Emit(
             IWasmInstructionWriter code,
@@ -175,6 +233,7 @@ public sealed class SynchronousJSExportEmitterTests
             Action emitBody)
         {
             TrapCalled = true;
+            ResultType = resultType;
             emitBody();
         }
 
@@ -195,6 +254,7 @@ public sealed class SynchronousJSExportEmitterTests
             Action? emitCatchCleanup = null)
         {
             ReportCalled = true;
+            ResultType = resultType;
             ReportFunctionIndex = reportFunctionIndex;
             RaiseFunctionIndex = raiseFunctionIndex;
             CatchCleanup = emitCatchCleanup;

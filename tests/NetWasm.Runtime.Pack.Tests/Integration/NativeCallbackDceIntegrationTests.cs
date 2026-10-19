@@ -142,7 +142,7 @@ public sealed class NativeCallbackDceIntegrationTests
         CompileExecutable(assets, commands, assembly, sources, Path.Combine(root, "csc.log"));
         var assemblyBytes = File.ReadAllBytes(assembly);
         AssertUnusedCallbackMetadata(assemblyBytes, includeUnusedCallback);
-        var entryPoint = new ManagedExecutableEntryPointSelector().SelectEntryPoint(
+        var entryPoint = new ManagedExecutableEntryPointSelectorFactory().Create().SelectEntryPoint(
             assembly, assemblyBytes);
         var compilation = NetWasmCompiler.Compile(new CompilerOptions(
             assembly,

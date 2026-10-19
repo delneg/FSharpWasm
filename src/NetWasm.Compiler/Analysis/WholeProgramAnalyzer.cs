@@ -150,6 +150,8 @@ internal sealed class ReachabilityClosureBuilder(
         {
             Enqueue(entryPoint);
         }
+        static bool IsJSObject(CliTypeIdentity type) =>
+            type.FullName == "System.Runtime.InteropServices.JavaScript.JSObject";
         foreach (var export in exports)
         {
             var exportedMethod = _methodRepository.GetMethod(export.Method);
@@ -158,8 +160,15 @@ internal sealed class ReachabilityClosureBuilder(
                 .ParameterSignatureTypes
                 .Where(type =>
                     type.CanonicalName == "primitive:string" ||
-                    IsByteArray(type))
+                    JavaScriptValueArray.IsSupported(type) ||
+                    IsJSObject(type))
                 .ToArray();
+            if (exportedMethod.JSExport is not null &&
+                IsJSObject(exportedMethod.Signature.ReturnSignatureType))
+            {
+                // The export boundary reads the result's host handle field.
+                types.Add(_typeDefinitions.ResolveTypeIdentity(exportedMethod.Signature.ReturnSignatureType).Key);
+            }
             if (exportedMethod.JSExport is not null &&
                 javaScriptBoundaryParameters.Length != 0)
             {
@@ -167,12 +176,18 @@ internal sealed class ReachabilityClosureBuilder(
                 AddImplicit(
                     ManagedExceptionKind.OutOfMemory,
                     "System.OutOfMemoryException");
-                foreach (var byteArray in javaScriptBoundaryParameters.Where(IsByteArray))
+                foreach (var hostObject in javaScriptBoundaryParameters.Where(IsJSObject).Distinct())
                 {
-                    AddConstructedType(byteArray);
-                    AddAllocatedType(byteArray);
+                    // The export boundary allocates these wrappers without a CIL newobj.
+                    types.Add(_typeDefinitions.ResolveTypeIdentity(hostObject).Key);
+                    AddAllocatedType(hostObject);
+                }
+                foreach (var valueArray in javaScriptBoundaryParameters.Where(JavaScriptValueArray.IsSupported))
+                {
+                    AddConstructedType(valueArray);
+                    AddAllocatedType(valueArray);
                     types.Add(_typeFinder.FindType("System.Array").Key);
-                    types.Add(_typeFinder.FindType("System.Byte").Key);
+                    types.Add(_typeFinder.FindType(JavaScriptValueArray.GetElementTypeName(valueArray)).Key);
                 }
             }
             Enqueue(exportedMethod);
@@ -211,10 +226,6 @@ internal sealed class ReachabilityClosureBuilder(
             RejectOpenRoot(method, role);
             VisitMethod(CilOperation.Call, DirectInstance(method));
         }
-
-        static bool IsByteArray(CliTypeIdentity type) =>
-            type.Shape == CliTypeShape.SzArray &&
-            type.ElementType!.CanonicalName == "primitive:u1";
 
         void DrainReachabilityQueues()
         {

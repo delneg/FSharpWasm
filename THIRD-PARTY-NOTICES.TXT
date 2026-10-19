@@ -84,6 +84,15 @@ CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
 OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+IANA Time Zone Database
+-----------------------
+Source: https://www.iana.org/time-zones
+Release: 2026c
+Files: src/NetWasm.Toolchain/timezones/zoneinfo, compiled with the release's
+zic, with its tzdata.zi and version files.
+
+The tz database is in the public domain.
+
 WASI description files
 ----------------------
 wit/wasi-0.2.11 is copied with its upstream LICENSE.md and provenance files.

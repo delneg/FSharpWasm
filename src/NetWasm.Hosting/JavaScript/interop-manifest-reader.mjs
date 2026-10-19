@@ -1,4 +1,9 @@
-import { isAbiType, isScalarAbiType } from "./interop-abi-types.mjs";
+import {
+  isAbiType,
+  isScalarAbiType,
+  isTransferAbiType,
+  isValueArrayAbiType,
+} from "./interop-abi-types.mjs";
 import { NetWasmHostError } from "./managed-errors.mjs";
 
 const targetLayouts = Object.freeze({
@@ -85,7 +90,9 @@ function validateImportDescriptor(descriptor) {
         || typeof descriptor.resolveExport !== "string" || descriptor.resolveExport.length === 0
         || typeof descriptor.rejectExport !== "string" || descriptor.rejectExport.length === 0
         || typeof descriptor.cancelExport !== "string" || descriptor.cancelExport.length === 0
-        || descriptor.result !== "void" && !isScalarAbiType(descriptor.result))) {
+        || descriptor.result !== "void" && !isScalarAbiType(descriptor.result)
+          && descriptor.result !== "string" && descriptor.result !== "object"
+          && !isValueArrayAbiType(descriptor.result))) {
     throw new NetWasmHostError(
       "interop manifest contains an invalid async import descriptor");
   }
@@ -108,17 +115,16 @@ function validateExportDescriptor(descriptor) {
       || typeof descriptor.name !== "string" || descriptor.name.length === 0
       || !Array.isArray(descriptor.parameters)
       || !isAbiType(descriptor.result)
-      || descriptor.parameters.some(type => !isScalarAbiType(type)
-        && type !== "string" && type !== "bytes")
+      || descriptor.parameters.some(type => !isScalarAbiType(type) && !isExportReference(type))
       || descriptor.result !== "void" && !isScalarAbiType(descriptor.result)
-        && descriptor.result !== "string" && descriptor.result !== "bytes") {
+        && !isExportReference(descriptor.result)
+      || !hasValidParameterMetadata(descriptor)) {
     throw new NetWasmHostError(
       "interop manifest contains an invalid export descriptor");
   }
   if (descriptor.asyncReturn != null
       && (descriptor.asyncReturn !== "task" && descriptor.asyncReturn !== "value-task"
-        || descriptor.parameters.some(type => type === "string" || type === "bytes")
-        || descriptor.result === "string" || descriptor.result === "bytes"
+        || isExportReference(descriptor.result)
         || typeof descriptor.statusExport !== "string" || descriptor.statusExport.length === 0
         || typeof descriptor.completeExport !== "string" || descriptor.completeExport.length === 0
         || descriptor.completionResult !== "exception-handle-v1"
@@ -128,6 +134,22 @@ function validateExportDescriptor(descriptor) {
     throw new NetWasmHostError(
       "interop manifest contains an invalid async export descriptor");
   }
+}
+
+// Parameter names and nullability are optional: none at all, or one entry per
+// parameter. They only shape generated declarations.
+function hasValidParameterMetadata(descriptor) {
+  const listed = (values, type) => values === undefined || Array.isArray(values)
+    && (values.length === 0 || values.length === descriptor.parameters.length)
+    && values.every(value => typeof value === type);
+  return listed(descriptor.parameterNames, "string")
+    && listed(descriptor.nonNullableParameters, "boolean")
+    && (descriptor.nonNullableResult === undefined || typeof descriptor.nonNullableResult === "boolean");
+}
+
+// Values an export copies (strings, arrays) or wraps (JSObject) through a host handle.
+function isExportReference(type) {
+  return isTransferAbiType(type) || type === "object";
 }
 
 function validateCallbacks(imports, callbacks) {
@@ -166,9 +188,8 @@ function validateCallbackDescriptor(callback) {
       || typeof callback.exportName !== "string" || callback.exportName.length === 0
       || !Array.isArray(callback.parameters)
       || callback.result !== "void" && !isScalarAbiType(callback.result)
-      || callback.parameters.some(type => !isScalarAbiType(type)
-        && type !== "string" && type !== "bytes")
-      || callback.parameters.filter(type => type === "string" || type === "bytes").length > 1) {
+      || callback.parameters.some(type => !isScalarAbiType(type) && !isTransferAbiType(type))
+      || callback.parameters.filter(isTransferAbiType).length > 1) {
     throw new NetWasmHostError(
       "interop manifest contains an invalid callback descriptor");
   }

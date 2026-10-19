@@ -27,8 +27,16 @@ internal sealed record FunctionIndexMap(
     public OptionalFunctionIndex ManagedThrowFunctionIndex { get; init; } =
         OptionalFunctionIndex.Missing;
 
+    // Managed-ABI forwarders for JSImport methods that a delegate binds directly.
+    public ImmutableDictionary<EntityKey, WasmFunctionIndex> JSImportForwarders { get; init; } =
+        ImmutableDictionary<EntityKey, WasmFunctionIndex>.Empty;
+
     public bool TryGetMethod(EntityKey method, out WasmFunctionIndex index) =>
         DirectMethods.TryGetValue(method, out index) ||
+        JSImportForwarders.TryGetValue(method, out index) ||
+        ImportedMethods.TryGetValue(method, out index);
+
+    public bool TryGetInteropImport(EntityKey method, out WasmFunctionIndex index) =>
         ImportedMethods.TryGetValue(method, out index);
 
     public bool TryGetConstructedMethod(string method, out WasmFunctionIndex index) =>

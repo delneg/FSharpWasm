@@ -44,7 +44,12 @@ internal sealed class CompileCliCommand(
             options.ManagedArrayBoundsCheckElimination,
             options.ManagedLoopUnrolling,
             options.ManagedConstantArgumentPropagation,
-            options.ManagedStaticArrayPopulationElimination);
+            options.ManagedStaticArrayPopulationElimination,
+            options.ManagedConstantCallFolding,
+            options.ManagedSwitchBitTests,
+            options.ManagedDevirtualization,
+            options.ManagedAllocationElimination,
+            options.ManagedLoopRotation);
         var result = _compiler.Compile(new CompilerOptions(
             options.Input,
             options.References,

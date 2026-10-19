@@ -12,6 +12,82 @@ namespace NetWasm.Compiler.Metadata.Tests;
 public sealed class MetadataMethodReferenceResolverTests
 {
     [Theory]
+    [InlineData("inherited")]
+    [InlineData("generic")]
+    [InlineData("nearest")]
+    [InlineData("constructor")]
+    [InlineData("missing")]
+    [InlineData("cycle")]
+    [InlineData("ambiguous")]
+    public void ResolveFindsInheritedMethodThroughDerivedMemberReference(string scenario)
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(0, metadata.GetOrAddString("Inherited.dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()), default, default);
+        var parent = metadata.AddTypeReference(default,
+            metadata.GetOrAddString("Tests"), metadata.GetOrAddString("Derived"));
+        var baseHandle = metadata.AddTypeReference(default,
+            metadata.GetOrAddString("Tests"), metadata.GetOrAddString("Base"));
+        var signature = new BlobBuilder();
+        new BlobEncoder(signature).MethodSignature().Parameters(0,
+            result => result.Type().Int32(), _ => { });
+        var reference = metadata.AddMemberReference(parent,
+            metadata.GetOrAddString(scenario == "constructor" ? ".ctor" : "Run"), metadata.GetOrAddBlob(signature));
+        var image = new BlobBuilder();
+        new MetadataRootBuilder(metadata).Serialize(image, 0, 0);
+        using var provider = MetadataReaderProvider.FromMetadataImage(image.ToImmutableArray());
+        var baseType = MetadataActorTestData.Type with { Name = "Base", GenericArity = scenario == "generic" ? 1 : 0 };
+        var derived = baseType with
+        {
+            Key = baseType.Key with { MetadataToken = 0x02000002 },
+            Name = "Derived",
+            Methods = []
+        };
+        var method = MetadataActorTestData.Method with
+        {
+            Name = scenario == "constructor" ? ".ctor" : "Run",
+            Signature = scenario == "generic"
+                ? new MethodSignatureModel(CliTypeIdentity.GenericParameter(false, 0), [])
+                : MethodSignatureModel.Create(CliValueKind.I4)
+        };
+        var alternate = method with { Key = method.Key with { MetadataToken = 4 }, DeclaringType = derived.Key };
+        if (scenario == "nearest") derived = derived with { Methods = [alternate.Key] };
+        if (scenario == "missing" || scenario == "cycle") baseType = baseType with { Methods = [] };
+        if (scenario == "ambiguous") baseType = baseType with { Methods = [method.Key, alternate.Key] };
+        var derivedIdentity = CliTypeIdentity.FromDefinition(derived);
+        var baseIdentity = scenario == "generic"
+            ? CliTypeIdentity.GenericInstantiation(CliTypeIdentity.FromDefinition(baseType), [CliTypeIdentity.FromStackKind(CliValueKind.I4)])
+            : CliTypeIdentity.FromDefinition(baseType);
+        var source = new MetadataAssemblySnapshot(MetadataActorTestData.Assembly,
+            provider.GetMetadataReader(),
+            new Dictionary<int, TypeDefinitionModel>
+            {
+                [baseType.Key.MetadataToken] = baseType,
+                [derived.Key.MetadataToken] = derived
+            }, new Dictionary<int, FieldDefinitionModel>(),
+            new Dictionary<int, MethodDefinitionModel> { [method.Key.MetadataToken] = method },
+            new Dictionary<int, EntityHandle> { [derived.Key.MetadataToken] = baseHandle },
+            new Dictionary<int, ImmutableArray<EntityHandle>>());
+        var resolver = new MetadataMethodReferenceResolver(new MetadataEntityHandleReader(),
+            new FixedSignatureTypeResolver(CliTypeIdentity.FromDefinition(derived)),
+            new SignatureTypeComparer(), new TypeRepository(baseType),
+            new InheritedTypeDefinitions(derived, baseType), new MethodRepository(method, alternate),
+            new UnusedRuntimeProvidedMethodResolver(), new IdentityStackTypeResolver(),
+            new FixedBaseTypes(derivedIdentity, scenario == "cycle" ? derivedIdentity : baseIdentity));
+        if (scenario is "constructor" or "missing" or "cycle" or "ambiguous")
+        {
+            var failure = Assert.Throws<CompilerException>(() => resolver.Resolve(source,
+                MetadataTokens.GetToken(reference), "Caller.Run", 0));
+            Assert.Equal(DiagnosticCode.AssemblyResolution, failure.Diagnostic.Code);
+            return;
+        }
+        var result = resolver.Resolve(source, MetadataTokens.GetToken(reference), "Caller.Run", 0);
+        Assert.Same(scenario == "nearest" ? alternate : method, result.Definition);
+        Assert.Equal(scenario == "nearest" ? derivedIdentity : baseIdentity, result.DeclaringType);
+        Assert.Equal(CliValueKind.I4, result.Signature.ReturnType);
+    }
+
+    [Theory]
     [InlineData("Other", 0)]
     [InlineData("Run", 1)]
     [InlineData("Other", 1)]
@@ -73,7 +149,7 @@ public sealed class MetadataMethodReferenceResolverTests
                 new FixedTypeDefinitionResolver(type with { Methods = [.. candidates] }),
                 methods,
                 new UnusedRuntimeProvidedMethodResolver(),
-                new IdentityStackTypeResolver());
+                new IdentityStackTypeResolver(), new NoBaseTypes());
         var control = CreateResolver(method.Key);
         var withUnrelated = CreateResolver(unrelated.Key, method.Key);
         var token = MetadataTokens.GetToken(reference);
@@ -119,7 +195,7 @@ public sealed class MetadataMethodReferenceResolverTests
             new UnusedTypeDefinitionResolver(),
             new UnusedMethodRepository(),
             new UnusedRuntimeProvidedMethodResolver(),
-            new IdentityStackTypeResolver());
+            new IdentityStackTypeResolver(), new NoBaseTypes());
 
         var resolved = ((IMetadataMethodReferenceResolver)resolver).Resolve(
             source,
@@ -162,7 +238,7 @@ public sealed class MetadataMethodReferenceResolverTests
             new UnusedTypeDefinitionResolver(),
             new UnusedMethodRepository(),
             new UnusedRuntimeProvidedMethodResolver(),
-            new IdentityStackTypeResolver());
+            new IdentityStackTypeResolver(), new NoBaseTypes());
 
         var exception = Assert.Throws<CompilerException>(() =>
             ((IMetadataMethodReferenceResolver)resolver).Resolve(
@@ -212,7 +288,7 @@ public sealed class MetadataMethodReferenceResolverTests
             new UnusedTypeDefinitionResolver(),
             new MethodRepository(method),
             new UnusedRuntimeProvidedMethodResolver(),
-            new IdentityStackTypeResolver());
+            new IdentityStackTypeResolver(), new NoBaseTypes());
 
         var resolved = resolver.Resolve(
             source,
@@ -292,7 +368,7 @@ public sealed class MetadataMethodReferenceResolverTests
                 declaringTypeWithOverloads),
             new MethodRepository(wrongArityMethod, methodForReference),
             new UnusedRuntimeProvidedMethodResolver(),
-            new IdentityStackTypeResolver());
+            new IdentityStackTypeResolver(), new NoBaseTypes());
 
         var resolved = resolver.Resolve(
             source,
@@ -318,7 +394,7 @@ public sealed class MetadataMethodReferenceResolverTests
                 declaringTypeWithOverloads),
             new MethodRepository(wrongArityMethod, methodForReference),
             new UnusedRuntimeProvidedMethodResolver(),
-            new IdentityStackTypeResolver());
+            new IdentityStackTypeResolver(), new NoBaseTypes());
         var genericResolved = genericResolver.Resolve(
             source,
             MetadataTokens.GetToken(specificationHandle),
@@ -340,7 +416,7 @@ public sealed class MetadataMethodReferenceResolverTests
                 ambiguousDeclaringType),
             new MethodRepository(sameArityMethod, methodForReference),
             new UnusedRuntimeProvidedMethodResolver(),
-            new IdentityStackTypeResolver());
+            new IdentityStackTypeResolver(), new NoBaseTypes());
 
         Assert.Throws<CompilerException>(() => ambiguousResolver.Resolve(
             source,
@@ -381,7 +457,7 @@ public sealed class MetadataMethodReferenceResolverTests
             new FixedTypeDefinitionResolver(emptyType),
             new UnusedMethodRepository(),
             new UnusedRuntimeProvidedMethodResolver(),
-            new IdentityStackTypeResolver());
+            new IdentityStackTypeResolver(), new NoBaseTypes());
 
         Assert.Throws<CompilerException>(() => resolver.Resolve(
             source,
@@ -400,7 +476,7 @@ public sealed class MetadataMethodReferenceResolverTests
             new FixedTypeDefinitionResolver(emptyType),
             new UnusedMethodRepository(),
             new FixedRuntimeProvidedMethodResolver(runtimeProvided),
-            new IdentityStackTypeResolver());
+            new IdentityStackTypeResolver(), new NoBaseTypes());
         var runtimeResolved = ((IMetadataMethodReferenceResolver)runtimeResolver).Resolve(
             source,
             MetadataTokens.GetToken(handle),
@@ -408,6 +484,22 @@ public sealed class MetadataMethodReferenceResolverTests
             0);
 
         Assert.Equal(runtimeProvided, runtimeResolved);
+    }
+
+    private sealed class NoBaseTypes : IBaseTypeIdentityResolver
+    {
+        public CliTypeIdentity? GetBaseTypeIdentity(CliTypeIdentity type) => null;
+    }
+
+    private sealed class FixedBaseTypes(CliTypeIdentity derived, CliTypeIdentity parent) : IBaseTypeIdentityResolver
+    {
+        public CliTypeIdentity? GetBaseTypeIdentity(CliTypeIdentity type) => type.Equals(derived) ? parent : null;
+    }
+
+    private sealed class InheritedTypeDefinitions(TypeDefinitionModel derived, TypeDefinitionModel parent) : ITypeDefinitionResolver
+    {
+        public TypeDefinitionModel ResolveTypeIdentity(CliTypeIdentity type) =>
+            type.FullName == derived.FullName ? derived : parent;
     }
 
     private sealed class UnsupportedHandleReader : IMetadataEntityHandleReader

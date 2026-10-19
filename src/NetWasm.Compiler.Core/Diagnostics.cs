@@ -17,6 +17,7 @@ public enum DiagnosticCode
     ComponentToolchain = 1010,
     CompilerInvariant = 1011,
     NativeInterop = 1012,
+    FunctionBodyLimit = 1013,
     GenericExpansion = 2001,
 }
 

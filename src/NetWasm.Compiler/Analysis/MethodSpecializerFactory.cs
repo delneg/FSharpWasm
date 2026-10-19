@@ -33,6 +33,9 @@ internal sealed class MethodSpecializerFactory(
         IRuntimeIntrinsicRegistry intrinsics) =>
         new MethodSpecializer(
         [
+            .. optimizationSettings.SwitchBitTests == SwitchBitTestPolicy.Conservative
+                ? [new SwitchBitTestRewriter()]
+                : Array.Empty<IMethodRewriteRule>(),
             new SharedReturnEpilogueRewriter(),
             new Int32LocalInitializerRewriter(),
             new ValueTypeFieldReadRewriter(),
@@ -85,6 +88,7 @@ internal sealed class MethodSpecializerFactory(
                 new PureReferenceComparisonClassifier(methodBodies, calledMethods, typeDefinitions, methods, new SharedReturnEpilogueRewriter(), intrinsics),
                 new ClosedTypeIdentityComparer(typeDefinitions)),
             new BoxedNullComparisonRewriter(_graphBuilders.Create(), new NullableTypeResolver()),
+            new BoxedTypeTestRewriter(_graphBuilders.Create(), new NullableTypeResolver()),
             new ConstantBranchRewriter(_graphBuilders.Create()),
             new UnreachableInstructionRewriter(_graphBuilders.Create()),
         ]);

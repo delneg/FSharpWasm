@@ -22,6 +22,7 @@ internal sealed record ModuleDataPlan(
 {
     public StaticInitializerFunctionPlan? StaticInitializerFunctions { get; init; }
     public int? NativeCallbackReadinessAddress { get; init; }
+    public int? StateRegistrationGuardAddress { get; init; }
     public int? StackTraceSymbolRegistrationGuardAddress { get; init; }
     public ImmutableArray<StackTraceSymbolData> StackTraceSymbols { get; init; } = [];
 
@@ -44,7 +45,8 @@ internal sealed class ModuleDataPlanner(
         IReadOnlyList<EntityKey> directInitializers,
         IReadOnlyList<string> constructedInitializers,
         bool reserveNativeCallbackReadiness,
-        StackTraceMethodPlan? stackTraceMethods = null)
+        StackTraceMethodPlan? stackTraceMethods = null,
+        bool reserveStateRegistrationGuard = false)
     {
         var metadata = new Dictionary<StructuredExceptionGroupKey, ExceptionGroupMetadata>();
         var segments = layouts.DataSegments.ToList();
@@ -94,6 +96,14 @@ internal sealed class ModuleDataPlanner(
             address += sizeof(int);
         }
 
+        int? stateRegistrationGuardAddress = null;
+        if (reserveStateRegistrationGuard)
+        {
+            stateRegistrationGuardAddress = address;
+            segments.Add(new(address, [0, 0, 0, 0]));
+            address += sizeof(int);
+        }
+
         var plannedStackTraceSymbols = stackTraceMethods?.Symbols ?? [];
         int? stackTraceSymbolRegistrationGuardAddress = null;
         if (!plannedStackTraceSymbols.IsEmpty)
@@ -120,6 +130,7 @@ internal sealed class ModuleDataPlanner(
             address)
         {
             NativeCallbackReadinessAddress = nativeCallbackReadinessAddress,
+            StateRegistrationGuardAddress = stateRegistrationGuardAddress,
             StackTraceSymbolRegistrationGuardAddress =
                 stackTraceSymbolRegistrationGuardAddress,
             StackTraceSymbols = stackTraceSymbols.ToImmutable(),

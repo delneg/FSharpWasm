@@ -72,6 +72,11 @@
     <NetWasmManagedLoopUnrolling Condition="'$(NetWasmManagedLoopUnrolling)' == ''">Auto</NetWasmManagedLoopUnrolling>
     <NetWasmManagedConstantArgumentPropagation Condition="'$(NetWasmManagedConstantArgumentPropagation)' == ''">Auto</NetWasmManagedConstantArgumentPropagation>
     <NetWasmManagedStaticArrayPopulationElimination Condition="'$(NetWasmManagedStaticArrayPopulationElimination)' == ''">Auto</NetWasmManagedStaticArrayPopulationElimination>
+    <NetWasmManagedConstantCallFolding Condition="'$(NetWasmManagedConstantCallFolding)' == ''">Auto</NetWasmManagedConstantCallFolding>
+    <NetWasmManagedSwitchBitTests Condition="'$(NetWasmManagedSwitchBitTests)' == ''">Auto</NetWasmManagedSwitchBitTests>
+    <NetWasmManagedDevirtualization Condition="'$(NetWasmManagedDevirtualization)' == ''">Auto</NetWasmManagedDevirtualization>
+    <NetWasmManagedAllocationElimination Condition="'$(NetWasmManagedAllocationElimination)' == ''">Auto</NetWasmManagedAllocationElimination>
+    <NetWasmManagedLoopRotation Condition="'$(NetWasmManagedLoopRotation)' == ''">Auto</NetWasmManagedLoopRotation>
     <_NetWasmCanonicalOptimization Condition="'$(_NetWasmCanonicalOptimization)' == ''">$(NetWasmOptimization)</_NetWasmCanonicalOptimization>
     <NetWasmTarget Condition="'$(NetWasmTarget)' == ''">wasm32</NetWasmTarget>
     <NetWasmIntermediateOutputPath Condition="'$(NetWasmIntermediateOutputPath)' == ''">$(IntermediateOutputPath)netwasm\$(NetWasmTarget)\</NetWasmIntermediateOutputPath>
@@ -184,6 +189,11 @@
       <_NetWasmCompilationIdentityLine Include="managedLoopUnrolling=$(NetWasmManagedLoopUnrolling)" />
       <_NetWasmCompilationIdentityLine Include="managedConstantArgumentPropagation=$(NetWasmManagedConstantArgumentPropagation)" />
       <_NetWasmCompilationIdentityLine Include="managedStaticArrayPopulationElimination=$(NetWasmManagedStaticArrayPopulationElimination)" />
+      <_NetWasmCompilationIdentityLine Include="managedConstantCallFolding=$(NetWasmManagedConstantCallFolding)" />
+      <_NetWasmCompilationIdentityLine Include="managedSwitchBitTests=$(NetWasmManagedSwitchBitTests)" />
+      <_NetWasmCompilationIdentityLine Include="managedDevirtualization=$(NetWasmManagedDevirtualization)" />
+      <_NetWasmCompilationIdentityLine Include="managedAllocationElimination=$(NetWasmManagedAllocationElimination)" />
+      <_NetWasmCompilationIdentityLine Include="managedLoopRotation=$(NetWasmManagedLoopRotation)" />
       <_NetWasmCompilationIdentityLine Include="pathMap=$(PathMap)" />
       <_NetWasmPortablePdbCandidate Remove="@(_NetWasmPortablePdbCandidate)" />
       <_NetWasmPortablePdbInput Remove="@(_NetWasmPortablePdbInput)" />
@@ -273,6 +283,11 @@
                         ManagedLoopUnrolling="$(NetWasmManagedLoopUnrolling)"
                         ManagedConstantArgumentPropagation="$(NetWasmManagedConstantArgumentPropagation)"
                         ManagedStaticArrayPopulationElimination="$(NetWasmManagedStaticArrayPopulationElimination)"
+                        ManagedConstantCallFolding="$(NetWasmManagedConstantCallFolding)"
+                        ManagedSwitchBitTests="$(NetWasmManagedSwitchBitTests)"
+                        ManagedDevirtualization="$(NetWasmManagedDevirtualization)"
+                        ManagedAllocationElimination="$(NetWasmManagedAllocationElimination)"
+                        ManagedLoopRotation="$(NetWasmManagedLoopRotation)"
                         NoLogo="$(NoLogo)"
                         ExceptionTypeMapPath="$(NetWasmExceptionTypeMapPath)"
                         StackTraceSymbolsPath="$(NetWasmStackTraceSymbolsPath)">

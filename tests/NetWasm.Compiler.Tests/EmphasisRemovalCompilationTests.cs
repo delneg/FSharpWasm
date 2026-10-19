@@ -29,6 +29,7 @@ using NetWasm.Compiler.ComponentModel;
 using NetWasm.Compiler.Core;
 using NetWasm.TestInfrastructure;
 namespace NetWasm.Compiler.Tests;
+
 public sealed class EmphasisRemovalCompilationTests
 {
     [Theory]
@@ -41,7 +42,8 @@ public sealed class EmphasisRemovalCompilationTests
         using var assets = TestAssets.Create();
         var executor = (ICompilationScenarioExecutor)new CompilationScenarioExecutor(assets);
         Assert.Equal(42, executor.Execute(new CompilationScenario("EmphasisRemoval", Source,
-            "EmphasisRemoval.EntryPoint", optimize, target, 41, []) { Optimization = FinalWasmOptimization.None }));
+            "EmphasisRemoval.EntryPoint", optimize, target, 41, [])
+        { Optimization = FinalWasmOptimization.None }));
     }
     [Theory]
     [InlineData(WasmTarget.Wasm32, false)]
@@ -53,7 +55,8 @@ public sealed class EmphasisRemovalCompilationTests
         using var assets = TestAssets.Create();
         var executor = (ICompilationScenarioExecutor)new CompilationScenarioExecutor(assets);
         Assert.Equal(42, executor.Execute(new CompilationScenario("PairedRemoval", SmallSource,
-            "PairedRemoval.EntryPoint", optimize, target, 41, []) { Optimization = FinalWasmOptimization.None }));
+            "PairedRemoval.EntryPoint", optimize, target, 41, [])
+        { Optimization = FinalWasmOptimization.None }));
     }
 
     private const string SmallSource = """

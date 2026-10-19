@@ -32,6 +32,7 @@ public sealed class AsyncJSImportHelperAppenderTests
             indices,
             binding,
             new FixedFunctionIndexResolver(),
+            new InteropImportPlan([], default, default, default, default, default, default),
             boundaryEntries);
 
         Assert.Equal(3, functions.Count);
@@ -52,19 +53,22 @@ public sealed class AsyncJSImportHelperAppenderTests
         var binding = CreateBinding();
         var functionIndices = new FixedFunctionIndexResolver();
         var boundaries = new List<ManagedBoundaryPlanEntry>();
+        var plan = new InteropImportPlan([], default, default, default, default, default, default);
 
         Assert.Throws<ArgumentNullException>(() => appender.Append(
-            null!, 0, indices, binding, functionIndices, boundaries));
+            null!, 0, indices, binding, functionIndices, plan, boundaries));
         Assert.Throws<ArgumentOutOfRangeException>(() => appender.Append(
-            functions, -1, indices, binding, functionIndices, boundaries));
+            functions, -1, indices, binding, functionIndices, plan, boundaries));
         Assert.Throws<ArgumentNullException>(() => appender.Append(
-            functions, 0, null!, binding, functionIndices, boundaries));
+            functions, 0, null!, binding, functionIndices, plan, boundaries));
         Assert.Throws<ArgumentNullException>(() => appender.Append(
-            functions, 0, indices, null!, functionIndices, boundaries));
+            functions, 0, indices, null!, functionIndices, plan, boundaries));
         Assert.Throws<ArgumentNullException>(() => appender.Append(
-            functions, 0, indices, binding, null!, boundaries));
+            functions, 0, indices, binding, null!, plan, boundaries));
         Assert.Throws<ArgumentNullException>(() => appender.Append(
-            functions, 0, indices, binding, functionIndices, null!));
+            functions, 0, indices, binding, functionIndices, null!, boundaries));
+        Assert.Throws<ArgumentNullException>(() => appender.Append(
+            functions, 0, indices, binding, functionIndices, plan, null!));
     }
 
     private static IAsyncJSImportHelperAppender CreateAppender() => new[]
@@ -107,7 +111,8 @@ public sealed class AsyncJSImportHelperAppenderTests
     {
         public byte[] Emit(
             JavaScriptAsyncMethodBinding binding,
-            IFunctionIndexResolver functionIndices) => [1];
+            IFunctionIndexResolver functionIndices,
+            InteropImportPlan interopImports) => [1];
     }
 
     private sealed class FixedRejectEmitter : IAsyncJSImportRejectEmitter
@@ -132,6 +137,8 @@ public sealed class AsyncJSImportHelperAppenderTests
 
     private sealed class FixedFunctionIndexResolver : IFunctionIndexResolver
     {
+        public int Resolve(InteropImportKey import) => Resolve(import.Method);
+
         public int Resolve(EntityKey method) => 0;
         public int Resolve(string method) => 0;
         public int Resolve(MethodInstanceModel method) => 0;

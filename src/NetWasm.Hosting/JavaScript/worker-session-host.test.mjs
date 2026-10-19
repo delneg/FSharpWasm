@@ -68,7 +68,7 @@ function fixture(overrides = {}) {
 }
 
 const initialize = (overrides = {}) => ({
-  protocolVersion: 1, generation: "generation-1", kind: "initialize", startup, ...overrides,
+  protocolVersion: 1, generation: "generation-1", kind: "initialize", environment: {}, startup, ...overrides,
 });
 const invoke = (overrides = {}) => ({
   protocolVersion: 1, generation: "generation-1", kind: "invoke",
@@ -93,7 +93,10 @@ test("opens one session before readiness and delegates allowlisted calls", async
 test("reports startup failures with readable messages and terminates", async () => {
   const empty = new Error("");
   empty.stack = undefined;
-  for (const cause of [new Error("startup failed"), "private", empty]) {
+  for (const [cause, detail] of [
+    [new Error("startup failed"), "Error: startup failed"], ["thrown text", "thrown text"],
+    [empty, "Error"], [" ", null],
+  ]) {
     const state = fixture({ openSession: async () => { throw cause; } });
     await state.host.receive(initialize());
     assert.equal(state.messages[0].kind, "failure");
@@ -101,6 +104,7 @@ test("reports startup failures with readable messages and terminates", async () 
     assert.equal(state.messages[0].error.category, "startupFailure");
     assert.equal(state.messages[0].error.message,
       cause instanceof Error && cause.message.length !== 0 ? "startup failed" : "worker failed");
+    assert.equal(state.messages[0].error.detail, detail);
     if (cause === empty) assert.equal(state.messages[0].error.stack, null);
     assert.equal(state.terminations(), 1);
     await state.host.receive(invoke());
@@ -234,6 +238,8 @@ test("rejects malformed composition, initialization and session products", async
     initialize({ startup: { ...startup, extra: true } }),
     initialize({ startup: { ...startup, buildFingerprint: "invalid" } }),
     initialize({ startup: { ...startup, manifestSha256: "invalid" } }),
+    initialize({ environment: null }), initialize({ environment: { MODE: 1 } }),
+    (({ environment, ...rest }) => rest)(initialize()),
     Object.defineProperty(initialize(), "kind", { enumerable: true, get: () => "initialize" }),
   ]) {
     const state = fixture();
@@ -273,4 +279,24 @@ test("application-defined notifications post during work and stop after close", 
   const count = state.messages.length;
   notify("late", []);
   assert.equal(state.messages.length, count);
+});
+
+test("passes the environment to the session and forwards guest output until termination", async () => {
+  const state = fixture();
+  await state.host.receive(initialize({ environment: { MODE: "page" } }));
+  const [request] = state.opened;
+  assert.deepEqual(request.environment, { MODE: "page" });
+  assert.equal(Object.isFrozen(request.environment), true);
+  const bytes = new TextEncoder().encode("hello\n");
+  request.stdout.write(bytes);
+  request.stderr.write(bytes.subarray(0, 2));
+  bytes[0] = 0;
+  const outputs = state.messages.filter(message => message.kind === "output");
+  assert.deepEqual(outputs.map(message => [message.stream, new TextDecoder().decode(message.bytes)]),
+    [["stdout", "hello\n"], ["stderr", "he"]]);
+  assert.equal(outputs[0].generation, "generation-1");
+
+  state.host.terminate();
+  request.stdout.write(bytes);
+  assert.equal(state.messages.filter(message => message.kind === "output").length, 2);
 });

@@ -25,7 +25,8 @@ public sealed record ToolchainPackagePaths(
     WasmToolsToolchainPaths WasmTools,
     RawInspectionToolchainPaths RawInspection,
     JcoToolchainPaths Jco,
-    HostingBundleToolchainPaths HostingBundle);
+    HostingBundleToolchainPaths HostingBundle,
+    TimeZoneSourcePaths TimeZones);
 
 public sealed record NativeBinaryenTool(
     ResolvedHostExecutable Executable,

@@ -26,7 +26,7 @@ internal sealed class ManagedAggregateValueInitializer(
         var storage = new ManagedAggregateStorageId(
             ManagedAggregateStorageKind.Argument,
             argumentIndex);
-        if (!context.ManagedAggregateValues.Plan.Storages.ContainsKey(storage))
+        if (!context.ManagedAggregateValues.Plan.Storages.TryGetValue(storage, out var selected))
         {
             return false;
         }
@@ -48,7 +48,7 @@ internal sealed class ManagedAggregateValueInitializer(
                 code,
                 _layouts.Target,
                 lane.ByteOffset,
-                sizeof(int));
+                selected.Lane(lane.ByteOffset).Size);
             code.Write(WasmInstruction.WithOperand(
                 WasmOpcodes.LocalSet,
                 WasmInstructionOperand.Unsigned((uint)context

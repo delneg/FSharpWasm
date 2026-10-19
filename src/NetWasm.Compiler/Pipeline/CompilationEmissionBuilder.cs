@@ -190,14 +190,22 @@ internal sealed class CompilationEmissionBuilder(
                 options.UseJavaScriptExportBoundary || options.WitPath is null,
             StructuredDiagnostics = options.StructuredDiagnostics,
             EnableAddressTakenAggregatePromotion =
+                preparation.OptimizationSettings.AddressTakenValuePromotion !=
+                AddressTakenValuePromotionPolicy.Disabled,
+            EnableAggregateReferenceLanes =
                 preparation.OptimizationSettings.AddressTakenValuePromotion ==
-                AddressTakenValuePromotionPolicy.Conservative,
+                AddressTakenValuePromotionPolicy.References,
             EnableBranchValueFramePlacement =
                 preparation.OptimizationSettings.BranchPrefixDuplication ==
                 BranchPrefixDuplicationPolicy.Speed,
             EnableArrayMetadataCaching =
+                preparation.OptimizationSettings.LoopInvariantFieldHoisting !=
+                LoopInvariantFieldHoistingPolicy.Disabled,
+            HoistArrayNullChecks =
                 preparation.OptimizationSettings.LoopInvariantFieldHoisting ==
-                LoopInvariantFieldHoistingPolicy.Conservative,
+                LoopInvariantFieldHoistingPolicy.NullChecks,
+            EnableLoopRotation =
+                preparation.OptimizationSettings.LoopRotation == LoopRotationPolicy.Guarded,
             EnableScalarCallPreservation =
                 preparation.OptimizationSettings.ScalarCallPreservation ==
                 ScalarCallPreservationPolicy.Conservative,

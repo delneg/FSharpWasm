@@ -127,13 +127,14 @@ test("rejects adapter mismatch and pre-cancellation before instantiation", async
   }
 });
 
-test("maps command instantiation, binding and cleanup failures safely", async () => {
+test("maps command instantiation, binding and cleanup failures with their causes", async () => {
   const cases = [
     [() => { throw new Error("private instantiate detail"); },
-      "hostFailure", "host.component-instantiate"],
-    [() => ({}), "contractFailure", "contract.component-exports"],
+      "hostFailure", "host.component-instantiate", "Error: private instantiate detail"],
+    [() => ({}), "contractFailure", "contract.component-exports",
+      "TypeError: canonical command component is incomplete"],
   ];
-  for (const [instantiate, kind, code] of cases) {
+  for (const [instantiate, kind, code, detail] of cases) {
     const result = await executeComponent({
       contractKey: commandComponentContract,
       adapter: adapter(commandComponentContract, instantiate),
@@ -146,7 +147,9 @@ test("maps command instantiation, binding and cleanup failures safely", async ()
     assert.equal(result.completionKind, kind);
     assert.equal(result.primaryFailure.code, code);
     assert.deepEqual(result.cleanupFailures.map(failure => failure.code), ["host.output"]);
-    assert.doesNotMatch(JSON.stringify(result), /private/);
+    assert.equal(result.primaryFailure.detail, detail);
+    assert.deepEqual(result.cleanupFailures.map(failure => failure.detail),
+      ["Error: private release detail"]);
   }
 });
 
@@ -337,12 +340,13 @@ test("turns a component pollable failure into safe process failure", async () =>
 test("classifies thrown early reactor use and ordinary process setup failures", async () => {
   const cases = [
     [({ imports }) => imports["netwasm:runtime/reactor-host"].cancel(1),
-      "contractFailure", "contract.reactor-initialization"],
+      "contractFailure", "contract.reactor-initialization",
+      "Error: component reactor use is unavailable before guest entry"],
     [() => { throw new Error("private instantiation detail"); },
-      "hostFailure", "host.component-instantiate"],
-    [() => ({}), "contractFailure", "contract.component-exports"],
+      "hostFailure", "host.component-instantiate", "Error: private instantiation detail"],
+    [() => ({}), "contractFailure", "contract.component-exports", /^TypeError: \S/u],
   ];
-  for (const [instantiate, kind, code] of cases) {
+  for (const [instantiate, kind, code, detail] of cases) {
     const result = await executeComponent({
       contractKey: processComponentContract,
       adapter: adapter(processComponentContract, instantiate),
@@ -351,7 +355,7 @@ test("classifies thrown early reactor use and ordinary process setup failures", 
     });
     assert.equal(result.completionKind, kind);
     assert.equal(result.primaryFailure.code, code);
-    assert.doesNotMatch(JSON.stringify(result), /private/);
+    assertDetail(result.primaryFailure, detail);
   }
 });
 
@@ -386,7 +390,7 @@ test("maps unexpected process observation errors and closes pending pollables fi
   assert.equal(result.completionKind, "hostFailure");
   assert.equal(result.primaryFailure.code, "host.process-status");
   assert.deepEqual(calls, ["complete", "reactor-release", "caller-release"]);
-  assert.doesNotMatch(JSON.stringify(result), /private/);
+  assert.equal(result.primaryFailure.detail, "Error: private observation detail");
 });
 
 test("prefers typed command completion and preserves reporting without custom imports", async () => {
@@ -418,3 +422,8 @@ test("prefers typed command completion and preserves reporting without custom im
   assert.equal(reports[0].message, "A\ud800B");
   assert.equal(reports[0].stackTrace, null);
 });
+
+function assertDetail(failure, expected) {
+  if (expected instanceof RegExp) assert.match(failure.detail, expected);
+  else assert.equal(failure.detail, expected);
+}

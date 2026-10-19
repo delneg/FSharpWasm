@@ -10,6 +10,7 @@ where they are more specific than a path default.
 | src/NetWasm.Compiler*/** | LicenseRef-NetWasm-Community-1.0 |
 | src/NetWasm.Sdk/** | LicenseRef-NetWasm-Community-1.0 |
 | src/NetWasm.Sdk.Pack/** | LicenseRef-NetWasm-Community-1.0 |
+| src/NetWasm.Toolchain/timezones/zoneinfo/** | public domain (IANA Time Zone Database) |
 | src/NetWasm.Toolchain/** | LicenseRef-NetWasm-Community-1.0 |
 | src/NetWasm.Hosting*/** | LicenseRef-NetWasm-Community-1.0 |
 | src/NetWasm.Testing.VSTest/** | LicenseRef-NetWasm-Community-1.0 |

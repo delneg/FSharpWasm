@@ -68,8 +68,16 @@ public sealed class NetWasmReadHostInteropManifestTask : Microsoft.Build.Utiliti
         return item;
     }
 
-    private static TaskItem CreateExport(HostInteropExport export) =>
-        CreateFunction(export.Name, export.Parameters, export.Result, export.AsyncReturn);
+    private static TaskItem CreateExport(HostInteropExport export)
+    {
+        var item = CreateFunction(export.Name, export.Parameters, export.Result, export.AsyncReturn);
+        item.SetMetadata("ParameterNames", JsonSerializer.Serialize(
+            export.ParameterNames.IsDefault ? [] : export.ParameterNames, MetadataJsonOptions));
+        item.SetMetadata("NonNullableParameters", JsonSerializer.Serialize(
+            export.NonNullableParameters.IsDefault ? [] : export.NonNullableParameters, MetadataJsonOptions));
+        item.SetMetadata("NonNullableResult", export.NonNullableResult ? "true" : "false");
+        return item;
+    }
 
     private static TaskItem CreateFunction(
         string name,

@@ -1,16 +1,11 @@
-import { existsSync, statSync } from "node:fs";
+import { existsSync, lstatSync, readdirSync, realpathSync, statSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { WASI } from "node:wasi";
-
-const [modulePath, ...requestedArguments] = process.argv.slice(2);
-if (!modulePath) {
-  throw new Error("The NetWasm wasm-tools runner requires a module path.");
-}
 
 const preopens = { ".": process.cwd() };
 const mountedRoots = new Map();
-const argumentsForWasi = requestedArguments.map(mapAbsolutePath);
 
 function mapAbsolutePath(argument) {
   if (!path.isAbsolute(argument)) {
@@ -46,17 +41,111 @@ function findExistingRoot(absolutePath) {
   return candidate;
 }
 
-const wasi = new WASI({
-  version: "preview1",
-  returnOnExit: true,
-  args: ["wasm-tools", ...argumentsForWasi],
-  env: {},
-  preopens,
-});
-const module = await WebAssembly.compile(await readFile(modulePath));
-const instance = await WebAssembly.instantiate(module, wasi.getImportObject());
-const exitCode = wasi.start(instance);
-if (!Number.isSafeInteger(exitCode) || exitCode < 0 || exitCode > 255) {
-  throw new Error("The NetWasm wasm-tools runner received an invalid exit code.");
+const errno = Object.freeze({ success: 0, badf: 8, io: 29 });
+const fileTypes = Object.freeze({ unknown: 0, directory: 3, regularFile: 4, symbolicLink: 7 });
+const direntSize = 24;
+
+// Node's WASI cannot list a directory on Windows: uvwasi's fd_readdir returns
+// ENOSYS there, and wasm-tools reads a WIT package by listing its directory.
+// Track which host directory each descriptor names and list it here instead,
+// on every platform, writing preview1 dirents in sorted order without "." and
+// "..", as uvwasi does on POSIX.
+export function withDirectoryListing(imports, preopenedPaths, getMemory) {
+  const preview1 = imports.wasi_snapshot_preview1;
+  const hostPaths = new Map(preopenedPaths.map((hostPath, index) => [3 + index, hostPath]));
+  const memory = () => new DataView(getMemory().buffer);
+  return {
+    ...imports,
+    wasi_snapshot_preview1: {
+      ...preview1,
+      path_open(fd, dirflags, pathPointer, pathLength, oflags, rightsBase, rightsInheriting, fdflags, openedPointer) {
+        const result = preview1.path_open(fd, dirflags, pathPointer, pathLength, oflags, rightsBase,
+          rightsInheriting, fdflags, openedPointer);
+        const parent = hostPaths.get(fd);
+        if (result === errno.success && parent !== undefined) {
+          const guestPath = new TextDecoder().decode(
+            new Uint8Array(getMemory().buffer, pathPointer, pathLength));
+          hostPaths.set(memory().getUint32(openedPointer, true), path.join(parent, guestPath));
+        }
+        return result;
+      },
+      fd_close(fd) {
+        hostPaths.delete(fd);
+        return preview1.fd_close(fd);
+      },
+      fd_readdir(fd, bufferPointer, bufferLength, cookie, usedPointer) {
+        const directory = hostPaths.get(fd);
+        if (directory === undefined) return errno.badf;
+        let entries;
+        try {
+          entries = readdirSync(directory).sort();
+        } catch {
+          return errno.io;
+        }
+        const bytes = new Uint8Array(getMemory().buffer, bufferPointer, bufferLength);
+        let used = 0;
+        for (let index = Number(cookie); index < entries.length && used < bufferLength; index++) {
+          const name = new TextEncoder().encode(entries[index]);
+          const record = new Uint8Array(direntSize + name.length);
+          const view = new DataView(record.buffer);
+          const status = readStatus(path.join(directory, entries[index]));
+          view.setBigUint64(0, BigInt(index + 1), true);
+          view.setBigUint64(8, status.inode, true);
+          view.setUint32(16, name.length, true);
+          view.setUint8(20, status.type);
+          record.set(name, direntSize);
+          // A record that does not fit is written in part, and the full buffer
+          // tells the caller to read again with a larger one.
+          const length = Math.min(record.length, bufferLength - used);
+          bytes.set(record.subarray(0, length), used);
+          used += length;
+        }
+        memory().setUint32(usedPointer, used, true);
+        return errno.success;
+      },
+    },
+  };
 }
-process.exitCode = exitCode;
+
+function readStatus(entryPath) {
+  try {
+    const status = lstatSync(entryPath, { bigint: true });
+    const type = status.isDirectory() ? fileTypes.directory
+      : status.isFile() ? fileTypes.regularFile
+        : status.isSymbolicLink() ? fileTypes.symbolicLink
+          : fileTypes.unknown;
+    return { inode: status.ino, type };
+  } catch {
+    return { inode: 0n, type: fileTypes.unknown };
+  }
+}
+
+async function main([modulePath, ...requestedArguments]) {
+  if (!modulePath) {
+    throw new Error("The NetWasm wasm-tools runner requires a module path.");
+  }
+  const argumentsForWasi = requestedArguments.map(mapAbsolutePath);
+  const wasi = new WASI({
+    version: "preview1",
+    returnOnExit: true,
+    args: ["wasm-tools", ...argumentsForWasi],
+    env: {},
+    preopens,
+  });
+  const module = await WebAssembly.compile(await readFile(modulePath));
+  let instance;
+  const imports = withDirectoryListing(wasi.getImportObject(), Object.values(preopens),
+    () => instance.exports.memory);
+  instance = await WebAssembly.instantiate(module, imports);
+  const exitCode = wasi.start(instance);
+  if (!Number.isSafeInteger(exitCode) || exitCode < 0 || exitCode > 255) {
+    throw new Error("The NetWasm wasm-tools runner received an invalid exit code.");
+  }
+  process.exitCode = exitCode;
+}
+
+// Tests import withDirectoryListing; only a direct invocation runs wasm-tools.
+if (process.argv[1] !== undefined
+    && realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url))) {
+  await main(process.argv.slice(2));
+}

@@ -22,7 +22,8 @@ public sealed class ManagedAggregateValueAnalyzerTests
     [InlineData(CilOperation.CompareExchange)]
     public void AddressConsumingOperationsRejectOwnedIdentity(CilOperation operation)
     {
-        var fixture = new Fixture();
+        // Below the References level, initobj consumes the address too.
+        var fixture = new Fixture() { References = false };
 
         Assert.Empty(fixture.Analyze(fixture.AddressConsumerMethod(operation)).Storages);
     }
@@ -282,29 +283,142 @@ public sealed class ManagedAggregateValueAnalyzerTests
     }
 
     [Theory]
-    [InlineData(WasmTarget.Wasm32, 4, false, false)]
-    [InlineData(WasmTarget.Wasm64, 4, false, false)]
-    [InlineData(WasmTarget.Wasm32, 20, false, false)]
-    [InlineData(WasmTarget.Wasm64, 20, false, false)]
-    [InlineData(WasmTarget.Wasm32, 10, false, false)]
-    [InlineData(WasmTarget.Wasm64, 10, false, false)]
-    [InlineData(WasmTarget.Wasm32, 8, true, false)]
-    [InlineData(WasmTarget.Wasm64, 8, true, false)]
-    [InlineData(WasmTarget.Wasm32, 8, false, true)]
-    [InlineData(WasmTarget.Wasm64, 8, false, true)]
-    public void DeclinesStorageOutsideTheScalarLaneContract(
-        WasmTarget target, int size, bool references, bool byReferences)
+    [InlineData(WasmTarget.Wasm32, 4)]
+    [InlineData(WasmTarget.Wasm64, 4)]
+    [InlineData(WasmTarget.Wasm32, 20)]
+    [InlineData(WasmTarget.Wasm64, 20)]
+    [InlineData(WasmTarget.Wasm32, 10)]
+    [InlineData(WasmTarget.Wasm64, 10)]
+    public void DeclinesStorageOutsideTheLaneSizeContract(WasmTarget target, int size)
     {
         var fixture = new Fixture(target);
-        fixture.AggregateLayout = new(fixture.Aggregate, size, 2, references ? [0] : [])
-        {
-            ByReferenceOffsets = byReferences ? [0] : [],
-        };
+        fixture.AggregateLayout = new(fixture.Aggregate, size, 2, []);
 
         Assert.Same(ManagedAggregateValueAnalysis.Empty,
             fixture.Analyze(fixture.LocalValueMethod(storeWholeValue: false)));
         Assert.Same(ManagedAggregateValueAnalysis.Empty,
             fixture.Analyze(fixture.WholeValueLoadMethod()));
+    }
+
+    [Theory]
+    [InlineData(WasmTarget.Wasm32)]
+    [InlineData(WasmTarget.Wasm64)]
+    public void DeclinesReferenceLanesBelowTheReferencesLevel(WasmTarget target)
+    {
+        var fixture = new Fixture(target) { References = false };
+        fixture.AggregateLayout = new(fixture.Aggregate, 16, 8, [0]);
+        fixture.LowFieldType = CliTypeIdentity.FromStackKind(CliValueKind.ManagedReference);
+
+        Assert.Same(ManagedAggregateValueAnalysis.Empty, fixture.Analyze(fixture.FieldRoundTripMethod()));
+    }
+
+    [Theory]
+    [InlineData(WasmTarget.Wasm32, 16, 2)]
+    [InlineData(WasmTarget.Wasm64, 16, 4)]
+    [InlineData(WasmTarget.Wasm64, 16, 12)]
+    [InlineData(WasmTarget.Wasm64, 12, 8)]
+    public void DeclinesReferencesThatDoNotFillWholeLanes(WasmTarget target, int size, int offset)
+    {
+        var fixture = new Fixture(target);
+        fixture.AggregateLayout = new(fixture.Aggregate, size, 8, [offset]);
+
+        Assert.Same(ManagedAggregateValueAnalysis.Empty,
+            fixture.Analyze(fixture.LocalValueMethod(storeWholeValue: false)));
+    }
+
+    [Theory]
+    [InlineData(WasmTarget.Wasm32, false, CliValueKind.I4)]
+    [InlineData(WasmTarget.Wasm64, false, CliValueKind.I4)]
+    [InlineData(WasmTarget.Wasm32, true, CliValueKind.I4)]
+    [InlineData(WasmTarget.Wasm64, true, CliValueKind.I4)]
+    [InlineData(WasmTarget.Wasm32, false, CliValueKind.I8)]
+    public void DeclinesIntegerAccessesThatOverlapAReferenceLane(WasmTarget target, bool byReference, CliValueKind kind)
+    {
+        var fixture = new Fixture(target);
+        fixture.AggregateLayout = new(fixture.Aggregate, 16, 8, [0])
+        {
+            ByReferenceOffsets = byReference ? [0] : [],
+        };
+        fixture.LowFieldType = CliTypeIdentity.FromStackKind(kind);
+
+        Assert.Empty(fixture.Analyze(fixture.FieldRoundTripMethod()).Storages);
+    }
+
+    [Theory]
+    [InlineData(WasmTarget.Wasm32, false)]
+    [InlineData(WasmTarget.Wasm64, false)]
+    [InlineData(WasmTarget.Wasm32, true)]
+    [InlineData(WasmTarget.Wasm64, true)]
+    public void PromotesReferenceAndByReferenceFieldsToTheirOwnLanes(WasmTarget target, bool byReference)
+    {
+        var fixture = new Fixture(target);
+        var pointer = WasmTargetLayout.For(target).ObjectReferenceSize;
+        var kind = byReference ? CliValueKind.ManagedAddress : CliValueKind.ManagedReference;
+        fixture.AggregateLayout = new(fixture.Aggregate, 16, 8, [0])
+        {
+            ByReferenceOffsets = byReference ? [0] : [],
+        };
+        fixture.LowFieldType = CliTypeIdentity.FromStackKind(kind);
+        var method = fixture.FieldRoundTripMethod();
+
+        var analysis = fixture.Analyze(method);
+
+        var storage = Assert.Single(analysis.Storages).Value;
+        Assert.Equal(new ManagedAggregateLaneShape(0, pointer, kind), storage.Lanes.First());
+        Assert.Equal(16, storage.Lanes.Sum(lane => lane.Size));
+        Assert.Equal([0], analysis.LaneAccesses[2].LaneOffsets.ToArray());
+        Assert.Equal([0], analysis.LaneAccesses[4].LaneOffsets.ToArray());
+        var plan = new ManagedAggregateSsaPlanner().Plan(new(method, analysis));
+        Assert.Equal(storage.Lanes.Count(), plan.Lanes.Length);
+        Assert.Equal(Assert.Single(plan.Accesses[2].Writes).Value, Assert.Single(plan.Accesses[4].Reads).Value);
+    }
+
+    [Theory]
+    [InlineData(WasmTarget.Wasm32)]
+    [InlineData(WasmTarget.Wasm64)]
+    public void InitializeObjectClearsEveryLane(WasmTarget target)
+    {
+        var fixture = new Fixture(target);
+        var method = fixture.ClearMethod(fixture.Aggregate);
+
+        var analysis = fixture.Analyze(method);
+
+        var clear = analysis.LaneAccesses[1];
+        Assert.True(clear.Writes);
+        Assert.Equal(CliValueKind.ValueType, clear.StackKind);
+        Assert.Equal([0, 4], clear.LaneOffsets.ToArray());
+        var plan = new ManagedAggregateSsaPlanner().Plan(new(method, analysis));
+        Assert.Equal(2, plan.Accesses[1].Writes.Length);
+        Assert.Contains(Assert.Single(plan.Accesses[3].Reads).Value,
+            plan.Accesses[1].Writes.Select(write => write.Value));
+    }
+
+    [Fact]
+    public void InitializeObjectOfAnotherTypeRejectsTheStorage()
+    {
+        var fixture = new Fixture();
+
+        Assert.Empty(fixture.Analyze(fixture.ClearMethod(fixture.View)).Storages);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void InitializeObjectOfAFieldRejectsTheStorage(bool high)
+    {
+        var fixture = new Fixture();
+
+        Assert.Empty(fixture.Analyze(fixture.FieldClearMethod(high ? fixture.High : fixture.Low)).Storages);
+    }
+
+    [Fact]
+    public void InitializeObjectThroughAnUnknownAddressLeavesOwnedStorage()
+    {
+        var fixture = new Fixture();
+        var analysis = fixture.Analyze(fixture.UnknownClearMethod());
+
+        Assert.Single(analysis.Storages);
+        Assert.DoesNotContain(analysis.LaneAccesses.Values, access => access.StackKind == CliValueKind.ValueType);
     }
 
     [Fact]
@@ -507,10 +621,25 @@ public sealed class ManagedAggregateValueAnalyzerTests
         Assert.Equal(writingCall ? 2 : 1, plan.Materializations.Select(item => item.Materialization.Storage).Distinct().Count());
     }
 
+    [Fact]
+    public void SsaPlannerDeclinesStorageThatIsOnlyWritten()
+    {
+        var fixture = new Fixture();
+        var method = fixture.ClearMethod(fixture.Aggregate);
+        var analysis = fixture.Analyze(method);
+        analysis = analysis with { LaneAccesses = analysis.LaneAccesses.Remove(3) };
+
+        Assert.Same(ManagedAggregateSsaPlan.Empty,
+            new ManagedAggregateSsaPlanner().Plan(new(method, analysis) { References = true }));
+        // Below the References level, a written storage is still selected.
+        Assert.Single(new ManagedAggregateSsaPlanner().Plan(new(method, analysis)).Storages);
+    }
+
     [Theory]
     [InlineData("alignment")]
     [InlineData("size")]
     [InlineData("kind")]
+    [InlineData("lane-kind")]
     public void SsaPlannerDeclinesStorageWithUnsupportedAccessLayout(string invalid)
     {
         var fixture = new Fixture();
@@ -522,6 +651,7 @@ public sealed class ManagedAggregateValueAnalyzerTests
             "alignment" => access with { Address = access.Address with { ByteOffset = 2 } },
             "size" => access with { Size = 2 },
             "kind" => access with { StackKind = CliValueKind.F4 },
+            "lane-kind" => access with { LaneOffsets = [0] },
             _ => throw new ArgumentOutOfRangeException(nameof(invalid)),
         };
         analysis = analysis with { LaneAccesses = analysis.LaneAccesses.SetItem(4, access) };
@@ -1020,6 +1150,10 @@ public sealed class ManagedAggregateValueAnalyzerTests
 
         public int LowFieldOffset { get; set; }
 
+        public bool References { get; init; } = true;
+
+        public CliTypeIdentity LowFieldType { get; set; } = CliTypeIdentity.FromStackKind(CliValueKind.I4);
+
         public ManagedAggregateValueAnalysis Analyze(
             StructuredMethod method,
             MethodRootMap? rootMap = null,
@@ -1043,7 +1177,10 @@ public sealed class ManagedAggregateValueAnalyzerTests
                 .Add(AliasTarget.CanonicalName,
                     targetEffects ?? ManagedByRefMethodEffects.Empty)
                 .Add(MultiTarget.CanonicalName, ManagedByRefMethodEffects.Empty)),
-            enabled);
+            enabled)
+            {
+                References = References,
+            };
 
         public MethodRootMap EmptyRootMap() => new(Body.Definition.Key, [], []);
 
@@ -1058,6 +1195,12 @@ public sealed class ManagedAggregateValueAnalyzerTests
                 Step(I(4, CilOperation.Call, new CilOperand.MethodInstance(Target)), CliValueKind.ManagedAddress),
                 Step(I(5, CilOperation.LoadLocalAddress, new CilOperand.Index(0))),
                 Step(I(6, CilOperation.Call, new CilOperand.MethodInstance(Target)), CliValueKind.ManagedAddress),
+                Step(I(7, CilOperation.LoadLocalAddress, new CilOperand.Index(0))),
+                Step(I(8, CilOperation.LoadField, new CilOperand.FieldInstance(Low)), CliValueKind.ManagedAddress),
+                Step(I(9, CilOperation.Pop), CliValueKind.I4),
+                Step(I(10, CilOperation.LoadLocalAddress, new CilOperand.Index(1))),
+                Step(I(11, CilOperation.LoadField, new CilOperand.FieldInstance(Low)), CliValueKind.ManagedAddress),
+                Step(I(12, CilOperation.Pop), CliValueKind.I4),
             };
             var id = new StructuredBlockId(0);
             return Graph(id, ImmutableDictionary<StructuredBlockId, StructuredBlockDefinition>.Empty
@@ -1205,6 +1348,75 @@ public sealed class ManagedAggregateValueAnalyzerTests
                 ImmutableDictionary<StructuredBlockId, StructuredBlockDefinition>.Empty.Add(
                     id, Block(id, steps, new StructuredFallthroughExit(null))),
                 steps, [CliValueKind.ValueType], [Aggregate]);
+        }
+
+        public StructuredMethod FieldRoundTripMethod()
+        {
+            var id = new StructuredBlockId(0);
+            var field = new FieldInstanceModel(_low, Aggregate, LowFieldType);
+            var steps = new[]
+            {
+                Step(I(0, CilOperation.LoadLocalAddress, new CilOperand.Index(0))),
+                Step(I(1, CilOperation.LoadNull), CliValueKind.ManagedAddress),
+                Step(I(2, CilOperation.StoreField, new CilOperand.FieldInstance(field)),
+                    CliValueKind.ManagedAddress, LowFieldType.StackKind),
+                Step(I(3, CilOperation.LoadLocalAddress, new CilOperand.Index(0))),
+                Step(I(4, CilOperation.LoadField, new CilOperand.FieldInstance(field)), CliValueKind.ManagedAddress),
+                Step(I(5, CilOperation.Pop), LowFieldType.StackKind),
+            };
+            return Graph(id,
+                ImmutableDictionary<StructuredBlockId, StructuredBlockDefinition>.Empty.Add(
+                    id, Block(id, steps, new StructuredFallthroughExit(null))),
+                steps, [CliValueKind.ValueType], [Aggregate]);
+        }
+
+        public StructuredMethod ClearMethod(CliTypeIdentity type)
+        {
+            var id = new StructuredBlockId(0);
+            var steps = new[]
+            {
+                Step(I(0, CilOperation.LoadLocalAddress, new CilOperand.Index(0))),
+                Step(I(1, CilOperation.InitializeObject, new CilOperand.TypeIdentity(type)), CliValueKind.ManagedAddress),
+                Step(I(2, CilOperation.LoadLocalAddress, new CilOperand.Index(0))),
+                Step(I(3, CilOperation.LoadField, new CilOperand.FieldInstance(Low)), CliValueKind.ManagedAddress),
+                Step(I(4, CilOperation.Pop), CliValueKind.I4),
+            };
+            return Graph(id,
+                ImmutableDictionary<StructuredBlockId, StructuredBlockDefinition>.Empty.Add(
+                    id, Block(id, steps, new StructuredFallthroughExit(null))),
+                steps, [CliValueKind.ValueType], [Aggregate]);
+        }
+
+        public StructuredMethod FieldClearMethod(FieldInstanceModel field)
+        {
+            var id = new StructuredBlockId(0);
+            var steps = new[]
+            {
+                Step(I(0, CilOperation.LoadLocalAddress, new CilOperand.Index(0))),
+                Step(I(1, CilOperation.LoadFieldAddress, new CilOperand.FieldInstance(field)), CliValueKind.ManagedAddress),
+                Step(I(2, CilOperation.InitializeObject, new CilOperand.TypeIdentity(CliTypeIdentity.FromStackKind(CliValueKind.I4))),
+                    CliValueKind.ManagedAddress),
+                Step(I(3, CilOperation.LoadLocalAddress, new CilOperand.Index(0))),
+                Step(I(4, CilOperation.LoadField, new CilOperand.FieldInstance(Low)), CliValueKind.ManagedAddress),
+                Step(I(5, CilOperation.Pop), CliValueKind.I4),
+            };
+            return Graph(id,
+                ImmutableDictionary<StructuredBlockId, StructuredBlockDefinition>.Empty.Add(
+                    id, Block(id, steps, new StructuredFallthroughExit(null))),
+                steps, [CliValueKind.ValueType], [Aggregate]);
+        }
+
+        public StructuredMethod UnknownClearMethod()
+        {
+            var steps = new[]
+            {
+                Step(I(0, CilOperation.LoadArgument, new CilOperand.Index(1))),
+                Step(I(1, CilOperation.InitializeObject, new CilOperand.TypeIdentity(Aggregate)), CliValueKind.ManagedAddress),
+                Step(I(2, CilOperation.LoadArgumentAddress, new CilOperand.Index(0))),
+                Step(I(3, CilOperation.LoadInt32, new CilOperand.ConstantI4(1)), CliValueKind.ManagedAddress),
+                Step(I(4, CilOperation.StoreField, new CilOperand.FieldInstance(Low)), CliValueKind.ManagedAddress, CliValueKind.I4),
+            };
+            return SingleBlock(steps);
         }
 
         public StructuredMethod NonAggregateLocalAddressMethod()
@@ -1475,6 +1687,9 @@ public sealed class ManagedAggregateValueAnalyzerTests
                 Step(I(2, CilOperation.Call, new CilOperand.MethodInstance(MultiTarget)),
                     CliValueKind.ManagedAddress,
                     CliValueKind.ManagedAddress),
+                Step(I(3, CilOperation.LoadArgumentAddress, new CilOperand.Index(0))),
+                Step(I(4, CilOperation.LoadField, new CilOperand.FieldInstance(Low)), CliValueKind.ManagedAddress),
+                Step(I(5, CilOperation.Pop), CliValueKind.I4),
             };
             return SingleBlock(steps);
         }
@@ -1674,12 +1889,22 @@ public sealed class ManagedAggregateValueAnalyzerTests
         public FieldLayout GetFieldLayout(FieldInstanceModel field) =>
             GetFieldLayout(field.Definition.Key);
 
-        public FieldLayout GetFieldLayout(EntityKey field) => new(
-            field == _low.Key ? LowFieldOffset : 4)
-        {
-            Size = 4,
-            Type = CliTypeIdentity.FromStackKind(CliValueKind.I4),
-        };
+        public FieldLayout GetFieldLayout(EntityKey field) => field == _low.Key
+            ? new(LowFieldOffset)
+            {
+                Size = LowFieldType.StackKind switch
+                {
+                    CliValueKind.I4 => 4,
+                    CliValueKind.I8 => 8,
+                    _ => _layout.ObjectReferenceSize,
+                },
+                Type = LowFieldType,
+            }
+            : new(4)
+            {
+                Size = 4,
+                Type = CliTypeIdentity.FromStackKind(CliValueKind.I4),
+            };
 
         CliTypeIdentity IArgumentSignatureTypeResolver.Resolve(
             StructuredMethodHeader header,

@@ -36,31 +36,43 @@ the supported NetWasm profile.
 
 ## Measured performance
 
-The NetWasm 0.8 qualification campaign measured complete managed workloads, not
-isolated allocator microbenchmarks. The figures below are the lower median from
-two accepted cohorts on an Apple M1 Max under Wasmtime 49.0.3. Each cohort used
-three warmups followed by seven retained fresh-process samples. Every NetWasm
-cell used the same managed program and `O3` compiler profile; lower is better.
+NetWasm 0.9.0 was measured on complete managed workloads, not isolated
+allocator microbenchmarks. The figures below are the lower median from two
+cohorts on an Apple M1 Max under Wasmtime 49.0.3. Each cohort ran three warmups
+and then fifteen fresh-process samples per collector, rotating the collector
+order on every sample. Every cell used the same managed program and the `O3`
+compiler profile, and every result matched the same program on desktop .NET;
+lower is better.
 
 | Collector | Full transaction | Retained object graph | UI-style object churn |
 | --- | ---: | ---: | ---: |
-| Bump | 35.98 ms | 12.97 ms | 12.80 ms |
-| NetWasmGC | 39.34 ms | 16.65 ms | 13.27 ms |
-| Boehm | 41.59 ms | 18.74 ms | 16.29 ms |
-| Compact | 49.83 ms | 30.60 ms | 22.11 ms |
+| Bump | 41.96 ms | 9.34 ms | 20.61 ms |
+| NetWasmGC | 51.30 ms | 13.49 ms | 22.03 ms |
+| Boehm | 58.47 ms | 15.17 ms | 30.44 ms |
+| Compact | 77.04 ms | 28.10 ms | 44.82 ms |
 
-Using those reported medians, NetWasmGC was 5.4% faster than Boehm on the full
-transaction workload, 11.1% faster on the retained object graph and 18.5%
-faster on UI churn. Bump is useful as a performance ceiling, but the
-comparison is not equivalent lifetime behaviour: it never collects or reclaims
-managed objects.
+The full transaction creates 100,000 transactions, normalizes their account
+strings and aggregates them into growing containers, with allocation and
+collection inside the timed region. Using those medians, NetWasmGC was 12.3%
+faster than Boehm on the full transaction, 11.1% faster on the retained object
+graph and 27.6% faster on UI churn. Bump is useful as a performance ceiling, but
+the comparison is not equivalent lifetime behaviour: it never collects or
+reclaims managed objects.
 
-The same full-transaction artifacts reached 36 MiB of aggregate Wasm linear
-memory capacity with NetWasmGC, 29.625 MiB with Compact, 20.375 MiB with Bump
-and 13.1875 MiB with Boehm. This is whole-invocation linear-memory capacity,
-not live managed bytes, host RSS or a promised ceiling. It makes the tradeoffs
-visible: NetWasmGC's measured throughput gain over Boehm used more linear memory,
-while Compact traded throughput for the smallest tracing-collector artifact.
+The same artifacts reached this aggregate Wasm linear memory capacity:
+
+| Collector | Full transaction | Retained object graph | UI-style object churn |
+| --- | ---: | ---: | ---: |
+| Bump | 20.375 MiB | 12.375 MiB | 20 MiB |
+| NetWasmGC | 36.9375 MiB | 31.6875 MiB | 7.3125 MiB |
+| Boehm | 17.25 MiB | 9.125 MiB | 0.6875 MiB |
+| Compact | 32.8125 MiB | 26.6875 MiB | 2.875 MiB |
+
+This is whole-invocation linear-memory capacity, not live managed bytes, host
+RSS or a promised ceiling. Each figure repeated exactly across runs. It makes
+the tradeoffs visible: NetWasmGC's throughput gain over Boehm uses more linear
+memory, Bump keeps growing because it never reclaims, and Compact trades
+throughput for the smallest tracing-collector artifact.
 
 The corresponding complete Console `42` component sizes are 43,794 bytes for
 Bump, 47,798 for Compact, 51,300 for NetWasmGC and 74,142 for Boehm. See

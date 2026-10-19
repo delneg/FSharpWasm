@@ -262,8 +262,10 @@ test("accepts schema-three reached native signatures and explicit empty imports"
   ]]) {
     const runtimeFeatures = [
       "ephemeron-handles",
+      "finalization",
       "local-time",
       "structured-command-diagnostics",
+      "weak-handles",
     ];
     const bytes = encoder.encode(JSON.stringify({
       ...layout,

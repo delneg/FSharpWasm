@@ -53,6 +53,31 @@ public sealed class HostCallbackArgumentMarshallerTests
     }
 
     [Fact]
+    public void HostObjectMaterializationWrapsANonZeroHandle()
+    {
+        var layouts = new RecordingLayoutProvider();
+        IHostCallbackHostObjectArgumentMarshaller marshaller = new[]
+        {
+            new HostCallbackHostObjectArgumentMarshaller(
+                layouts,
+                layouts,
+                WasmRuntimeImports.CreateCatalog(),
+                new ImplicitExceptionEmitter(layouts, layouts, 7),
+                new AddressInstructionEmitter(layouts)),
+        }.Cast<IHostCallbackHostObjectArgumentMarshaller>().Single();
+        var code = new EmitterTestSupport.RecordingInstructionWriter();
+
+        marshaller.Emit(code, CliTypeIdentity.Named(
+            new AssemblyIdentity("System.Runtime.InteropServices.JavaScript"),
+            "System.Runtime.InteropServices.JavaScript", "JSObject", isValueType: false), 1, 2);
+
+        var bytes = code.ToArray();
+        Assert.Contains(WasmOpcodes.I32EqualZero, bytes);
+        Assert.Contains(WasmOpcodes.Call, bytes);
+        Assert.Contains(WasmOpcodes.I32Store, bytes);
+    }
+
+    [Fact]
     public void RejectsStringMaterializationWithoutPlannedHostHelpers()
     {
         var layouts = new RecordingLayoutProvider();

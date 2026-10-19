@@ -7,9 +7,12 @@ internal static class InteropTypeClassifier
     public static bool IsString(CliTypeIdentity type) =>
         type.CanonicalName == "primitive:string";
 
-    public static bool IsByteArray(CliTypeIdentity type) =>
-        type.Shape == CliTypeShape.SzArray &&
-        type.ElementType!.CanonicalName == "primitive:u1";
+    public static bool IsValueArray(CliTypeIdentity type) =>
+        JavaScriptValueArray.IsSupported(type);
+
+    /// <summary>A string, number array, or JSObject: a value that crosses an export as a host handle.</summary>
+    public static bool IsJavaScriptReference(CliTypeIdentity type) =>
+        IsString(type) || IsValueArray(type) || IsJSObject(type);
 
     public static bool IsJSObject(CliTypeIdentity type) =>
         type.FullName == "System.Runtime.InteropServices.JavaScript.JSObject";

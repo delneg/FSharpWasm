@@ -150,7 +150,7 @@ public sealed class WasmModuleEmitterContractTests
         public static readonly string[] SuccessOrder =
         [
             "entry", "indices", "imports", "managed", "constructed", "managedThrow",
-            "delegates", "static",
+            "delegates", "jsImportForwarders", "static",
             "nativeCallbacks", "callbacks", "async", "filters", "runtime", "requested", "exports", "component", "exportValidation", "boundary", "result",
         ];
 
@@ -192,6 +192,7 @@ public sealed class WasmModuleEmitterContractTests
                 Capability<IConstructedMethodSetAppender>("constructed"),
                 Capability<IManagedThrowFunctionAppender>("managedThrow"),
                 Capability<IDelegateFunctionAppender>("delegates"),
+                Capability<IJSImportForwarderFunctionAppender>("jsImportForwarders"),
                 Capability<INativeCallbackFunctionAppender>("nativeCallbacks"),
                 Capability<IHostCallbackSetAppender>("callbacks"),
                 Capability<IAsyncJSImportSetAppender>("async"),

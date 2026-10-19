@@ -9,5 +9,5 @@ internal interface IAsyncJSImportSetAppender
     void Append(IList<WasmFunctionDefinition> functions, int importCount,
         ImmutableDictionary<string, int>.Builder indices,
         WasmEmissionRequest request, IFunctionIndexResolver functionIndices,
-        IList<ManagedBoundaryPlanEntry> boundaryEntries);
+        InteropImportPlan interopImports, IList<ManagedBoundaryPlanEntry> boundaryEntries);
 }

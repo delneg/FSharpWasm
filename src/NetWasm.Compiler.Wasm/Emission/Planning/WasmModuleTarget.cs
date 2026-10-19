@@ -41,7 +41,10 @@ internal sealed record WasmModuleTarget(
         NativeCallbacks = Plan.NativeCallbacks,
         ManagedByRefEffects = Request.ManagedByRefEffects,
         EnableBranchValueFramePlacement = Request.EnableBranchValueFramePlacement,
+        EnableAggregateReferenceLanes = Request.EnableAggregateReferenceLanes,
         EnableArrayMetadataCaching = Request.EnableArrayMetadataCaching,
+        HoistArrayNullChecks = Request.HoistArrayNullChecks,
+        EnableLoopRotation = Request.EnableLoopRotation,
         EnableScalarCallPreservation = Request.EnableScalarCallPreservation,
         RootMaps = Request.Methods.Values.Select(method =>
                 (ManagedMethodBodyKey.Resolve(method), Request.RootMaps[method.Header.Method.Key]))
@@ -73,7 +76,10 @@ internal sealed record InstructionModuleTarget(
     bool EnableAddressTakenAggregatePromotion = false)
 {
     public bool EnableBranchValueFramePlacement { get; init; }
+    public bool EnableAggregateReferenceLanes { get; init; }
     public bool EnableArrayMetadataCaching { get; init; }
+    public bool HoistArrayNullChecks { get; init; }
+    public bool EnableLoopRotation { get; init; }
     public bool EnableScalarCallPreservation { get; init; }
     public NativeImportPlan NativeImports { get; init; } = NativeImportPlan.Empty;
     public NativeCallbackPlan NativeCallbacks { get; init; } = NativeCallbackPlan.Empty;
@@ -92,18 +98,20 @@ internal sealed class WasmModuleTargetFactory(
 IWasmModulePlanner planner,
 IModuleDataPlanner moduleDataPlanner,
 IStructuredMethodEmissionPlanner methodEmissions,
-IStaticInitializerFunctionPlanner staticInitializers) : IWasmModuleTargetFactory
+IStaticInitializerFunctionPlanner staticInitializers,
+IJSImportForwarderPlanner jsImportForwarders) : IWasmModuleTargetFactory
 {
     public WasmModuleTarget Create(WasmEmissionRequest request)
     {
         var plannedMethods = methodEmissions.Plan(request);
-        var plan = planner.Build(request, plannedMethods);
+        var plan = jsImportForwarders.Plan(request, planner.Build(request, plannedMethods));
         var moduleData = staticInitializers.Build(request, plan, moduleDataPlanner.Build(
             plannedMethods,
             request.StaticInitializers,
             request.ConstructedStaticInitializers,
             request.NativeCallbacks.Count != 0,
-            plan.StackTraceMethods));
+            plan.StackTraceMethods,
+            reserveStateRegistrationGuard: request.HasReenterableHostEntries));
         return new(
             request,
             plan,

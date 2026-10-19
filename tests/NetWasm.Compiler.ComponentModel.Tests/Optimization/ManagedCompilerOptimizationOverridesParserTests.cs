@@ -10,7 +10,7 @@ public sealed class ManagedCompilerOptimizationOverridesParserTests
         get
         {
             var data = new TheoryData<int, string?>();
-            for (var feature = 0; feature < 4; feature++)
+            for (var feature = 0; feature < 9; feature++)
                 foreach (var value in new string?[] { null, "Auto", "Disabled", "Enabled", "enabled", "", "2" })
                     data.Add(feature, value);
             return data;
@@ -26,7 +26,12 @@ public sealed class ManagedCompilerOptimizationOverridesParserTests
             arrayBoundsCheckElimination: feature == 0 ? value : null,
             loopUnrolling: feature == 1 ? value : null,
             constantArgumentPropagation: feature == 2 ? value : null,
-            staticArrayPopulationElimination: feature == 3 ? value : null);
+            staticArrayPopulationElimination: feature == 3 ? value : null,
+            constantCallFolding: feature == 4 ? value : null,
+            switchBitTests: feature == 5 ? value : null,
+            devirtualization: feature == 6 ? value : null,
+            allocationElimination: feature == 7 ? value : null,
+            loopRotation: feature == 8 ? value : null);
         if (value is null or "Auto")
         {
             Assert.Null(Parse());
@@ -46,8 +51,18 @@ public sealed class ManagedCompilerOptimizationOverridesParserTests
                 ? ManagedLoopUnrolling.Enabled : ManagedLoopUnrolling.Disabled),
             2 => new WasmOptimizationOverrides(ConstantArgumentPropagation: enabled
                 ? ManagedConstantArgumentPropagation.Enabled : ManagedConstantArgumentPropagation.Disabled),
-            _ => new WasmOptimizationOverrides(StaticArrayPopulationElimination: enabled
+            3 => new WasmOptimizationOverrides(StaticArrayPopulationElimination: enabled
                 ? ManagedStaticArrayPopulationElimination.Enabled : ManagedStaticArrayPopulationElimination.Disabled),
+            4 => new WasmOptimizationOverrides(ConstantCallFolding: enabled
+                ? ManagedConstantCallFolding.Enabled : ManagedConstantCallFolding.Disabled),
+            5 => new WasmOptimizationOverrides(SwitchBitTests: enabled
+                ? ManagedSwitchBitTests.Enabled : ManagedSwitchBitTests.Disabled),
+            6 => new WasmOptimizationOverrides(Devirtualization: enabled
+                ? ManagedDevirtualization.Enabled : ManagedDevirtualization.Disabled),
+            7 => new WasmOptimizationOverrides(AllocationElimination: enabled
+                ? ManagedAllocationElimination.Enabled : ManagedAllocationElimination.Disabled),
+            _ => new WasmOptimizationOverrides(LoopRotation: enabled
+                ? ManagedLoopRotation.Enabled : ManagedLoopRotation.Disabled),
         };
         Assert.Equal(expected, Parse());
     }
@@ -102,6 +117,10 @@ public sealed class ManagedCompilerOptimizationOverridesParserTests
         ManagedStaticDataViewElimination.Auto, ManagedAddressTakenValuePromotion.Enabled)]
     [InlineData("Enabled", "Disabled", "Disabled", ManagedLoopInvariantFieldHoisting.Enabled,
         ManagedStaticDataViewElimination.Disabled, ManagedAddressTakenValuePromotion.Disabled)]
+    [InlineData("Auto", "Auto", "References", ManagedLoopInvariantFieldHoisting.Auto,
+        ManagedStaticDataViewElimination.Auto, ManagedAddressTakenValuePromotion.References)]
+    [InlineData("NullChecks", "Auto", "Auto", ManagedLoopInvariantFieldHoisting.NullChecks,
+        ManagedStaticDataViewElimination.Auto, ManagedAddressTakenValuePromotion.Auto)]
     public void ParsesCanonicalCompilerOwnedSelections(
         string fieldHoisting,
         string staticDataViews,

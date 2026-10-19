@@ -56,32 +56,35 @@ export function observeManagedProcess(request = {}) {
 
       try {
         unsubscribe?.();
-      } catch {
+      } catch (error) {
         cleanupFailures.push(executionFailure(
           "cleanup",
           "host.process-unsubscribe",
-          "The execution host could not remove the managed process wake subscription."));
+          "The execution host could not remove the managed process wake subscription.",
+          error));
       }
 
       if (abortSubscribed) {
         try {
           signal.removeEventListener("abort", abort);
-        } catch {
+        } catch (error) {
           cleanupFailures.push(executionFailure(
             "cleanup",
             "host.process-abort-listener",
-            "The execution host could not remove the managed process abort listener."));
+            "The execution host could not remove the managed process abort listener.",
+            error));
         }
       }
 
       if (handle !== undefined) {
         try {
           process.complete(handle);
-        } catch {
+        } catch (error) {
           cleanupFailures.push(executionFailure(
             "cleanup",
             "host.process-complete",
-            "The execution host could not release the managed process handle."));
+            "The execution host could not release the managed process handle.",
+            error));
         }
       }
 
@@ -123,12 +126,13 @@ export function observeManagedProcess(request = {}) {
           let status;
           try {
             status = process.status(handle);
-          } catch {
+          } catch (error) {
             finish(failedExecutionResult(
               "hostFailure",
               "observation",
               "host.process-status",
-              "The execution host could not read managed process status."));
+              "The execution host could not read managed process status.",
+              error));
             continue;
           }
           if (settled || pendingFailure !== undefined) continue;
@@ -140,12 +144,13 @@ export function observeManagedProcess(request = {}) {
               let exitCode;
               try {
                 exitCode = process.exitCode(handle);
-              } catch {
+              } catch (error) {
                 finish(failedExecutionResult(
                   "hostFailure",
                   "observation",
                   "host.process-exit-code",
-                  "The execution host could not read the managed process exit code."));
+                  "The execution host could not read the managed process exit code.",
+                  error));
                 continue;
               }
               if (settled || pendingFailure !== undefined) continue;
@@ -200,12 +205,13 @@ export function observeManagedProcess(request = {}) {
         return;
       }
       unsubscribe = release;
-    } catch {
+    } catch (error) {
       finish(failedExecutionResult(
         "hostFailure",
         "observation",
         "host.process-subscription",
-        "The execution host could not subscribe to managed process wake notifications."));
+        "The execution host could not subscribe to managed process wake notifications.",
+        error));
       return;
     }
 
@@ -217,12 +223,13 @@ export function observeManagedProcess(request = {}) {
     let started;
     try {
       started = process.start();
-    } catch {
+    } catch (error) {
       finish(failedExecutionResult(
         "hostFailure",
         "execution",
         "host.process-start",
-        "The execution host could not start the managed process."));
+        "The execution host could not start the managed process.",
+        error));
       return;
     }
     if (!Number.isInteger(started) || started <= 0 || started > maxUnsignedInt32) {
@@ -239,12 +246,13 @@ export function observeManagedProcess(request = {}) {
       try {
         abortSubscribed = true;
         signal.addEventListener("abort", abort, { once: true });
-      } catch {
+      } catch (error) {
         finish(failedExecutionResult(
           "hostFailure",
           "observation",
           "host.process-abort-listener",
-          "The execution host could not register the managed process abort listener."));
+          "The execution host could not register the managed process abort listener.",
+          error));
         return;
       }
       if (signal.aborted) {

@@ -22,7 +22,7 @@ public sealed class TreeTraversalCompilationTests
         var executor = (ICompilationScenarioExecutor)new CompilationScenarioExecutor(assets);
         Assert.Equal(42, executor.Execute(new CompilationScenario(
             "SharedLoopExit", SharedExitSource, "SharedLoopExit.EntryPoint", optimize, target, 41, [])
-            { Optimization = optimization }));
+        { Optimization = optimization }));
     }
 
     [Theory]
@@ -37,7 +37,7 @@ public sealed class TreeTraversalCompilationTests
         var executor = (ICompilationScenarioExecutor)new CompilationScenarioExecutor(assets);
         Assert.Equal(42, executor.Execute(new CompilationScenario(
             "LoopTransfers", LoopSource, "LoopTransfers.EntryPoint", optimize, target, 41, [])
-            { Optimization = FinalWasmOptimization.None }));
+        { Optimization = FinalWasmOptimization.None }));
     }
 
     [Theory]
@@ -51,7 +51,7 @@ public sealed class TreeTraversalCompilationTests
         var executor = (ICompilationScenarioExecutor)new CompilationScenarioExecutor(assets);
         Assert.Equal(42, executor.Execute(new CompilationScenario(
             "TreeTraversal", Source, "TreeTraversal.EntryPoint", optimize, target, 41, [])
-            { Optimization = FinalWasmOptimization.None }));
+        { Optimization = FinalWasmOptimization.None }));
     }
 
     private const string SharedExitSource = """

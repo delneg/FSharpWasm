@@ -410,6 +410,71 @@ public sealed class ArrayMetadataCachingPlannerTests
     public void DisabledPolicyHasNoEntryRefreshes() => Assert.Empty(
         new ArrayMetadataCachingPlanner(new Arguments()).Plan(Create(false), false).LoopEntries);
 
+    [Theory]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    [InlineData(false, false)]
+    public void APreTestConditionsFirstNullCheckMovesToTheLoopEntry(bool postTest, bool hoist)
+    {
+        var plan = new ArrayMetadataCachingPlanner(new Arguments()).Plan(Create(postTest), true, hoist);
+
+        var hoisted = hoist && !postTest;
+        Assert.Equal(hoisted, plan.EntryNullChecks.TryGetValue(new(0), out var checks));
+        if (hoisted) Assert.Equal([new ArrayReferenceSlot(false, 0)], checks.ToArray());
+        Assert.Equal(hoisted ? [1] : [], plan.CheckedAccesses.ToArray());
+    }
+
+    [Theory]
+    [InlineData("lengths", new[] { 0, 1 })]
+    [InlineData("repeated", new[] { 0 })]
+    [InlineData("element", new[] { 0 })]
+    [InlineData("effect", new int[0])]
+    [InlineData("unknown", new int[0])]
+    public void OnlyChecksAheadOfAnyOtherEffectMoveToTheLoopEntry(string shape, int[] slots)
+    {
+        var none = new CilOperand.None();
+        var reference = CliValueKind.ManagedReference;
+        InstructionStep Load(int local, params CliValueKind[] stack) =>
+            Step(CilOperation.LoadLocal, new CilOperand.Index(local), stack);
+        InstructionStep[] steps = shape switch
+        {
+            // A length read has no other effect, so the next check moves too.
+            "lengths" =>
+            [
+                Load(0), Step(CilOperation.LoadArrayLength, none, reference), Step(CilOperation.Pop, none, CliValueKind.I4),
+                Load(1), Step(CilOperation.LoadArrayLength, none, reference),
+            ],
+            "repeated" =>
+            [
+                Load(0), Step(CilOperation.LoadArrayLength, none, reference), Step(CilOperation.Pop, none, CliValueKind.I4),
+                Load(0), Step(CilOperation.LoadArrayLength, none, reference),
+            ],
+            // An element read may throw for its index before the next check.
+            "element" =>
+            [
+                Load(0), Step(CilOperation.LoadInt32, new CilOperand.ConstantI4(0), reference),
+                Step(CilOperation.LoadArrayElement, new CilOperand.TypeIdentity(CliTypeIdentity.FromStackKind(CliValueKind.I4)),
+                    reference, CliValueKind.I4),
+                Step(CilOperation.Pop, none, CliValueKind.I4), Load(1), Step(CilOperation.LoadArrayLength, none, reference),
+            ],
+            "effect" =>
+            [
+                Step(CilOperation.LoadStaticField, new CilOperand.Entity(new(new("array-metadata-tests"), 0x04000001))),
+                Step(CilOperation.Pop, none, CliValueKind.I4), Load(0), Step(CilOperation.LoadArrayLength, none, reference),
+            ],
+            _ =>
+            [
+                Step(CilOperation.LoadNull, none), Step(CilOperation.LoadArrayLength, none, reference),
+                Step(CilOperation.Pop, none, CliValueKind.I4), Load(0), Step(CilOperation.LoadArrayLength, none, reference),
+            ],
+        };
+
+        var plan = new ArrayMetadataCachingPlanner(new Arguments()).Plan(Condition(steps), true, hoistNullChecks: true);
+
+        Assert.Equal(slots.Select(slot => new ArrayReferenceSlot(false, slot)),
+            plan.EntryNullChecks.TryGetValue(new(0), out var checks) ? checks.ToArray() : []);
+    }
+
     private static InstructionStep Step(CilOperation operation, CilOperand operand,
         params CliValueKind[] stack) => new(operation, operand, [.. stack]);
 
@@ -436,6 +501,29 @@ public sealed class ArrayMetadataCachingPlannerTests
             }),
             InstructionEntryStacks = method.InstructionEntryStacks.Remove(2).Remove(3)
                 .AddRange(steps.Select((step, index) => new KeyValuePair<int, ImmutableArray<CliValueKind>>(20 + index, step.Stack))),
+        };
+    }
+
+    // A pre-test loop whose condition block runs the steps.
+    private static StructuredMethod Condition(params InstructionStep[] steps)
+    {
+        var method = Create(false);
+        var instructions = steps.Select((step, index) =>
+            new CilInstruction(index, index + 1, step.Operation, step.Operand)).ToImmutableArray();
+        var exit = method.Blocks[new(1)].Instructions.Select(instruction => instruction with
+        {
+            Offset = instruction.Offset + 100,
+            NextOffset = instruction.NextOffset + 100,
+        }).ToImmutableArray();
+        return method with
+        {
+            Header = method.Header with { MaxStack = 8, Instructions = [.. instructions, .. exit] },
+            Blocks = method.Blocks
+                .SetItem(new(0), method.Blocks[new(0)] with { EndOffset = steps.Length, Instructions = instructions })
+                .SetItem(new(1), method.Blocks[new(1)] with { StartOffset = 102, EndOffset = 104, Instructions = exit }),
+            InstructionEntryStacks = steps.Select((step, index) => (step, index))
+                .ToImmutableDictionary(pair => pair.index, pair => pair.step.Stack)
+                .Add(102, []).Add(103, [CliValueKind.ManagedReference]),
         };
     }
 

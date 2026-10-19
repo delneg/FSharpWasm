@@ -93,7 +93,10 @@ internal sealed class ManagedMethodBodyEmitter(
             rootMap,
             target.ManagedByRefEffects,
             reservedStorages,
-            target.EnableAddressTakenAggregatePromotion));
+            target.EnableAddressTakenAggregatePromotion)
+        {
+            References = target.EnableAggregateReferenceLanes,
+        });
         var emission = managedMethods.Emit(
             method,
             callerIdentity,
@@ -123,7 +126,9 @@ internal sealed class ManagedMethodBodyEmitter(
             managedValuePlan.Aggregates,
             target.EnableBranchValueFramePlacement,
             target.EnableArrayMetadataCaching,
-            target.EnableScalarCallPreservation);
+            target.EnableScalarCallPreservation,
+            target.HoistArrayNullChecks,
+            target.EnableLoopRotation);
         return new ManagedMethodBodyEmission(
             emission.Body,
             emission.WasmInstructionCount,

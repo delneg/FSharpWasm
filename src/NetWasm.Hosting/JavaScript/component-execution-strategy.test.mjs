@@ -95,7 +95,7 @@ test("closes the component reactor before the outer caller scope", async () => {
   assert.deepEqual(calls, ["reactor-release", "complete", "caller-release"]);
 });
 
-test("maps load failure opaquely and closes caller resources", async () => {
+test("maps load failure with its cause and closes caller resources", async () => {
   const calls = [];
   const execute = createComponentExecutionStrategy(() => {
     calls.push("load");
@@ -110,7 +110,7 @@ test("maps load failure opaquely and closes caller resources", async () => {
   assert.equal(result.completionKind, "hostFailure");
   assert.equal(result.primaryFailure.code, "host.component-load");
   assert.deepEqual(calls, ["load", "release"]);
-  assert.doesNotMatch(JSON.stringify(result), /private/);
+  assert.equal(result.primaryFailure.detail, "Error: private loader detail");
 });
 
 test("maps pre-load and in-load cancellation without guest entry", async () => {

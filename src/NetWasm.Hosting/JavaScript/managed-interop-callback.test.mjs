@@ -69,6 +69,7 @@ test("owns transient string and byte callback handles for one invocation", () =>
   for (const [parameters, value, pattern] of [
     [["string"], 1, /string callback/],
     [["bytes"], [], /byte callback/],
+    [["f32[]"], Float64Array.of(1), /callback f32\[\] value must be Float32Array or null/],
   ]) {
     const invalid = createManagedInteropCallback(request({
       callbacks: [callback({ parameters })],
@@ -78,6 +79,26 @@ test("owns transient string and byte callback handles for one invocation", () =>
     assert.equal(caught instanceof NetWasmManagedError, true);
     assert.match(caught.cause.message, pattern);
   }
+});
+
+test("passes typed array callback arguments as transient copies", () => {
+  const handles = createInteropHandleTable();
+  const source = Uint16Array.of(1, 65_535);
+  const invoke = createManagedInteropCallback(request({
+    callbacks: [callback({ parameters: ["u16[]"] })],
+    handles,
+    getInstance: () => ({ exports: {
+      callback_1(handle, valuesHandle) {
+        const values = handles.get(valuesHandle);
+        assert.ok(values instanceof Uint16Array);
+        assert.notStrictEqual(values, source);
+        assert.deepEqual([...values], [1, 65_535]);
+        return 2;
+      },
+    } }),
+  }));
+  assert.equal(invoke(source), 2);
+  assert.equal(handles.count, 0);
 });
 
 test("maps callback traps and continues transient cleanup", () => {

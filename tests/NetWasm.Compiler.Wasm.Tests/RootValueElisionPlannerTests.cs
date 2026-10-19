@@ -54,7 +54,8 @@ public sealed class RootValueElisionPlannerTests
         var context = Context([new(0, [Source], []), new(1, [Source], [])]);
         var method = Method([I(0, CilOperation.Call)]);
         var second = new StructuredBlockDefinition(new(1), 1, [I(1, CilOperation.Call)], [],
-            new StructuredFallthroughExit(null)) { EndOffset = 2 };
+            new StructuredFallthroughExit(null))
+        { EndOffset = 2 };
         var plan = _planner.Plan(method with { Blocks = method.Blocks.Add(second.Id, second) }, context);
         Assert.Empty(plan[1]);
     }
@@ -78,9 +79,12 @@ public sealed class RootValueElisionPlannerTests
     {
         var source = new RootSource(argument ? RootSourceKind.Argument : RootSourceKind.Local, 0);
         var context = Context([new(0, [source], []), new(1, [source], [])], source);
-        context = context with { ValueLayout = argument
+        context = context with
+        {
+            ValueLayout = argument
             ? context.ValueLayout with { ArgumentOffsets = ImmutableDictionary<int, int>.Empty.Add(0, 0) }
-            : context.ValueLayout with { SpilledScalarLocals = [0] } };
+            : context.ValueLayout with { SpilledScalarLocals = [0] }
+        };
         var plan = _planner.Plan(Method([I(0, CilOperation.Call), I(1, CilOperation.Call)]), context);
         Assert.Empty(plan[1]);
     }
@@ -93,11 +97,14 @@ public sealed class RootValueElisionPlannerTests
         var source = new RootSource(argument ? RootSourceKind.Argument : RootSourceKind.Local, 0);
         var context = Context([new(0, [source], []), new(1, [source], [])], source);
         var slot = new CapturedSlot(argument, 0);
-        context = context with { FilterEnvironment = context.FilterEnvironment with
+        context = context with
         {
-            Captures = ImmutableDictionary<CapturedSlot, FilterCapture>.Empty.Add(slot,
+            FilterEnvironment = context.FilterEnvironment with
+            {
+                Captures = ImmutableDictionary<CapturedSlot, FilterCapture>.Empty.Add(slot,
                 new(slot, CliTypeIdentity.FromStackKind(CliValueKind.ManagedReference), 0, [])),
-        } };
+            }
+        };
         var plan = _planner.Plan(Method([I(0, CilOperation.Call), I(1, CilOperation.Call)]), context);
         Assert.Empty(plan[1]);
     }
@@ -119,7 +126,8 @@ public sealed class RootValueElisionPlannerTests
         var context = Context([new(0, [Source], []), new(1, [Source], [])]);
         var method = Method([I(0, CilOperation.Call), I(1, CilOperation.Call)]);
         var second = new StructuredBlockDefinition(new(1), 1, [I(1, CilOperation.Call)], [],
-            new StructuredFallthroughExit(null)) { EndOffset = 2 };
+            new StructuredFallthroughExit(null))
+        { EndOffset = 2 };
         var plan = _planner.Plan(method with { Blocks = method.Blocks.Add(second.Id, second) }, context);
         Assert.Empty(plan[1]);
     }
@@ -141,11 +149,14 @@ public sealed class RootValueElisionPlannerTests
         var access = new ManagedAggregateSsaAccess(new(1, new(0),
             new(new(ManagedAggregateStorageKind.Local, 0), 0, CliTypeIdentity.FromStackKind(CliValueKind.I4)),
             4, CliValueKind.I4, false), [], []);
-        context = context with { ManagedAggregateValues = context.ManagedAggregateValues with
+        context = context with
         {
-            Plan = context.ManagedAggregateValues.Plan with
-            { Accesses = ImmutableDictionary<int, ManagedAggregateSsaAccess>.Empty.Add(1, access) },
-        } };
+            ManagedAggregateValues = context.ManagedAggregateValues with
+            {
+                Plan = context.ManagedAggregateValues.Plan with
+                { Accesses = ImmutableDictionary<int, ManagedAggregateSsaAccess>.Empty.Add(1, access) },
+            }
+        };
         var plan = _planner.Plan(Method([I(0, CilOperation.Call), I(1, CilOperation.LoadObject), I(2, CilOperation.Call)]), context);
         Assert.False(plan.ContainsKey(1));
         Assert.Empty(plan[2]);
@@ -163,7 +174,8 @@ public sealed class RootValueElisionPlannerTests
         var definition = new MethodDefinitionModel(EntryKey, TypeKey, "Run", true,
             MethodSignatureModel.Create(CliValueKind.Void), 1);
         var block = new StructuredBlockDefinition(new(0), 0, instructions, [],
-            new StructuredFallthroughExit(null)) { EndOffset = instructions.Length };
+            new StructuredFallthroughExit(null))
+        { EndOffset = instructions.Length };
         return new(new(definition, null, 1, [], [], instructions), new(0),
             ImmutableDictionary<StructuredBlockId, StructuredBlockDefinition>.Empty.Add(block.Id, block),
             StructuredSequence.Empty, [], [], []);

@@ -439,6 +439,8 @@ public sealed class NativeCallEmitterTests
 
     private sealed class RecordingIndices(CompilerException? error = null) : IFunctionIndexResolver
     {
+        public int Resolve(InteropImportKey import) => Resolve(import.Method);
+
         public MethodInstanceModel? LastMethod { get; private set; }
         public int Resolve(EntityKey method) => throw new InvalidOperationException();
         public int Resolve(string method) => throw new InvalidOperationException();

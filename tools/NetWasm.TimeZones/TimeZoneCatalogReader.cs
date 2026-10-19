@@ -62,6 +62,13 @@ internal sealed class TimeZoneCatalogReader(
             }
             definitions.Add(name, _parser.Parse(name, contents));
         }
+        // IANA's compact source names every link. It keeps aliases intact when
+        // links were copied, as NuGet packages and Windows checkouts do.
+        foreach (var (name, target) in ReadSourceLinks(root))
+        {
+            definitions.Remove(name);
+            aliases[name] = target;
+        }
         foreach (var alias in aliases)
         {
             if (!definitions.ContainsKey(alias.Value))
@@ -78,6 +85,28 @@ internal sealed class TimeZoneCatalogReader(
             _versions.Read(root),
             definitions.ToImmutable(),
             aliases.ToImmutable());
+    }
+
+    private static IEnumerable<(string Name, string Target)> ReadSourceLinks(string root)
+    {
+        var source = Path.Combine(root, "tzdata.zi");
+        if (!File.Exists(source))
+        {
+            yield break;
+        }
+        foreach (var line in File.ReadLines(source))
+        {
+            if (!line.StartsWith("L ", StringComparison.Ordinal))
+            {
+                continue;
+            }
+            var fields = line.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            if (fields.Length != 3)
+            {
+                throw new InvalidDataException($"Timezone source link '{line}' is malformed.");
+            }
+            yield return (fields[2], fields[1]);
+        }
     }
 
     private static string Normalize(string root, string path) =>

@@ -60,6 +60,7 @@ reported by `NW1010`, see the [support status and roadmap](support-status.md).
 | `NW1010` `ComponentToolchain` | Component capability checks and external `wasm-tools`/`wasm-merge`/`wasm-opt` execution | A tool is unavailable/fails, or wasm64 Component packaging is unsupported. Install/verify pinned tools or use wasm32 for Components; wasm64 is never silently downgraded. |
 | `NW1011` `CompilerInvariant` | Metadata, reachability, structured-program, layout, roots, emission, and complexity validators | Compiler state violated an internal invariant. Report it as a compiler defect, not an ordinary compatibility error. |
 | `NW1012` `NativeInterop` | Static native declarations, ABI layouts, imports, callback exports, and reachability | A reachable declaration is outside the documented static C profile or conflicts with another export. Use a supported shape or isolate it from the closed world. |
+| `NW1013` `FunctionBodyLimit` | Module encoding, right after emission and before linking or optimization | A method compiles to a WebAssembly function body over 7,654,321 bytes, which browsers and Node refuse to compile. The diagnostic names the method and its size. Split the method into smaller methods. |
 | `NWA2001` `GenericExpansion` | Identifier formatting only; no current production emitter | The enum reserves this identifier but no current source path emits it. Preserve and report the exact value if observed. |
 
 When available, method and IL offset are part of the diagnostic. The CLI also

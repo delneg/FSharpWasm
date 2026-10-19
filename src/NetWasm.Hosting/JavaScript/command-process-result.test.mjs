@@ -36,6 +36,18 @@ test("turns structured failures into visible command failures", () => {
   });
 });
 
+test("appends the failure detail to the command diagnostic", () => {
+  const adapted = adaptCommandProcessResult(failedExecutionResult(
+    "contractFailure",
+    "validation",
+    "contract.invalid",
+    "Execution contract validation failed.",
+    new TypeError("platform capability 'clocks' was not granted")));
+  assert.equal(adapted.diagnostic,
+    "NetWasm contractFailure: contract.invalid: Execution contract validation failed. "
+      + "Detail: TypeError: platform capability 'clocks' was not granted\n");
+});
+
 test("rejects malformed structured results", () => {
   assert.throws(() => adaptCommandProcessResult({}), /schema/i);
 });

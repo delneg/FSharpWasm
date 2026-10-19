@@ -1,4 +1,6 @@
+using System.Collections.Generic;
 using System.Collections.Immutable;
+using System.Linq;
 using NetWasm.Compiler.ControlFlow.Structured;
 using NetWasm.Compiler.Core;
 
@@ -18,7 +20,26 @@ internal sealed record ManagedAggregateStorage(
     ManagedAggregateStorageId Id,
     CliTypeIdentity Type,
     int Size,
-    bool Owned);
+    bool Owned)
+{
+    // Lanes of an aggregate with reference or byref fields: one lane per such
+    // field, of its own kind, and 4-byte integer lanes elsewhere. Empty means
+    // the aggregate is all 4-byte integer lanes.
+    public ImmutableArray<ManagedAggregateLaneShape> LaneShapes { get; init; } = [];
+
+    public IEnumerable<ManagedAggregateLaneShape> Lanes => LaneShapes.IsDefaultOrEmpty
+        ? Enumerable.Range(0, Size / sizeof(int)).Select(index =>
+            new ManagedAggregateLaneShape(index * sizeof(int), sizeof(int), CliValueKind.I4))
+        : LaneShapes;
+
+    public ManagedAggregateLaneShape Lane(int byteOffset) =>
+        Lanes.Single(lane => lane.ByteOffset == byteOffset);
+}
+
+internal readonly record struct ManagedAggregateLaneShape(
+    int ByteOffset,
+    int Size,
+    CliValueKind Kind);
 
 internal readonly record struct ManagedAggregateAddressRecipe(
     ManagedAggregateStorageId Storage,
@@ -31,7 +52,13 @@ internal sealed record ManagedAggregateLaneAccess(
     ManagedAggregateAddressRecipe Address,
     int Size,
     CliValueKind StackKind,
-    bool Writes);
+    bool Writes)
+{
+    // The lanes the access covers, when they are not the 4-byte integer
+    // lanes of its byte range: a reference or byref field's lane, or every
+    // lane of an aggregate that initobj clears (StackKind ValueType).
+    public ImmutableArray<int> LaneOffsets { get; init; } = [];
+}
 
 internal enum ManagedAggregateRootSetKind
 {
@@ -66,4 +93,8 @@ internal sealed record ManagedAggregateValueAnalysisRequest(
     StructuredMethod Method,
     MethodRootMap RootMap,
     ManagedByRefEffects ByRefEffects,
-    bool Enabled);
+    bool Enabled)
+{
+    // Whether aggregates with reference and byref fields, and initobj, take part.
+    public bool References { get; init; }
+}

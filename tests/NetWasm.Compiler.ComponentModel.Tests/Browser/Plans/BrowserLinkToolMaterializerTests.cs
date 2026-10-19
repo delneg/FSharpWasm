@@ -50,8 +50,10 @@ public sealed class BrowserLinkToolMaterializerTests
         var operation = new BrowserLinkToolOperation("wasm-opt", ["in", "-Oz", "--output", "out"], ["in"], ["out"]);
         var complete = new BrowserLinkOperationContract("tool", ["in"], ["out"], [])
         {
-            ToolId = "wasm-opt", Arguments = operation.Arguments,
-            InputArgumentIndices = [0], OutputArgumentIndices = [3],
+            ToolId = "wasm-opt",
+            Arguments = operation.Arguments,
+            InputArgumentIndices = [0],
+            OutputArgumentIndices = [3],
         };
         foreach (var invalid in new[]
         {

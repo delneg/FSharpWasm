@@ -1,3 +1,4 @@
+import { describeFailureCause } from "./execution-result.mjs";
 import { NetWasmManagedError } from "./managed-errors.mjs";
 
 const optionKeys = ["close", "exports", "generation", "onFailure", "post"];
@@ -156,6 +157,7 @@ function failureEnvelope(cause, operation, failureCategory) {
   const managed = error instanceof NetWasmManagedError ? error.managed : null;
   return Object.freeze({
     category: failureCategory,
+    detail: describeFailureCause(cause) ?? null,
     message: managed !== null ? error.message : error.message || "worker invocation failed",
     operation,
     stack: typeof error.stack === "string" ? error.stack : null,

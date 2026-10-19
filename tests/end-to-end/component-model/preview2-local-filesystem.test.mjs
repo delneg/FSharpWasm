@@ -10,6 +10,17 @@ import { createLocalTimeZoneMaterializer } from "../../../src/NetWasm.Hosting/Ja
 import { executeWithTimeZoneResources } from "../../../src/NetWasm.Hosting/JavaScript/timezone-execution.mjs";
 import { normalExecutionResult } from "../../../src/NetWasm.Hosting/JavaScript/execution-result.mjs";
 
+// A NetWasm time zone container holding one zone with no transitions: the host
+// reads its zone names before mounting it.
+function timeZoneContainer(zone) {
+  const text = value => {
+    const bytes = new TextEncoder().encode(value);
+    return [bytes.length & 0xff, bytes.length >> 8, ...bytes];
+  };
+  return Uint8Array.from([0x4e, 0x57, 0x54, 0x5a, 1, 0, 0, 0, ...text("2026c"), 1, 0, 0, 0,
+    ...text(zone), 0xa0, 0x8c, 0, 0, 0, 0, 0, 0, 0, ...new Array(32).fill(0)]);
+}
+
 // Keep local and browser exports in separate test processes: ESM caches an
 // already resolved specifier before a later resolution hook can change it.
 test("the updated local package opens and reads isolated host preopens", async () => {
@@ -68,7 +79,7 @@ test("the same production provider retains native consumer writes beside its int
 
 test("local execution loads the adjacent verified sidecar and releases its scope on every outcome", async () => {
   const directory = await mkdtemp(join(tmpdir(), "netwasm-local-timezone-contract-"));
-  const bytes = Uint8Array.of(4, 5, 6);
+  const bytes = timeZoneContainer("Australia/Melbourne");
   const sha256 = createHash("sha256").update(bytes).digest("hex");
   try {
     await writeFile(join(directory, "program.wasm.tz-info"), bytes);
@@ -105,7 +116,7 @@ test("local execution loads the adjacent verified sidecar and releases its scope
             } else {
               assert.equal(entries[1][1], "/netwasm-timezones");
               asset = entries[1][0].openAt({}, "netwasm-timezones.nwtz", {}, { read: true });
-              assert.deepEqual(asset.read(3n, 0n), [bytes, true]);
+              assert.deepEqual(asset.read(BigInt(bytes.length), 0n), [bytes, true]);
             }
             if (mode === "execution-failure") throw new Error("private execution detail");
             return normalExecutionResult(0);

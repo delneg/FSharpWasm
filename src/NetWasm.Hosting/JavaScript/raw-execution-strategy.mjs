@@ -81,8 +81,8 @@ export function createRawExecutionStrategy(loadArtifacts) {
         module: product.module,
         stackTraceSymbols: product.stackTraceSymbols ?? [],
       });
-    } catch {
-      return closeCallerScope(signal?.aborted ? callerCancellation() : rawLoadFailure());
+    } catch (error) {
+      return closeCallerScope(signal?.aborted ? callerCancellation() : rawLoadFailure(error));
     }
     if (signal?.aborted) {
       return closeCallerScope(callerCancellation());
@@ -103,8 +103,8 @@ export function createRawExecutionStrategy(loadArtifacts) {
           if (!asyncDeliveryAvailable) throw new Error("raw managed async delivery is unavailable");
         },
       })));
-    } catch {
-      return closeCallerScope(rawInteropFailure());
+    } catch (error) {
+      return closeCallerScope(rawInteropFailure(error));
     }
     const closeInteropScope = createExecutionScopeCloser([interop.releaseAction]);
     let outcome;
@@ -138,8 +138,8 @@ export function createRawExecutionStrategy(loadArtifacts) {
         releaseActions: [],
         schedule,
       });
-    } catch {
-      outcome = await closeInteropScope(rawExecutionFailure());
+    } catch (error) {
+      outcome = await closeInteropScope(rawExecutionFailure(error));
     }
     asyncDeliveryAvailable = false;
     return closeCallerScope(outcome);
@@ -180,28 +180,31 @@ function callerCancellation() {
     "Raw execution was cancelled by the caller before guest entry.");
 }
 
-function rawLoadFailure() {
+function rawLoadFailure(cause) {
   return failedExecutionResult(
     "hostFailure",
     "instantiation",
     "host.raw-load",
-    "The execution host could not load the raw deployment artifacts.");
+    "The execution host could not load the raw deployment artifacts.",
+    cause);
 }
 
-function rawInteropFailure() {
+function rawInteropFailure(cause) {
   return failedExecutionResult(
     "hostFailure",
     "instantiation",
     "host.interop-prepare",
-    "The execution host could not prepare managed interop.");
+    "The execution host could not prepare managed interop.",
+    cause);
 }
 
-function rawExecutionFailure() {
+function rawExecutionFailure(cause) {
   return failedExecutionResult(
     "hostFailure",
     "execution",
     "host.raw-execution",
-    "The execution host could not execute the loaded raw module.");
+    "The execution host could not execute the loaded raw module.",
+    cause);
 }
 
 function assertRequest(request) {

@@ -12,7 +12,7 @@ internal sealed class AsyncJSImportSetAppender(
     public void Append(IList<WasmFunctionDefinition> functions, int importCount,
         ImmutableDictionary<string, int>.Builder indices,
         WasmEmissionRequest request, IFunctionIndexResolver functionIndices,
-        IList<ManagedBoundaryPlanEntry> boundaryEntries)
+        InteropImportPlan interopImports, IList<ManagedBoundaryPlanEntry> boundaryEntries)
     {
         ArgumentNullException.ThrowIfNull(functions);
         ArgumentOutOfRangeException.ThrowIfNegative(importCount);
@@ -29,7 +29,7 @@ internal sealed class AsyncJSImportSetAppender(
                      .ThenBy(binding => binding.Method.MetadataToken))
         {
             helpers.Append(functions, importCount, indices, binding,
-                functionIndices, boundaryEntries);
+                functionIndices, interopImports, boundaryEntries);
         }
     }
 }

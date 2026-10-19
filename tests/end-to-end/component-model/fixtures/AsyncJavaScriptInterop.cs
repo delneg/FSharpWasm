@@ -25,6 +25,27 @@ public static class HostPromises
 
     [JSImport("signal_value", "consumer.promises")]
     public static extern ValueTask SignalValue(int value);
+
+    [JSImport("resolve_text", "consumer.promises")]
+    public static extern Task<string?> ResolveText(string value);
+
+    [JSImport("resolve_doubles", "consumer.promises")]
+    public static extern Task<double[]?> ResolveDoubles(int[] values);
+
+    [JSImport("resolve_object", "consumer.promises")]
+    public static extern ValueTask<JSObject?> ResolveObject(int value);
+
+    [JSImport("object_value", "consumer.promises")]
+    public static extern int ObjectValue(JSObject value);
+
+    [JSImport("reenter", "consumer.promises")]
+    public static extern int Reenter(int depth);
+}
+
+public struct LiveFrame
+{
+    public string Text;
+    public int[] Values;
 }
 
 public static class EntryPoint
@@ -87,4 +108,68 @@ public static class EntryPoint
     [JSExport("value_task_void")]
     public static async ValueTask ValueTaskVoid(int input) =>
         await HostPromises.SignalValue(input);
+
+    [JSExport("reference_round_trip")]
+    public static async Task<int> ReferenceRoundTrip(string name, int[] values)
+    {
+        var text = await HostPromises.ResolveText(name);
+        var doubles = await HostPromises.ResolveDoubles(values);
+        using var host = await HostPromises.ResolveObject(values.Length);
+        var total = 0.0;
+        foreach (var value in doubles!)
+        {
+            total += value;
+        }
+        return text!.Length * 1000 + (int)total + HostPromises.ObjectValue(host!);
+    }
+
+    [JSExport("echo_object")]
+    public static JSObject? EchoObject(JSObject? value) => value;
+
+    [JSExport("read_object")]
+    public static int ReadObject(JSObject value)
+    {
+        using (value)
+        {
+            return HostPromises.ObjectValue(value);
+        }
+    }
+
+    [JSExport("read_object_later")]
+    public static async Task<int> ReadObjectLater(JSObject value)
+    {
+        await HostPromises.Signal(17);
+        using (value)
+        {
+            return HostPromises.ObjectValue(value) + 1;
+        }
+    }
+
+    // Each level keeps managed references live across a synchronous call back
+    // into this export and collects inside it. Nest(d) is (d + 1) squared.
+    [JSExport("nest")]
+    public static int Nest(int depth)
+    {
+        var frame = new LiveFrame { Text = new string('x', depth + 1), Values = [depth, depth * 2] };
+        int inner;
+        try
+        {
+            inner = depth == 0 ? 0 : HostPromises.Reenter(depth - 1);
+        }
+        catch (JSException)
+        {
+            return -1;
+        }
+        GC.Collect();
+        return inner < 0 ? inner : inner + frame.Text.Length + frame.Values[1] - frame.Values[0];
+    }
+
+    [JSExport("null_references")]
+    public static async Task<int> NullReferences(string? name)
+    {
+        var text = await HostPromises.ResolveText(name!);
+        var doubles = await HostPromises.ResolveDoubles([]);
+        var host = await HostPromises.ResolveObject(-1);
+        return (name is null ? 1 : 0) + (text is null ? 2 : 0) + (doubles is null ? 4 : 0) + (host is null ? 8 : 0);
+    }
 }

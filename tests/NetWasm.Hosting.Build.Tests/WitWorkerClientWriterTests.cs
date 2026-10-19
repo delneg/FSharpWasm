@@ -16,9 +16,9 @@ public sealed class WitWorkerClientWriterTests
         var first = writer.Write(request); var second = writer.Write(request);
         Assert.Equal(first.JavaScript, second.JavaScript); Assert.Equal(first.Declaration, second.Declaration);
         var js = Encoding.UTF8.GetString(first.JavaScript); var ts = Encoding.UTF8.GetString(first.Declaration);
-        Assert.Contains("const args = [copyType42(argument0)]; return session.invoke(\"echo\", args, options)", js, StringComparison.Ordinal);
+        Assert.Contains("const args = [copyType42(value)]; return session.invoke(\"echo\", args, options)", js, StringComparison.Ordinal);
         Assert.Contains("const fields = objectData(value); return", js, StringComparison.Ordinal);
-        Assert.Contains("\"echo\"(argument0: Wititem_", ts, StringComparison.Ordinal);
+        Assert.Contains("\"echo\"(value: Wititem_", ts, StringComparison.Ordinal);
         Assert.Contains("Promise<Wititem_", ts, StringComparison.Ordinal);
         Assert.Contains("signal?: AbortSignal", ts, StringComparison.Ordinal);
         Assert.Contains("timeoutMilliseconds?: number", ts, StringComparison.Ordinal);
@@ -29,6 +29,31 @@ public sealed class WitWorkerClientWriterTests
             js.IndexOf("worker notification handler must be a function", StringComparison.Ordinal) <
             js.IndexOf("new Worker", StringComparison.Ordinal));
         Assert.Contains("worker, onNotification,", js, StringComparison.Ordinal);
+        Assert.Contains("environment: options.environment, stderr: options.stderr, stdout: options.stdout,", js,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void NamesParametersAfterTheContractUnlessTheyCollideWithGeneratedCode()
+    {
+        var json = JsonNode.Parse(Request().ContractJson.Span)!.AsObject();
+        json["exports"]![0]!["parameters"] = JsonNode.Parse("""
+            [{"name":"start-index","type":{"kind":"primitive","primitive":"u32","definition":null}},
+             {"name":"property","type":{"kind":"primitive","primitive":"u32","definition":null}},
+             {"name":"options","type":{"kind":"primitive","primitive":"u32","definition":null}},
+             {"name":"class","type":{"kind":"primitive","primitive":"u32","definition":null}}]
+            """);
+        var source = WitWorkerClientComposition.CreateWriter().Write(Request() with
+        {
+            ContractJson = Encoding.UTF8.GetBytes(json.ToJsonString()),
+        });
+        var js = Encoding.UTF8.GetString(source.JavaScript);
+        var ts = Encoding.UTF8.GetString(source.Declaration);
+
+        // property shadows a copy helper, options is the call options, and class is reserved.
+        Assert.Contains("\"echo\"]: (startIndex, argument1, argument2, argument3, options) =>", js, StringComparison.Ordinal);
+        Assert.Contains("\"echo\"(startIndex: number, argument1: number, argument2: number, argument3: number, options?: NetWasmWorkerCallOptions)",
+            ts, StringComparison.Ordinal);
     }
 
     [Fact]

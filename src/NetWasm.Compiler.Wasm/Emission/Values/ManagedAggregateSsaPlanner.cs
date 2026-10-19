@@ -20,7 +20,7 @@ internal sealed class ManagedAggregateSsaPlanner : IManagedAggregateSsaPlanner
             .SelectMany(block => block.Instructions.Select(instruction =>
                 (instruction.Offset, block.Id)))
             .ToImmutableDictionary(pair => pair.Offset, pair => pair.Id);
-        var storages = SelectStorages(request.Analysis, blockByInstruction);
+        var storages = SelectStorages(request.Analysis, blockByInstruction, request.References);
         if (storages.IsEmpty)
         {
             return ManagedAggregateSsaPlan.Empty;
@@ -29,10 +29,9 @@ internal sealed class ManagedAggregateSsaPlanner : IManagedAggregateSsaPlanner
         var lanes = storages.Values
             .OrderBy(storage => storage.Id.Kind)
             .ThenBy(storage => storage.Id.Index)
-            .SelectMany(storage => Enumerable.Range(0, storage.Size / sizeof(int))
-                .Select(index => new ManagedAggregateSsaLane(
-                    storage.Id,
-                    index * sizeof(int))))
+            .SelectMany(storage => storage.Lanes.Select(lane => new ManagedAggregateSsaLane(
+                storage.Id,
+                lane.ByteOffset)))
             .ToImmutableArray();
         var laneSet = lanes.ToImmutableHashSet();
         var accesses = request.Analysis.LaneAccesses.Values
@@ -426,7 +425,8 @@ internal sealed class ManagedAggregateSsaPlanner : IManagedAggregateSsaPlanner
     private static ImmutableDictionary<ManagedAggregateStorageId, ManagedAggregateStorage>
         SelectStorages(
             ManagedAggregateValueAnalysis analysis,
-            ImmutableDictionary<int, StructuredBlockId> blockByInstruction)
+            ImmutableDictionary<int, StructuredBlockId> blockByInstruction,
+            bool requireRead)
     {
         var selected = ImmutableDictionary.CreateBuilder<
             ManagedAggregateStorageId,
@@ -436,9 +436,14 @@ internal sealed class ManagedAggregateSsaPlanner : IManagedAggregateSsaPlanner
             var accesses = analysis.LaneAccesses.Values
                 .Where(access => access.Address.Storage == id)
                 .ToArray();
+            // Lanes pay off only when a read takes its value from one; a
+            // storage that is only written still stores every lane at its
+            // materializations. The References level, which also promotes
+            // initobj, requires a read.
             if ((!accesses.Any(access => access.Writes) &&
                  !analysis.Materializations.Any(materialization =>
                      materialization.Storage == id && materialization.ReloadAfter)) ||
+                requireRead && accesses.All(access => access.Writes) ||
                 accesses.Any(access => !IsSupported(access)) ||
                 analysis.Materializations.Any(materialization =>
                     materialization.Storage == id &&
@@ -451,17 +456,23 @@ internal sealed class ManagedAggregateSsaPlanner : IManagedAggregateSsaPlanner
         return selected.ToImmutable();
     }
 
+    // Integer accesses span 4-byte lanes; a reference or byref access is its
+    // own lane, and initobj clears every lane.
     private static bool IsSupported(ManagedAggregateLaneAccess access) =>
-        access.Address.ByteOffset % sizeof(int) == 0 &&
-        access.Size is sizeof(int) or sizeof(long) &&
-        access.StackKind is CliValueKind.I4 or CliValueKind.I8;
+        access.LaneOffsets.IsDefaultOrEmpty
+            ? access.Address.ByteOffset % sizeof(int) == 0 &&
+                access.Size is sizeof(int) or sizeof(long) &&
+                access.StackKind is CliValueKind.I4 or CliValueKind.I8
+            : access.StackKind is CliValueKind.ManagedAddress or CliValueKind.ManagedReference or CliValueKind.ValueType;
 
     private static IEnumerable<ManagedAggregateSsaLane> AccessLanes(
         ManagedAggregateLaneAccess access) =>
-        Enumerable.Range(0, access.Size / sizeof(int))
-            .Select(index => new ManagedAggregateSsaLane(
-                access.Address.Storage,
-                access.Address.ByteOffset + index * sizeof(int)));
+        access.LaneOffsets.IsDefaultOrEmpty
+            ? Enumerable.Range(0, access.Size / sizeof(int))
+                .Select(index => new ManagedAggregateSsaLane(
+                    access.Address.Storage,
+                    access.Address.ByteOffset + index * sizeof(int)))
+            : access.LaneOffsets.Select(offset => new ManagedAggregateSsaLane(access.Address.Storage, offset));
 
     private static IEnumerable<ManagedAggregateSsaLane> LanesFor(
         ManagedAggregateStorageId storage,

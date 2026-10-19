@@ -70,7 +70,7 @@ function fixture({
   applicationImports = [],
   configuration = {},
   consumerModules = Object.freeze(Object.create(null)),
-  executionContract = "netwasm:worker/jsexport@1.0.0",
+  executionContract = "netwasm:browser/jsexport@1.0.0",
   filesystemDisposeError = null,
   interopImports = [],
   interopExports = undefined,
@@ -211,10 +211,12 @@ test("pins deployment identity and the library hosting contract", async () => {
     buildFingerprint, manifestSha256: "5".repeat(64),
   } }), /integrity/);
 
-  const command = fixture({ executionContract: "wasi-command@0.2.11" });
-  await assert.rejects(() => command.open({ startup: {
-    buildFingerprint, manifestSha256: command.manifestSha256,
-  } }), /identity/);
+  for (const executionContract of ["wasi-command@0.2.11", "netwasm:worker/jsexport@1.0.0"]) {
+    const rejected = fixture({ executionContract });
+    await assert.rejects(() => rejected.open({ startup: {
+      buildFingerprint, manifestSha256: rejected.manifestSha256,
+    } }), /identity/);
+  }
 
   const wrongTarget = fixture({ manifestTarget: "wasm64" });
   await assert.rejects(() => wrongTarget.open({ startup: {

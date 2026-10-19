@@ -8,11 +8,32 @@
   "sourceName": "NetWasmProject",
   "preferNameDirectory": true,
   "symbols": {
+    "host": {
+      "type": "parameter",
+      "datatype": "choice",
+      "displayName": "JavaScript module host",
+      "description": "Create a JavaScript module whose [JSExport] methods run on the page or in a Web Worker.",
+      "defaultValue": "none",
+      "choices": [
+        {
+          "choice": "none",
+          "description": "Create no JavaScript module."
+        },
+        {
+          "choice": "page",
+          "description": "Run the module on the page, where its imports can use the DOM."
+        },
+        {
+          "choice": "worker",
+          "description": "Run the module in a Web Worker and call it asynchronously."
+        }
+      ]
+    },
     "worker": {
       "type": "parameter",
       "datatype": "choice",
-      "displayName": "Worker output",
-      "description": "Create a browser Web Worker using WIT or JSExport.",
+      "displayName": "WIT worker output",
+      "description": "Create a browser Web Worker described by WIT.",
       "defaultValue": "none",
       "choices": [
         {
@@ -22,10 +43,6 @@
         {
           "choice": "wit",
           "description": "Create a portable WIT Web Worker."
-        },
-        {
-          "choice": "jsexport",
-          "description": "Create a JavaScript interop Web Worker."
         }
       ]
     }
@@ -38,22 +55,27 @@
     {
       "source": "console",
       "target": ".",
-      "condition": "(worker == \"none\")"
+      "condition": "(worker == \"none\" && host == \"none\")"
     },
     {
       "source": "worker-common",
       "target": ".",
-      "condition": "(worker != \"none\")"
+      "condition": "((worker == \"wit\" && host == \"none\") || host == \"worker\")"
     },
     {
       "source": "wit",
       "target": ".",
-      "condition": "(worker == \"wit\")"
+      "condition": "(worker == \"wit\" && host == \"none\")"
     },
     {
-      "source": "jsexport",
+      "source": "host-page",
       "target": ".",
-      "condition": "(worker == \"jsexport\")"
+      "condition": "(host == \"page\")"
+    },
+    {
+      "source": "host-worker",
+      "target": ".",
+      "condition": "(host == \"worker\")"
     }
   ],
   "tags": {

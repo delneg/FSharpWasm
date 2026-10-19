@@ -90,7 +90,7 @@ public sealed class TemplateContractTests
     }
 
     [Fact]
-    public void ApplicationTemplateOffersExplicitWorkerProfiles()
+    public void ApplicationTemplateOffersJavaScriptModuleHostsAndAWitWorker()
     {
         using var document = JsonDocument.Parse(File.ReadAllText(Path.Combine(
             FindRepositoryRoot(), "src", "NetWasm.Templates", "content", "NetWasm.App",
@@ -98,20 +98,59 @@ public sealed class TemplateContractTests
 
         var root = document.RootElement;
         Assert.Equal("NetWasmProject", root.GetProperty("sourceName").GetString());
-        var worker = root.GetProperty("symbols").GetProperty("worker");
+        var symbols = root.GetProperty("symbols");
+        var host = symbols.GetProperty("host");
+        Assert.Equal("none", host.GetProperty("defaultValue").GetString());
+        // A bare --host is not applied by the template engine, so the host is always named.
+        Assert.False(host.TryGetProperty("defaultIfOptionWithoutValue", out _));
+        Assert.Equal(
+            ["none", "page", "worker"],
+            host.GetProperty("choices").EnumerateArray()
+                .Select(choice => choice.GetProperty("choice").GetString()));
+        var worker = symbols.GetProperty("worker");
         Assert.Equal("none", worker.GetProperty("defaultValue").GetString());
         Assert.Equal(
-            ["none", "wit", "jsexport"],
+            ["none", "wit"],
             worker.GetProperty("choices").EnumerateArray()
                 .Select(choice => choice.GetProperty("choice").GetString()));
+        Assert.Equal(
+            ["base", "console", "worker-common", "wit", "host-page", "host-worker"],
+            root.GetProperty("sources").EnumerateArray()
+                .Select(source => source.GetProperty("source").GetString()));
     }
 
     [Fact]
-    public void JsExportWorkerTemplateDeclaresBodylessJavaScriptImports()
+    public void PageTemplateOpensCallsAndClosesItsModule()
+    {
+        var templateRoot = Path.Combine(
+            FindRepositoryRoot(), "src", "NetWasm.Templates", "content", "NetWasm.App", "host-page");
+        var project = File.ReadAllText(Path.Combine(templateRoot, "NetWasmProject.csproj"));
+        var program = File.ReadAllText(Path.Combine(templateRoot, "Program.cs"));
+        var app = File.ReadAllLines(Path.Combine(templateRoot, "app.mjs"))
+            .Where(line => line.Length != 0).ToArray();
+
+        Assert.Contains("<OutputType>JsModule</OutputType>", project, StringComparison.Ordinal);
+        Assert.Contains("<NetWasmJavaScriptHosts>page</NetWasmJavaScriptHosts>", project, StringComparison.Ordinal);
+        Assert.Contains("<NetWasmJavaScriptModule Include=\"app.host.mjs\" Module=\"app.host\" />", project,
+            StringComparison.Ordinal);
+        Assert.Contains("[JSImport(\"show\", \"app.host\")]", program, StringComparison.Ordinal);
+        Assert.Contains("[JSExport(\"greet\")]", program, StringComparison.Ordinal);
+        Assert.Equal(
+            [
+                "import { open } from \"./browser/NetWasmProject.mjs\";",
+                "const app = await open();",
+                "app.greet(\"browser\");",
+                "await app.close();",
+            ],
+            app);
+    }
+
+    [Fact]
+    public void WorkerHostTemplateDeclaresBodylessJavaScriptImports()
     {
         var source = File.ReadAllText(Path.Combine(
             FindRepositoryRoot(), "src", "NetWasm.Templates", "content", "NetWasm.App",
-            "jsexport", "Program.cs"));
+            "host-worker", "Program.cs"));
 
         Assert.Contains("private static extern void Report", source, StringComparison.Ordinal);
         Assert.DoesNotContain("partial void Report", source, StringComparison.Ordinal);
@@ -125,7 +164,7 @@ public sealed class TemplateContractTests
         var templateRoot = Path.Combine(
             FindRepositoryRoot(), "src", "NetWasm.Templates", "content", "NetWasm.App");
         var wit = File.ReadAllText(Path.Combine(templateRoot, "wit", "app.mjs"));
-        var jsExport = File.ReadAllText(Path.Combine(templateRoot, "jsexport", "app.mjs"));
+        var jsExport = File.ReadAllText(Path.Combine(templateRoot, "host-worker", "app.mjs"));
 
         Assert.Contains(
             "netwasm:worker-template/work@1.0.0/run", wit, StringComparison.Ordinal);

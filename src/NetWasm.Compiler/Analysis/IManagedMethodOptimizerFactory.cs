@@ -13,5 +13,9 @@ internal interface IManagedMethodOptimizerFactory
         IMethodRepository methods,
         IMethodSpecializer specializer,
         ICalledMethodResolver calledMethods,
+        IRuntimeIntrinsicRegistry intrinsics,
+        IMethodSpecializer constantCallFolding,
+        IDispatchTargetResolver dispatchTargets,
+        IFinalizerResolver finalizers,
         WasmOptimizationSettings settings);
 }

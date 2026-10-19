@@ -191,12 +191,14 @@ internal sealed class ReachabilityImportClassifier(
             }
             AddHostCallbacks(method, types, allocatedTypes, constructedTypes, exceptions, hostCallbacks);
             exceptions.Add(new(ManagedExceptionKind.JSException, "System.JSException"));
-            if (method.Signature.ReturnSignatureType.CanonicalName == "primitive:string")
+            // An async import's settled value is marshalled exactly like a synchronous result.
+            var resultType = asyncBinding?.Return.ResultType ?? method.Signature.ReturnSignatureType;
+            if (resultType.CanonicalName == "primitive:string")
             {
                 exceptions.Add(new(ManagedExceptionKind.OutOfMemory, "System.OutOfMemoryException"));
             }
-            AddByteArrayReturn(method, types, allocatedTypes, constructedTypes, exceptions);
-            AddHostObjectReturn(method, types, allocatedTypes, exceptions);
+            AddByteArrayReturn(resultType, types, allocatedTypes, constructedTypes, exceptions);
+            AddHostObjectReturn(resultType, types, allocatedTypes, exceptions);
             return new(
                 true,
                 constructedTypes.ToImmutable(),
@@ -373,12 +375,12 @@ internal sealed class ReachabilityImportClassifier(
                     types.Add(typeFinder.FindType("System.String").Key);
                     exceptions.Add(new(ManagedExceptionKind.OutOfMemory, "System.OutOfMemoryException"));
                 }
-                if (IsByteArray(callbackParameter))
+                if (JavaScriptValueArray.IsSupported(callbackParameter))
                 {
                     allocatedTypes.Add(callbackParameter);
                     constructedTypes.Add(callbackParameter);
                     types.Add(typeFinder.FindType("System.Array").Key);
-                    types.Add(typeFinder.FindType("System.Byte").Key);
+                    types.Add(typeFinder.FindType(JavaScriptValueArray.GetElementTypeName(callbackParameter)).Key);
                     exceptions.Add(new(ManagedExceptionKind.OutOfMemory, "System.OutOfMemoryException"));
                 }
             }
@@ -386,30 +388,29 @@ internal sealed class ReachabilityImportClassifier(
     }
 
     private void AddByteArrayReturn(
-        MethodDefinitionModel method,
+        CliTypeIdentity returnType,
         ImmutableArray<EntityKey>.Builder types,
         ImmutableArray<CliTypeIdentity>.Builder allocatedTypes,
         ImmutableArray<CliTypeIdentity>.Builder constructedTypes,
         ImmutableArray<ReachabilityExceptionRequirement>.Builder exceptions)
     {
-        if (!IsByteArray(method.Signature.ReturnSignatureType))
+        if (!JavaScriptValueArray.IsSupported(returnType))
         {
             return;
         }
-        allocatedTypes.Add(method.Signature.ReturnSignatureType);
-        constructedTypes.Add(method.Signature.ReturnSignatureType);
+        allocatedTypes.Add(returnType);
+        constructedTypes.Add(returnType);
         types.Add(typeFinder.FindType("System.Array").Key);
-        types.Add(typeFinder.FindType("System.Byte").Key);
+        types.Add(typeFinder.FindType(JavaScriptValueArray.GetElementTypeName(returnType)).Key);
         exceptions.Add(new(ManagedExceptionKind.OutOfMemory, "System.OutOfMemoryException"));
     }
 
     private void AddHostObjectReturn(
-        MethodDefinitionModel method,
+        CliTypeIdentity returnType,
         ImmutableArray<EntityKey>.Builder types,
         ImmutableArray<CliTypeIdentity>.Builder allocatedTypes,
         ImmutableArray<ReachabilityExceptionRequirement>.Builder exceptions)
     {
-        var returnType = method.Signature.ReturnSignatureType;
         if (!IsHostObject(returnType))
         {
             return;
@@ -421,9 +422,6 @@ internal sealed class ReachabilityImportClassifier(
         allocatedTypes.Add(returnType);
         exceptions.Add(new(ManagedExceptionKind.OutOfMemory, "System.OutOfMemoryException"));
     }
-
-    private static bool IsByteArray(CliTypeIdentity type) =>
-        type.Shape == CliTypeShape.SzArray && type.ElementType!.CanonicalName == "primitive:u1";
 
     private static bool IsHostObject(CliTypeIdentity type) =>
         type.FullName is

@@ -17,6 +17,7 @@ GATES = (
     "host-tools",
     "verify-packages",
     "runtime-pack-hosts",
+    "browser-hosts",
 )
 
 
@@ -34,6 +35,7 @@ def verify(scope: str, results: dict[str, str]) -> None:
             "host-tools": "skipped",
             "verify-packages": "skipped",
             "runtime-pack-hosts": "skipped",
+            "browser-hosts": "skipped",
         }
     elif scope == "ci":
         expected = {
@@ -46,6 +48,7 @@ def verify(scope: str, results: dict[str, str]) -> None:
             "host-tools": "skipped",
             "verify-packages": "skipped",
             "runtime-pack-hosts": "skipped",
+            "browser-hosts": "skipped",
         }
     elif scope == "full":
         expected = {
@@ -58,6 +61,7 @@ def verify(scope: str, results: dict[str, str]) -> None:
             "host-tools": "success",
             "verify-packages": "success",
             "runtime-pack-hosts": "success",
+            "browser-hosts": "success",
         }
     elif scope == "reuse":
         expected = {
@@ -70,6 +74,7 @@ def verify(scope: str, results: dict[str, str]) -> None:
             "host-tools": "skipped",
             "verify-packages": "skipped",
             "runtime-pack-hosts": "skipped",
+            "browser-hosts": "skipped",
         }
     else:
         raise ValueError(f"unsupported CI impact scope: {scope!r}")

@@ -1,0 +1,14 @@
+<Project Sdk="NetWasm.Sdk">
+  <PropertyGroup>
+    <TargetFramework>netwasm0.1</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>Issue89MethodGroup</AssemblyName>
+    <Nullable>enable</Nullable>
+    <NetWasmRawWasm>true</NetWasmRawWasm>
+    <NetWasmPublishTarget>browser</NetWasmPublishTarget>
+  </PropertyGroup>
+  <ItemGroup>
+    <NetWasmJavaScriptModule Include="host.mjs" Module="repro.host" />
+    <Content Include="index.html;app.mjs" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

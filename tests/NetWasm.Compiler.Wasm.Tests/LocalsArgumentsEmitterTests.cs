@@ -947,7 +947,7 @@ public sealed class LocalsArgumentsEmitterTests
             new SmallValueCopyEmitter(new BulkValueCopyEmitter(layouts)),
             new AddressTakenAggregateSynchronizationEmitter(layouts),
             new NetWasm.Compiler.Wasm.Emission.Arrays.ArrayMetadataSnapshotEmitter(
-                layouts, layouts, CreateAddressInstructions(layouts))));
+                layouts, layouts, CreateAddressInstructions(layouts), new ImplicitExceptionEmitter(layouts, layouts, 7))));
     }
 
     private static IInstructionCommandProvider CreateEmitter(CliTypeIdentity argumentType)
@@ -971,7 +971,7 @@ public sealed class LocalsArgumentsEmitterTests
             new SmallValueCopyEmitter(new BulkValueCopyEmitter(layouts)),
             new AddressTakenAggregateSynchronizationEmitter(layouts),
             new NetWasm.Compiler.Wasm.Emission.Arrays.ArrayMetadataSnapshotEmitter(
-                layouts, layouts, CreateAddressInstructions(layouts))));
+                layouts, layouts, CreateAddressInstructions(layouts), new ImplicitExceptionEmitter(layouts, layouts, 7))));
     }
 
     private static CliTypeIdentity CreateValueType() => CliTypeIdentity.Named(

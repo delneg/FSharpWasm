@@ -37,14 +37,14 @@ export function createVerifiedDeploymentManifestLoader(options) {
     let text;
     try {
       text = decoder.decode(bytes);
-    } catch {
-      throw createContractError("deployment manifest is not valid UTF-8");
+    } catch (error) {
+      throw createContractError("deployment manifest is not valid UTF-8", error);
     }
     let manifest;
     try {
       manifest = options.readManifest(text);
-    } catch {
-      throw createContractError();
+    } catch (error) {
+      throw createContractError(undefined, error);
     }
     if (manifest === null || typeof manifest !== "object" || Array.isArray(manifest)
         || !Object.isFrozen(manifest)) {

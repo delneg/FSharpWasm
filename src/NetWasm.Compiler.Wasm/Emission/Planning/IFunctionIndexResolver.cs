@@ -9,4 +9,6 @@ internal interface IFunctionIndexResolver
     int Resolve(string method);
 
     int Resolve(MethodInstanceModel method);
+
+    int Resolve(InteropImportKey import);
 }

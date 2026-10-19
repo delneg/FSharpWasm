@@ -136,22 +136,22 @@ internal sealed class InteropDeclarationValidator(
         if (!asyncReturn.IsAsync)
         {
             if (method.Signature.ParameterSignatureTypes.Any(type =>
-                    !IsHostScalar(type) && !IsString(type) && !IsByteArray(type)) ||
+                    !IsHostScalar(type) && !IsExportReference(type)) ||
                 method.Signature.ReturnType != CliValueKind.Void &&
                 !IsHostScalar(method.Signature.ReturnSignatureType) &&
-                !IsString(method.Signature.ReturnSignatureType) &&
-                !IsByteArray(method.Signature.ReturnSignatureType))
+                !IsExportReference(method.Signature.ReturnSignatureType))
             {
                 throw Invalid(symbols, method,
-                    "JSExport currently supports primitive scalars, string, byte[], or void results and primitive scalar, string, or byte[] parameters");
+                    "JSExport currently supports primitive scalars, string, primitive number arrays such as byte[] or double[], JSObject, or void results and primitive scalar, string, primitive number array, or JSObject parameters");
             }
             return;
         }
         ValidateAsyncResult(symbols, method, asyncReturn, "JSExport");
-        if (method.Signature.ParameterSignatureTypes.Any(type => !IsHostScalar(type)))
+        if (method.Signature.ParameterSignatureTypes.Any(type =>
+                !IsHostScalar(type) && !IsExportReference(type)))
         {
             throw Invalid(symbols, method,
-                "asynchronous JSExport currently supports only primitive scalar parameters");
+                "asynchronous JSExport currently supports primitive scalar, string, primitive number array, or JSObject parameters");
         }
     }
 
@@ -167,11 +167,11 @@ internal sealed class InteropDeclarationValidator(
         if ((!asyncReturn.IsAsync && method.Signature.ReturnType != CliValueKind.Void &&
             !IsHostValue(method.Signature.ReturnSignatureType)) ||
             method.Signature.ParameterSignatureTypes.Any(type =>
-                !IsHostScalar(type) && !IsString(type) && !IsByteArray(type) &&
+                !IsHostScalar(type) && !IsString(type) && !IsValueArray(type) &&
                 !IsHostObject(type) && !delegateTypes.Recognize(type)))
         {
             throw Invalid(symbols, method,
-                "JSImport currently supports primitive scalars, string, byte[], JSObject, and supported delegate parameters and primitive scalars, string, byte[], JSObject, JSSubscription, or void results");
+                "JSImport currently supports primitive scalars, string, primitive number arrays such as byte[] or double[], JSObject, and supported delegate parameters and primitive scalars, string, primitive number arrays, JSObject, JSSubscription, or void results");
         }
         if (asyncReturn.IsAsync)
         {
@@ -222,12 +222,12 @@ internal sealed class InteropDeclarationValidator(
             if (invoke.ReturnType != CliValueKind.Void &&
                 !IsHostScalar(invoke.ReturnSignatureType) ||
                 invoke.ParameterSignatureTypes.Any(type =>
-                    !IsHostScalar(type) && !IsString(type) && !IsByteArray(type)) ||
+                    !IsHostScalar(type) && !IsString(type) && !IsValueArray(type)) ||
                 invoke.ParameterSignatureTypes.Count(type =>
-                    IsString(type) || IsByteArray(type)) > 1)
+                    IsString(type) || IsValueArray(type)) > 1)
             {
                 throw Invalid(symbols, method,
-                    "JSImport callbacks support primitive scalar parameters and at most one string or byte[] parameter, with primitive scalar or void results");
+                    "JSImport callbacks support primitive scalar parameters and at most one string or primitive number array parameter, with primitive scalar or void results");
             }
         }
 
@@ -267,7 +267,7 @@ internal sealed class InteropDeclarationValidator(
             CliValueKind.NativeInt;
 
     private static bool IsHostValue(CliTypeIdentity type) =>
-        IsHostScalar(type) || IsString(type) || IsByteArray(type) || IsHostObject(type);
+        IsHostScalar(type) || IsString(type) || IsValueArray(type) || IsHostObject(type);
 
     private static void ValidateAsyncResult(
         ISymbolFormatter symbols,
@@ -275,16 +275,25 @@ internal sealed class InteropDeclarationValidator(
         JavaScriptAsyncReturn asyncReturn,
         string declaration)
     {
-        if (asyncReturn.ResultType is not null && !IsHostScalar(asyncReturn.ResultType))
+        if (asyncReturn.ResultType is not { } result || IsHostScalar(result))
         {
-            throw Invalid(symbols, method,
-                $"{declaration} Task and ValueTask results currently support primitive scalars");
+            return;
         }
+        // An import's settled value is copied (string, arrays) or wrapped (JSObject)
+        // as it arrives; an export result is read once by the host and stays scalar.
+        if (declaration == "JSImport" && (IsString(result) || IsValueArray(result) || IsJSObject(result)))
+        {
+            return;
+        }
+        throw Invalid(symbols, method, declaration == "JSImport"
+            ? "JSImport Task and ValueTask results currently support primitive scalars, string, primitive number arrays, or JSObject"
+            : "JSExport Task and ValueTask results currently support primitive scalars");
     }
 
-    private static bool IsByteArray(CliTypeIdentity type) =>
-        type.Shape == CliTypeShape.SzArray &&
-            type.ElementType!.CanonicalName == "primitive:u1";
+    private static bool IsValueArray(CliTypeIdentity type) => JavaScriptValueArray.IsSupported(type);
+
+    private static bool IsExportReference(CliTypeIdentity type) =>
+        IsString(type) || IsValueArray(type) || IsJSObject(type);
 
     private static bool IsJSObject(CliTypeIdentity type) =>
         type.FullName == "System.Runtime.InteropServices.JavaScript.JSObject";

@@ -49,10 +49,10 @@ export function createComponentExecutionStrategy(loadArtifacts) {
         artifacts,
         signal: prepared.signal,
       }));
-    } catch {
+    } catch (error) {
       return prepared.closeCallerScope(prepared.signal?.aborted
         ? callerCancellation()
-        : componentLoadFailure());
+        : componentLoadFailure(error));
     }
 
     let outcome;
@@ -70,8 +70,8 @@ export function createComponentExecutionStrategy(loadArtifacts) {
         releaseActions: [],
         schedule: prepared.schedule,
       });
-    } catch {
-      outcome = componentExecutionFailure();
+    } catch (error) {
+      outcome = componentExecutionFailure(error);
     }
     return prepared.closeCallerScope(outcome);
   });
@@ -85,20 +85,22 @@ function callerCancellation() {
     "Component execution was cancelled by the caller before guest entry.");
 }
 
-function componentLoadFailure() {
+function componentLoadFailure(cause) {
   return failedExecutionResult(
     "hostFailure",
     "instantiation",
     "host.component-load",
-    "The execution host could not load the component artifacts.");
+    "The execution host could not load the component artifacts.",
+    cause);
 }
 
-function componentExecutionFailure() {
+function componentExecutionFailure(cause) {
   return failedExecutionResult(
     "hostFailure",
     "execution",
     "host.component-execution",
-    "The execution host could not execute the loaded component.");
+    "The execution host could not execute the loaded component.",
+    cause);
 }
 
 function assertRequest(request) {

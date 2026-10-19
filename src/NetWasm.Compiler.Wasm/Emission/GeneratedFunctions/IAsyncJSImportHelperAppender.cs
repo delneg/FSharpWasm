@@ -13,5 +13,6 @@ internal interface IAsyncJSImportHelperAppender
         ImmutableDictionary<string, int>.Builder indices,
         JavaScriptAsyncMethodBinding binding,
         IFunctionIndexResolver functionIndices,
+        InteropImportPlan interopImports,
         IList<ManagedBoundaryPlanEntry> boundaryEntries);
 }

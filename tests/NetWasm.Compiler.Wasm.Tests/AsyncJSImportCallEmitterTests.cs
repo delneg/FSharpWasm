@@ -109,7 +109,10 @@ public sealed class AsyncJSImportCallEmitterTests
         emitter.Emit(
             new CallEmissionRequest(instruction, method, 0, 1),
             code,
-            CreateFunctionIndexResolver(program));
+            CreateFunctionIndexResolver(
+                program,
+                new FunctionIndexMap([], [], [],
+                    ImmutableDictionary<EntityKey, WasmFunctionIndex>.Empty.Add(EntryKey, new(40)))));
 
         Assert.True(arguments.Called);
         Assert.Equal(
@@ -117,7 +120,8 @@ public sealed class AsyncJSImportCallEmitterTests
                 ? CliValueKind.ManagedReference
                 : CliValueKind.ValueType,
             Assert.Single(instruction.Stack));
-        Assert.Contains(WasmOpcodes.Call, code.ToArray());
+        Assert.Contains(code.ToInstructions(), emitted =>
+            emitted.Opcode == WasmOpcodes.Call && emitted.Operand.UnsignedValue == 40);
     }
 
     private sealed class RecordingArgumentEmitter : IJavaScriptImportArgumentEmitter

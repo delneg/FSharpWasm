@@ -138,7 +138,7 @@ internal static class MethodEmissionContextFactory
             aggregateValueLocals.Add(
                 lane,
                 checked(parameterCount + localTypes.Length));
-            localTypes = localTypes.Add(CliValueKind.I4);
+            localTypes = localTypes.Add(aggregateValuePlan.Storages[lane.Storage].Lane(lane.ByteOffset).Kind);
         }
         var arrayPlan = arrayMetadata ?? ArrayMetadataCachingPlan.Empty;
         var arrayLocals = ImmutableDictionary.CreateBuilder<ArrayReferenceSlot, ArrayMetadataSnapshotLocals>();

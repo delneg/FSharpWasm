@@ -7,8 +7,9 @@ import { resourceDisposeSymbol } from "./resource-disposal.mjs";
 import { executeWithTimeZoneResources } from "./timezone-execution.mjs";
 import { materializeTimeZoneSidecar } from "./timezone-sidecar-materializer.mjs";
 import { selectTimeZoneSidecar } from "./timezone-sidecar-selector.mjs";
+import { timeZoneContainer } from "./timezone-sidecar-zones.test.mjs";
 
-const bytes = Uint8Array.of(11, 22, 33);
+const bytes = timeZoneContainer([["Australia/Melbourne", 1]]);
 const digest = "a".repeat(64);
 const guestDirectory = "/netwasm-timezones";
 const guestName = "netwasm-timezones.nwtz";
@@ -79,7 +80,7 @@ function fixture(timeZone = "Australia/Melbourne") {
     const entry = entries.find(([, path]) => path === guestDirectory);
     assert.ok(entry);
     openedFile = entry[0].openAt({}, guestName, {}, { read: true });
-    assert.deepEqual(openedFile.read(3n, 0n), [bytes, true]);
+    assert.deepEqual(openedFile.read(BigInt(bytes.length), 0n), [bytes, true]);
     return openedFile;
   }
   return { calls, request, root, openTimeZone };
@@ -106,7 +107,7 @@ test("component execution sees verified timezone data and finishes reactor clean
                   block: () => new Promise(() => {}),
                   dispose() {
                     f.calls.push("reactor-release");
-                    assert.deepEqual(file.read(3n, 0n), [bytes, true]);
+                    assert.deepEqual(file.read(BigInt(bytes.length), 0n), [bytes, true]);
                   },
                 }, 1);
                 return 1;
@@ -115,7 +116,7 @@ test("component execution sees verified timezone data and finishes reactor clean
               exitCode: () => 29,
               complete() {
                 f.calls.push("complete");
-                assert.deepEqual(file.read(3n, 0n), [bytes, true]);
+                assert.deepEqual(file.read(BigInt(bytes.length), 0n), [bytes, true]);
               },
             },
             reactorGuest: { wake() {} },
@@ -162,7 +163,8 @@ test("component loading and instantiation failures both release the mounted side
     assert.equal(outcome.completionKind, "hostFailure");
     assert.equal(outcome.primaryFailure.code, phase === "load" ? "host.component-load" : "host.component-instantiate");
     assert.deepEqual(f.calls.slice(-3), ["mount-release", "filesystem-release", "caller-release"]);
-    assert.doesNotMatch(JSON.stringify(outcome), /private/);
+    assert.equal(outcome.primaryFailure.detail,
+      phase === "load" ? "Error: private loader detail" : "Error: private instantiation detail");
   }
 });
 

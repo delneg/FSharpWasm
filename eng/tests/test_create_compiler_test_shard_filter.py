@@ -209,8 +209,19 @@ class CompilerTestShardFilterTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, message):
                     SHARDS.load_timing_weights(path, counts)
 
+    def test_parses_tests_under_another_namespace(self):
+        listing = [
+            "    NetWasm.Runtime.Pack.Tests.MsBuild.PackTests.Packs",
+            "    NetWasm.Compiler.Tests.AlphaTests.Fact",
+        ]
+        cases = SHARDS.parse_test_cases(listing, "NetWasm.Runtime.Pack.Tests.")
+
+        self.assertEqual(["NetWasm.Runtime.Pack.Tests.MsBuild.PackTests.Packs"], list(cases))
+        with self.assertRaisesRegex(ValueError, "no NetWasm.Sdk.Tests tests"):
+            SHARDS.parse_test_cases(listing, "NetWasm.Sdk.Tests.")
+
     def test_rejects_empty_discovery_and_empty_shards(self):
-        with self.assertRaisesRegex(ValueError, "no NetWasm compiler tests"):
+        with self.assertRaisesRegex(ValueError, "no NetWasm.Compiler.Tests tests"):
             SHARDS.parse_test_method_counts(["The following Tests are available:"])
 
         with self.assertRaisesRegex(ValueError, "contains no test methods"):

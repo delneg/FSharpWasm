@@ -39,7 +39,8 @@ internal sealed class ManagedAggregateValueReloadEmitter(
             {
                 _valueFrameAddresses.Emit(code, request.Context,
                     checked(storageOffset + value.Lane.ByteOffset));
-                ManagedMemoryEmitter.EmitLoadBySize(code, _layouts.Target, 0, sizeof(int));
+                ManagedMemoryEmitter.EmitLoadBySize(code, _layouts.Target, 0,
+                    request.Context.ManagedAggregateValues.Plan.Storages[storage].Lane(value.Lane.ByteOffset).Size);
                 code.Write(WasmInstruction.WithOperand(
                     WasmOpcodes.LocalSet,
                     WasmInstructionOperand.Unsigned((uint)request.Context

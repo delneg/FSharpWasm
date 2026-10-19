@@ -54,6 +54,8 @@ public sealed class NetWasmResolveBuildEnvironmentTask : Microsoft.Build.Utiliti
     [Output] public string JcoVersion { get; private set; } = string.Empty;
     [Output] public string Preview2ShimVersion { get; private set; } = string.Empty;
     [Output] public string Preview2ShimRoot { get; private set; } = string.Empty;
+    [Output] public string TimeZoneSourceRoot { get; private set; } = string.Empty;
+    [Output] public string TimeZoneDataVersion { get; private set; } = string.Empty;
     [Output] public string HostingBundleCommandPath { get; private set; } = string.Empty;
     [Output] public string RolldownVersion { get; private set; } = string.Empty;
 
@@ -107,6 +109,8 @@ public sealed class NetWasmResolveBuildEnvironmentTask : Microsoft.Build.Utiliti
             JcoVersion = result.Toolchain.Jco.JcoVersion;
             Preview2ShimVersion = result.Toolchain.Jco.Preview2ShimVersion;
             Preview2ShimRoot = result.Toolchain.Preview2ShimRoot;
+            TimeZoneSourceRoot = result.Toolchain.TimeZones.SourceRoot;
+            TimeZoneDataVersion = result.Toolchain.TimeZones.DataVersion;
             HostingBundleCommandPath = result.Toolchain.HostingBundle.CommandPath;
             RolldownVersion = result.Toolchain.HostingBundle.RolldownVersion;
             return true;

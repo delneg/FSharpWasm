@@ -239,7 +239,7 @@ public sealed class ManagedAssembly : IDisposable
                 var methodKey = new EntityKey(Identity, methodToken);
                 methodKeys.Add(methodKey);
                 var (Import, Export, WitImport, WitExport, WitPostReturn) =
-                    ReadInteropDeclarations(method, methodKey);
+                    ReadInteropDeclarations(method, methodKey, signature.ParameterTypes.Length);
                 methods.Add(
                     methodToken,
                     new MethodDefinitionModel(
@@ -495,7 +495,7 @@ public sealed class ManagedAssembly : IDisposable
         WitImportDeclaration? WitImport,
         WitExportDeclaration? WitExport,
         WitPostReturnDeclaration? WitPostReturn)
-        ReadInteropDeclarations(MethodDefinition method, EntityKey methodKey)
+        ReadInteropDeclarations(MethodDefinition method, EntityKey methodKey, int parameterCount)
     {
         var import = (InteropImportDeclaration?)null;
         var export = (InteropExportDeclaration?)null;
@@ -525,7 +525,13 @@ public sealed class ManagedAssembly : IDisposable
                 {
                     throw InvalidInteropDeclaration(methodKey, "multiple JSExport attributes are not supported");
                 }
-                export = ReadJSExport(attribute, methodKey);
+                var (nonNullableParameters, nonNullableResult) = ReadNonNullable(method, parameterCount);
+                export = ReadJSExport(attribute, methodKey) with
+                {
+                    ParameterNames = ReadParameterNames(method, parameterCount),
+                    NonNullableParameters = nonNullableParameters,
+                    NonNullableResult = nonNullableResult,
+                };
             }
             else if (attributeType == "System.Runtime.InteropServices.WebAssembly.WitImportAttribute")
             {
@@ -630,6 +636,86 @@ public sealed class ManagedAssembly : IDisposable
             throw InvalidInteropDeclaration(methodKey, "JSImport must specify one non-empty function name, an optional module name, and no named arguments");
         }
         return new InteropImportDeclaration(functionName, moduleName);
+    }
+
+    private ImmutableArray<string> ReadParameterNames(MethodDefinition method, int count)
+    {
+        var names = new string[count];
+        Array.Fill(names, string.Empty);
+        foreach (var handle in method.GetParameters())
+        {
+            // Sequence 0 describes the return value; parameters start at 1.
+            var parameter = Reader.GetParameter(handle);
+            if (parameter.SequenceNumber >= 1 && parameter.SequenceNumber <= count)
+            {
+                names[parameter.SequenceNumber - 1] = Reader.GetString(parameter.Name);
+            }
+        }
+        return [.. names];
+    }
+
+    // The top-level nullable annotation of each parameter and of the result
+    // (sequence 0): its NullableAttribute, else the nearest NullableContextAttribute
+    // on the method or an enclosing type. An oblivious annotation counts as nullable.
+    private (ImmutableArray<bool> Parameters, bool Result) ReadNonNullable(MethodDefinition method, int count)
+    {
+        const byte notNull = 1;
+        var context = FirstNullableByte(method.GetCustomAttributes(), NullableContextAttributeName)
+            ?? TypeNullableContext(method.GetDeclaringType());
+        var annotations = new byte?[count + 1];
+        foreach (var handle in method.GetParameters())
+        {
+            var parameter = Reader.GetParameter(handle);
+            if (parameter.SequenceNumber <= count)
+            {
+                annotations[parameter.SequenceNumber] =
+                    FirstNullableByte(parameter.GetCustomAttributes(), NullableAttributeName);
+            }
+        }
+        bool NotNull(int index) => (annotations[index] ?? context) == notNull;
+        return ([.. Enumerable.Range(1, count).Select(NotNull)], NotNull(0));
+    }
+
+    private const string NullableAttributeName = "System.Runtime.CompilerServices.NullableAttribute";
+    private const string NullableContextAttributeName = "System.Runtime.CompilerServices.NullableContextAttribute";
+
+    private byte? TypeNullableContext(TypeDefinitionHandle handle)
+    {
+        while (!handle.IsNil)
+        {
+            var type = Reader.GetTypeDefinition(handle);
+            if (FirstNullableByte(type.GetCustomAttributes(), NullableContextAttributeName) is { } value)
+            {
+                return value;
+            }
+            handle = type.GetDeclaringType();
+        }
+        return null;
+    }
+
+    // NullableContextAttribute takes one byte. NullableAttribute takes one byte or
+    // a byte array whose first element describes the outermost type.
+    private byte? FirstNullableByte(CustomAttributeHandleCollection attributes, string name)
+    {
+        foreach (var handle in attributes)
+        {
+            var attribute = Reader.GetCustomAttribute(handle);
+            if (GetAttributeTypeName(attribute.Constructor) != name)
+            {
+                continue;
+            }
+            var reader = Reader.GetBlobReader(attribute.Value);
+            if (reader.Length < 5 || reader.ReadUInt16() != 1)
+            {
+                return null;
+            }
+            if (reader.Length == 5)
+            {
+                return reader.ReadByte();
+            }
+            return reader.ReadInt32() > 0 ? reader.ReadByte() : null;
+        }
+        return null;
     }
 
     private InteropExportDeclaration ReadJSExport(

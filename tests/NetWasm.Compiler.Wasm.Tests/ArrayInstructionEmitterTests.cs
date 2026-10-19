@@ -103,6 +103,32 @@ public sealed class ArrayInstructionEmitterTests
     }
 
     [Fact]
+    public void LengthLeavesTheNullCheckToTheLoopEntryThatMadeIt()
+    {
+        var emitter = CreateEmitter(new RecordingLayoutProvider(), out _);
+        var slot = new ArrayReferenceSlot(false, 0);
+        var request = CreateRequest(
+            CilOperation.LoadArrayLength,
+            [CliValueKind.ManagedReference],
+            context: CreateMethodEmissionContext() with
+            {
+                ArrayMetadata = new(
+                    new ArrayMetadataCachingPlan([slot], ImmutableDictionary<int, ArrayReferenceSlot>.Empty.Add(0, slot))
+                    {
+                        CheckedAccesses = [0],
+                    },
+                    ImmutableDictionary<ArrayReferenceSlot, ArrayMetadataSnapshotLocals>.Empty.Add(slot, new(30, 31))),
+            });
+
+        Emit((IInstructionCommandProvider)emitter, request);
+
+        Assert.Equal([CliValueKind.I4], request.Stack);
+        Assert.DoesNotContain(WasmOpcodes.If, GetCodeBytes(request));
+        Assert.Contains(WasmInstruction.WithOperand(WasmOpcodes.LocalGet, WasmInstructionOperand.Unsigned(30)),
+            ((RecordingInstructionWriter)GetCodeWriter(request)).ToInstructions());
+    }
+
+    [Fact]
     public void ReferenceStorePerformsRuntimeAssignabilityCheck()
     {
         var emitter = CreateEmitter(new RecordingLayoutProvider(), out _);

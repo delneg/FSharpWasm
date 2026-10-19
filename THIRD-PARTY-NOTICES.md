@@ -66,6 +66,13 @@ upstream filename. Permission to use, copy, modify and distribute is granted
 provided the corresponding notice is preserved. The complete notices appear
 in the source files and in `THIRD-PARTY-NOTICES.TXT`.
 
+## IANA Time Zone Database
+
+`src/NetWasm.Toolchain/timezones/zoneinfo` holds the zones of IANA tz release
+2026c, compiled with that release's `zic`, with its `tzdata.zi` and `version`
+files. The tz database is in the public domain. NetWasm.Toolchain packages these
+files, and published applications include the zones they select.
+
 ## WASI description files
 
 `wit/wasi-0.2.11` is copied with its upstream `LICENSE.md` and provenance.

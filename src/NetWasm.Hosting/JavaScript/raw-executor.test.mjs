@@ -373,7 +373,7 @@ test("closes caller resources for ABI failure and pre-instantiation cancellation
   }
 });
 
-test("maps raw instantiation and instantiated-export failures without leaking details", async () => {
+test("maps raw instantiation and instantiated-export failures with their causes", async () => {
   const failedInstantiation = await executeRaw({
     ...base(),
     contractKey: commandComponentContract,
@@ -381,7 +381,7 @@ test("maps raw instantiation and instantiated-export failures without leaking de
     instantiate() { throw new Error("private instantiate detail"); },
   });
   assert.equal(failedInstantiation.primaryFailure.code, "host.raw-instantiate");
-  assert.doesNotMatch(JSON.stringify(failedInstantiation), /private/);
+  assert.equal(failedInstantiation.primaryFailure.detail, "Error: private instantiate detail");
 
   const failedBinding = await executeRaw({
     ...base(),
@@ -399,7 +399,7 @@ test("maps raw instantiation and instantiated-export failures without leaking de
     bindInstance() { throw new Error("private instance binding detail"); },
   });
   assert.equal(failedInstanceBinding.primaryFailure.code, "host.raw-instance-bind");
-  assert.doesNotMatch(JSON.stringify(failedInstanceBinding), /private/);
+  assert.equal(failedInstanceBinding.primaryFailure.detail, "Error: private instance binding detail");
 });
 
 test("observes an immediate raw managed process and closes in ownership order", async () => {
@@ -581,23 +581,27 @@ test("maps every raw process setup and binding failure before guest execution", 
       abi: { ...processAbi(), exports: [] },
       instantiate: async () => { throw new Error("must not instantiate"); },
       expected: "contract.raw-abi",
+      detail: /^TypeError: \S/u,
     },
     {
       abi: processAbi(),
       signal: controller.signal,
       instantiate: async () => { throw new Error("must not instantiate"); },
       expected: "caller.cancelled",
+      detail: undefined,
     },
     {
       abi: processAbi(),
       physicalProviders: {},
       instantiate: async () => { throw new Error("must not instantiate"); },
       expected: "contract.raw-abi",
+      detail: /^TypeError: \S/u,
     },
     {
       abi: processAbi(),
       instantiate: async () => { throw new Error("private instantiate failure"); },
       expected: "host.raw-instantiate",
+      detail: "Error: private instantiate failure",
     },
     {
       abi: processAbi(),
@@ -608,17 +612,20 @@ test("maps every raw process setup and binding failure before guest execution", 
         throw new Error("private initialization failure");
       },
       expected: "contract.reactor-initialization",
+      detail: "Error: private initialization failure",
     },
     {
       abi: processAbi(),
       instantiate: async () => rawInstance({}),
       expected: "contract.raw-exports",
+      detail: /^TypeError: \S/u,
     },
     {
       abi: processAbi(),
       instantiate: async () => rawInstance({}),
       bindInstance() { throw new Error("private binding failure"); },
       expected: "host.raw-instance-bind",
+      detail: "Error: private binding failure",
     },
   ];
   for (const item of cases) {
@@ -633,7 +640,7 @@ test("maps every raw process setup and binding failure before guest execution", 
       bindInstance: item.bindInstance,
     });
     assert.equal(result.primaryFailure.code, item.expected);
-    assert.doesNotMatch(JSON.stringify(result), /private/);
+    assertDetail(result.primaryFailure, item.detail);
   }
 });
 
@@ -842,7 +849,7 @@ test("contains an unexpected observation rejection and closes every owned scope"
   });
   assert.equal(result.primaryFailure.code, "host.raw-execution");
   assert.deepEqual(calls, ["instance-close", "caller-close"]);
-  assert.doesNotMatch(JSON.stringify(result), /private/);
+  assert.equal(result.primaryFailure.detail, "Error: private observation detail");
 });
 
 test("records raw reactor and caller cleanup failures", async () => {
@@ -875,10 +882,18 @@ test("records raw reactor and caller cleanup failures", async () => {
   assert.equal(disposed, true);
   assert.equal(result.primaryFailure.code, "host.raw-reactor");
   assert.deepEqual(result.cleanupFailures.map(failure => failure.code), ["host.caller-close"]);
-  assert.doesNotMatch(JSON.stringify(result), /private/);
+  assert.deepEqual([result.primaryFailure, ...result.cleanupFailures].map(failure => failure.detail), [
+    "Error: The execution host could not release every pending pollable.",
+    "Error: private caller close",
+  ]);
 });
 
 test("rejects an invalid interop observer subscription before guest entry", async () => {
   await assert.rejects(() => executeRaw({ ...base(), contractKey: commandComponentContract,
     abi: commandAbi(), instantiate: async () => { assert.fail("must not enter guest"); }, subscribeInteropCompletion: null }), /subscription/);
 });
+
+function assertDetail(failure, expected) {
+  if (expected instanceof RegExp) assert.match(failure.detail, expected);
+  else assert.equal(failure.detail, expected);
+}

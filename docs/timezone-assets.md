@@ -4,7 +4,46 @@ NetWasm defaults to UTC and does not embed timezone data in CoreLib or the
 application Wasm module. Applications that expose reachable local-time APIs and
 set `TZ` to an IANA identifier must explicitly deploy a matching timezone asset.
 
-Generate a selected-zone bundle with:
+## Choose the zones a deployment ships
+
+List the zones in the project file:
+
+```xml
+<ItemGroup>
+  <NetWasmTimeZone Include="Australia/Melbourne;America/New_York" />
+</ItemGroup>
+```
+
+Aliases resolve to their zones automatically, so `Asia/Calcutta` ships with
+`Asia/Kolkata`. To ship every zone instead, set
+`<NetWasmTimeZoneMode>Full</NetWasmTimeZoneMode>` and list none.
+
+Build, `dotnet run` and every publish (local, browser, `JsModule` and WIT
+workers) then write `<program>.wasm.tz-info` beside the primary Wasm and record
+it in the deployment manifest. The zones come from the IANA release pinned by
+NetWasm.Toolchain, so every machine produces the same sidecar. The sidecar is
+written only when the application reaches a local-time API. Otherwise the build
+warns with NWSDK080 and ships nothing. An unknown zone, or `Full` combined with
+listed zones, fails with NWSDK079.
+
+`TZ` remains an explicit execution setting; NetWasm never infers a host or
+browser zone. Set it with a `NetWasmEnvironmentVariable` item, in the execution
+request's environment, or per instance with `open({ environment: { TZ } })` for a
+page-hosted `JsModule`. A page that wants the user's zone passes
+`Intl.DateTimeFormat().resolvedOptions().timeZone`, so its sidecar must include
+that zone. A `TZ` outside the sidecar fails before managed code starts.
+
+One zone with daylight saving time is about 210 KB (about 51 KB with Brotli).
+Each alias is stored as another full copy of its zone, which Brotli removes
+almost entirely: `Australia/Melbourne` and `America/New_York` ship with three
+aliases (`Australia/Victoria`, `US/Eastern` and `EST5EDT`) as about 1 MB, or
+about 100 KB with Brotli. `Full` is about 40.7 MB, or 1.8 MB with Brotli. Static
+hosts that cannot serve the Brotli form send the full size.
+
+## Generate an asset directly
+
+The SDK uses the same generator as the standalone tool, which remains available
+for custom hosts:
 
 ```sh
 dotnet run --project tools/NetWasm.TimeZones -- generate \

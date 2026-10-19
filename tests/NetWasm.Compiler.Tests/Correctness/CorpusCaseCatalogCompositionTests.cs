@@ -58,10 +58,10 @@ public sealed class CorpusCaseCatalogCompositionTests
     {
         var catalog = CorpusCaseTestData.Catalog;
 
-        Assert.Equal(77, catalog.Cases.Count);
-        Assert.Equal(77, CorpusCaseTestData.Bindings.Length);
-        Assert.Equal(77, CorpusCaseTestData.Assets.Manifests.Length);
-        Assert.Equal(72, CorpusCaseTestData.Assets.SourceFiles.Length);
+        Assert.Equal(78, catalog.Cases.Count);
+        Assert.Equal(78, CorpusCaseTestData.Bindings.Length);
+        Assert.Equal(78, CorpusCaseTestData.Assets.Manifests.Length);
+        Assert.Equal(73, CorpusCaseTestData.Assets.SourceFiles.Length);
         Assert.Equal(32, CorpusCaseTestData.Assets.Features.Ids.Count);
         foreach (var binding in CorpusCaseTestData.Bindings)
         {

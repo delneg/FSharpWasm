@@ -1,4 +1,6 @@
+using System.Collections.Immutable;
 using NetWasm.Compiler.Core;
+using NetWasm.Compiler.Core.Types;
 using NetWasm.Compiler.Wasm.Emission;
 using NetWasm.Compiler.Wasm.Emission.Instructions;
 using NetWasm.Compiler.Wasm.Emission.Instructions.Runtime;
@@ -12,17 +14,21 @@ using static EmitterTestSupport;
 public sealed class ArrayGetValueIntrinsicEmitterTests
 {
     [Theory]
-    [InlineData(WasmTarget.Wasm32)]
-    [InlineData(WasmTarget.Wasm64)]
-    public void PublishesRootsAndTranslatesTheRuntimeAllocationFailureSentinel(WasmTarget target)
+    [InlineData(WasmTarget.Wasm32, false)]
+    [InlineData(WasmTarget.Wasm64, false)]
+    [InlineData(WasmTarget.Wasm32, true)]
+    [InlineData(WasmTarget.Wasm64, true)]
+    public void PublishesRootsAndTranslatesTheRuntimeAllocationFailureSentinel(WasmTarget target, bool nullable)
     {
+        var layout = new RecordingLayoutProvider(WasmTargetLayout.For(target));
+        var descriptors = new Descriptors(nullable);
         var receiver = new RecordingReceiver();
         var addresses = new RecordingAddresses();
         var exceptions = new RecordingExceptions();
         var roots = new RecordingRoots();
         var imports = WasmRuntimeImports.CreateCatalog();
         var emitter = Assert.IsAssignableFrom<IRuntimeIntrinsicEmitter>(
-            new ArrayGetValueIntrinsicEmitter(receiver, imports, addresses, exceptions, roots));
+            new ArrayGetValueIntrinsicEmitter(receiver, imports, addresses, exceptions, roots, descriptors, new NullableTypeResolver(), layout, layout, layout));
         var request = CreateRuntimeIntrinsicRequest(RuntimeIntrinsic.ArrayGetValue,
             [CliValueKind.ManagedReference, CliValueKind.I4]) with
         { Target = WasmTargetLayout.For(target) };
@@ -37,15 +43,33 @@ public sealed class ArrayGetValueIntrinsicEmitterTests
         Assert.Same(writer, roots.Writer);
         Assert.Equal(0, receiver.InstructionCount);
         Assert.Equal(0, roots.InstructionCount);
-        Assert.Equal([WasmOpcodes.LocalGet, WasmOpcodes.LocalGet, WasmOpcodes.Call,
-            WasmOpcodes.LocalTee, WasmOpcodes.If, WasmOpcodes.End], code.Select(item => item.Opcode));
-        Assert.Equal((uint)request.Local(0, CliValueKind.ManagedReference), code[0].Operand!.UnsignedValue);
-        Assert.Equal((uint)request.Local(1, CliValueKind.I4), code[1].Operand!.UnsignedValue);
-        Assert.Equal((uint)imports.Resolve(RuntimeImportSymbol.ArrayGetValue), code[2].Operand!.UnsignedValue);
-        Assert.Equal((uint)request.Local(0, CliValueKind.ManagedReference), code[3].Operand!.UnsignedValue);
-        Assert.Equal([1], addresses.Constants);
+        var tail = code.TakeLast(8).ToArray();
+        Assert.Equal([WasmOpcodes.LocalGet, WasmOpcodes.LocalGet, WasmOpcodes.LocalGet,
+            WasmOpcodes.LocalGet, WasmOpcodes.Call, WasmOpcodes.LocalTee, WasmOpcodes.If, WasmOpcodes.End], tail.Select(item => item.Opcode));
+        Assert.Equal((uint)request.Local(0, CliValueKind.ManagedReference), tail[0].Operand.UnsignedValue);
+        Assert.Equal((uint)request.Local(1, CliValueKind.I4), tail[1].Operand.UnsignedValue);
+        Assert.Equal((uint)request.Instruction.Context.NumericTemporaryI4Second, tail[2].Operand.UnsignedValue);
+        Assert.Equal((uint)request.Instruction.Context.ObjectTemporary, tail[3].Operand.UnsignedValue);
+        Assert.Equal((uint)imports.Resolve(RuntimeImportSymbol.ArrayGetValue, request.Instruction.Target.RuntimeImportSelection), tail[4].Operand.UnsignedValue);
+        Assert.Equal((uint)request.Local(0, CliValueKind.ManagedReference), tail[5].Operand.UnsignedValue);
+        Assert.Equal<int>(nullable ? [0, 4, 1] : [0, 1], addresses.Constants);
+        Assert.Equal(nullable ? 2 : 1, code.Count(i => i.Opcode == WasmOpcodes.If));
+        Assert.Equal(nullable ? Descriptors.Underlying : null, layout.ObjectIdentityRequest);
+        Assert.Equal((uint)layout.ArrayElementTypeIdOffset, code[1].Operand.Offset);
         Assert.Equal([AddressOperation.Equal], addresses.Operations);
         Assert.Equal([ManagedExceptionKind.OutOfMemory], exceptions.Kinds);
+    }
+
+    private sealed class Descriptors(bool nullable) : ITypeDescriptorSource
+    {
+        internal static readonly CliTypeIdentity Underlying = CliTypeIdentity.FromStackKind(CliValueKind.I4);
+        private static readonly CliTypeIdentity Nullable = CliTypeIdentity.GenericInstantiation(
+            CliTypeIdentity.Named(new AssemblyIdentity("NetWasm.CoreLib"), "System", "Nullable`1", true), [Underlying]);
+        public ImmutableArray<TypeDescriptorLayout> TypeDescriptors => [];
+        public ImmutableArray<ValueTypeDescriptorLayout> ValueTypeDescriptors => [];
+        public ImmutableArray<ConstructedTypeDescriptorLayout> ConstructedTypeDescriptors => nullable
+            ? [new(Underlying, 12, 0, 16, 0, 0, null), new(Nullable, 27, 0, 16, 0, 0, null)]
+            : [];
     }
 
     private sealed class RecordingReceiver : IArrayReceiverValidator

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { createContractError, isContractError } from "./contract-error.mjs";
+import { createContractError, isContractError, unwrapContractError } from "./contract-error.mjs";
 
 test("brands only errors created by the contract boundary", () => {
   const error = createContractError();
@@ -11,4 +11,17 @@ test("brands only errors created by the contract boundary", () => {
   for (const value of [null, 1, {}, new Error("other")]) {
     assert.equal(isContractError(value), false);
   }
+});
+
+test("unwraps contract errors to the value they wrap", () => {
+  const cause = new TypeError("not granted");
+  const plain = createContractError();
+  const other = new Error("outer", { cause });
+
+  assert.equal(createContractError(undefined, cause).cause, cause);
+  assert.equal(Object.hasOwn(plain, "cause"), false);
+  assert.equal(unwrapContractError(createContractError(undefined, createContractError(undefined, cause))), cause);
+  assert.equal(unwrapContractError(plain), plain);
+  assert.equal(unwrapContractError(other), other);
+  assert.equal(unwrapContractError(undefined), undefined);
 });

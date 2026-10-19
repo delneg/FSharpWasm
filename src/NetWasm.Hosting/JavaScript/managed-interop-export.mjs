@@ -4,8 +4,15 @@ import {
 } from "./managed-errors.mjs";
 import { normalizeInteropHandle } from "./interop-handle-table.mjs";
 import {
-  readManagedInteropBytes,
+  describeValueArray,
+  isHostObject,
+  isTransferAbiType,
+  isValueArrayAbiType,
+  valueArrayConstructor,
+} from "./interop-abi-types.mjs";
+import {
   readManagedInteropString,
+  readManagedInteropValueArray,
 } from "./managed-interop-memory-codec.mjs";
 import {
   liftInteropScalar,
@@ -16,7 +23,9 @@ import { observeManagedAsyncExport } from "./managed-async-export-observer.mjs";
 const requestKeys = [
   "descriptor", "exceptionReporter", "getMemory", "handles", "instance", "target", "targetLayout",
 ];
-const optionalRequestKeys = new Set(["assertAvailable", "observeAsyncExport", "consumeExceptionPayload"]);
+const optionalRequestKeys = new Set([
+  "assertAvailable", "consumeExceptionPayload", "enterExport", "observeAsyncExport",
+]);
 
 export function createManagedExports(instance, exportNames) {
   if (!(instance instanceof WebAssembly.Instance)) {
@@ -47,9 +56,11 @@ export function createManagedInteropExport(request) {
     targetLayout,
     assertAvailable = () => {},
     observeAsyncExport = observeManagedAsyncExport,
+    enterExport = () => () => {},
     consumeExceptionPayload,
   } = request;
-  if (typeof assertAvailable !== "function" || typeof observeAsyncExport !== "function") {
+  if (typeof assertAvailable !== "function" || typeof observeAsyncExport !== "function"
+      || typeof enterExport !== "function") {
     throw new TypeError("managed interop export lifetime actions are invalid");
   }
   if (descriptor === null || typeof descriptor !== "object" || Array.isArray(descriptor)
@@ -78,11 +89,16 @@ export function createManagedInteropExport(request) {
       throw new NetWasmHostError(
         `managed export ${descriptor.name} received an invalid argument count`);
     }
+    // A JavaScript import may call back into an export while managed frames are live.
+    const leaveExport = enterExport();
     const argumentHandles = [];
+    const objectHandles = [];
+    let invoked = false;
     let result;
     try {
       const wasmArguments = arguments_.map((value, index) => lowerArgument(
-        descriptor.parameters[index], value, handles, argumentHandles));
+        descriptor.parameters[index], value, handles, argumentHandles, objectHandles));
+      invoked = true;
       const value = invoke(...wasmArguments);
       if (descriptor.asyncReturn != null) {
         const normalizedHandle = normalizeInteropHandle(value);
@@ -98,7 +114,7 @@ export function createManagedInteropExport(request) {
       } else {
         result = descriptor.result === "void"
           ? undefined
-          : liftResult(descriptor.result, value, getMemory, target, targetLayout);
+          : liftResult(descriptor.result, value, getMemory, handles, target, targetLayout);
       }
     } catch (cause) {
       if (cause instanceof NetWasmHostError || cause instanceof NetWasmManagedError) {
@@ -120,27 +136,41 @@ export function createManagedInteropExport(request) {
       else throw managedFailure;
     } finally {
       for (const handle of argumentHandles) handles.release(handle);
+      // A JSObject argument's handle belongs to its managed wrapper once the call starts.
+      if (!invoked) for (const handle of objectHandles) handles.release(handle);
+      leaveExport();
     }
     return result;
   });
 }
 
-function lowerArgument(type, value, handles, argumentHandles) {
-  if (type !== "string" && type !== "bytes") return lowerInteropScalar({ type, value });
+function lowerArgument(type, value, handles, argumentHandles, objectHandles) {
+  if (type === "object") {
+    if (value === null) return 0;
+    if (!isHostObject(value)) {
+      throw new NetWasmHostError("JSObject value must be an object, function, or null");
+    }
+    const handle = handles.acquire(value);
+    objectHandles.push(handle);
+    return handle;
+  }
+  if (!isTransferAbiType(type)) return lowerInteropScalar({ type, value });
   if (value === null) return 0;
   if (type === "string" && typeof value !== "string") {
     throw new NetWasmHostError("string value must be a string or null");
   }
-  if (type === "bytes" && !(value instanceof Uint8Array)) {
-    throw new NetWasmHostError("byte-array value must be Uint8Array or null");
+  if (isValueArrayAbiType(type) && !(value instanceof valueArrayConstructor(type))) {
+    throw new NetWasmHostError(describeValueArray(type));
   }
   const handle = handles.acquire(value);
   argumentHandles.push(handle);
   return handle;
 }
 
-function liftResult(type, value, getMemory, target, targetLayout) {
-  if (type !== "string" && type !== "bytes") return liftInteropScalar({ type, value });
+function liftResult(type, value, getMemory, handles, target, targetLayout) {
+  // The managed JSObject keeps its handle; the caller only receives the object.
+  if (type === "object") return value === 0 ? null : handles.get(value);
+  if (!isTransferAbiType(type)) return liftInteropScalar({ type, value });
   const request = {
     memory: getMemory(),
     reference: value,
@@ -149,7 +179,7 @@ function liftResult(type, value, getMemory, target, targetLayout) {
   };
   return type === "string"
     ? readManagedInteropString(request)
-    : readManagedInteropBytes(request);
+    : readManagedInteropValueArray(request, valueArrayConstructor(type));
 }
 
 function createLowLevelManagedExport(instance, name) {

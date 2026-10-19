@@ -39,6 +39,12 @@ public sealed class WorkerEntryWriterTests
         Assert.Contains("globalThis.addEventListener(\"messageerror\"", source, StringComparison.Ordinal);
         Assert.Contains("host.receive(event.data).catch(fatal)", source, StringComparison.Ordinal);
         Assert.Contains("clocks: Object.freeze([\"monotonic\"])", source, StringComparison.Ordinal);
+        Assert.Contains("configuration: mergeEnvironment(configuration, request.environment),", source,
+            StringComparison.Ordinal);
+        Assert.Contains("/session-options.mjs\";", source, StringComparison.Ordinal);
+        Assert.Contains("stderr: request.stderr,", source, StringComparison.Ordinal);
+        Assert.Contains("stdout: request.stdout,", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("console[", source, StringComparison.Ordinal);
         Assert.Contains("Object.freeze({ name: \"MODE\", value: \"test\" })", source,
             StringComparison.Ordinal);
     }
@@ -59,7 +65,13 @@ public sealed class WorkerEntryWriterTests
             [
                 new("add", ["i32", "i32"], "i32", null),
                 new("read", [], "i64", "task"),
-                new("echo", ["string", "char"], "string", null),
+                new("echo", ["string", "char"], "string", null) { ParameterNames = ["session", "title"] },
+                new("greet", ["string", "string", "f64[]"], "string", null)
+                {
+                    ParameterNames = ["name", "title", "values"],
+                    NonNullableParameters = [true, false, true],
+                    NonNullableResult = true,
+                },
                 new("echo_bytes", ["bytes"], "bytes", null),
             ]));
 
@@ -70,17 +82,32 @@ public sealed class WorkerEntryWriterTests
             source.IndexOf("worker notification handler must be a function", StringComparison.Ordinal) <
             source.IndexOf("new Worker", StringComparison.Ordinal));
         Assert.Contains("operations, onNotification,", source, StringComparison.Ordinal);
+        Assert.Contains("environment: options.environment, stderr: options.stderr, stdout: options.stdout,", source,
+            StringComparison.Ordinal);
         Assert.Contains("buildFingerprint: \"1111", source, StringComparison.Ordinal);
         Assert.Contains("manifestSha256: \"2222", source, StringComparison.Ordinal);
         Assert.Contains(
             "\"add\": (argument0, argument1, options) => session.invoke(\"add\", [argument0, argument1], options)",
             source,
             StringComparison.Ordinal);
+        // The client body calls session, so a parameter of that name falls back.
+        Assert.Contains(
+            "\"echo\": (argument0, title, options) => session.invoke(\"echo\", [argument0, title], options)",
+            source,
+            StringComparison.Ordinal);
         var declaration = File.ReadAllText(declarations);
+        Assert.Contains("\"echo\"(argument0: string | null, title: string, options?: NetWasmWorkerCallOptions)",
+            declaration, StringComparison.Ordinal);
+        // Non-nullable C# references drop | null.
+        Assert.Contains(
+            "\"greet\"(name: string, title: string | null, values: Float64Array, options?: NetWasmWorkerCallOptions): Promise<string>;",
+            declaration, StringComparison.Ordinal);
         Assert.Contains("export interface NetWasmWorkerCallOptions", declaration,
             StringComparison.Ordinal);
         Assert.Contains("signal?: AbortSignal", declaration, StringComparison.Ordinal);
         Assert.Contains("timeoutMilliseconds?: number", declaration, StringComparison.Ordinal);
+        Assert.Contains("environment?: Record<string, string>; stdout?: (line: string) => void;", declaration,
+            StringComparison.Ordinal);
         Assert.Contains(
             "\"add\"(argument0: number, argument1: number, options?: NetWasmWorkerCallOptions): Promise<number>",
             declaration, StringComparison.Ordinal);
@@ -88,7 +115,7 @@ public sealed class WorkerEntryWriterTests
             "\"read\"(options?: NetWasmWorkerCallOptions): Promise<bigint>",
             declaration, StringComparison.Ordinal);
         Assert.Contains(
-            "\"echo\"(argument0: string | null, argument1: string, options?: NetWasmWorkerCallOptions): Promise<string | null>",
+            "\"echo\"(argument0: string | null, title: string, options?: NetWasmWorkerCallOptions): Promise<string | null>",
             declaration,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -130,7 +157,7 @@ public sealed class WorkerEntryWriterTests
 
         Assert.Throws<ArgumentException>(() => new WorkerEntryWriter().WriteClient(
             valid with { Exports = [new("then", [], "void", null)] }));
-        Assert.Throws<ArgumentException>(() => new WorkerEntryWriter().WriteClient(
+        Assert.Throws<JavaScriptExportRealmException>(() => new WorkerEntryWriter().WriteClient(
             valid with { Exports = [new("read", [], "object", null)] }));
         Assert.Throws<ArgumentException>(() => new WorkerEntryWriter().WriteHost(new(
             valid.HostingJavaScriptRoot,

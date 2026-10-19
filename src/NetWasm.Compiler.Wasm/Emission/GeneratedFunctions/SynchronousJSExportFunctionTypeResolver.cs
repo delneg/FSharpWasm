@@ -14,10 +14,13 @@ internal sealed class SynchronousJSExportFunctionTypeResolver :
         return new(
             [.. method.Signature.ParameterSignatureTypes.Select((type, index) =>
                 InteropTypeClassifier.IsString(type) ||
-                InteropTypeClassifier.IsByteArray(type)
+                InteropTypeClassifier.IsValueArray(type) ||
+                InteropTypeClassifier.IsJSObject(type)
                     ? CliValueKind.I4
                     : Normalize(method.WasmParameterTypes[index]))],
-            method.Signature.ReturnType);
+            InteropTypeClassifier.IsJSObject(method.Signature.ReturnSignatureType)
+                ? CliValueKind.I4
+                : method.Signature.ReturnType);
     }
 
     private static CliValueKind Normalize(CliValueKind kind) =>

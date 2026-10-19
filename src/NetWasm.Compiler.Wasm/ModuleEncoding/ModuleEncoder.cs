@@ -243,10 +243,27 @@ public sealed class ModuleEncoder : IModuleEncoder
         _unsigned.Encode(payload, (uint)functions.Count);
         foreach (var function in functions)
         {
+            RequireLoadableBody(function);
             _unsigned.Encode(payload, (uint)function.Body.Length);
             payload.Write(function.Body);
         }
         _sections.Write(module, 10, _snapshotReaderFactory(payloadBuffer).Read());
+    }
+
+    // Engines refuse to compile a module containing a larger function body, and
+    // the validator after linking can only name its byte offset.
+    internal const int MaximumFunctionBodySize = 7_654_321;
+
+    private static void RequireLoadableBody(WasmFunctionDefinition function)
+    {
+        if (function.Body.Length > MaximumFunctionBodySize)
+        {
+            throw new CompilerException(new CompilerDiagnostic(
+                DiagnosticCode.FunctionBodyLimit,
+                $"the method compiles to a {function.Body.Length:N0}-byte WebAssembly function, over the " +
+                $"{MaximumFunctionBodySize:N0}-byte limit that browsers and Node enforce; split it into smaller methods",
+                function.Name));
+        }
     }
 
     private void WriteDataSection(

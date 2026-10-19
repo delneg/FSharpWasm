@@ -200,12 +200,7 @@ public sealed class NetWasmWriteWorkerClientEntryTask : Microsoft.Build.Utilitie
     {
         try
         {
-            var exports = Exports.Select(item => new WorkerJavaScriptExport(
-                RequiredMetadata(item, "Name"),
-                ReadSignature(item.GetMetadata("Parameters")),
-                RequiredMetadata(item, "Result"),
-                NullIfEmpty(item.GetMetadata("AsyncReturn"))))
-                .ToImmutableArray();
+            var exports = JavaScriptExportItems.Read(Exports);
             _writer.WriteClient(new(
                 Path.GetFullPath(HostingJavaScriptRoot),
                 WorkerFileName,
@@ -216,32 +211,15 @@ public sealed class NetWasmWriteWorkerClientEntryTask : Microsoft.Build.Utilitie
                 exports));
             return true;
         }
+        catch (JavaScriptExportRealmException exception)
+        {
+            Log.LogError($"NWSDK081: {exception.Message}");
+            return false;
+        }
         catch (Exception exception)
         {
             Log.LogError($"NWSDK062: {exception.Message}");
             return false;
         }
     }
-
-    private static ImmutableArray<string> ReadSignature(string json)
-    {
-        var values = JsonSerializer.Deserialize<string[]>(json) ??
-            throw new ArgumentException("Worker JavaScript signatures must be JSON arrays.");
-        if (values.Any(value => value is null))
-        {
-            throw new ArgumentException("Worker JavaScript signatures cannot contain null.");
-        }
-        return [.. values];
-    }
-
-    private static string RequiredMetadata(ITaskItem item, string name)
-    {
-        var value = item.GetMetadata(name);
-        return string.IsNullOrWhiteSpace(value)
-            ? throw new ArgumentException($"Worker item metadata '{name}' is required.")
-            : value;
-    }
-
-    private static string? NullIfEmpty(string value) =>
-        string.IsNullOrWhiteSpace(value) ? null : value;
 }

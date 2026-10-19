@@ -58,6 +58,13 @@ test("adapts built-in string, byte, handle, and subscription services", () => {
   assert.equal(builtins.interop_copy_bytes(objectHandle, 128), 1);
   assert.equal(builtins.interop_copy_bytes(999, 128), 1);
 
+  const numbersHandle = fixture.handles.acquire(Float64Array.of(1.5, -2));
+  assert.equal(builtins.interop_byte_length(numbersHandle), 2);
+  view.setInt32(132, 2, true);
+  view.setUint32(136, 200, true);
+  assert.equal(builtins.interop_copy_bytes(numbersHandle, 128), 0);
+  assert.deepEqual([...new Float64Array(fixture.memory.buffer.slice(200, 216))], [1.5, -2]);
+
   builtins.interop_release_handle(stringHandle);
   builtins.interop_release_handle(stringHandle);
   let disposed = 0;

@@ -175,6 +175,26 @@ public sealed class WitWorkerCSharpClientWriterTests
     }
 
     [Fact]
+    public void NamesParametersAfterTheContractUnlessTheyCollideWithGeneratedLocals()
+    {
+        var json = JsonNode.Parse(WitWorkerClientGenerationFixture.Contract())!;
+        var export = json["exports"]![0]!;
+        export["parameters"] = JsonNode.Parse("""
+            [{"name":"start-index","type":{"kind":"primitive","primitive":"u32","definition":null}},
+             {"name":"writer","type":{"kind":"primitive","primitive":"u32","definition":null}},
+             {"name":"class","type":{"kind":"primitive","primitive":"u32","definition":null}},
+             {"name":"cancellation-token","type":{"kind":"primitive","primitive":"u32","definition":null}}]
+            """);
+        export["result"] = null;
+        var request = WitWorkerClientGenerationFixture.Request() with { ContractJson = Encoding.UTF8.GetBytes(json.ToJsonString()) };
+        var cs = Encoding.UTF8.GetString(WitWorkerCSharpClientComposition.CreateWriter().Write(request).CSharp);
+
+        Assert.Contains("EchoAsync(uint startIndex, uint argument1, uint @class, uint argument3, CancellationToken cancellationToken = default)",
+            cs, StringComparison.Ordinal);
+        Assert.Contains("Writeu32(writer, @class);", cs, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void WritesArgumentsAndVoidResultsAndDisambiguatesOperationNames()
     {
         var json = JsonNode.Parse(WitWorkerClientGenerationFixture.Contract())!;
@@ -188,8 +208,8 @@ public sealed class WitWorkerCSharpClientWriterTests
         var request = WitWorkerClientGenerationFixture.Request() with { ContractJson = Encoding.UTF8.GetBytes(json.ToJsonString()) };
         var source = WitWorkerCSharpClientComposition.CreateWriter().Write(request);
         var cs = Encoding.UTF8.GetString(source.CSharp);
-        Assert.Contains("Task EchoAsync(uint argument0, CancellationToken cancellationToken = default)", cs, StringComparison.Ordinal);
-        Assert.Contains("Writeu32(writer, argument0);", cs, StringComparison.Ordinal);
+        Assert.Contains("Task EchoAsync(uint input, CancellationToken cancellationToken = default)", cs, StringComparison.Ordinal);
+        Assert.Contains("Writeu32(writer, input);", cs, StringComparison.Ordinal);
         Assert.Contains("reader.End();", cs, StringComparison.Ordinal);
         Assert.Contains(Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes("b")))[..12] + "Async", cs, StringComparison.Ordinal);
         Assert.Contains("const args = [readu32(reader)]", Encoding.UTF8.GetString(source.JavaScript), StringComparison.Ordinal);

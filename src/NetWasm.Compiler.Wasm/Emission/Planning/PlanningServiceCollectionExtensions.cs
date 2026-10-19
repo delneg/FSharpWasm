@@ -38,6 +38,7 @@ internal static class PlanningServiceCollectionExtensions
             provider.GetRequiredService<ManagedBoundaryPlanBuilder>());
         services.AddSingleton<ModuleDataPlanner>();
         services.AddSingleton<IStaticInitializerFunctionPlanner, StaticInitializerFunctionPlanner>();
+        services.AddSingleton<IJSImportForwarderPlanner, JSImportForwarderPlanner>();
         services.AddSingleton<IStructuredExceptionGroupKeyFactory, StructuredExceptionGroupKeyFactory>();
         services.AddSingleton<IStackTraceMethodPlanBuilder,
             StackTraceMethodPlanBuilder>();

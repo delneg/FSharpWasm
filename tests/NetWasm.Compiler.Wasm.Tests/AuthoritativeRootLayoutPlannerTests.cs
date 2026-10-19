@@ -22,7 +22,10 @@ public sealed class AuthoritativeRootLayoutPlannerTests
         var map = new MethodRootMap(EntryKey,
             new Dictionary<RootSource, int>
             {
-                [argument] = 0, [local] = 0, [temporary] = 0, [otherTemporary] = 0,
+                [argument] = 0,
+                [local] = 0,
+                [temporary] = 0,
+                [otherTemporary] = 0,
             }.ToImmutableDictionary(), []);
 
         var result = _planner.Plan(map, [argument, local]);

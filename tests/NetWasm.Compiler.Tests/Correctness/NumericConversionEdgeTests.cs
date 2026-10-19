@@ -14,6 +14,12 @@ public sealed class NumericConversionEdgeTests(CorrectnessTestRunner runner) : C
     public static TheoryData<string, string> NativeFloatingCells => CorpusCaseTestData.Cells(CorpusCaseTestData.NativeFloating);
     public static TheoryData<string, string> ConvertCells => CorpusCaseTestData.Cells(CorpusCaseTestData.FloatingConvertInteger);
     public static TheoryData<string, string> SmallIntegerCells => CorpusCaseTestData.Cells(CorpusCaseTestData.FloatingSmallInteger);
+    public static TheoryData<string, string> SmallSaturationCells => CorpusCaseTestData.Cells(CorpusCaseTestData.FloatingSmallSaturation);
+
+    [Theory]
+    [MemberData(nameof(SmallSaturationCells))]
+    public void UncheckedSmallIntegerCastsSaturateAsInNet11(string caseId, string cell) =>
+        Run(CorpusCaseTestData.Get(caseId), cell);
 
     [Theory]
     [MemberData(nameof(SmallIntegerCells))]

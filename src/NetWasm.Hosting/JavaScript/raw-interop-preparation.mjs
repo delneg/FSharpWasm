@@ -10,6 +10,7 @@ import { parseInteropManifest } from "./interop-manifest-reader.mjs";
 import {
   createManagedInteropExport,
 } from "./managed-interop-export.mjs";
+import { createExportDepthGuard } from "./export-depth-guard.mjs";
 import { NetWasmHostError } from "./managed-errors.mjs";
 import { createManagedExceptionReporter } from "./managed-exception-reporter.mjs";
 import { parseStackTraceSymbols } from "./stack-trace-symbol-reader.mjs";
@@ -98,6 +99,7 @@ export function prepareParsedNetWasmInterop({
   const handles = createInteropHandleTable();
   const pendingAsyncOperations = new Map();
   const pendingAsyncExports = new Set();
+  const enterExport = createExportDepthGuard();
   let closed = false;
   let activeImports = 0;
   let deferred;
@@ -201,6 +203,7 @@ export function prepareParsedNetWasmInterop({
             if (closed) throw new NetWasmHostError("NetWasm export session is closed");
             assertAvailable();
           },
+          enterExport,
           observeAsyncExport(request) {
             return observeManagedAsyncExport({
               ...request,

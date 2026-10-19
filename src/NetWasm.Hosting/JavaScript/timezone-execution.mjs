@@ -64,11 +64,11 @@ export async function executeWithTimeZoneResources(request) {
     stage = stages.execution;
     outcome = await execute(Object.freeze({ filesystem, signal }));
     assertExecutionResult(outcome);
-  } catch {
+  } catch (error) {
     outcome = signal?.aborted
       ? failedExecutionResult("callerCancellation", stage.phase, "caller.cancelled",
         "Application execution was cancelled by the caller.")
-      : failedExecutionResult("hostFailure", stage.phase, stage.code, stage.message);
+      : failedExecutionResult("hostFailure", stage.phase, stage.code, stage.message, error);
   }
   if (closeMount !== null) outcome = await closeMount(outcome);
   if (closeFilesystem !== null) outcome = await closeFilesystem(outcome);

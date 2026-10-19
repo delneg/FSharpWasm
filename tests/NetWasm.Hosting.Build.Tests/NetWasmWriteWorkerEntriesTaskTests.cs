@@ -189,6 +189,56 @@ public sealed class NetWasmWriteWorkerEntriesTaskTests
     }
 
     [Fact]
+    public void ClientTaskTypesExportsWithTheirNamesAndNullability()
+    {
+        using var directory = TemporaryDirectory.Create();
+        var declarations = Path.Combine(directory.Path, "client.d.mts");
+        var task = new NetWasmWriteWorkerClientEntryTask
+        {
+            BuildEngine = new RecordingBuildEngine(),
+            HostingJavaScriptRoot = Path.Combine(directory.Path, "hosting"),
+            WorkerFileName = "app.worker.mjs",
+            BuildFingerprint = new string('1', 64),
+            ManifestSha256 = new string('2', 64),
+            OutputPath = Path.Combine(directory.Path, "client.mjs"),
+            DeclarationPath = declarations,
+            Exports =
+            [
+                Item("greet", ("Name", "greet"), ("Parameters", "[\"string\",\"string\"]"), ("Result", "string"),
+                    ("ParameterNames", "[\"name\",\"title\"]"), ("NonNullableParameters", "[true,false]"),
+                    ("NonNullableResult", "true")),
+            ],
+        };
+
+        Assert.True(task.Execute());
+        Assert.Contains(
+            "\"greet\"(name: string, title: string | null, options?: NetWasmWorkerCallOptions): Promise<string>;",
+            File.ReadAllText(declarations), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ClientTaskRejectsJSObjectExportsWithADedicatedDiagnostic()
+    {
+        var build = new RecordingBuildEngine();
+        var task = new NetWasmWriteWorkerClientEntryTask
+        {
+            BuildEngine = build,
+            HostingJavaScriptRoot = Path.GetFullPath("hosting"),
+            WorkerFileName = "app.worker.mjs",
+            BuildFingerprint = new string('1', 64),
+            ManifestSha256 = new string('2', 64),
+            OutputPath = Path.GetFullPath("client.mjs"),
+            DeclarationPath = Path.GetFullPath("client.d.mts"),
+            Exports = [Item("focus", ("Name", "focus"), ("Parameters", "[\"object\"]"), ("Result", "void"))],
+        };
+
+        Assert.False(task.Execute());
+        var error = Assert.Single(build.Errors);
+        Assert.StartsWith("NWSDK081: JavaScript export 'focus' passes a JSObject", error, StringComparison.Ordinal);
+        Assert.Contains("NetWasmJavaScriptHosts=page", error, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void ConstructorsRejectMissingWriterAndComposeDefaults()
     {
         Assert.Throws<ArgumentNullException>(() => new NetWasmWriteWorkerHostEntryTask(null!));

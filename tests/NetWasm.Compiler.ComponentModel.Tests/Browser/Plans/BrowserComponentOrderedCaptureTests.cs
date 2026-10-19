@@ -16,7 +16,8 @@ public sealed class BrowserComponentOrderedCaptureTests
     public void RecordsActualProducerOrderIncludingModeDependentValidation(FinalWasmOptimization optimization, bool memory64)
     {
         var request = new ComponentCoreModuleLinkRequest("v/app.wasm", "v/runtime.wasm", "v/output.wasm",
-            memory64 ? ComponentTarget.Wasm64Wasi02 : ComponentTarget.Wasm32Wasi02) { Optimization = optimization };
+            memory64 ? ComponentTarget.Wasm64Wasi02 : ComponentTarget.Wasm32Wasi02)
+        { Optimization = optimization };
         var workspace = new BrowserComponentCoreModuleWorkspace("v/env.wasm", "v/host.wasm", "v/command.wasm",
             "v/merged.wasm", "v/sanitized.wasm", "v/runtime-sanitized.wasm");
         var captured = BrowserComponentCoreModules.CreateLinkPlan(request, workspace);

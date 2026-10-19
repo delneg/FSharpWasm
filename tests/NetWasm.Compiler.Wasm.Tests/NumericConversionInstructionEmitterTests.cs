@@ -72,6 +72,67 @@ public sealed class NumericConversionInstructionEmitterTests
             }
     }
 
+    [Theory]
+    [InlineData(CliValueKind.F4, 8, false)]
+    [InlineData(CliValueKind.F8, 8, false)]
+    [InlineData(CliValueKind.F4, 8, true)]
+    [InlineData(CliValueKind.F8, 8, true)]
+    [InlineData(CliValueKind.F4, 16, false)]
+    [InlineData(CliValueKind.F8, 16, false)]
+    [InlineData(CliValueKind.F4, 16, true)]
+    [InlineData(CliValueKind.F8, 16, true)]
+    public void UncheckedFloatingNarrowingSaturatesAtTheDestinationBounds(
+        CliValueKind source, int width, bool destinationUnsigned)
+    {
+        var request = CreateRequest(CilOperation.ConvertNumeric,
+            new CilOperand.NumericConversion(width, destinationUnsigned, false, false, false), source);
+
+        CreateEmitter(new RecordingLayoutProvider()).Emit(request);
+
+        var instructions = ((RecordingInstructionWriter)GetCodeWriter(request)).ToInstructions().ToList();
+        var single = source == CliValueKind.F4;
+        double Constant(WasmInstruction instruction) => single ? instruction.Operand.Float32Value : instruction.Operand.Float64Value;
+        // The value is clamped in its own type, then truncated: no branches and no wrap.
+        Assert.Equal(
+            [
+                WasmOpcodes.LocalGet,
+                single ? WasmOpcodes.F32Constant : WasmOpcodes.F64Constant,
+                single ? WasmOpcodes.F32Minimum : WasmOpcodes.F64Minimum,
+                single ? WasmOpcodes.F32Constant : WasmOpcodes.F64Constant,
+                single ? WasmOpcodes.F32Maximum : WasmOpcodes.F64Maximum,
+                WasmOpcodes.LocalSet,
+                WasmOpcodes.LocalGet,
+                WasmOpcodes.Prefixed,
+                WasmOpcodes.LocalSet,
+            ],
+            instructions.Select(instruction => instruction.Opcode));
+        Assert.Equal(destinationUnsigned ? (1 << width) - 1 : (1 << (width - 1)) - 1, Constant(instructions[1]));
+        Assert.Equal(destinationUnsigned ? 0 : -(1 << (width - 1)), Constant(instructions[3]));
+        Assert.Equal(CliValueKind.I4, Assert.Single(request.Stack));
+    }
+
+    [Theory]
+    [InlineData(WasmTarget.Wasm32, CliValueKind.F4, false, WasmOpcodes.I32TruncateSaturateF32Signed)]
+    [InlineData(WasmTarget.Wasm32, CliValueKind.F8, true, WasmOpcodes.I32TruncateSaturateF64Unsigned)]
+    [InlineData(WasmTarget.Wasm64, CliValueKind.F4, true, WasmOpcodes.I64TruncateSaturateF32Unsigned)]
+    [InlineData(WasmTarget.Wasm64, CliValueKind.F8, false, WasmOpcodes.I64TruncateSaturateF64Signed)]
+    public void UncheckedFloatingToNativeIntegerSaturatesWithoutClamping(
+        WasmTarget target, CliValueKind source, bool destinationUnsigned, uint expectedSubopcode)
+    {
+        var request = CreateRequest(CilOperation.ConvertNumeric,
+            new CilOperand.NumericConversion(0, destinationUnsigned, false, false, true), source);
+
+        CreateEmitter(new RecordingLayoutProvider(WasmTargetLayout.For(target))).Emit(request);
+
+        // Native-width truncation already saturates, so only 8- and 16-bit
+        // destinations clamp first.
+        var instructions = ((RecordingInstructionWriter)GetCodeWriter(request)).ToInstructions();
+        Assert.Equal([WasmOpcodes.LocalGet, WasmOpcodes.Prefixed, WasmOpcodes.LocalSet],
+            instructions.Select(instruction => instruction.Opcode));
+        Assert.Equal(WasmInstructionOperand.Prefixed(expectedSubopcode), instructions[1].Operand);
+        Assert.Equal(CliValueKind.NativeInt, Assert.Single(request.Stack));
+    }
+
     [Fact]
     public void Int32ToInt64UsesSignedExtensionAndUpdatesStack()
     {

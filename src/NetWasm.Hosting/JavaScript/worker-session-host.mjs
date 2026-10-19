@@ -1,3 +1,5 @@
+import { describeFailureCause } from "./execution-result.mjs";
+import { readEnvironmentOverride } from "./session-options.mjs";
 import { createWorkerSessionDispatcher } from "./worker-session-dispatcher.mjs";
 
 const optionKeys = ["openSession", "post", "terminate"];
@@ -22,9 +24,12 @@ export function createWorkerSessionHost(options) {
         state = "starting";
         try {
           const session = readSession(await options.openSession(Object.freeze({
+            environment: initialize.environment,
             generation,
             notify,
             startup: initialize.startup,
+            stderr: outputSink("stderr"),
+            stdout: outputSink("stdout"),
           })));
           if (state === "terminated") {
             await session.close();
@@ -87,6 +92,18 @@ export function createWorkerSessionHost(options) {
     }));
   }
 
+  // Guest output is forwarded to the page, where the client delivers it as lines.
+  function outputSink(stream) {
+    return Object.freeze({
+      write(bytes) {
+        if (state === "terminated") return;
+        options.post(Object.freeze({
+          protocolVersion, generation, kind: "output", stream, bytes: new Uint8Array(bytes),
+        }));
+      },
+    });
+  }
+
   function terminate(undeliveredCause = null) {
     if (state === "terminated") return;
     state = "terminated";
@@ -103,6 +120,7 @@ export function createWorkerSessionHost(options) {
         requestId: null,
         error: Object.freeze({
           category: operation === "startup" ? "startupFailure" : "hostFailure",
+          detail: describeFailureCause(cause) ?? null,
           message: error.message || "worker failed",
           operation,
           stack: typeof error.stack === "string" ? error.stack : null,
@@ -122,7 +140,7 @@ function validateInitialize(value) {
   }
   const descriptors = Object.getOwnPropertyDescriptors(value);
   const keys = Object.keys(descriptors).sort();
-  const expected = ["generation", "kind", "protocolVersion", "startup"];
+  const expected = ["environment", "generation", "kind", "protocolVersion", "startup"];
   if (keys.length !== expected.length || keys.some((key, index) => key !== expected[index])
       || Object.values(descriptors).some(descriptor => !descriptor.enumerable || !("value" in descriptor))
       || value.protocolVersion !== protocolVersion || value.kind !== "initialize") {
@@ -130,7 +148,8 @@ function validateInitialize(value) {
   }
   validateGeneration(value.generation);
   const startup = snapshotStartup(value.startup);
-  return Object.freeze({ generation: value.generation, startup });
+  const environment = readEnvironmentOverride(value.environment, "worker environment");
+  return Object.freeze({ environment, generation: value.generation, startup });
 }
 
 function snapshotStartup(value) {

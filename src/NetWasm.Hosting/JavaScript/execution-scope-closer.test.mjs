@@ -81,7 +81,8 @@ test("attempts every synchronous and asynchronous release in order", async () =>
   assert.equal(outcome.exitCode, null);
   assert.equal(outcome.primaryFailure.code, "host.second");
   assert.deepEqual(outcome.cleanupFailures.map(failure => failure.code), ["host.third"]);
-  assert.doesNotMatch(JSON.stringify(outcome), /private/);
+  assert.deepEqual([outcome.primaryFailure, ...outcome.cleanupFailures].map(failure => failure.detail),
+    ["Error: private second detail", "Error: private third detail"]);
 });
 
 test("appends cleanup failures after an existing terminal result", async () => {

@@ -27,13 +27,14 @@ public sealed class InteropTypeClassifierTests
             isValueType: false);
 
         Assert.True(InteropTypeClassifier.IsString(stringType));
-        Assert.True(InteropTypeClassifier.IsByteArray(bytes));
+        Assert.True(InteropTypeClassifier.IsValueArray(bytes));
         Assert.True(InteropTypeClassifier.IsJSObject(jsObject));
         Assert.True(InteropTypeClassifier.IsSubscription(subscription));
         Assert.True(InteropTypeClassifier.IsHostObject(jsObject));
         Assert.True(InteropTypeClassifier.IsHostObject(subscription));
         Assert.False(InteropTypeClassifier.IsHostObject(stringType));
-        Assert.False(InteropTypeClassifier.IsByteArray(CliTypeIdentity.SzArray(
+        Assert.True(InteropTypeClassifier.IsValueArray(CliTypeIdentity.SzArray(
             CliTypeIdentity.Primitive("i4", CliValueKind.I4))));
+        Assert.False(InteropTypeClassifier.IsValueArray(CliTypeIdentity.SzArray(stringType)));
     }
 }

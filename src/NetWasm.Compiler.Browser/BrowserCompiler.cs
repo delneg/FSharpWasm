@@ -36,7 +36,7 @@ public static class BrowserCompiler
                 request.WitCoreBindingInventories,
                 new WitDocumentJsonReader()));
         registrations.AddSingleton<IBrowserCompilationResultProjector, BrowserCompilationResultProjector>();
-        registrations.AddSingleton<IManagedExecutableEntryPointSelector, ManagedExecutableEntryPointSelector>();
+        registrations.AddSingleton(new ManagedExecutableEntryPointSelectorFactory().Create());
         var metrics = collectMetrics
             ? new BrowserCompilerMetricsObserver(request.Options.MetricsObserver)
             : null;

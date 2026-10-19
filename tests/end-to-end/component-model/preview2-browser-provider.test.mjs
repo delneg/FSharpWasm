@@ -12,8 +12,21 @@ const hostingFiles = new Set([
   "preview2-filesystem.mjs", "read-only-file-directory.mjs", "resource-disposal.mjs",
   "timezone-execution.mjs", "execution-scope-closer.mjs", "execution-result.mjs",
   "browser-timezone-materializer.mjs", "browser-artifact-transport.mjs",
-  "timezone-sidecar-materializer.mjs", "timezone-sidecar-selector.mjs", "deployment-artifact.mjs",
+  "timezone-sidecar-materializer.mjs", "timezone-sidecar-selector.mjs", "timezone-sidecar-zones.mjs",
+  "deployment-artifact.mjs", "contract-error.mjs",
 ]);
+
+// A NetWasm time zone container holding one zone with no transitions: the host
+// reads its zone names before mounting it.
+function timeZoneContainer(zone) {
+  const text = value => {
+    const bytes = new TextEncoder().encode(value);
+    return [bytes.length & 0xff, bytes.length >> 8, ...bytes];
+  };
+  return Uint8Array.from([0x4e, 0x57, 0x54, 0x5a, 1, 0, 0, 0, ...text("2026c"), 1, 0, 0, 0,
+    ...text(zone), 0xa0, 0x8c, 0, 0, 0, 0, 0, 0, 0, ...new Array(32).fill(0)]);
+}
+const sidecar = timeZoneContainer("Australia/Melbourne");
 
 for (const [name, engine] of Object.entries({ chromium, firefox, webkit })) {
   test(`the production filesystem preserves read-only ownership in ${name}`, async () => {
@@ -34,7 +47,7 @@ for (const [name, engine] of Object.entries({ chromium, firefox, webkit })) {
         }
         if (path === "/deploy/program.wasm.tz-info") {
           sidecarRequests++;
-          await route.fulfill({ contentType: "application/octet-stream", body: Buffer.from([4, 5, 6]) });
+          await route.fulfill({ contentType: "application/octet-stream", body: Buffer.from(sidecar) });
           return;
         }
         let file;
@@ -115,7 +128,7 @@ for (const [name, engine] of Object.entries({ chromium, firefox, webkit })) {
         releasedConsumer: "bad-descriptor",
         sourcePreopens: 1,
       });
-      const lifetime = await page.evaluate(async () => {
+      const lifetime = await page.evaluate(async sidecarBytes => {
         const { executeWithTimeZoneResources } = await import("/hosting/timezone-execution.mjs");
         const { createBrowserTimeZoneMaterializer } = await import("/hosting/browser-timezone-materializer.mjs");
         const { selectTimeZoneSidecar } = await import("/hosting/timezone-sidecar-selector.mjs");
@@ -123,7 +136,7 @@ for (const [name, engine] of Object.entries({ chromium, firefox, webkit })) {
         const { normalExecutionResult } = await import("/hosting/execution-result.mjs");
         const shim = await import("@bytecodealliance/preview2-shim/filesystem");
         const digest = crypto.subtle.digest.bind(crypto.subtle);
-        const sha256 = [...new Uint8Array(await digest("SHA-256", new Uint8Array([4, 5, 6])))]
+        const sha256 = [...new Uint8Array(await digest("SHA-256", new Uint8Array(sidecarBytes)))]
           .map(byte => byte.toString(16).padStart(2, "0")).join("");
         const results = [];
         for (const mode of ["selected", "utc", "integrity", "execution-failure"]) {
@@ -182,16 +195,18 @@ for (const [name, engine] of Object.entries({ chromium, firefox, webkit })) {
             calls, readBytes, revoked });
         }
         return results;
-      });
+      }, [...sidecar]);
       assert.deepEqual(lifetime, [
         { mode: "selected", completion: "normal", failure: null,
-          calls: ["mount", "execute", "mount-release", "filesystem-release", "caller-release"], readBytes: [4, 5, 6], revoked: true },
+          calls: ["mount", "execute", "mount-release", "filesystem-release", "caller-release"],
+          readBytes: [...sidecar.subarray(0, 3)], revoked: true },
         { mode: "utc", completion: "normal", failure: null,
           calls: ["execute", "filesystem-release", "caller-release"], readBytes: null, revoked: true },
         { mode: "integrity", completion: "hostFailure", failure: "host.timezone-materialize",
           calls: ["filesystem-release", "caller-release"], readBytes: null, revoked: true },
         { mode: "execution-failure", completion: "hostFailure", failure: "host.deployment-execute",
-          calls: ["mount", "execute", "mount-release", "filesystem-release", "caller-release"], readBytes: [4, 5, 6], revoked: true },
+          calls: ["mount", "execute", "mount-release", "filesystem-release", "caller-release"],
+          readBytes: [...sidecar.subarray(0, 3)], revoked: true },
       ]);
       assert.equal(sidecarRequests, 3);
       assert.deepEqual(unexpectedRequests, []);

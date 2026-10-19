@@ -3,8 +3,9 @@ import { createHash } from "node:crypto";
 import test from "node:test";
 import { selectTimeZoneSidecar } from "./timezone-sidecar-selector.mjs";
 import { materializeTimeZoneSidecar } from "./timezone-sidecar-materializer.mjs";
+import { timeZoneContainer } from "./timezone-sidecar-zones.test.mjs";
 
-const sourceBytes = Uint8Array.of(1, 2, 3, 4);
+const sourceBytes = timeZoneContainer([["Australia/Melbourne", 1]]);
 const digest = bytes => createHash("sha256").update(bytes).digest("hex");
 const application = () => ({
   relativePath: "publish/app.wasm",
@@ -69,7 +70,7 @@ test("verifies copied bytes and returns one immutable fixed-path cleanup action"
   assert.deepEqual(calls.map(value => value[0]), ["read", "hash", "mount", "release"]);
 
   transport.fill(9);
-  assert.deepEqual(mountedBytes, Uint8Array.of(1, 2, 3, 4));
+  assert.deepEqual(mountedBytes, timeZoneContainer([["Australia/Melbourne", 1]]));
 });
 
 test("returns null without invoking transport, hashing, or mounting", async () => {
@@ -165,6 +166,25 @@ test("rejects invalid or tampered bytes before mounting", async () => {
       hashBytes: async () => "0".repeat(64),
     }),
     /integrity check failed/);
+});
+
+test("rejects a TZ the sidecar does not contain before mounting", async () => {
+  const other = timeZoneContainer([["America/New_York", 0]]);
+  const selected = selectTimeZoneSidecar({
+    runtimeFeatures: ["local-time"],
+    artifacts: [application(), sidecar({ sha256: digest(other) })],
+    environment: [{ name: "TZ", value: "Australia/Melbourne" }],
+  });
+  await assert.rejects(
+    () => materializeTimeZoneSidecar({
+      selection: selected,
+      readArtifact: async () => other,
+      hashBytes: async bytes => digest(bytes),
+      mountReadOnlyFile: () => assert.fail("must not mount"),
+    }),
+    error => error instanceof TypeError
+      && error.message.startsWith("TZ 'Australia/Melbourne' is not in this deployment's time zone data.")
+      && error.message.includes("NetWasmTimeZone"));
 });
 
 test("requires a synchronous release act from the read-only mount", async () => {

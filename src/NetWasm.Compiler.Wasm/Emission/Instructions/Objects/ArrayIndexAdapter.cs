@@ -36,7 +36,10 @@ internal sealed class ArrayIndexAdapter(
         {
             return sourceLocal;
         }
-        EmitNullCheck(code, arrayLocal);
+        if (!request.Context.ArrayMetadata.Plan.CheckedAccesses.Contains(request.Instruction.Offset))
+        {
+            EmitNullCheck(code, arrayLocal);
+        }
         Get(code, sourceLocal);
         if (request.Context.ArrayMetadata.Plan.Accesses.TryGetValue(request.Instruction.Offset, out var slot))
         {

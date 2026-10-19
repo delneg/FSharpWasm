@@ -32,5 +32,7 @@ internal interface IManagedMethodEmitter
         ManagedAggregateSsaPlan? managedAggregateValues = null,
         bool enableBranchValueFramePlacement = false,
         bool enableArrayMetadataCaching = false,
-        bool enableScalarCallPreservation = false);
+        bool enableScalarCallPreservation = false,
+        bool hoistArrayNullChecks = false,
+        bool rotateLoops = false);
 }

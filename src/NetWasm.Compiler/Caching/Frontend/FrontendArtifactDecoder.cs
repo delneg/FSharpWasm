@@ -18,7 +18,7 @@ namespace NetWasm.Compiler.Caching.Frontend;
 internal sealed class FrontendArtifactDecoder : IFrontendArtifactDecoder
 {
     private const uint Magic = 0x3146434E;
-    private const ushort SchemaVersion = 18;
+    private const ushort SchemaVersion = 20;
 
     public FrontendArtifactSnapshot Decode(ImmutableArray<byte> payload)
     {
@@ -286,7 +286,12 @@ internal sealed class FrontendArtifactDecoder : IFrontendArtifactDecoder
                         IsPromise = ReadBoolean(),
                     });
                 var jsExport = ReadNullableClass(
-                    () => new InteropExportDeclaration(ReadNullableString()));
+                    () => new InteropExportDeclaration(ReadNullableString())
+                    {
+                        ParameterNames = ReadArray(ReadString),
+                        NonNullableParameters = ReadArray(ReadBoolean),
+                        NonNullableResult = ReadBoolean(),
+                    });
                 var witImport = ReadNullableClass(
                     () => new WitImportDeclaration(ReadString(), ReadString()));
                 var witExport = ReadNullableClass(

@@ -35,115 +35,123 @@ export function createLocalLauncher(options) {
   }
 
   return Object.freeze(async function launchLocalNetWasm(invocation) {
-    assertExactDataObject(invocation, invocationKeys, "local launcher invocation");
-    validateText(invocation.descriptorText, "local launcher descriptor text");
-    validateText(invocation.requestText, "local launcher request text");
-    if (!Array.isArray(invocation.environment)) {
-      throw new TypeError("local launcher environment must be an array");
-    }
-    validatePath(invocation.hostExecutablePath, "local launcher host executable path");
-    validatePath(invocation.launcherPath, "local launcher module path");
-    validateSignal(invocation.signal);
-    validateOutputSink(invocation.stdout, "local launcher stdout output sink");
-    validateOutputSink(invocation.stderr, "local launcher stderr output sink");
-    if (invocation.signal?.aborted) return callerCancellation();
-
-    let descriptor;
-    try {
-      descriptor = options.readDescriptor(invocation.descriptorText);
-    } catch {
-      return hostFailure("host.descriptor", "The execution descriptor is invalid.");
-    }
-
-    let request;
-    try {
-      request = options.overlayEnvironment(
-        options.appendArguments(
-          options.readRequest(invocation.requestText),
-          invocation.arguments),
-        invocation.environment);
-      if (request.buildFingerprint !== descriptor.buildFingerprint
-          || request.deploymentManifestSha256 !== descriptor.deploymentManifestSha256) {
-        return contractFailure();
-      }
-    } catch {
-      return contractFailure();
-    }
-    if (invocation.signal?.aborted) return callerCancellation();
-
-    try {
-      const [actualHost, expectedHost, actualLauncher, expectedLauncher] = await Promise.all([
-        options.realPath(invocation.hostExecutablePath),
-        options.realPath(descriptor.hostExecutablePath),
-        options.realPath(invocation.launcherPath),
-        options.realPath(descriptor.launcherPath),
-      ]);
-      if (actualHost !== expectedHost || actualLauncher !== expectedLauncher) {
-        return hostFailure(
-          "host.launcher-identity",
-          "The execution launcher does not match its descriptor.");
-      }
-    } catch {
-      return hostFailure(
-        "host.launcher-identity",
-        "The execution launcher identity could not be verified.");
-    }
-    if (invocation.signal?.aborted) return callerCancellation();
-
-    let toolchain;
-    let platform;
-    try {
-      const packages = new Map(descriptor.toolPackages.map(
-        package_ => [package_.id, package_]));
-      toolchain = packages.get(toolchainId);
-      if (toolchain === undefined) {
-        return hostFailure(
-          "host.toolchain",
-          "The execution descriptor does not select NetWasm.Toolchain.");
-      }
-      await options.verifyPackage(toolchain);
-      platform = await options.loadPlatform(toolchain);
-    } catch {
-      return hostFailure(
-        "host.toolchain",
-        "The selected NetWasm.Toolchain package could not be verified.");
-    }
-    if (invocation.signal?.aborted) return callerCancellation();
-
-    let execute;
-    try {
-      execute = options.createExecution(Object.freeze({
-        manifestPath: descriptor.deploymentManifestPath,
-        platform,
-      }));
-      if (typeof execute !== "function") {
-        throw new TypeError("local execution factory returned no action");
-      }
-    } catch {
-      return hostFailure(
-        "host.composition",
-        "The local execution host could not be composed.");
-    }
-
-    try {
-      return await execute(Object.freeze({
-        request,
-        signal: invocation.signal,
-        stderr: invocation.stderr,
-        stdout: invocation.stdout,
-      }));
-    } catch {
-      return hostFailure("host.execution", "The local execution host failed.", "execution");
-    }
+    return launch(options, invocation);
   });
 }
 
-function contractFailure() {
+async function launch(options, invocation) {
+  assertExactDataObject(invocation, invocationKeys, "local launcher invocation");
+  validateText(invocation.descriptorText, "local launcher descriptor text");
+  validateText(invocation.requestText, "local launcher request text");
+  if (!Array.isArray(invocation.environment)) {
+    throw new TypeError("local launcher environment must be an array");
+  }
+  validatePath(invocation.hostExecutablePath, "local launcher host executable path");
+  validatePath(invocation.launcherPath, "local launcher module path");
+  validateSignal(invocation.signal);
+  validateOutputSink(invocation.stdout, "local launcher stdout output sink");
+  validateOutputSink(invocation.stderr, "local launcher stderr output sink");
+  if (invocation.signal?.aborted) return callerCancellation();
+
+  let descriptor;
+  try {
+    descriptor = options.readDescriptor(invocation.descriptorText);
+  } catch (error) {
+    return hostFailure("host.descriptor", "The execution descriptor is invalid.", error);
+  }
+
+  let request;
+  try {
+    request = options.overlayEnvironment(
+      options.appendArguments(
+        options.readRequest(invocation.requestText),
+        invocation.arguments),
+      invocation.environment);
+    if (request.buildFingerprint !== descriptor.buildFingerprint
+        || request.deploymentManifestSha256 !== descriptor.deploymentManifestSha256) {
+      return contractFailure();
+    }
+  } catch (error) {
+    return contractFailure(error);
+  }
+  if (invocation.signal?.aborted) return callerCancellation();
+
+  try {
+    const [actualHost, expectedHost, actualLauncher, expectedLauncher] = await Promise.all([
+      options.realPath(invocation.hostExecutablePath),
+      options.realPath(descriptor.hostExecutablePath),
+      options.realPath(invocation.launcherPath),
+      options.realPath(descriptor.launcherPath),
+    ]);
+    if (actualHost !== expectedHost || actualLauncher !== expectedLauncher) {
+      return hostFailure(
+        "host.launcher-identity",
+        "The execution launcher does not match its descriptor.");
+    }
+  } catch (error) {
+    return hostFailure(
+      "host.launcher-identity",
+      "The execution launcher identity could not be verified.",
+      error);
+  }
+  if (invocation.signal?.aborted) return callerCancellation();
+
+  let toolchain;
+  let platform;
+  try {
+    const packages = new Map(descriptor.toolPackages.map(
+      package_ => [package_.id, package_]));
+    toolchain = packages.get(toolchainId);
+    if (toolchain === undefined) {
+      return hostFailure(
+        "host.toolchain",
+        "The execution descriptor does not select NetWasm.Toolchain.");
+    }
+    await options.verifyPackage(toolchain);
+    platform = await options.loadPlatform(toolchain);
+  } catch (error) {
+    return hostFailure(
+      "host.toolchain",
+      "The selected NetWasm.Toolchain package could not be verified.",
+      error);
+  }
+  if (invocation.signal?.aborted) return callerCancellation();
+
+  let execute;
+  try {
+    execute = options.createExecution(Object.freeze({
+      manifestPath: descriptor.deploymentManifestPath,
+      platform,
+    }));
+    if (typeof execute !== "function") {
+      throw new TypeError("local execution factory returned no action");
+    }
+  } catch (error) {
+    return hostFailure(
+      "host.composition",
+      "The local execution host could not be composed.",
+      error);
+  }
+
+  try {
+    return await execute(Object.freeze({
+      request,
+      signal: invocation.signal,
+      stderr: invocation.stderr,
+      stdout: invocation.stdout,
+    }));
+  } catch (error) {
+    return hostFailure("host.execution", "The local execution host failed.", error, "execution");
+  }
+}
+
+function contractFailure(cause) {
   return failedExecutionResult(
     "contractFailure",
     "validation",
     "host.contract",
-    "The execution request does not match the selected deployment.");
+    "The execution request does not match the selected deployment.",
+    cause);
 }
 
 function callerCancellation() {
@@ -154,8 +162,8 @@ function callerCancellation() {
     "Execution was cancelled by the caller.");
 }
 
-function hostFailure(code, message, phase = "validation") {
-  return failedExecutionResult("hostFailure", phase, code, message);
+function hostFailure(code, message, cause, phase = "validation") {
+  return failedExecutionResult("hostFailure", phase, code, message, cause);
 }
 
 function validateText(value, label) {

@@ -5,4 +5,5 @@ public enum ManagedAddressTakenValuePromotion
     Auto,
     Disabled,
     Enabled,
+    References,
 }

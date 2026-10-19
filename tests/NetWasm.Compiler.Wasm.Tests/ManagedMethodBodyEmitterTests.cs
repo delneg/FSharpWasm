@@ -43,6 +43,8 @@ public sealed class ManagedMethodBodyEmitterTests
         {
             MemberExecution = MemberExecutionPlan.Empty with { MethodInvokers = [EntryKey] },
             EnableAddressTakenAggregatePromotion = true,
+            HoistArrayNullChecks = true,
+            EnableLoopRotation = true,
             ManagedByRefEffects = new(
                 ImmutableDictionary<string, ManagedByRefMethodEffects>.Empty.Add(
                     "Tests.Caller",
@@ -127,6 +129,8 @@ public sealed class ManagedMethodBodyEmitterTests
         Assert.Same(target.NativeImports, methods.NativeImports);
         Assert.Same(target.MemberExecution, methods.MemberExecution);
         Assert.Same(byRefEffects, methods.ByRefEffects);
+        Assert.True(methods.HoistArrayNullChecks);
+        Assert.True(methods.RotateLoops);
         Assert.Same(promotionPlan, methods.AddressTakenScalarPromotions);
         Assert.Same(
             aggregatePromotionPlan,
@@ -380,7 +384,7 @@ public sealed class ManagedMethodBodyEmitterTests
                 new GeneratedFunctionWriterFactory(),
                 new InstructionCountingWriterFactory(), new TerminalBranchValueFramePlanner(),
                 new ArrayMetadataCachingPlanner(types),
-                new ArrayMetadataSnapshotEmitter(layouts, layouts, addresses),
+                new ArrayMetadataSnapshotEmitter(layouts, layouts, addresses, new ImplicitExceptionEmitter(layouts, layouts, 7)),
                 new ScalarCallLifetimePlanner(new ControlFlowGraphBuilderFactory().Create(),
                     new ControlFlowNaturalLoopAnalyzer(new ControlFlowDominanceAnalyzer())),
                 new AuthoritativeRootSourceSelector(), new AuthoritativeRootLayoutPlanner(), new RootClearElisionPlanner(), new RootValueElisionPlanner()),
@@ -396,7 +400,7 @@ public sealed class ManagedMethodBodyEmitterTests
                     new StructuredConditionValueEmitter(layouts),
                     new ControlFlowDispatcherEmitter(
                         new DispatcherBranchTablePlanner()),
-                    new ArrayMetadataSnapshotEmitter(layouts, layouts, addresses)),
+                    new ArrayMetadataSnapshotEmitter(layouts, layouts, addresses, new ImplicitExceptionEmitter(layouts, layouts, 7))),
                 new StructuredLeaveEmitter(),
                 new BranchComparisonEmitter(
                     layouts,
@@ -472,6 +476,10 @@ public sealed class ManagedMethodBodyEmitterTests
 
         public ManagedAggregateSsaPlan? ManagedAggregateValues { get; private set; }
 
+        public bool HoistArrayNullChecks { get; private set; }
+
+        public bool RotateLoops { get; private set; }
+
         public ManagedMethodEmission Emit(
 MethodDefinitionModel method,
 ManagedMethodIdentity callerIdentity,
@@ -491,9 +499,13 @@ StructuredMethod structured,
             ManagedAggregateSsaPlan? managedAggregateValues = null,
             bool enableBranchValueFramePlacement = false,
             bool enableArrayMetadataCaching = false,
-            bool enableScalarCallPreservation = false)
+            bool enableScalarCallPreservation = false,
+            bool hoistArrayNullChecks = false,
+            bool rotateLoops = false)
         {
             Method = method;
+            HoistArrayNullChecks = hoistArrayNullChecks;
+            RotateLoops = rotateLoops;
             Structured = structured;
             NativeImports = nativeImports;
             MemberExecution = memberExecution;

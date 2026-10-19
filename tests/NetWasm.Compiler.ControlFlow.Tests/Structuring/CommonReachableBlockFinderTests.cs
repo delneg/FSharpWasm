@@ -26,20 +26,20 @@ public sealed class CommonReachableBlockFinderTests
     {
         public Dictionary<int, ImmutableHashSet<int>> Find(ControlFlowStructuringState state,
             int? stop, ImmutableHashSet<int> allowed) => new()
-        {
-            [1] = [1, 3, 4],
-            [2] = [2, 4],
-        };
+            {
+                [1] = [1, 3, 4],
+                [2] = [2, 4],
+            };
     }
 
     private sealed class Distances : IControlFlowDistanceFinder
     {
         public Dictionary<int, int> Find(ControlFlowStructuringState state, int start,
             int? stop, ImmutableHashSet<int> allowed) => new()
-        {
-            [start] = 0,
-            [3] = 1,
-            [4] = 2,
-        };
+            {
+                [start] = 0,
+                [3] = 1,
+                [4] = 2,
+            };
     }
 }

@@ -52,4 +52,17 @@ internal sealed class FunctionIndexResolver(
         method.IsConstructed
             ? Resolve(method.CanonicalName)
             : Resolve(method.Definition.Key);
+
+    public int Resolve(InteropImportKey import)
+    {
+        if (indices.TryGetInteropImport(import.Method, out var index))
+        {
+            return index.Value;
+        }
+
+        throw new CompilerException(new CompilerDiagnostic(
+            DiagnosticCode.RuntimeContract,
+            $"interop method '{symbols.Format(methods.GetMethod(import.Method))}' " +
+            $"({import.Method}) has no imported Wasm function"));
+    }
 }

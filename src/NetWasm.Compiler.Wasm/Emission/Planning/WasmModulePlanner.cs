@@ -22,6 +22,7 @@ internal sealed record WasmModulePlan(
     public int StaticInitializerFunctionBase { get; init; }
     public NativeImportPlan NativeImports { get; init; } = NativeImportPlan.Empty;
     public NativeCallbackPlan NativeCallbacks { get; init; } = NativeCallbackPlan.Empty;
+    public ImmutableArray<MethodInstanceModel> JSImportForwarders { get; init; } = [];
 }
 
 internal sealed class WasmModulePlanner(

@@ -5,4 +5,5 @@ public enum ManagedLoopInvariantFieldHoisting
     Auto,
     Disabled,
     Enabled,
+    NullChecks,
 }

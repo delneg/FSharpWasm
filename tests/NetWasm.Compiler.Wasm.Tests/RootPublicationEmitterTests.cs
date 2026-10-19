@@ -5,6 +5,7 @@ using NetWasm.Compiler.Wasm.Emission;
 using NetWasm.Compiler.Wasm.Emission.Instructions;
 using NetWasm.Compiler.Wasm.Emission.Instructions.Runtime;
 using NetWasm.Compiler.Wasm.Emission.Methods;
+using NetWasm.Compiler.Wasm.Emission.Values;
 using NetWasm.Compiler.Wasm.Encoding;
 
 namespace NetWasm.Compiler.Wasm.Tests;
@@ -495,6 +496,46 @@ public sealed class RootPublicationEmitterTests
             emitter.Emit(missing, GetCodeWriter(missing)));
         Assert.Empty(GetCodeBytes(missing));
         Assert.Equal(0, filterRoots.Calls);
+    }
+
+    [Theory]
+    [InlineData(WasmTarget.Wasm32)]
+    [InlineData(WasmTarget.Wasm64)]
+    public void PromotedAggregateLanesPublishTheirLocalInsteadOfTheStaleFrame(WasmTarget target)
+    {
+        var argument = new RootSource(RootSourceKind.Argument, 1, 0);
+        var local = new RootSource(RootSourceKind.Local, 2, 8);
+        var unpromoted = new RootSource(RootSourceKind.Local, 3, 0);
+        var direct = new RootSource(RootSourceKind.Local, 2);
+        var stack = new RootSource(RootSourceKind.EvaluationStack, 0, 0);
+        RootSource[] roots = [argument, local, unpromoted, direct, stack];
+        var argumentStorage = new ManagedAggregateStorageId(ManagedAggregateStorageKind.Argument, 1);
+        var localStorage = new ManagedAggregateStorageId(ManagedAggregateStorageKind.Local, 2);
+        var context = CreateMethodEmissionContext() with
+        {
+            RootMap = new(EntryKey,
+                roots.Select((source, slot) => (source, slot)).ToImmutableDictionary(pair => pair.source, pair => pair.slot),
+                ImmutableDictionary<int, SafepointRootMap>.Empty.Add(0, new(0, [.. roots], []))),
+            ManagedAggregateValues = new(ManagedAggregateSsaPlan.Empty, ImmutableDictionary<ManagedAggregateSsaLane, int>.Empty
+                .Add(new(argumentStorage, 0), 40)
+                .Add(new(localStorage, 8), 41)),
+        };
+        var code = new RecordingInstructionWriter();
+
+        CreateEmitter(new RecordingLayoutProvider(WasmTargetLayout.For(target)))
+            .Emit(CreateInstructionRequest(CilOperation.Call, context: context), code);
+
+        // Each slot store follows the value it publishes; the promoted lanes are read directly.
+        var instructions = code.ToInstructions();
+        var store = target == WasmTarget.Wasm32 ? WasmOpcodes.I32Store : WasmOpcodes.I64Store;
+        var published = instructions.Select((instruction, index) => (instruction, index))
+            .Where(pair => pair.instruction.Opcode == store)
+            .Select(pair => instructions[pair.index - 1])
+            .ToArray();
+        Assert.Equal(5, published.Length);
+        Assert.Equal((WasmOpcodes.LocalGet, 40u), (published[0].Opcode, published[0].Operand.UnsignedValue));
+        Assert.Equal((WasmOpcodes.LocalGet, 41u), (published[1].Opcode, published[1].Operand.UnsignedValue));
+        Assert.NotEqual(WasmOpcodes.LocalGet, published[2].Opcode);
     }
 
     private static IRootPublicationEmitter CreateEmitter(

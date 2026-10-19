@@ -15,7 +15,20 @@ public sealed record WorkerJavaScriptExport(
     string Name,
     ImmutableArray<string> Parameters,
     string Result,
-    string? AsyncReturn);
+    string? AsyncReturn)
+{
+    /// <summary>The managed parameter names; generated clients fall back to <c>argument{index}</c>.</summary>
+    public ImmutableArray<string> ParameterNames { get; init; } = [];
+
+    /// <summary>Parameters declared non-nullable, which TypeScript types without <c>| null</c>.</summary>
+    public ImmutableArray<bool> NonNullableParameters { get; init; } = [];
+
+    /// <summary>Whether the result is declared non-nullable.</summary>
+    public bool NonNullableResult { get; init; }
+
+    public bool IsNullableParameter(int index) =>
+        index >= NonNullableParameters.Length || !NonNullableParameters[index];
+}
 
 public sealed record WorkerEnvironmentVariable(string Name, string Value);
 
@@ -47,17 +60,6 @@ public interface IWorkerEntryWriter
 
 public sealed partial class WorkerEntryWriter : IWorkerEntryWriter
 {
-    private static readonly HashSet<string> ReservedExportNames =
-        new(StringComparer.Ordinal)
-        {
-            "__proto__",
-            "constructor",
-            "dispose",
-            "prototype",
-            "terminate",
-            "then",
-        };
-
     public void WriteHost(WorkerHostEntryRequest request)
     {
         ValidateHost(request);
@@ -66,8 +68,8 @@ public sealed partial class WorkerEntryWriter : IWorkerEntryWriter
         AppendLine(source, $"import {{ bindWorkerImports }} from {ModuleSpecifier(Path.Combine(request.HostingJavaScriptRoot, "worker-import-bindings.mjs"))};");
         AppendLine(source, $"import {{ createBrowserRawExportSession }} from {ModuleSpecifier(Path.Combine(request.HostingJavaScriptRoot, "browser-raw-export-session.mjs"))};");
         AppendLine(source, $"import {{ createWorkerSessionHost }} from {ModuleSpecifier(Path.Combine(request.HostingJavaScriptRoot, "worker-session-host.mjs"))};");
-        AppendLine(source, $"import {{ WASIShim }} from {ModuleSpecifier(Path.Combine(request.Preview2ShimRoot, "dist", "common", "instantiation.js"))};");
-        AppendLine(source, $"import {{ createFilesystem, InMemoryFilesystemAdapter }} from {ModuleSpecifier(Path.Combine(request.Preview2ShimRoot, "dist", "browser", "filesystem.js"))};");
+        AppendLine(source, $"import {{ mergeEnvironment }} from {ModuleSpecifier(Path.Combine(request.HostingJavaScriptRoot, "session-options.mjs"))};");
+        BrowserHostSource.AppendImports(source, request.Preview2ShimRoot);
         for (var index = 0; index < imports.Length; index++)
         {
             AppendLine(source, $"import * as consumer{index} from {ModuleSpecifier(imports[index].SourcePath)};");
@@ -82,12 +84,6 @@ public sealed partial class WorkerEntryWriter : IWorkerEntryWriter
         source.AppendLine("  queueMicrotask(() => { throw error; });");
         source.AppendLine("  globalThis.close();");
         source.AppendLine("}");
-        source.AppendLine("const output = name => Object.freeze({");
-        source.AppendLine("  write(bytes) {");
-        source.AppendLine("    const text = new TextDecoder().decode(bytes);");
-        source.AppendLine("    console[name](text.endsWith(\"\\n\") ? text.slice(0, -1) : text);");
-        source.AppendLine("  },");
-        source.AppendLine("});");
         source.AppendLine("function createConsumerModules(notify) {");
         for (var index = 0; index < imports.Length; index++)
         {
@@ -105,41 +101,19 @@ public sealed partial class WorkerEntryWriter : IWorkerEntryWriter
             source.AppendLine("  }),");
         }
         source.AppendLine("}); }");
+        source.AppendLine("const configuration = Object.freeze({");
+        BrowserHostSource.AppendConfiguration(source, "  ", [], request.Arguments, request.Environment,
+            request.Clocks, request.Network, request.Randomness);
+        source.AppendLine("});");
         source.AppendLine("function open(request) { const openSession = createBrowserRawExportSession({");
-        source.AppendLine("  configuration: Object.freeze({");
-        source.AppendLine("    applicationImports: Object.freeze([]),");
-        AppendLine(source, $"    arguments: Object.freeze({Json(request.Arguments)}),");
-        source.AppendLine("    environment: Object.freeze([");
-        foreach (var variable in request.Environment)
-        {
-            AppendLine(source, $"      Object.freeze({{ name: {Json(variable.Name)}, value: {Json(variable.Value)} }}),");
-        }
-        source.AppendLine("    ]),");
-        source.AppendLine("    grants: Object.freeze({");
-        AppendLine(source, $"      clocks: Object.freeze({Json(request.Clocks)}),");
-        AppendLine(source, $"      environment: Object.freeze({Json(request.Environment.Select(variable => variable.Name))}),");
-        AppendLine(source, $"      network: {Json(request.Network)},");
-        source.AppendLine("      preopens: Object.freeze([]),");
-        AppendLine(source, $"      randomness: {request.Randomness.ToString().ToLowerInvariant()},");
-        source.AppendLine("    }),");
-        source.AppendLine("  }),");
+        source.AppendLine("  configuration: mergeEnvironment(configuration, request.environment),");
         source.AppendLine("  consumerModules: createConsumerModules(request.notify),");
         source.AppendLine("  manifestUrl,");
         source.AppendLine("  platform: Object.freeze({");
-        source.AppendLine("    compileCoreModule: WebAssembly.compile.bind(WebAssembly),");
-        source.AppendLine("    createFilesystem({ preopens }) {");
-        source.AppendLine("      if (Object.keys(preopens).length !== 0) throw new TypeError(\"browser preopens require explicit capabilities\");");
-        source.AppendLine("      return createFilesystem({ adapter: new InMemoryFilesystemAdapter(), preopens: Object.freeze({}) });");
-        source.AppendLine("    },");
-        source.AppendLine("    createModuleUrl: bytes => URL.createObjectURL(new Blob([bytes], { type: \"text/javascript\" })),");
-        source.AppendLine("    createShim: configuration => new WASIShim(configuration),");
-        source.AppendLine("    digest: crypto.subtle.digest.bind(crypto.subtle),");
-        source.AppendLine("    fetch: globalThis.fetch.bind(globalThis),");
-        source.AppendLine("    importModule: url => import(url),");
-        source.AppendLine("    revokeModuleUrl: URL.revokeObjectURL.bind(URL),");
+        BrowserHostSource.AppendPlatformMembers(source, "    ");
         source.AppendLine("  }),");
-        source.AppendLine("  stderr: output(\"error\"),");
-        source.AppendLine("  stdout: output(\"log\"),");
+        source.AppendLine("  stderr: request.stderr,");
+        source.AppendLine("  stdout: request.stdout,");
         source.AppendLine("});");
         source.AppendLine("return openSession({ startup: request.startup }); }");
         source.AppendLine("const host = createWorkerSessionHost({");
@@ -168,6 +142,7 @@ public sealed partial class WorkerEntryWriter : IWorkerEntryWriter
         source.AppendLine("  const session = createWorkerSessionClient({");
         source.AppendLine("    generation: crypto.randomUUID(),");
         source.AppendLine("    operations, onNotification,");
+        source.AppendLine("    environment: options.environment, stderr: options.stderr, stdout: options.stdout,");
         source.AppendLine("    startup: Object.freeze({");
         AppendLine(source, $"      buildFingerprint: {Json(request.BuildFingerprint)},");
         AppendLine(source, $"      manifestSha256: {Json(request.ManifestSha256)},");
@@ -178,8 +153,7 @@ public sealed partial class WorkerEntryWriter : IWorkerEntryWriter
         source.AppendLine("  return Object.freeze({");
         foreach (var export in exports)
         {
-            var arguments = string.Join(", ", Enumerable.Range(0, export.Parameters.Length)
-                .Select(index => $"argument{index}"));
+            var arguments = string.Join(", ", WorkerJavaScriptExportRealm.Instance.ParameterNames(export));
             var parameters = string.IsNullOrEmpty(arguments)
                 ? "options"
                 : $"{arguments}, options";
@@ -202,32 +176,14 @@ public sealed partial class WorkerEntryWriter : IWorkerEntryWriter
         source.AppendLine("  timeoutMilliseconds?: number;");
         source.AppendLine("}");
         source.AppendLine("export interface NetWasmWorkerClient {");
-        foreach (var export in exports)
-        {
-            var values = export.Parameters.Select(
-                (type, index) => $"argument{index}: {TypeScriptType(type, allowVoid: false)}");
-            var parameters = string.Join(", ", values.Append("options?: NetWasmWorkerCallOptions"));
-            AppendLine(source, $"  {Json(export.Name)}({parameters}): Promise<{TypeScriptType(export.Result, allowVoid: true)}>;");
-        }
+        JavaScriptExportSurface.AppendMembers(source, WorkerJavaScriptExportRealm.Instance, exports);
         source.AppendLine("  dispose(): Promise<void>;");
         source.AppendLine("  terminate(): void;");
         source.AppendLine("}");
-        source.AppendLine("export interface NetWasmWorkerStartupOptions { onNotification?: (value: { operation: string; arguments: unknown[] }) => void | Promise<void>; }");
+        source.AppendLine("export interface NetWasmWorkerStartupOptions { environment?: Record<string, string>; stdout?: (line: string) => void; stderr?: (line: string) => void; onNotification?: (value: { operation: string; arguments: unknown[] }) => void | Promise<void>; }");
         source.AppendLine("export declare function createWorker(options?: NetWasmWorkerStartupOptions): Promise<NetWasmWorkerClient>;");
         return source.ToString();
     }
-
-    private static string TypeScriptType(string value, bool allowVoid) => value switch
-    {
-        "void" when allowVoid => "void",
-        "bool" => "boolean",
-        "char" => "string",
-        "string" => "string | null",
-        "i64" or "u64" => "bigint",
-        "bytes" => "Uint8Array | null",
-        "i8" or "u8" or "i16" or "u16" or "i32" or "u32" or "f32" or "f64" => "number",
-        _ => throw new ArgumentException($"Worker JavaScript ABI type '{value}' is unsupported."),
-    };
 
     private static void ValidateHost(WorkerHostEntryRequest request)
     {
@@ -272,19 +228,7 @@ public sealed partial class WorkerEntryWriter : IWorkerEntryWriter
         {
             throw new ArgumentException("Worker client publication contract is invalid.", nameof(request));
         }
-        var names = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var export in request.Exports)
-        {
-            ArgumentNullException.ThrowIfNull(export);
-            if (string.IsNullOrWhiteSpace(export.Name) || ReservedExportNames.Contains(export.Name)
-                || !names.Add(export.Name) || export.Parameters.IsDefault
-                || export.AsyncReturn is not null and not "task" and not "value-task")
-            {
-                throw new ArgumentException("Worker JavaScript exports are invalid.", nameof(request));
-            }
-            foreach (var parameter in export.Parameters) TypeScriptType(parameter, allowVoid: false);
-            TypeScriptType(export.Result, allowVoid: true);
-        }
+        JavaScriptExportSurface.Validate(WorkerJavaScriptExportRealm.Instance, request.Exports);
     }
 
     private static void ValidateApplicationModule(string module)
@@ -305,8 +249,7 @@ public sealed partial class WorkerEntryWriter : IWorkerEntryWriter
         }
     }
 
-    private static string ModuleSpecifier(string path) =>
-        Json(new Uri(Path.GetFullPath(path)).AbsoluteUri);
+    private static string ModuleSpecifier(string path) => BrowserHostSource.ModuleSpecifier(path);
 
     private static string Json(string value) => JsonSerializer.Serialize(value);
 

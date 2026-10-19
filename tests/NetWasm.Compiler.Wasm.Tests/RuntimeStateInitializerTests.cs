@@ -326,6 +326,7 @@ public sealed class RuntimeStateInitializerTests
 
         Assert.True(rootRegistration < readinessStore);
         Assert.True(readinessStore < moduleInitializer);
+        Assert.DoesNotContain(instructions, instruction => instruction.Opcode == WasmOpcodes.If);
         Assert.Equal(WasmOpcodes.I32Constant, instructions[readinessStore - 1].Opcode);
         Assert.Equal(1, instructions[readinessStore - 1].Operand.SignedValue);
         var address = instructions[readinessStore - 2];
@@ -342,6 +343,75 @@ public sealed class RuntimeStateInitializerTests
         {
             Assert.Equal(300, address.Operand.Signed64Value);
         }
+    }
+
+    [Theory]
+    [InlineData(WasmTarget.Wasm32)]
+    [InlineData(WasmTarget.Wasm64)]
+    public void PlannedStateRegistrationGuardLimitsRegistrationsToTheFirstEntry(
+        WasmTarget target)
+    {
+        var code = new GeneratedFunctionWriterFactory().Create();
+        var writer = new EmitterTestSupport.RecordingInstructionWriter();
+        var recordingCode = new GeneratedFunctionWriterLease(
+            code.Bytes,
+            code.Snapshots,
+            writer);
+        var imports = WasmRuntimeImports.CreateCatalog();
+        var plan = TestRuntimeInitialization.Create(512) with
+        {
+            StateRegistrationGuardAddress = 320,
+            NativeCallbackReadinessAddress = 300,
+            ModuleInitializers = [new ModuleInitializerCall(256, 37)],
+        };
+
+        new RuntimeStateInitializer(
+            new FixedTypeDescriptorSource(
+                [new(EmitterTestSupport.TypeKey, 1, 0, 16, 100, 3, null)],
+                [],
+                [new(CliTypeIdentity.FromStackKind(CliValueKind.I8), 4, 8, 8, 112, 6)]),
+            new FixedStaticDataLayout([200, 204]),
+            imports,
+            new AddressInstructionEmitter(new RecordingLayoutProvider(WasmTargetLayout.For(target))),
+            new RecordingRuntimeCoreInitializer()).Initialize(recordingCode, plan);
+
+        var instructions = writer.ToInstructions();
+        int IndexOf(Func<WasmInstruction, bool> predicate) =>
+            Enumerable.Range(0, instructions.Length).Single(index => predicate(instructions[index]));
+        int[] CallsTo(RuntimeImportSymbol symbol) =>
+        [
+            .. Enumerable.Range(0, instructions.Length).Where(index =>
+                instructions[index].Opcode == WasmOpcodes.Call &&
+                instructions[index].Operand.UnsignedValue == (uint)imports.Resolve(symbol)),
+        ];
+        bool IsAddress(WasmInstruction instruction, int value) => target == WasmTarget.Wasm32
+            ? instruction.Opcode == WasmOpcodes.I32Constant && instruction.Operand.SignedValue == value
+            : instruction.Opcode == WasmOpcodes.I64Constant && instruction.Operand.Signed64Value == value;
+
+        var load = IndexOf(instruction => instruction.Opcode == WasmOpcodes.I32Load);
+        var guardIf = IndexOf(instruction => instruction.Opcode == WasmOpcodes.If);
+        var guardEnd = IndexOf(instruction => instruction.Opcode == WasmOpcodes.End);
+        var stores = Enumerable.Range(0, instructions.Length)
+            .Where(index => instructions[index].Opcode == WasmOpcodes.I32Store)
+            .ToArray();
+        var registrations = CallsTo(RuntimeImportSymbol.RegisterType)
+            .Concat(CallsTo(RuntimeImportSymbol.RegisterValueType))
+            .Concat(CallsTo(RuntimeImportSymbol.RegisterStaticRoot))
+            .ToArray();
+
+        Assert.True(IsAddress(instructions[load - 1], 320));
+        Assert.Equal(WasmOpcodes.I32EqualZero, instructions[load + 1].Opcode);
+        Assert.Equal(load + 2, guardIf);
+        Assert.Equal(4, registrations.Length);
+        Assert.All(registrations, index => Assert.InRange(index, guardIf + 1, stores[0] - 1));
+        Assert.Equal(2, stores.Length);
+        Assert.True(IsAddress(instructions[stores[0] - 2], 320));
+        Assert.Equal(1, instructions[stores[0] - 1].Operand.SignedValue);
+        Assert.Equal(stores[0] + 1, guardEnd);
+        Assert.True(IsAddress(instructions[stores[1] - 2], 300));
+        Assert.True(guardEnd < stores[1]);
+        Assert.True(stores[1] < IndexOf(instruction =>
+            instruction.Opcode == WasmOpcodes.Call && instruction.Operand.UnsignedValue == 37));
     }
 
     private static byte[] Emit(

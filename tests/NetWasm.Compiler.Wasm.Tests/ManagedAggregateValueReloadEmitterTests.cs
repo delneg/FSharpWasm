@@ -70,6 +70,8 @@ public sealed class ManagedAggregateValueReloadEmitterTests
         var high = new ManagedAggregateSsaLane(storage, 4);
         var plan = ManagedAggregateSsaPlan.Empty with
         {
+            Storages = ImmutableDictionary<ManagedAggregateStorageId, ManagedAggregateStorage>.Empty
+                .Add(storage, new(storage, CliTypeIdentity.FromStackKind(CliValueKind.I8), 8, true)),
             Materializations = [new(new(10, storage, ReloadAfter: true), [])
             {
                 Reloads = [new(low, new(2)), new(high, new(3))],

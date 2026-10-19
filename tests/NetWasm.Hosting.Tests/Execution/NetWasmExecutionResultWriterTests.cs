@@ -30,6 +30,18 @@ public sealed class NetWasmExecutionResultWriterTests
     }
 
     [Fact]
+    public void WritesDetailOnlyForFailuresThatCarryOne()
+    {
+        var detailed = ExecutionResultFixture.Failure() with { Detail = "Error: provider import failed" };
+        var plain = ExecutionResultFixture.Failure(NetWasmFailurePhase.Cleanup, "scope.close", "Scope close failed.");
+        var bytes = new NetWasmExecutionResultWriter(new NetWasmExecutionResultValidator())
+            .Write(ExecutionResultFixture.Failed(primary: detailed, cleanupFailures: [plain]));
+        using var json = JsonDocument.Parse(bytes);
+        Assert.Equal("Error: provider import failed", json.RootElement.GetProperty("primaryFailure").GetProperty("detail").GetString());
+        Assert.False(json.RootElement.GetProperty("cleanupFailures")[0].TryGetProperty("detail", out _));
+    }
+
+    [Fact]
     public void PropagatesValidationFailureBeforeSerializing()
     {
         var result = ExecutionResultFixture.Normal();

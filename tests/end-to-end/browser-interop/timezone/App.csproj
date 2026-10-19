@@ -1,0 +1,16 @@
+<Project Sdk="NetWasm.Sdk">
+  <PropertyGroup>
+    <TargetFramework>netwasm0.1</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>BrowserTimeZone</AssemblyName>
+    <NetWasmPublishTarget>browser</NetWasmPublishTarget>
+    <NetWasmTimeZoneMode>Selected</NetWasmTimeZoneMode>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+  <ItemGroup>
+    <NetWasmTimeZone Include="Australia/Melbourne;America/New_York" />
+    <Content Include="index.html;app.mjs" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

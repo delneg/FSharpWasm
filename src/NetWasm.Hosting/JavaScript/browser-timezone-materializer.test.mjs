@@ -4,9 +4,10 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { createBrowserTimeZoneMaterializer } from "./browser-timezone-materializer.mjs";
 import { selectTimeZoneSidecar } from "./timezone-sidecar-selector.mjs";
+import { timeZoneContainer } from "./timezone-sidecar-zones.test.mjs";
 
 const manifestUrl = "https://example.test/deploy%20dir/app.netwasm.deployment.json";
-const bytes = Uint8Array.of(8, 9, 10);
+const bytes = timeZoneContainer([["Australia/Melbourne", 1]]);
 
 test("fetches, verifies, and mounts the segment-encoded browser sidecar", async () => {
   const fixture = createFixture();

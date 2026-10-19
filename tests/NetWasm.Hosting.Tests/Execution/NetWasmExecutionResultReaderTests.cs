@@ -29,6 +29,20 @@ public sealed class NetWasmExecutionResultReaderTests
         Assert.Equal(1, calls);
     }
 
+    [Fact]
+    public void ReadsTheDetailAJavaScriptHostRecords()
+    {
+        const string json = """
+            {"schemaVersion":1,"completionKind":"contractFailure","exitCode":null,
+             "primaryFailure":{"phase":"validation","code":"contract.invalid","message":"Execution contract validation failed.",
+               "detail":"TypeError: platform capability 'wallClock' was not granted"},
+             "cleanupFailures":[{"phase":"cleanup","code":"host.release","message":"Release failed."}]}
+            """;
+        var result = new NetWasmExecutionResultReader(new NetWasmExecutionResultValidator()).Read(Encoding.UTF8.GetBytes(json));
+        Assert.Equal("TypeError: platform capability 'wallClock' was not granted", result.PrimaryFailure!.Detail);
+        Assert.Null(Assert.Single(result.CleanupFailures).Detail);
+    }
+
     [Theory]
     [InlineData("")]
     [InlineData("null")]

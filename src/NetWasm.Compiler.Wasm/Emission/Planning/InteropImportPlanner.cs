@@ -33,7 +33,7 @@ internal sealed class InteropImportPlanner : IInteropImportPlanner
             request.RequestedExports,
             request.MethodInstances);
         var hasStrings = request.JSImportMethods.Any(method =>
-            InteropTypeClassifier.IsString(method.Signature.ReturnSignatureType)) ||
+            InteropTypeClassifier.IsString(ImportResult(method))) ||
             request.HostCallbacks.Any(callback => callback.Invoke.Signature
                 .ParameterSignatureTypes.Any(InteropTypeClassifier.IsString)) ||
             useJavaScriptExportBoundary &&
@@ -43,18 +43,22 @@ internal sealed class InteropImportPlanner : IInteropImportPlanner
                 InteropTypeClassifier.IsString(
                     method.Signature.ReturnSignatureType));
         var hasBytes = request.JSImportMethods.Any(method =>
-            InteropTypeClassifier.IsByteArray(method.Signature.ReturnSignatureType)) ||
+            InteropTypeClassifier.IsValueArray(ImportResult(method))) ||
             request.HostCallbacks.Any(callback => callback.Invoke.Signature
-                .ParameterSignatureTypes.Any(InteropTypeClassifier.IsByteArray)) ||
+                .ParameterSignatureTypes.Any(InteropTypeClassifier.IsValueArray)) ||
             useJavaScriptExportBoundary &&
             requestedExports.Values.Any(method =>
                 method.Signature.ParameterSignatureTypes.Any(
-                    InteropTypeClassifier.IsByteArray) ||
-                InteropTypeClassifier.IsByteArray(
+                    InteropTypeClassifier.IsValueArray) ||
+                InteropTypeClassifier.IsValueArray(
                     method.Signature.ReturnSignatureType));
         var hasObjects = request.JSImportMethods.Any(method =>
-            InteropTypeClassifier.IsHostObject(method.Signature.ReturnSignatureType) ||
-            method.Signature.ParameterSignatureTypes.Any(InteropTypeClassifier.IsHostObject));
+            InteropTypeClassifier.IsHostObject(ImportResult(method)) ||
+            method.Signature.ParameterSignatureTypes.Any(InteropTypeClassifier.IsHostObject)) ||
+            useJavaScriptExportBoundary &&
+            requestedExports.Values.Any(method =>
+                method.Signature.ParameterSignatureTypes.Any(InteropTypeClassifier.IsJSObject) ||
+                InteropTypeClassifier.IsJSObject(method.Signature.ReturnSignatureType));
         var hasSubscriptions = request.JSImportMethods.Any(method =>
             InteropTypeClassifier.IsSubscription(method.Signature.ReturnSignatureType));
         var imports = ImmutableArray.CreateBuilder<WasmFunctionImport>();
@@ -92,6 +96,11 @@ internal sealed class InteropImportPlanner : IInteropImportPlanner
             copyBytes,
             useJavaScriptExportBoundary);
     }
+
+    // An async import settles with the Task's result, which marshals like a synchronous one.
+    private static CliTypeIdentity ImportResult(MethodDefinitionModel method) =>
+        JavaScriptAsyncSignature.Classify(method.Signature.ReturnSignatureType).ResultType
+            ?? method.Signature.ReturnSignatureType;
 
     private static OptionalFunctionIndex Append(
         ImmutableArray<WasmFunctionImport>.Builder destination,

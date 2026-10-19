@@ -22,7 +22,8 @@ internal sealed class ArrayLoopUnrollingPlanner(
         var plans = ImmutableArray.CreateBuilder<ArrayLoopUnrollingPlan>();
         foreach (var loop in _induction.Analyze(controlFlow))
         {
-            if (loop.LoopBlocks.Count != 2) continue;
+            // Unrolled guards test index + factor - 1, which assumes a plain index guard.
+            if (loop.LoopBlocks.Count != 2 || loop.Lookahead != 0) continue;
             var guard = graph.GetBlock(loop.GuardBlock);
             var body = graph.GetBlock(loop.BodyEntryBlock);
             if (!controlFlow.EntryStacks[body.Index].IsEmpty) continue;

@@ -116,6 +116,7 @@ or raw output. Async code alone is not a reason to set `NetWasmRawWasm=true`.
 | Synchronous `Main` | Default `command` contract | Component by default; raw is optional |
 | Suspending `Task Main` or `Task<int> Main` | `NetWasmComponentContract=async-command` | Component by default; raw is optional |
 | Reachable application-owned `[JSImport]` | Contract chosen from the entry point, plus `NetWasmRawWasm=true` | Raw |
+| C# exports that JavaScript calls, with no `Main` | `OutputType=JsModule` and `NetWasmJavaScriptHosts` | Raw, with a generated `open()` module |
 
 For example, a suspending entry point that directly imports an application
 JavaScript module uses both settings for separate reasons:
@@ -144,12 +145,13 @@ declare the module file in the application project:
 
 ```xml
 <ItemGroup>
-  <NetWasmWorkerJavaScriptModule Include="page-host.mjs" Module="app.host" />
+  <NetWasmJavaScriptModule Include="page-host.mjs" Module="app.host" />
 </ItemGroup>
 ```
 
-Despite its name, this item also applies to ordinary raw browser applications.
-The SDK bundles the module into the generated browser bootstrap. Plain names
+The same item supplies modules to `JsModule` projects and to ordinary raw
+browser applications. The SDK bundles the module into the generated browser
+bootstrap. Plain names
 such as `app.host` work here; this route does not require a versioned application
 provider or a copied bootstrap. When the bootstrap runs on the page, the module
 runs in that page's realm and can access its DOM:
@@ -162,9 +164,12 @@ export function report(value) {
 ```
 
 Publish with `NetWasmPublishTarget=browser`, serve the publish directory over
-HTTP, and import `executeNetWasm` from `./browser/netwasm.browser.mjs` in the
-page's module script. This is an authored module binding; the host does not read
-a global module registry. Custom hosts can instead use their declared
+HTTPS or from `localhost`, and call the generated `run()` from
+`./browser/<AssemblyName>.mjs` in the page's module script. It starts the
+published deployment with the project's arguments, environment and grants; see
+[JavaScript interop](javascript-interop.md) for its options and for
+`executeNetWasm`, which takes a request you build yourself. This is an authored
+module binding; the host does not read a global module registry. Custom hosts can instead use their declared
 application-provider contracts. WASI-backed
 APIs supplied by NetWasm, including the supported HTTP profile, do not become
 application-owned `[JSImport]` modules
@@ -179,21 +184,24 @@ Configuration failures identify the mismatched boundary:
 - An entry point whose return shape does not match `command` or
   `async-command` is rejected rather than invoked through a guessed ABI.
 
-Worker templates select their own worker boundary and do not use the
-`command`/`async-command` properties. Use `dotnet new netwasm-app --worker wit`
-or `--worker jsexport` for those workflows. The
+JavaScript module and worker templates select their own boundary and do not use
+the `command`/`async-command` properties. Use `dotnet new netwasm-app --host page`,
+`--host worker` or `--worker wit` for those workflows. The
 [C# Web Workers guide](web-workers.md) covers both boundaries, generated clients,
 notifications, failure handling, and worker lifecycle.
 
 An `async-command` remains alive until its managed entry task completes. A
 JavaScript event can invoke a delegate registered through `[JSImport]` and
-complete that task. A service returning `JSSubscription` must return an object
+complete that task. When C# should keep answering JavaScript for the life of
+the page, publish a `JsModule` and call its exports instead of keeping `Main`
+waiting. A service returning `JSSubscription` must return an object
 with a `dispose()` method, such as `{ dispose() { /* remove the listener */ } }`.
 Release the subscription in a managed `finally` block. Output sinks passed to
 `executeNetWasm` must be frozen objects with a synchronous `write(bytes)` method.
 
-Command execution returns an execution outcome, not a live export table. The
-`jsexport` worker template generates a `*.worker-client.mjs` module:
+Command execution returns an execution outcome, not a live export table; a
+`JsModule` provides live exports on the page or in a worker. The
+`--host worker` template generates a `*.worker-client.mjs` module:
 `await createWorker({ onNotification })` waits for readiness and returns named
 Promise-based export methods. Worker code uses notifications to request DOM
 updates on the page. `dispose()` drains accepted calls before closing;

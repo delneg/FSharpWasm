@@ -14,6 +14,7 @@ internal sealed class SynchronousJSExportEmitter(
     IRuntimeStateInitializer runtimeInitialization,
     IHostCallbackStringArgumentMarshaller stringArguments,
     IHostCallbackByteArrayArgumentMarshaller byteArrayArguments,
+    IHostCallbackHostObjectArgumentMarshaller hostObjectArguments,
     IManagedTerminalExceptionBoundaryEmitter terminalExceptions,
     IManagedTerminalTrapBoundaryEmitter terminalTraps,
     IAddressInstructionEmitter addresses,
@@ -35,7 +36,8 @@ internal sealed class SynchronousJSExportEmitter(
             .Select((type, index) => (Type: type, Index: index))
             .Where(parameter =>
                 InteropTypeClassifier.IsString(parameter.Type) ||
-                InteropTypeClassifier.IsByteArray(parameter.Type))
+                InteropTypeClassifier.IsValueArray(parameter.Type) ||
+                InteropTypeClassifier.IsJSObject(parameter.Type))
             .ToArray();
         var parameterCount = method.WasmParameterTypes.Length;
         var temporaryI4 = parameterCount;
@@ -46,7 +48,10 @@ internal sealed class SynchronousJSExportEmitter(
             (parameter.Index, Slot: index)).ToDictionary();
         var nextLocal = objectTemporary + 1 + referenceParameters.Length;
         var hasResult = method.Signature.ReturnType != CliValueKind.Void;
-        var rootResult = method.Signature.ReturnType == CliValueKind.ManagedReference;
+        // A JSObject result leaves as its host handle; the host looks the value up.
+        var hostObjectResult = InteropTypeClassifier.IsJSObject(method.Signature.ReturnSignatureType);
+        var resultKind = hostObjectResult ? CliValueKind.I4 : method.Signature.ReturnType;
+        var rootResult = resultKind == CliValueKind.ManagedReference;
         var resultRootSlot = referenceParameters.Length;
         var rootSlotCount = referenceParameters.Length + (rootResult ? 1 : 0);
         var resultLocal = nextLocal;
@@ -62,7 +67,7 @@ internal sealed class SynchronousJSExportEmitter(
             code.Bytes,
             [CliValueKind.I4, CliValueKind.ManagedReference,
                 .. referenceParameters.Select(_ => CliValueKind.ManagedReference),
-                .. (hasResult ? [method.Signature.ReturnType] : Array.Empty<CliValueKind>()),
+                .. (hasResult ? [resultKind] : Array.Empty<CliValueKind>()),
                 CliValueKind.ManagedReference,
                 CliValueKind.ManagedAddress,
                 CliValueKind.I4,
@@ -92,6 +97,14 @@ internal sealed class SynchronousJSExportEmitter(
                         temporaryI4,
                         objectTemporary,
                         new InteropMarshallingTarget(interopImports));
+                }
+                else if (InteropTypeClassifier.IsJSObject(parameter.Type))
+                {
+                    hostObjectArguments.Emit(
+                        code.Instructions,
+                        parameter.Type,
+                        parameter.Index,
+                        referenceLocals[parameter.Index]);
                 }
                 else
                 {
@@ -126,7 +139,13 @@ internal sealed class SynchronousJSExportEmitter(
                 else WriteLocalGet(code, index);
             }
             WriteCall(code, functionIndices.Resolve(method.Key));
-            if (hasResult)
+            if (hostObjectResult)
+            {
+                WriteLocalSet(code, objectTemporary);
+                EmitHostObjectHandle(code, objectTemporary);
+                WriteLocalSet(code, resultLocal);
+            }
+            else if (hasResult)
                 WriteLocalSet(code, resultLocal);
             if (rootResult)
             {
@@ -186,7 +205,7 @@ internal sealed class SynchronousJSExportEmitter(
                 messageLengthLocal,
                 stackTraceLocal,
                 stackTraceLengthLocal,
-                method.Signature.ReturnType,
+                resultKind,
                 resultLocal,
                 runtimeImports.Resolve(
                     RuntimeImportSymbol.ManagedTerminalExceptionReport,
@@ -205,13 +224,31 @@ internal sealed class SynchronousJSExportEmitter(
         {
             terminalTraps.Emit(
                 code.Instructions,
-                method.Signature.ReturnType,
+                resultKind,
                 resultLocal,
                 EmitBody);
         }
         code.Instructions.Write(WasmInstruction.NoOperand(WasmOpcodes.Return));
         code.Instructions.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
         return code.Snapshots.Read();
+    }
+
+    private void EmitHostObjectHandle(GeneratedFunctionWriterLease code, int objectLocal)
+    {
+        WriteLocalGet(code, objectLocal);
+        addresses.Emit(code.Instructions, AddressOperation.EqualZero);
+        code.Instructions.Write(WasmInstruction.WithOperand(
+            WasmOpcodes.If,
+            WasmInstructionOperand.BlockType((byte)WasmValueType.I32)));
+        WriteI32Constant(code, 0);
+        code.Instructions.Write(WasmInstruction.NoOperand(WasmOpcodes.Else));
+        WriteLocalGet(code, objectLocal);
+        addresses.Emit(code.Instructions, layouts.Target.ObjectHeaderSize);
+        addresses.Emit(code.Instructions, AddressOperation.Add);
+        code.Instructions.Write(WasmInstruction.WithOperand(
+            WasmOpcodes.I32Load,
+            WasmInstructionOperand.Memory(2, 0)));
+        code.Instructions.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
     }
 
     private static void WriteLocalGet(GeneratedFunctionWriterLease code, int index) =>

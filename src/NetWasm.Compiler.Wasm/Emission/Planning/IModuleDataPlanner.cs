@@ -11,5 +11,6 @@ internal interface IModuleDataPlanner
         IReadOnlyList<EntityKey> directInitializers,
         IReadOnlyList<string> constructedInitializers,
         bool reserveNativeCallbackReadiness,
-        StackTraceMethodPlan? stackTraceMethods = null);
+        StackTraceMethodPlan? stackTraceMethods = null,
+        bool reserveStateRegistrationGuard = false);
 }

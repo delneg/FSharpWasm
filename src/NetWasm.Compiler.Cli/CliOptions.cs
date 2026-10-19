@@ -128,6 +128,11 @@ internal sealed record CompileCliOptions(
     public string? ManagedLoopUnrolling { get; init; }
     public string? ManagedConstantArgumentPropagation { get; init; }
     public string? ManagedStaticArrayPopulationElimination { get; init; }
+    public string? ManagedConstantCallFolding { get; init; }
+    public string? ManagedSwitchBitTests { get; init; }
+    public string? ManagedDevirtualization { get; init; }
+    public string? ManagedAllocationElimination { get; init; }
+    public string? ManagedLoopRotation { get; init; }
 
     public static CompileCliOptions Parse(string[] arguments)
     {
@@ -156,6 +161,11 @@ internal sealed record CompileCliOptions(
         string? managedLoopUnrolling = null;
         string? managedConstantArgumentPropagation = null;
         string? managedStaticArrayPopulationElimination = null;
+        string? managedConstantCallFolding = null;
+        string? managedSwitchBitTests = null;
+        string? managedDevirtualization = null;
+        string? managedAllocationElimination = null;
+        string? managedLoopRotation = null;
         var references = ImmutableArray.CreateBuilder<string>();
         var exports = ImmutableArray.CreateBuilder<RequestedExport>();
         var sources = ImmutableArray.CreateBuilder<string>();
@@ -228,6 +238,21 @@ internal sealed record CompileCliOptions(
                 case "--managed-static-array-population-elimination":
                     managedStaticArrayPopulationElimination = SetOnce(managedStaticArrayPopulationElimination, value, option);
                     break;
+                case "--managed-constant-call-folding":
+                    managedConstantCallFolding = SetOnce(managedConstantCallFolding, value, option);
+                    break;
+                case "--managed-switch-bit-tests":
+                    managedSwitchBitTests = SetOnce(managedSwitchBitTests, value, option);
+                    break;
+                case "--managed-devirtualization":
+                    managedDevirtualization = SetOnce(managedDevirtualization, value, option);
+                    break;
+                case "--managed-allocation-elimination":
+                    managedAllocationElimination = SetOnce(managedAllocationElimination, value, option);
+                    break;
+                case "--managed-loop-rotation":
+                    managedLoopRotation = SetOnce(managedLoopRotation, value, option);
+                    break;
                 case "--reference": references.Add(value); break;
                 case "--export": exports.Add(ParseExport(value)); break;
                 case "--source": sources.Add(value); break;
@@ -291,6 +316,11 @@ internal sealed record CompileCliOptions(
             ManagedLoopUnrolling = managedLoopUnrolling,
             ManagedConstantArgumentPropagation = managedConstantArgumentPropagation,
             ManagedStaticArrayPopulationElimination = managedStaticArrayPopulationElimination,
+            ManagedConstantCallFolding = managedConstantCallFolding,
+            ManagedSwitchBitTests = managedSwitchBitTests,
+            ManagedDevirtualization = managedDevirtualization,
+            ManagedAllocationElimination = managedAllocationElimination,
+            ManagedLoopRotation = managedLoopRotation,
         };
     }
 

@@ -5,8 +5,10 @@ import {
   projectManagedInteropMemoryOffset,
   readManagedInteropBytes,
   readManagedInteropString,
+  readManagedInteropValueArray,
   writeManagedInteropBytes,
   writeManagedInteropString,
+  writeManagedInteropValueArray,
 } from "./managed-interop-memory-codec.mjs";
 
 const layouts = Object.freeze({
@@ -58,6 +60,56 @@ test("reads and writes managed byte arrays at both target widths", () => {
       memory: null, reference: nullReference, target, targetLayout: layout,
     }), null);
   }
+});
+
+test("copies every typed array in and out of managed arrays at both widths", () => {
+  const cases = [
+    [Int8Array, [-1, 2]], [Int16Array, [-300, 4]], [Uint16Array, [65_535, 1]],
+    [Int32Array, [-70_000, 9]], [Uint32Array, [4_000_000_000, 3]],
+    [BigInt64Array, [-(2n ** 40n), 5n]], [BigUint64Array, [2n ** 63n, 1n]],
+    [Float32Array, [1.5, -2.25]], [Float64Array, [Math.PI, -0.5]],
+  ];
+  for (const target of ["wasm32", "wasm64"]) {
+    for (const [constructor, values] of cases) {
+      const memory = new WebAssembly.Memory({ initial: 1 });
+      const reference = target === "wasm32" ? 16 : 16n;
+      const layout = layouts[target];
+      const view = new DataView(memory.buffer);
+      view.setInt32(16 + layout.arrayLengthOffset, values.length, true);
+      // An odd data address proves the copy does not depend on element alignment.
+      if (target === "wasm32") view.setUint32(16 + layout.arrayDataPointerOffset, 129, true);
+      else view.setBigUint64(16 + layout.arrayDataPointerOffset, 129n, true);
+      const source = new constructor(values.length + 1).subarray(1);
+      source.set(values);
+      writeManagedInteropValueArray({ memory, reference, target, targetLayout: layout, value: source });
+      const result = readManagedInteropValueArray(
+        { memory, reference, target, targetLayout: layout }, constructor);
+      assert.ok(result instanceof constructor);
+      assert.deepEqual([...result], [...source], `${target} ${constructor.name}`);
+      result[0] = values[1];
+      assert.notDeepEqual([...readManagedInteropValueArray(
+        { memory, reference, target, targetLayout: layout }, constructor)], [...result]);
+    }
+  }
+});
+
+test("rejects invalid value-array types, values and destinations", () => {
+  const memory = new WebAssembly.Memory({ initial: 1 });
+  const layout = layouts.wasm32;
+  const view = new DataView(memory.buffer);
+  view.setInt32(20, 2, true);
+  view.setUint32(24, 128, true);
+  const request = { memory, reference: 16, target: "wasm32", targetLayout: layout };
+  assert.throws(() => readManagedInteropValueArray(request, Array), /value-array type/);
+  assert.equal(readManagedInteropValueArray({ ...request, reference: 0 }, Int32Array), null);
+  for (const value of [[1, 2], new DataView(new ArrayBuffer(8))]) {
+    assert.throws(() => writeManagedInteropValueArray({ ...request, value }), TypeError);
+  }
+  assert.throws(() => writeManagedInteropValueArray({ ...request, value: new Int32Array(3) }),
+    /destination/);
+  view.setInt32(20, 16_384, true);
+  assert.throws(() => readManagedInteropValueArray(request, Float64Array), /outside linear memory/);
+  assert.throws(() => readManagedInteropValueArray({ ...request, extra: true }, Int8Array), /shape/);
 });
 
 test("rejects invalid values and memory ranges without partial writes", () => {

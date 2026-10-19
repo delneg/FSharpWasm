@@ -19,6 +19,7 @@ internal sealed class AsyncJSImportHelperAppender(
         ImmutableDictionary<string, int>.Builder indices,
         JavaScriptAsyncMethodBinding binding,
         IFunctionIndexResolver functionIndices,
+        InteropImportPlan interopImports,
         IList<ManagedBoundaryPlanEntry> boundaryEntries)
     {
         ArgumentNullException.ThrowIfNull(functions);
@@ -26,6 +27,7 @@ internal sealed class AsyncJSImportHelperAppender(
         ArgumentNullException.ThrowIfNull(indices);
         ArgumentNullException.ThrowIfNull(binding);
         ArgumentNullException.ThrowIfNull(functionIndices);
+        ArgumentNullException.ThrowIfNull(interopImports);
         ArgumentNullException.ThrowIfNull(boundaryEntries);
 
         var resolveName = JavaScriptAsyncAbiNames.Resolve(binding.Method);
@@ -34,7 +36,7 @@ internal sealed class AsyncJSImportHelperAppender(
         functions.Add(new WasmFunctionDefinition(
             resolveName,
             resolveTypes.Resolve(binding),
-            resolvers.Emit(binding, functionIndices)));
+            resolvers.Emit(binding, functionIndices, interopImports)));
         AddBoundary(
             functions,
             importCount,

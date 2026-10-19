@@ -274,6 +274,81 @@ public sealed class StructuredControlFlowEmitterTests
     }
 
     [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void RotatedLoopGuardsEntryAndRepeatsItsConditionAtTheBottom(bool continueWhenTrue)
+    {
+        var emitted = new List<(int Block, bool Owner)>();
+        var code = new RecordingInstructionWriter();
+        var loop = new StructuredLoop(
+            Block(0),
+            continueWhenTrue,
+            new StructuredSequence([new StructuredCode(Block(1))]),
+            new StructuredSequence([new StructuredCode(Block(2))]),
+            new StructuredSequence([new StructuredCode(Block(3))]));
+
+        CreateEmitter().Emit(
+            code,
+            new StructuredSequence([loop]),
+            CreateContext() with { RotateLoops = true },
+            (block, _, owner) =>
+            {
+                emitted.Add((block.Block.Value, owner));
+                return new ConditionValue(0, CliValueKind.I4);
+            },
+            (_, _, _, _, _, _) => { });
+
+        // The guard leaves when the condition fails; the bottom repeats while it holds.
+        Assert.Equal([(0, true), (1, true), (2, true), (0, false), (3, true)], emitted);
+        var opcodes = code.ToInstructions().Where(instruction => instruction.Opcode is not WasmOpcodes.LocalGet)
+            .Select(instruction => instruction.Opcode).ToArray();
+        WasmInstruction[] guard = continueWhenTrue
+            ? [WasmInstruction.NoOperand(WasmOpcodes.I32EqualZero)]
+            : [];
+        WasmInstruction[] bottom = continueWhenTrue
+            ? []
+            : [WasmInstruction.NoOperand(WasmOpcodes.I32EqualZero)];
+        Assert.Equal(1, opcodes.Count(opcode => opcode == WasmOpcodes.I32EqualZero));
+        Assert.Equal(2, code.ToInstructions().Count(instruction =>
+            instruction == WasmInstruction.WithOperand(WasmOpcodes.BranchIf, WasmInstructionOperand.Unsigned(0))));
+        Assert.Equal(
+            [WasmOpcodes.Block, WasmOpcodes.Block, .. guard.Select(instruction => instruction.Opcode), WasmOpcodes.BranchIf,
+                WasmOpcodes.Loop, WasmOpcodes.Block, WasmOpcodes.End, WasmOpcodes.Block, WasmOpcodes.End,
+                .. bottom.Select(instruction => instruction.Opcode), WasmOpcodes.BranchIf, WasmOpcodes.End, WasmOpcodes.End,
+                WasmOpcodes.End],
+            opcodes);
+    }
+
+    [Fact]
+    public void RotatedLoopKeepsBreakContinueAndSurroundingDepths()
+    {
+        var code = new RecordingInstructionWriter();
+        StructuredSequence Transfers() => new([
+            new StructuredLoopBreak(), new StructuredLoopContinue(), new StructuredDispatcherContinue(new StructuredBlockId(7))]);
+        var inner = new StructuredLoop(Block(2), true, StructuredSequence.Empty, StructuredSequence.Empty, Transfers());
+        var loop = new StructuredLoop(Block(0), true, new StructuredSequence([inner, .. Transfers().Regions]), Transfers(),
+            new StructuredSequence([new StructuredDispatcherContinue(new StructuredBlockId(7))]));
+
+        CreateEmitter().Emit(
+            code,
+            new StructuredSequence([loop]),
+            CreateContext() with { RotateLoops = true },
+            (_, _, _) => new ConditionValue(0, CliValueKind.I4),
+            (_, _, _, _, _, _) => { },
+            exceptionLeaveDepth: 2,
+            dispatcherContinueDepth: 2);
+
+        // The inner exit body sits one block inside the outer body. In the
+        // body and the continuation, break leaves the outer block, continue
+        // reaches the condition and the dispatcher lies four blocks out; the
+        // outer exit body reaches it through one.
+        Assert.Equal(
+            [4u, 1u, 7u, 3u, 0u, 6u, 3u, 0u, 6u, 3u],
+            code.ToInstructions().Where(instruction => instruction.Opcode == WasmOpcodes.Branch)
+                .Select(instruction => instruction.Operand.UnsignedValue));
+    }
+
+    [Theory]
     [InlineData(true, 0)]
     [InlineData(false, 1)]
     public void PostTestLoopPreservesConditionSenseAndEmitsEveryBody(

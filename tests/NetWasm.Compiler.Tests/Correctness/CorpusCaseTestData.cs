@@ -23,6 +23,7 @@ internal static class CorpusCaseTestData
     public const string NativeFloating = "numeric.native-floating-conversions";
     public const string FloatingConvertInteger = "numeric.floating-convert-integer";
     public const string FloatingSmallInteger = "numeric.floating-small-integer";
+    public const string FloatingSmallSaturation = "numeric.floating-small-saturation";
     public const string DecimalEdges = "numeric.decimal-representation-rounding";
     public const string DecimalConversions = "numeric.decimal-integer-conversions";
     public const string DecimalArithmetic = "numeric.decimal-arithmetic";
@@ -148,6 +149,8 @@ internal static class CorpusCaseTestData
             nameof(RttiCastCorrectnessCompilationTests.CompilerPreservesRuntimeCastAndArrayAssignmentSemantics), CorpusInputKind.CSharp),
         new(FloatingSmallInteger, typeof(NumericConversionEdgeTests).FullName + "." +
             nameof(NumericConversionEdgeTests.SmallIntegerCastsTruncateBeforeCheckingDestinationRange), CorpusInputKind.CSharp),
+        new(FloatingSmallSaturation, typeof(NumericConversionEdgeTests).FullName + "." +
+            nameof(NumericConversionEdgeTests.UncheckedSmallIntegerCastsSaturateAsInNet11), CorpusInputKind.CSharp),
         new(AsyncConversionTransport, typeof(NumericTransportEdgeTests).FullName + "." +
             nameof(NumericTransportEdgeTests.AsyncConversionsPreserveSeparateSourceFloatingAndRoundTripContracts), CorpusInputKind.CSharp),
         new(AsyncNumericTransport, typeof(NumericTransportEdgeTests).FullName + "." +

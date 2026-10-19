@@ -203,6 +203,27 @@ public sealed class WasmBinaryTests
     }
 
     [Fact]
+    public void ModuleEncoderNamesAFunctionBodyOverTheEngineLimit()
+    {
+        WasmModuleBuildRequest Request(int size) => new(
+            [],
+            "runtime",
+            "memory",
+            [new("Grammar::Initialize", WasmFunctionType.Create(CliValueKind.Void), new byte[size])],
+            [],
+            [],
+            false,
+            WasmTarget.Wasm32);
+
+        Assert.NotEmpty(CreateModuleEncoder().Encode(Request(ModuleEncoder.MaximumFunctionBodySize)));
+        var error = Assert.Throws<CompilerException>(() =>
+            CreateModuleEncoder().Encode(Request(ModuleEncoder.MaximumFunctionBodySize + 1)));
+        Assert.Equal("NW1013", error.Diagnostic.Id);
+        Assert.Equal("Grammar::Initialize", error.Diagnostic.Method);
+        Assert.Contains("7,654,322-byte", error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void ModuleEncoderOmitsFunctionNamesWhenRequested()
     {
         const string identity = "Unique.Sidecar.Only.Method";
