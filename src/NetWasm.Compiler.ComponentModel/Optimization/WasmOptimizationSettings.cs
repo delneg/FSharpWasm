@@ -27,4 +27,6 @@ public sealed record WasmOptimizationSettings(
     SwitchBitTestPolicy SwitchBitTests = SwitchBitTestPolicy.Disabled,
     DevirtualizationPolicy Devirtualization = DevirtualizationPolicy.Disabled,
     AllocationEliminationPolicy AllocationElimination = AllocationEliminationPolicy.Disabled,
-    LoopRotationPolicy LoopRotation = LoopRotationPolicy.Disabled);
+    LoopRotationPolicy LoopRotation = LoopRotationPolicy.Disabled,
+    ArrayStoreCheckEliminationPolicy ArrayStoreCheckElimination =
+        ArrayStoreCheckEliminationPolicy.Disabled);

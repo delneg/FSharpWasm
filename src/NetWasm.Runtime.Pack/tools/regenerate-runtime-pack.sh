@@ -64,10 +64,6 @@ alignment="$(node -p 'require(process.argv[1]).alignment' "$policy")"
 wasm_page_size="$(node -p 'require(process.argv[1]).wasmPageSize' "$policy")"
 native_stack_size="$(node -p 'require(process.argv[1]).nativeStackSizeBytes' "$policy")"
 toolchain="$repo_root/eng/toolchain.json"
-emscripten_version="$(node -p 'require(process.argv[1]).emscripten' "$toolchain")"
-gc_version="$(node -p 'require(process.argv[1]).bdwgc.version' "$toolchain")"
-dependency_root="${NETWASM_DEPENDENCY_ROOT:-${TMPDIR:-/tmp}/netwasm-dependencies}"
-gc_source="$dependency_root/bdwgc-v$gc_version"
 
 wasm-tools component embed "$repo_root/src/NetWasm.Runtime/wit" \
   --only-custom --encoding utf8 --output "$temporary_root/runtime-component-type.bin"
@@ -98,13 +94,6 @@ NODE
 
   printf '%s\n' emscripten_notify_memory_growth \
     > "$target_root/allowed-undefined-symbols.txt"
-
-  gc_work="$gc_source"
-  if [[ "$target" = wasm64 ]]; then
-    patch_hash="$(shasum -a 256 "$repo_root/tests/end-to-end/host-interop/runtime-memory64/bdwgc-wasm64.patch" | cut -d' ' -f1)"
-    gc_work="$dependency_root/bdwgc-v$gc_version-wasm64-$patch_hash"
-  fi
-  build_root="$dependency_root/build-bdwgc-$gc_version-$emscripten_version-$target"
 
   if [[ "$target" = wasm32 ]]; then
     machine=-mwasm32
@@ -142,10 +131,7 @@ NODE
   system_normalization_arguments=(
     --prefix "$repo_root"
     --prefix "$EMSDK"
-    --prefix "$dependency_root"
     --prefix "$temporary_root"
-    --prefix "$gc_work"
-    --prefix "$build_root"
     --prefix "$system_source"
   )
   if [[ -n "${HOME:-}" ]]; then
@@ -165,21 +151,14 @@ NODE
     export_args+=("--export=$export_name")
   done < "$runtime_root/runtime-exports.txt"
 
-  for collector in boehm tcms netwasm bump; do
-  collector_directory=boehm
-  if [[ "$collector" = tcms ]]; then collector_directory=compact; fi
-  if [[ "$collector" = netwasm ]]; then collector_directory=netwasm; fi
-  if [[ "$collector" = bump ]]; then collector_directory=bump; fi
+  for collector_directory in compact netwasm bump; do
   if [[ -n "$only" && "${only#*/}" != "$collector_directory" ]]; then continue; fi
-  build_collector="$collector"
-  if [[ "$collector" = netwasm ]]; then build_collector=netwasm-next; fi
   for native_profile in size speed; do
   collector_root="$target_root/$collector_directory"
   if [[ "$native_profile" = speed ]]; then collector_root="$collector_root/speed"; fi
-  build_root="$dependency_root/build-bdwgc-$gc_version-$emscripten_version-$target-ordinary-$native_profile"
   mkdir -p "$collector_root"
   "$repo_root/eng/build-netwasm-runtime.sh" \
-    --collector "$build_collector" \
+    --collector "$collector_directory" \
     --runtime-layout "$layout" \
     --target "$target" \
     --configuration release \
@@ -188,8 +167,8 @@ NODE
     --output "$collector_root/libnetwasm-runtime.a" \
     --collector-output "$collector_root/libgc.a"
   node "$source_package_root/tools/normalize-archive-paths.mjs" \
-    --prefix "$repo_root" --prefix "$EMSDK" --prefix "$dependency_root" \
-    --prefix "$temporary_root" --prefix "$gc_work" --prefix "$build_root" \
+    --prefix "$repo_root" --prefix "$EMSDK" \
+    --prefix "$temporary_root" \
     --prefix "$HOME" \
     --archive "$collector_root/libnetwasm-runtime.a" \
     --archive "$collector_root/libgc.a"
@@ -233,7 +212,7 @@ NODE
     fi
 
     node "$source_package_root/tools/validate-runtime-imports.mjs" \
-      "$proof" "$target" "$collector"
+      "$proof" "$target" "$collector_directory"
     node "$source_package_root/tools/validate-runtime-component-metadata.mjs" \
       "$proof" "$temporary_root/runtime-component-type.bin"
   done

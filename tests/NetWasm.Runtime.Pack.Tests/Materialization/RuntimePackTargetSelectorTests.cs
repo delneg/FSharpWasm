@@ -11,7 +11,7 @@ public sealed class RuntimePackTargetSelectorTests
     public static IEnumerable<object[]> ProfileCases()
     {
         foreach (var target in new[] { "wasm32", "wasm64" })
-            foreach (var collector in new[] { "Compact", "NetWasm", "Boehm", "Bump" })
+            foreach (var collector in new[] { "Compact", "NetWasm", "Bump" })
                 foreach (var mode in Enum.GetValues<RuntimeWasmOptimization>())
                     yield return [target, collector, mode];
     }
@@ -51,7 +51,7 @@ public sealed class RuntimePackTargetSelectorTests
         var result = selector.Select(manifest, "wasm64", null, RuntimeWasmOptimization.Oz);
 
         Assert.Equal(RuntimeWasmOptimization.Oz, policy.Mode);
-        Assert.Equal(manifest.TargetLookup[("wasm64", "Boehm")].Speed!.RuntimeArchive, result.RuntimeArchive);
+        Assert.Equal(manifest.TargetLookup[("wasm64", "Compact")].Speed!.RuntimeArchive, result.RuntimeArchive);
     }
 
     [Fact]
@@ -81,10 +81,8 @@ public sealed class RuntimePackTargetSelectorTests
     [Theory]
     [InlineData("wasm32", "Compact")]
     [InlineData("wasm32", "NetWasm")]
-    [InlineData("wasm32", "Boehm")]
     [InlineData("wasm64", "Compact")]
     [InlineData("wasm64", "NetWasm")]
-    [InlineData("wasm64", "Boehm")]
     [InlineData("wasm32", "Bump")]
     [InlineData("wasm64", "Bump")]
     public void SelectsMatchedArchivePair(string target, string collector)
@@ -100,10 +98,8 @@ public sealed class RuntimePackTargetSelectorTests
     [Theory]
     [InlineData("wasm32", "Compact")]
     [InlineData("wasm32", "NetWasm")]
-    [InlineData("wasm32", "Boehm")]
     [InlineData("wasm64", "Compact")]
     [InlineData("wasm64", "NetWasm")]
-    [InlineData("wasm64", "Boehm")]
     [InlineData("wasm32", "Bump")]
     [InlineData("wasm64", "Bump")]
     public void ResolvesOnlyTheManifestDefault(string target, string collector)
@@ -117,7 +113,7 @@ public sealed class RuntimePackTargetSelectorTests
     [Theory]
     [InlineData("")]
     [InlineData("compact")]
-    [InlineData("Boehm ")]
+    [InlineData("Boehm")]
     [InlineData("tcms")]
     public void RejectsNoncanonicalChoice(string collector)
     {
@@ -149,10 +145,10 @@ public sealed class RuntimePackTargetSelectorTests
         Assert.Throws<InvalidOperationException>(() => Read(source with { Targets = source.Targets.SetItem(0, source.Targets[1]) }));
         Assert.Throws<InvalidOperationException>(() => Read(source with { DefaultGarbageCollector = "compact" }));
         Assert.Throws<InvalidOperationException>(() => Read(source with { Targets = source.Targets.SetItem(0, source.Targets[0] with { GarbageCollector = "tcms" }) }));
-        Assert.Throws<InvalidOperationException>(() => Read(source with { Targets = source.Targets.SetItem(0, source.Targets[0] with { CollectorArchive = RuntimePackTestData.Asset("wasm32/boehm/libgc.a") }) }));
+        Assert.Throws<InvalidOperationException>(() => Read(source with { Targets = source.Targets.SetItem(0, source.Targets[0] with { CollectorArchive = RuntimePackTestData.Asset("wasm32/bump/libgc.a") }) }));
     }
 
-    private static RuntimePackManifest Manifest(string collector = "Boehm") => Read(SourceManifest() with
+    private static RuntimePackManifest Manifest(string collector = "Compact") => Read(SourceManifest() with
     {
         DefaultGarbageCollector = collector,
     });
@@ -163,11 +159,9 @@ public sealed class RuntimePackTargetSelectorTests
     private static RuntimePackManifest SourceManifest() => RuntimePackTestData.Manifest() with
     {
         SchemaVersion = 6,
-        DefaultGarbageCollector = "Boehm",
-        Targets = [Variant("wasm32", "Compact"), Variant("wasm32", "NetWasm"),
-            Variant("wasm32", "Boehm"), Variant("wasm32", "Bump"),
-            Variant("wasm64", "Compact"), Variant("wasm64", "NetWasm"),
-            Variant("wasm64", "Boehm"), Variant("wasm64", "Bump")],
+        DefaultGarbageCollector = "Compact",
+        Targets = [Variant("wasm32", "Compact"), Variant("wasm32", "NetWasm"), Variant("wasm32", "Bump"),
+            Variant("wasm64", "Compact"), Variant("wasm64", "NetWasm"), Variant("wasm64", "Bump")],
     };
 
     private static RuntimePackTarget Variant(string target, string collector) => RuntimePackTestData.Target(target, collector);

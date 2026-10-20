@@ -89,6 +89,7 @@ public sealed class NetWasmCompileTask : CompilerArtifactManifestTaskBase
     public string ManagedDevirtualization { get; set; } = "Auto";
     public string ManagedAllocationElimination { get; set; } = "Auto";
     public string ManagedLoopRotation { get; set; } = "Auto";
+    public string ManagedArrayStoreCheckElimination { get; set; } = "Auto";
     public string? StackTraceSymbolsPath { get; set; }
     public string? ExceptionTypeMapPath { get; set; }
     public bool NoLogo { get; set; }
@@ -134,7 +135,8 @@ public sealed class NetWasmCompileTask : CompilerArtifactManifestTaskBase
                 ManagedSwitchBitTests,
                 ManagedDevirtualization,
                 ManagedAllocationElimination,
-                ManagedLoopRotation);
+                ManagedLoopRotation,
+                ManagedArrayStoreCheckElimination);
             var compilation = compiler.Compile(new(
                 InputAssemblyPath,
                 References.Select(static item => item.ItemSpec).ToImmutableArray(),

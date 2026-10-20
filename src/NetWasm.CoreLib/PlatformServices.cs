@@ -159,13 +159,12 @@ namespace System.Runtime.InteropServices
         internal static ILocalTimePreflightValidator CreateLocalTimePreflightValidator() =>
             new LocalTimePreflightValidator(
                 CreateEnvironmentVariableReader(),
-                new TimeZoneAssetByteReader(
+                new TimeZoneAssetFileOpener(
                     new WasiPreopenedDirectorySource(new WasiPreopensInvoker()),
                     new WasiReadOnlyFileOpener(new WasiDescriptorOpenInvoker()),
-                    new WasiReadOnlyFileReader(new WasiDescriptorReadInvoker()),
-                    new WasiDescriptorReleaser()),
-                new TimeZoneAssetParser(new TimeZoneAssetDigestCalculator()),
-                new TimeZoneDefinitionResolverFactory(),
+                    new WasiReadOnlyFileReader(new WasiDescriptorReadInvoker())),
+                new TimeZoneAssetParser(),
+                new TimeZoneDefinitionResolverFactory(new TimeZoneTransitionTableReader()),
                 new LocalTimeOffsetResolverFactory(new TimeZoneTransitionResolver()),
                 new UtcLocalTimeOffsetResolver(),
                 new LocalTimeOffsetResolverInstaller(),

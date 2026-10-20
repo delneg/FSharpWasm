@@ -29,7 +29,7 @@ shasum -a 256 global.json eng/toolchain.json \
     eng/size-canary/Hello42.cs eng/size-canary/Program.cs \
     eng/size-canary/SizeCanary.csproj \
     eng/size-canary/expected-component-bytes.txt \
-    eng/size-canary/expected-compact-component-bytes.txt \
+    eng/size-canary/expected-netwasm-component-bytes.txt \
     eng/compare-collector-size.mjs \
     eng/measure-console42-size.sh \
     > "$evidence_root/input-sha256.txt"
@@ -106,27 +106,27 @@ if [[ ! "$expected_component_bytes" =~ ^[0-9]+$ ]] || \
 fi
 
 if [[ "$compare_collectors" = 1 ]]; then
-    candidate_runtime="$evidence_root/runtime-tcms.wasm"
-    candidate_component="$evidence_root/NetWasmApp-tcms.wasm"
-    run_logged runtime-tcms bash eng/build-netwasm-runtime.sh \
-        --collector tcms --runtime-layout "$layout" --target wasm32 \
+    candidate_runtime="$evidence_root/runtime-netwasm.wasm"
+    candidate_component="$evidence_root/NetWasmApp-netwasm.wasm"
+    run_logged runtime-netwasm bash eng/build-netwasm-runtime.sh \
+        --collector netwasm --runtime-layout "$layout" --target wasm32 \
         --configuration release --output "$candidate_runtime"
-    run_logged package-tcms dotnet "$harness" package "$application" \
+    run_logged package-netwasm dotnet "$harness" package "$application" \
         "$candidate_runtime" "$command_wit" "$candidate_component"
-    run_logged validate-tcms wasm-tools validate "$candidate_component"
-    run_logged wit-tcms wasm-tools component wit "$candidate_component"
-    run_logged run-tcms wasmtime run "$candidate_component"
-    compact_component_bytes="$(wc -c < "$candidate_component" | tr -d ' ')"
-    expected_compact_component_bytes="$(tr -d '[:space:]' < \
-        eng/size-canary/expected-compact-component-bytes.txt)"
-    if [[ ! "$expected_compact_component_bytes" =~ ^[0-9]+$ ]] || \
-       [[ "$compact_component_bytes" != "$expected_compact_component_bytes" ]]; then
-        printf 'Compact Console42 component size mismatch: expected %s bytes, found %s bytes\n' \
-            "$expected_compact_component_bytes" "$compact_component_bytes" >&2
+    run_logged validate-netwasm wasm-tools validate "$candidate_component"
+    run_logged wit-netwasm wasm-tools component wit "$candidate_component"
+    run_logged run-netwasm wasmtime run "$candidate_component"
+    netwasm_component_bytes="$(wc -c < "$candidate_component" | tr -d ' ')"
+    expected_netwasm_component_bytes="$(tr -d '[:space:]' < \
+        eng/size-canary/expected-netwasm-component-bytes.txt)"
+    if [[ ! "$expected_netwasm_component_bytes" =~ ^[0-9]+$ ]] || \
+       [[ "$netwasm_component_bytes" != "$expected_netwasm_component_bytes" ]]; then
+        printf 'NetWasmGC Console42 component size mismatch: expected %s bytes, found %s bytes\n' \
+            "$expected_netwasm_component_bytes" "$netwasm_component_bytes" >&2
         exit 6
     fi
-    if [[ "$(< "$evidence_root/logs/run-tcms.stdout.log")" != '42' ]] || \
-       ! rg -q 'export wasi:cli/run@0.2.11' "$evidence_root/logs/wit-tcms.stdout.log"; then
+    if [[ "$(< "$evidence_root/logs/run-netwasm.stdout.log")" != '42' ]] || \
+       ! rg -q 'export wasi:cli/run@0.2.11' "$evidence_root/logs/wit-netwasm.stdout.log"; then
         echo 'candidate component does not satisfy the Console42 command contract' >&2
         exit 4
     fi

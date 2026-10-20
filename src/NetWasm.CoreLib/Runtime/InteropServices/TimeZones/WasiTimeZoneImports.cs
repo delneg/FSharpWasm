@@ -26,8 +26,5 @@ namespace System.Runtime.InteropServices.TimeZones
             long length,
             long offset,
             nuint result);
-
-        [WitImport("wasi:filesystem@0.2.11/types", "[resource-drop]descriptor")]
-        internal static extern void DropDescriptor(int handle);
     }
 }

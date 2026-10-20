@@ -288,6 +288,7 @@ public sealed class ManagedMethodEmitterTests
             new ArrayMetadataCachingPlanner(types),
             new ArrayMetadataSnapshotEmitter(layouts, layouts, CreateAddressInstructions(layouts),
                 new ImplicitExceptionEmitter(layouts, layouts, 7)),
+            new ArrayStoreCheckPlanner(types, new UnusedTypeDefinitionResolver()),
             new EmptyFloatingCallPlanner(), new AuthoritativeRootSourceSelector(), new AuthoritativeRootLayoutPlanner(),
             new RootClearElisionPlanner(), new RootValueElisionPlanner());
     }

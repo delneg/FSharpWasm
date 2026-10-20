@@ -10,7 +10,7 @@ public sealed class ManagedCompilerOptimizationOverridesParserTests
         get
         {
             var data = new TheoryData<int, string?>();
-            for (var feature = 0; feature < 9; feature++)
+            for (var feature = 0; feature < 10; feature++)
                 foreach (var value in new string?[] { null, "Auto", "Disabled", "Enabled", "enabled", "", "2" })
                     data.Add(feature, value);
             return data;
@@ -31,7 +31,8 @@ public sealed class ManagedCompilerOptimizationOverridesParserTests
             switchBitTests: feature == 5 ? value : null,
             devirtualization: feature == 6 ? value : null,
             allocationElimination: feature == 7 ? value : null,
-            loopRotation: feature == 8 ? value : null);
+            loopRotation: feature == 8 ? value : null,
+            arrayStoreCheckElimination: feature == 9 ? value : null);
         if (value is null or "Auto")
         {
             Assert.Null(Parse());
@@ -61,8 +62,10 @@ public sealed class ManagedCompilerOptimizationOverridesParserTests
                 ? ManagedDevirtualization.Enabled : ManagedDevirtualization.Disabled),
             7 => new WasmOptimizationOverrides(AllocationElimination: enabled
                 ? ManagedAllocationElimination.Enabled : ManagedAllocationElimination.Disabled),
-            _ => new WasmOptimizationOverrides(LoopRotation: enabled
+            8 => new WasmOptimizationOverrides(LoopRotation: enabled
                 ? ManagedLoopRotation.Enabled : ManagedLoopRotation.Disabled),
+            _ => new WasmOptimizationOverrides(ArrayStoreCheckElimination: enabled
+                ? ManagedArrayStoreCheckElimination.Enabled : ManagedArrayStoreCheckElimination.Disabled),
         };
         Assert.Equal(expected, Parse());
     }

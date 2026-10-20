@@ -8,6 +8,7 @@ using NetWasm.Compiler.Metadata;
 namespace NetWasm.Compiler.Analysis;
 
 internal sealed class ConstrainedCallRewriter(
+    ITypeFinder types,
     ITypeDefinitionResolver typeDefinitions,
     IMethodRepository methods,
     IMethodInstanceResolver methodInstances,
@@ -71,6 +72,22 @@ internal sealed class ConstrainedCallRewriter(
                 callSignature,
                 typeArguments,
                 methodArguments));
+            if (call.Operation is CilOperation.Call or CilOperation.CallVirtual &&
+                InheritedValueTypeToString(concreteType, implementation, constrainedType) is { } byReference)
+            {
+                instructions[index - 1] = instructions[index - 1] with
+                {
+                    Operation = CilOperation.Nop,
+                    Operand = new CilOperand.None(),
+                };
+                instructions[index] = call with
+                {
+                    Operation = CilOperation.Call,
+                    Operand = new CilOperand.MethodInstance(byReference),
+                };
+                changed = true;
+                continue;
+            }
             var directOperation = call.Operation switch
             {
                 // Resolving a sealed reference target does not prove its receiver
@@ -105,6 +122,26 @@ internal sealed class ConstrainedCallRewriter(
             changed = true;
         }
         return changed ? body with { Instructions = [.. instructions] } : body;
+    }
+
+    // A value type that inherits a parameterless ToString from Object or ValueType still has its
+    // managed pointer on the stack, not a box, so a direct call would read the value as an object.
+    // CoreLib's by-reference helper answers with the value type's name, as the boxed call does.
+    private MethodInstanceModel? InheritedValueTypeToString(
+        TypeDefinitionModel concreteType,
+        MethodDefinitionModel implementation,
+        CliTypeIdentity constrainedType)
+    {
+        if (!concreteType.IsValueType || concreteType.IsEnum || implementation.IsStatic ||
+            implementation.Name != "ToString" || !implementation.Signature.ParameterTypes.IsEmpty ||
+            symbols.Format(implementation.DeclaringType) is not ("System.Object" or "System.ValueType"))
+        {
+            return null;
+        }
+        var helper = types.FindType("System.Runtime.CompilerServices.RuntimeHelpers").Methods
+            .Select(methods.GetMethod)
+            .Single(method => method.Name == "ValueTypeToString" && method.GenericArity == 1);
+        return ConstructedInstance(helper, [], [constrainedType]);
     }
 
     private MethodInstanceModel ConstructedInstance(

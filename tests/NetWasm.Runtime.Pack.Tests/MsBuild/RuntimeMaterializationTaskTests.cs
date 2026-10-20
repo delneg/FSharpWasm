@@ -12,21 +12,20 @@ public sealed class RuntimeMaterializationTaskTests
     [InlineData("", null)]
     [InlineData("Compact", "Compact")]
     [InlineData("NetWasm", "NetWasm")]
-    [InlineData("Boehm", "Boehm")]
     [InlineData("Bump", "Bump")]
     public void ForwardsOptionalCanonicalCollectorAndResolvedMetadata(string value, string? expected)
     {
-        var actor = new RecordingMaterializer(Materialization() with { GarbageCollector = expected ?? "Boehm" });
+        var actor = new RecordingMaterializer(Materialization() with { GarbageCollector = expected ?? "Compact" });
         var task = Create(actor, new RecordingBuildEngine());
         task.GarbageCollector = value;
         Assert.True(task.Execute());
         Assert.Equal(expected, actor.Request!.GarbageCollector);
-        Assert.Equal(expected ?? "Boehm", Assert.Single(task.RuntimeModules).GetMetadata("GarbageCollector"));
+        Assert.Equal(expected ?? "Compact", Assert.Single(task.RuntimeModules).GetMetadata("GarbageCollector"));
     }
 
     [Theory]
     [InlineData("compact")]
-    [InlineData("Boehm ")]
+    [InlineData("Boehm")]
     [InlineData("tcms")]
     [InlineData(" ")]
     public void RejectsNoncanonicalCollectorBeforeMaterialization(string value)

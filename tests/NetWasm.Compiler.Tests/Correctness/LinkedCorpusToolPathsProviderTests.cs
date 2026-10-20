@@ -20,6 +20,13 @@ public sealed class LinkedCorpusToolPathsProviderTests
         Assert.Equal(Path.Combine(root, "emsdk", "upstream", "bin", "wasm-opt"), tools.Optimize);
         Assert.Equal(environment.WasmToolsPath, tools.Validate);
         Assert.Equal(environment.NodePath, tools.Node);
+        Assert.Equal("compact", tools.Collector);
+        Assert.Equal("netwasm", new LinkedCorpusToolPathsProvider(
+            environment with { Collector = "netwasm" }).Get().Collector);
+        Assert.Equal("bump", new LinkedCorpusToolPathsProvider(
+            environment with { Collector = "bump" }).Get().Collector);
+        Assert.Throws<InvalidOperationException>(() => new LinkedCorpusToolPathsProvider(
+            environment with { Collector = "boehm" }).Get());
     }
 
     [Theory]

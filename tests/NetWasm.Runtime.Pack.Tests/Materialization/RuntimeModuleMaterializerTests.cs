@@ -12,10 +12,6 @@ public sealed class RuntimeModuleMaterializerTests
     [InlineData("wasm32", null, RuntimeWasmOptimization.O3)]
     [InlineData("wasm64", null, RuntimeWasmOptimization.Oz)]
     [InlineData("wasm64", null, RuntimeWasmOptimization.O3)]
-    [InlineData("wasm32", "Boehm", RuntimeWasmOptimization.Oz)]
-    [InlineData("wasm32", "Boehm", RuntimeWasmOptimization.O3)]
-    [InlineData("wasm64", "Boehm", RuntimeWasmOptimization.Oz)]
-    [InlineData("wasm64", "Boehm", RuntimeWasmOptimization.O3)]
     [InlineData("wasm32", "Compact", RuntimeWasmOptimization.Oz)]
     [InlineData("wasm32", "Compact", RuntimeWasmOptimization.O3)]
     [InlineData("wasm64", "Compact", RuntimeWasmOptimization.Oz)]
@@ -66,7 +62,7 @@ public sealed class RuntimeModuleMaterializerTests
 
         var profilePath = mode == RuntimeWasmOptimization.O3 ? "speed/" : string.Empty;
         Assert.Equal(target, result.Target);
-        Assert.Equal(collector ?? "Boehm", result.GarbageCollector);
+        Assert.Equal(collector ?? "Compact", result.GarbageCollector);
         Assert.EndsWith($"{target}/{result.GarbageCollector.ToLowerInvariant()}/{profilePath}libnetwasm-runtime.a", assets.Verifications[0].Path,
             StringComparison.Ordinal);
         Assert.EndsWith($"{target}/{result.GarbageCollector.ToLowerInvariant()}/{profilePath}libgc.a", assets.Verifications[1].Path,

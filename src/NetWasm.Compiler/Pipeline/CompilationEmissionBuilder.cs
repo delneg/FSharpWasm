@@ -206,6 +206,9 @@ internal sealed class CompilationEmissionBuilder(
                 LoopInvariantFieldHoistingPolicy.NullChecks,
             EnableLoopRotation =
                 preparation.OptimizationSettings.LoopRotation == LoopRotationPolicy.Guarded,
+            EliminateArrayStoreChecks =
+                preparation.OptimizationSettings.ArrayStoreCheckElimination ==
+                ArrayStoreCheckEliminationPolicy.ExactElementTypes,
             EnableScalarCallPreservation =
                 preparation.OptimizationSettings.ScalarCallPreservation ==
                 ScalarCallPreservationPolicy.Conservative,

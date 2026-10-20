@@ -5,20 +5,26 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-typedef uintptr_t NetWasmCollectorDescriptor;
-typedef uintptr_t NetWasmCollectorDescriptorWord;
+/* A collected object's layout, read from its type id: references at
+ * fixed_offsets within its first fixed_bytes, then element_count elements of
+ * element_size bytes with references at element_offsets. Collectors keep no
+ * per-object layout. */
+typedef struct {
+    const size_t *fixed_offsets;
+    size_t fixed_reference_count;
+    size_t fixed_bytes;
+    const size_t *element_offsets;
+    size_t element_reference_count;
+    size_t element_size;
+    size_t element_count;
+} NetWasmCollectorLayout;
 
-void collector_mark_descriptor_word(NetWasmCollectorDescriptorWord *bitmap, size_t bit);
-NetWasmCollectorDescriptor collector_create_descriptor(
-    const NetWasmCollectorDescriptorWord *bitmap,
-    size_t length);
-void *collector_allocate_exact(size_t size, NetWasmCollectorDescriptor descriptor);
-void *collector_allocate_exact_zeroed(
-    size_t count,
-    size_t size,
-    NetWasmCollectorDescriptor descriptor);
-void *collector_allocate_atomic(size_t size);
-/* Fixed collector capability, folded by native linking. */
-bool collector_atomic_allocation_is_zeroed(void);
+/* Implemented by the runtime. Valid once the object's type id, lengths and
+ * data pointer are stored; it does not allocate. */
+void collector_object_layout(const void *object, NetWasmCollectorLayout *layout);
+
+/* Returns zeroed storage. The collector traces it through
+ * collector_object_layout only when contains_references is true. */
+void *collector_allocate_object(size_t bytes, bool contains_references);
 
 #endif

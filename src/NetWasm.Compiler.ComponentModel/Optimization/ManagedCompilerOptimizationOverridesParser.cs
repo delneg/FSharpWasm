@@ -135,6 +135,15 @@ public sealed class ManagedCompilerOptimizationOverridesParser :
             ["Enabled"] = ManagedLoopRotation.Enabled,
         }.ToFrozenDictionary(StringComparer.Ordinal);
 
+    private static readonly FrozenDictionary<string, ManagedArrayStoreCheckElimination>
+        ArrayStoreCheckEliminationValues =
+        new Dictionary<string, ManagedArrayStoreCheckElimination>(StringComparer.Ordinal)
+        {
+            ["Auto"] = ManagedArrayStoreCheckElimination.Auto,
+            ["Disabled"] = ManagedArrayStoreCheckElimination.Disabled,
+            ["Enabled"] = ManagedArrayStoreCheckElimination.Enabled,
+        }.ToFrozenDictionary(StringComparer.Ordinal);
+
     public WasmOptimizationOverrides? Parse(
         string? loopInvariantFieldHoisting,
         string? staticDataViewElimination,
@@ -150,7 +159,8 @@ public sealed class ManagedCompilerOptimizationOverridesParser :
         string? switchBitTests = null,
         string? devirtualization = null,
         string? allocationElimination = null,
-        string? loopRotation = null)
+        string? loopRotation = null,
+        string? arrayStoreCheckElimination = null)
     {
         var fieldHoisting = ParseFieldHoisting(loopInvariantFieldHoisting);
         var staticDataViews = ParseStaticDataViews(staticDataViewElimination);
@@ -189,6 +199,11 @@ public sealed class ManagedCompilerOptimizationOverridesParser :
         var loopRotationValue = LoopRotationValues.TryGetValue(loopRotation ?? "Auto", out var loopRotationParsed)
             ? loopRotationParsed
             : throw ComponentException.Invalid("Managed loop rotation must be Auto, Disabled or Enabled.");
+        var arrayStoreChecksValue = ArrayStoreCheckEliminationValues.TryGetValue(
+            arrayStoreCheckElimination ?? "Auto", out var arrayStoreChecksParsed)
+            ? arrayStoreChecksParsed
+            : throw ComponentException.Invalid(
+                "Managed array store check elimination must be Auto, Disabled or Enabled.");
         return fieldHoisting == ManagedLoopInvariantFieldHoisting.Auto &&
                staticDataViews == ManagedStaticDataViewElimination.Auto &&
                valuePromotion == ManagedAddressTakenValuePromotion.Auto &&
@@ -203,7 +218,8 @@ public sealed class ManagedCompilerOptimizationOverridesParser :
                switchBitTestsValue == ManagedSwitchBitTests.Auto &&
                devirtualizationValue == ManagedDevirtualization.Auto &&
                allocationEliminationValue == ManagedAllocationElimination.Auto &&
-               loopRotationValue == ManagedLoopRotation.Auto
+               loopRotationValue == ManagedLoopRotation.Auto &&
+               arrayStoreChecksValue == ManagedArrayStoreCheckElimination.Auto
             ? null
             : new(
                 LoopInvariantFieldHoisting: fieldHoisting,
@@ -220,7 +236,8 @@ public sealed class ManagedCompilerOptimizationOverridesParser :
                 SwitchBitTests: switchBitTestsValue,
                 Devirtualization: devirtualizationValue,
                 AllocationElimination: allocationEliminationValue,
-                LoopRotation: loopRotationValue);
+                LoopRotation: loopRotationValue,
+                ArrayStoreCheckElimination: arrayStoreChecksValue);
     }
 
     private static ManagedLoopInvariantFieldHoisting ParseFieldHoisting(string? value) =>

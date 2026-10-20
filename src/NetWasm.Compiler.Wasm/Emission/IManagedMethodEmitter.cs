@@ -34,5 +34,6 @@ internal interface IManagedMethodEmitter
         bool enableArrayMetadataCaching = false,
         bool enableScalarCallPreservation = false,
         bool hoistArrayNullChecks = false,
-        bool rotateLoops = false);
+        bool rotateLoops = false,
+        bool eliminateArrayStoreChecks = false);
 }

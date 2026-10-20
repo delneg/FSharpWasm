@@ -3,7 +3,6 @@
 #ifndef NULLABLE_READBACK_TEST_HOOKS
 #define NETWASM_RUNTIME_PACK
 #endif
-#define NETWASM_UNMANAGED_ALLOCATOR_BACKEND "unmanaged_allocator_libc.h"
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wattributes"
 #include "../../src/NetWasm.Runtime/native_runtime.c"
@@ -12,14 +11,18 @@
 void runtime_initialize_libc(void) { }
 void runtime_initialize_system(void) { }
 u32 netwasm_managed_finalize(netwasm_reference_t object, u32 type) { (void)object; (void)type; return 0; }
+static void mark_word(uintptr_t *bitmap, size_t bit)
+{
+    *bitmap |= (uintptr_t)1 << bit;
+}
 int main(void)
 {
     initialize(0, 8, 8);
-    NetWasmCollectorDescriptorWord box_bits = 0, value_bits = 0, nullable_bits = 0, array_bits = 0;
-    collector_mark_descriptor_word(&box_bits, 1);
-    collector_mark_descriptor_word(&value_bits, 0);
-    collector_mark_descriptor_word(&nullable_bits, 1);
-    collector_mark_descriptor_word(&array_bits, NETWASM_ARRAY_DATA_POINTER_OFFSET / sizeof(uintptr_t));
+    uintptr_t box_bits = 0, value_bits = 0, nullable_bits = 0, array_bits = 0;
+    mark_word(&box_bits, 1);
+    mark_word(&value_bits, 0);
+    mark_word(&nullable_bits, 1);
+    mark_word(&array_bits, NETWASM_ARRAY_DATA_POINTER_OFFSET / sizeof(uintptr_t));
     register_type(1, 0, 2 * sizeof(uintptr_t), (uintptr_t)&box_bits, 2, 0, 0, 0, 0);
     register_value_type(1, sizeof(uintptr_t), sizeof(uintptr_t), (uintptr_t)&value_bits, 1);
     register_type(2, 0, 3 * sizeof(uintptr_t), 0, 0, 0, 0, 0, 0);

@@ -68,6 +68,7 @@ public sealed class NetWasmCompileTaskTests
         task.ManagedDevirtualization = "Disabled";
         task.ManagedAllocationElimination = "Enabled";
         task.ManagedLoopRotation = "Enabled";
+        task.ManagedArrayStoreCheckElimination = "Disabled";
         task.StackTraceSymbolsPath = "application.stacktrace.json";
         task.PathMap = "/source=/mapped";
 
@@ -117,6 +118,7 @@ public sealed class NetWasmCompileTaskTests
         Assert.Equal(ManagedDevirtualization.Disabled, request.OptimizationOverrides.Devirtualization);
         Assert.Equal(ManagedAllocationElimination.Enabled, request.OptimizationOverrides.AllocationElimination);
         Assert.Equal(ManagedLoopRotation.Enabled, request.OptimizationOverrides.LoopRotation);
+        Assert.Equal(ManagedArrayStoreCheckElimination.Disabled, request.OptimizationOverrides.ArrayStoreCheckElimination);
         Assert.Equal(
             [
                 "NetWasm Compiler version unknown",

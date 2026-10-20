@@ -35,6 +35,7 @@ internal sealed class ManagedMethodEmitter(
     ITerminalBranchValueFramePlanner branchValueFrames,
     IArrayMetadataCachingPlanner arrayMetadata,
     IArrayMetadataSnapshotEmitter arraySnapshots,
+    IArrayStoreCheckPlanner arrayStoreChecks,
     IScalarCallLifetimePlanner scalarCallLifetimes,
     IAuthoritativeRootSourceSelector authoritativeSources,
     IAuthoritativeRootLayoutPlanner authoritativeLayouts,
@@ -61,7 +62,8 @@ internal sealed class ManagedMethodEmitter(
         bool enableArrayMetadataCaching = false,
         bool enableScalarCallPreservation = false,
         bool hoistArrayNullChecks = false,
-        bool rotateLoops = false)
+        bool rotateLoops = false,
+        bool eliminateArrayStoreChecks = false)
     {
         ArgumentNullException.ThrowIfNull(method);
         ArgumentNullException.ThrowIfNull(structured);
@@ -129,6 +131,7 @@ internal sealed class ManagedMethodEmitter(
             RuntimeImportSelection = runtimeImportSelection,
             AuthoritativeRootSlots = authoritative.Slots,
             RotateLoops = rotateLoops,
+            ExactArrayStores = arrayStoreChecks.Plan(emissionStructure, eliminateArrayStoreChecks),
         };
         if (placement is not null)
         {

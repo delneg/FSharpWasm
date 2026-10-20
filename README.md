@@ -46,20 +46,21 @@ result, not a language-wide size ranking.
 
 ## Faster than Mono AOT
 
-As of 0.9.0, NetWasm runs our allocation and garbage-collection benchmarks
+As of 0.10.0, NetWasm runs our allocation and garbage-collection benchmarks
 faster than Mono AOT, compiled from the same C# source and run by the same
 Wasmtime:
 
-| Workload | NetWasm 0.9.0, NetWasmGC | Mono AOT, .NET 10 | NetWasm time |
+| Workload | NetWasm 0.10.0, NetWasmGC | Mono AOT, .NET 10 | NetWasm time |
 | --- | ---: | ---: | ---: |
-| Full transaction | 50.4 ms | 59.1 ms | 15% less |
-| Retained object graph | 13.3 ms | 14.2 ms | 6% less |
-| UI churn | 22.0 ms | 29.1 ms | 25% less |
+| Full transaction | 43.9 ms | 59.1 ms | 26% less |
+| Retained object graph | 8.8 ms | 14.2 ms | 38% less |
+| UI churn | 17.6 ms | 29.1 ms | 40% less |
 
 These are medians of 15 runs on an Apple M1 Max under Wasmtime 49.0.3, each run
 checked against desktop .NET's result. Mono AOT is Microsoft's `wasi-wasm`
-target in its default Release configuration. Desktop .NET, running native code,
-is still faster on these workloads.
+target in its default Release configuration. NetWasmGC also takes less time than
+desktop .NET 11's JIT on the first two workloads (49.9 and 9.7 ms); the JIT is
+faster on UI churn (8.6 ms), and desktop NativeAOT is the fastest on all three.
 
 [Versions, settings, desktop figures and reproduction](docs/performance.md)
 
@@ -154,10 +155,9 @@ compaction.
 
 | Strategy | Best fit | Raw component | Brotli 11 |
 | --- | --- | ---: | ---: |
-| **Compact (default)** | Small applications and low-churn UI | **47,798 B** | **13,501 B** |
-| NetWasmGC | Higher allocation throughput | 51,300 B | 15,157 B |
-| Bump | Bounded, one-shot jobs | 43,794 B | 11,929 B |
-| Boehm | Conservative collector compatibility | 74,142 B | 25,023 B |
+| **Compact (default)** | Small applications and low-churn UI | **47,895 B** | **13,660 B** |
+| NetWasmGC | Higher allocation throughput | 50,855 B | 15,053 B |
+| Bump | Bounded, one-shot jobs | 43,864 B | 11,959 B |
 
 Select a strategy in the executable project's `.csproj`:
 
@@ -242,21 +242,22 @@ mean “desktop .NET, but in Wasm.” The main remaining themes are:
 - a stable `netwasm1.0` platform and runtime contract;
 - production diagnostics and broader host qualification.
 
-**New in NetWasm 0.9.0:** C# modules for web pages. A `JsModule` project
-publishes `[JSExport]` methods as a typed JavaScript module that a page imports
-and calls directly, on the page's thread or in a Web Worker. The release also
-ships the time zones each application selects, reports the caught cause of
-every execution failure, and aligns code generation with .NET 11.
-[Release notes](docs/releases/0.9.0.md)
+**New in NetWasm 0.10.0:** rebuilt garbage collectors. Objects carry no
+collector header, arrays are single allocations, NetWasmGC allocates by
+advancing a pointer, and Compact has a new core built for size and memory.
+Allocation-heavy programs run faster and use far less memory, and applications
+that ship time zone data start in a fraction of the time. The Boehm collector
+is removed.
+[Release notes](docs/releases/0.10.0.md)
 
-**Coming in NetWasm 0.10.0:** broader compatibility with existing .NET Standard
+**In progress:** broader compatibility with existing .NET Standard
 2.1 library binaries and NuGet assets. The target is to consume libraries
 unchanged when their reachable code fits the NetWasm profile, without carrying
 unused unsupported paths into the application.
 
 This does not turn NetWasm into desktop .NET. Reachable general runtime
 reflection, `dynamic`, runtime assembly loading, managed threading, unsupported
-host APIs and named-culture globalization remain outside the initial 0.10.0
+host APIs and named-culture globalization remain outside the initial
 compatibility slice and fail at compile time.
 
 [Read the full 1.0 roadmap](docs/roadmap.md)
@@ -290,8 +291,7 @@ compatibility slice and fail at compile time.
 CoreLib, runtime libraries, templates and generated support code are MIT,
 subject to preserved upstream notices. The compiler and developer tooling use
 the [NetWasm Community License 1.0](LICENSES/LicenseRef-NetWasm-Community-1.0.txt).
-The Compact collector retains its Apache-2.0 license and AssemblyScript
-attribution.
+The Compact and NetWasmGC collectors are Apache-2.0.
 
 The Community License is free for qualifying individuals, education,
 open-source work, evaluation, and organizations with fewer than 250 employees

@@ -43,7 +43,6 @@ typedef struct NetWasmGcRegion {
     NetWasmGcRegionKind kind;
 } NetWasmGcRegion;
 
-typedef struct NetWasmGcObjectHeader NetWasmGcObjectHeader;
 typedef struct NetWasmGcBlock NetWasmGcBlock;
 typedef struct NetWasmGcLarge NetWasmGcLarge;
 typedef struct NetWasmGcArena NetWasmGcArena;
@@ -51,21 +50,11 @@ typedef struct NetWasmGcDirectoryAllocation NetWasmGcDirectoryAllocation;
 typedef struct NetWasmGcDirectoryNode NetWasmGcDirectoryNode;
 typedef struct NetWasmGcDirectoryLeaf NetWasmGcDirectoryLeaf;
 
-struct NetWasmGcObjectHeader {
-    NetWasmGcRegion *owner;
-    const NetWasmGcDescriptor *descriptor;
-    size_t payload_bytes;
-    size_t element_count;
-    size_t element_size;
-};
-
-typedef union {
-    NetWasmGcObjectHeader fields;
-    max_align_t alignment;
-} NetWasmGcAlignedHeader;
-
+/* A run is a stretch of a block's slots reserved, zeroed and charged to the
+ * heap at once, then bump-allocated. Its objects are counted when it closes. */
 typedef struct {
     NetWasmGcBlock *run_block;
+    unsigned char *run_start;
     unsigned char *run_cursor;
     unsigned char *run_end;
     NetWasmGcBlock *available;
@@ -86,6 +75,8 @@ struct NetWasmGcBlock {
     size_t pending_first;
     bool available;
     bool pending_queued;
+    /* Every object in the block contains references and is traced. */
+    bool traced;
 };
 
 struct NetWasmGcLarge {
@@ -94,8 +85,11 @@ struct NetWasmGcLarge {
     NetWasmGcLarge *pending_next;
     bool marked;
     bool pending_queued;
+    bool traced;
     size_t allocation_bytes;
-    NetWasmGcAlignedHeader header;
+    size_t payload_bytes;
+    /* The object follows, aligned like any allocation. */
+    max_align_t object[];
 };
 
 struct NetWasmGcArena {
@@ -141,7 +135,8 @@ struct NetWasmGc {
     NetWasmGcArena *arenas;
     NetWasmGcArena *current_arena;
     size_t next_arena_blocks;
-    NetWasmGcClass classes[NWGC_CLASS_COUNT];
+    /* Size classes for objects without references, then with them. */
+    NetWasmGcClass classes[2][NWGC_CLASS_COUNT];
     NetWasmGcDirectoryNode *directory_root;
     NetWasmGcDirectoryAllocation *directory_allocations;
     uintptr_t cached_page_key;
@@ -149,7 +144,6 @@ struct NetWasmGc {
     size_t object_count;
     size_t live_bytes;
     size_t occupied_bytes;
-    size_t reserved_bytes;
     size_t backing_bytes;
     size_t marked_object_count;
     size_t marked_live_bytes;
@@ -220,19 +214,34 @@ static const unsigned char *block_slots_const(const NetWasmGcBlock *block)
     return (const unsigned char *)block + block->slots_offset;
 }
 
-static NetWasmGcObjectHeader *block_header(NetWasmGcBlock *block, size_t slot)
+static unsigned char *block_object(NetWasmGcBlock *block, size_t slot)
 {
-    return &((NetWasmGcAlignedHeader *)(block_slots(block) + slot * block->slot_bytes))->fields;
+    return block_slots(block) + slot * block->slot_bytes;
 }
 
-static void *object_payload(NetWasmGcObjectHeader *header)
+static unsigned char *large_object(NetWasmGcLarge *large)
 {
-    return (unsigned char *)header + sizeof(NetWasmGcAlignedHeader);
+    return (unsigned char *)large->object;
 }
 
-static const void *object_payload_const(const NetWasmGcObjectHeader *header)
+static NetWasmGcClass *block_class(NetWasmGc *gc, const NetWasmGcBlock *block)
 {
-    return (const unsigned char *)header + sizeof(NetWasmGcAlignedHeader);
+    return &gc->classes[block->traced][block->class_index];
+}
+
+/* A slot always extends past its object, so an object's end is never another
+ * object's start and a one-past-end reference names exactly one object. */
+static bool slot_size(size_t bytes, size_t *slot_bytes)
+{
+    return bytes != SIZE_MAX && align_size(bytes + 1, NWGC_ALIGNMENT, slot_bytes);
+}
+
+/* An object's size from its layout. */
+static size_t object_bytes(const void *object)
+{
+    NetWasmCollectorLayout layout;
+    collector_object_layout(object, &layout);
+    return layout.fixed_bytes + layout.element_count * layout.element_size;
 }
 
 static bool bit_is_set(const uintptr_t *bits, size_t index)
@@ -420,16 +429,6 @@ static void unregister_region(NetWasmGc *gc, NetWasmGcRegion *region)
     }
 }
 
-static bool valid_layout(size_t count, size_t size, const NetWasmGcDescriptor *descriptor)
-{
-    if (descriptor == NULL) return true;
-    if (descriptor->reference_count != 0 && descriptor->offsets == NULL) return false;
-    for (size_t index = 0; index < descriptor->reference_count; index++)
-        if (descriptor->offsets[index] > size || sizeof(uintptr_t) > size - descriptor->offsets[index])
-            return false;
-    return count == 0 || size <= SIZE_MAX / count;
-}
-
 static size_t block_slot_count(size_t slot_bytes, size_t *words, size_t *slots_offset)
 {
     size_t lower = 0;
@@ -481,7 +480,8 @@ static NetWasmGcResult acquire_block_storage(NetWasmGc *gc, NetWasmGcBlock **res
     return NETWASM_GC_OK;
 }
 
-static NetWasmGcResult create_block(NetWasmGc *gc, size_t slot_bytes, NetWasmGcBlock **result)
+static NetWasmGcResult create_block(
+    NetWasmGc *gc, size_t slot_bytes, bool traced, NetWasmGcBlock **result)
 {
     size_t words;
     size_t slots_offset;
@@ -516,6 +516,7 @@ static NetWasmGcResult create_block(NetWasmGc *gc, size_t slot_bytes, NetWasmGcB
     block->bitmap_words = words;
     block->slots_offset = slots_offset;
     block->class_index = slot_bytes / NWGC_ALIGNMENT - 1;
+    block->traced = traced;
     *result = block;
     return NETWASM_GC_OK;
 }
@@ -567,112 +568,94 @@ static size_t find_free_run(NetWasmGc *gc, NetWasmGcBlock *block, size_t maximum
 
 static bool is_reserved_tail(const NetWasmGc *gc, const NetWasmGcBlock *block, size_t slot)
 {
-    const NetWasmGcClass *size_class = &gc->classes[block->class_index];
+    const NetWasmGcClass *size_class = &gc->classes[block->traced][block->class_index];
     const unsigned char *address = block_slots_const(block) + slot * block->slot_bytes;
     return size_class->run_block == block &&
         address >= size_class->run_cursor && address < size_class->run_end;
 }
 
-static size_t heap_charge(const NetWasmGc *gc)
-{
-    size_t total = gc->occupied_bytes;
-    if (total > SIZE_MAX - gc->reserved_bytes) return SIZE_MAX;
-    return total + gc->reserved_bytes;
-}
-
 static bool collection_due(const NetWasmGc *gc, size_t additional)
 {
-    size_t current = heap_charge(gc);
     return additional >= gc->next_collection_charge ||
-        current >= gc->next_collection_charge - additional;
+        gc->occupied_bytes >= gc->next_collection_charge - additional;
 }
 
 static void retire_runs(NetWasmGc *gc)
 {
-    for (size_t class_index = 0; class_index < NWGC_CLASS_COUNT; class_index++) {
-        NetWasmGcClass *size_class = &gc->classes[class_index];
+    for (size_t class_index = 0; class_index < 2 * NWGC_CLASS_COUNT; class_index++) {
+        NetWasmGcClass *size_class = &gc->classes[class_index / NWGC_CLASS_COUNT][class_index % NWGC_CLASS_COUNT];
         NetWasmGcBlock *block = size_class->run_block;
         if (block == NULL) continue;
         size_t first = (size_t)(size_class->run_cursor - block_slots(block)) / block->slot_bytes;
         size_t end = (size_t)(size_class->run_end - block_slots(block)) / block->slot_bytes;
         bitmap_clear_range(block_allocated(block), first, end);
-        size_t tail = (size_t)(size_class->run_end - size_class->run_cursor);
-        gc->reserved_bytes -= tail;
         block->search = first;
         size_class->run_block = NULL;
-        size_class->run_cursor = size_class->run_end = NULL;
+        size_class->run_start = size_class->run_cursor = size_class->run_end = NULL;
     }
 }
 
 static void rebuild_available(NetWasmGc *gc)
 {
-    for (size_t index = 0; index < NWGC_CLASS_COUNT; index++) {
-        gc->classes[index].available = NULL;
-        gc->classes[index].run_block = NULL;
-        gc->classes[index].run_cursor = gc->classes[index].run_end = NULL;
+    for (size_t index = 0; index < 2 * NWGC_CLASS_COUNT; index++) {
+        NetWasmGcClass *size_class = &gc->classes[index / NWGC_CLASS_COUNT][index % NWGC_CLASS_COUNT];
+        size_class->available = NULL;
+        size_class->run_block = NULL;
+        size_class->run_start = size_class->run_cursor = size_class->run_end = NULL;
     }
     for (NetWasmGcBlock *block = gc->blocks; block != NULL; block = block->next) {
         block->available = false;
         block->available_next = NULL;
         if (block->live == 0) continue;
         if (block->live == block->slot_count) continue;
-        NetWasmGcClass *size_class = &gc->classes[block->class_index];
+        NetWasmGcClass *size_class = block_class(gc, block);
         block->available_next = size_class->available;
         size_class->available = block;
         block->available = true;
     }
 }
 
-static void initialize_header(
-    NetWasmGcObjectHeader *header,
-    NetWasmGcRegion *owner,
-    size_t count,
-    size_t size,
-    size_t payload_bytes,
-    const NetWasmGcDescriptor *descriptor)
+/* Counts the objects a run handed out. Live bytes count whole slots: the
+ * collector keeps no per-object size. */
+static void close_run(NetWasmGc *gc, const NetWasmGcClass *size_class)
 {
-    *header = (NetWasmGcObjectHeader){
-        .owner = owner,
-        .descriptor = descriptor,
-        .payload_bytes = payload_bytes,
-        .element_count = count,
-        .element_size = size,
-    };
+    size_t consumed = (size_t)(size_class->run_cursor - size_class->run_start);
+    gc->object_count += consumed / size_class->run_block->slot_bytes;
+    gc->live_bytes += consumed;
 }
 
-static inline __attribute__((always_inline)) void *consume_small_run(
-    NetWasmGc *gc, NetWasmGcClass *size_class, size_t slot_bytes,
-    size_t count, size_t size, size_t payload_bytes,
-    const NetWasmGcDescriptor *descriptor)
+/* The slots taken from runs still open, which closing them will count. */
+static void open_runs(const NetWasmGc *gc, size_t *objects, size_t *bytes)
 {
-    NetWasmGcBlock *block = size_class->run_block;
-    NetWasmGcObjectHeader *header = (NetWasmGcObjectHeader *)size_class->run_cursor;
-    size_class->run_cursor += slot_bytes;
-    initialize_header(header, &block->region, count, size, payload_bytes, descriptor);
-    block->live++;
-    gc->object_count++;
-    gc->live_bytes += payload_bytes;
-    gc->occupied_bytes += slot_bytes;
-    gc->reserved_bytes -= slot_bytes;
-    return object_payload(header);
+    *objects = 0;
+    *bytes = 0;
+    for (size_t index = 0; index < 2 * NWGC_CLASS_COUNT; index++) {
+        const NetWasmGcClass *size_class = &gc->classes[index / NWGC_CLASS_COUNT][index % NWGC_CLASS_COUNT];
+        if (size_class->run_block == NULL) continue;
+        size_t consumed = (size_t)(size_class->run_cursor - size_class->run_start);
+        *objects += consumed / size_class->run_block->slot_bytes;
+        *bytes += consumed;
+    }
 }
 
 static NetWasmGcResult allocate_small(
     NetWasmGc *gc,
     size_t slot_bytes,
-    size_t count,
-    size_t size,
-    size_t payload_bytes,
-    const NetWasmGcDescriptor *descriptor,
+    bool traced,
     void **result)
 {
     size_t class_index = slot_bytes / NWGC_ALIGNMENT - 1;
-    NetWasmGcClass *size_class = &gc->classes[class_index];
+    NetWasmGcClass *size_class = &gc->classes[traced][class_index];
     if (size_class->run_block == NULL || size_class->run_cursor == size_class->run_end) {
+        if (size_class->run_block != NULL) {
+            close_run(gc, size_class);
+            size_class->run_block = NULL;
+            size_class->run_start = size_class->run_cursor = size_class->run_end = NULL;
+        }
         size_t maximum = NWGC_RUN_BYTES / slot_bytes;
         if (maximum == 0) maximum = 1;
         size_t maximum_run_bytes = maximum * slot_bytes;
-        if (collection_due(gc, maximum_run_bytes) && gc->object_count != 0 && !gc->collecting)
+        if (collection_due(gc, maximum_run_bytes) && gc->occupied_bytes != 0 && !gc->collecting)
             netwasm_gc_collect(gc);
         NetWasmGcBlock *block = size_class->available;
         size_t first = 0;
@@ -685,7 +668,7 @@ static NetWasmGcResult allocate_small(
             size_class->available = block = block->available_next;
         }
         if (block == NULL) {
-            NetWasmGcResult created = create_block(gc, slot_bytes, &block);
+            NetWasmGcResult created = create_block(gc, slot_bytes, traced, &block);
             if (created != NETWASM_GC_OK) return created;
             block->available = true;
             block->available_next = size_class->available;
@@ -694,34 +677,31 @@ static NetWasmGcResult allocate_small(
             end = maximum < block->slot_count ? maximum : block->slot_count;
         }
         size_t run_bytes = (end - first) * slot_bytes;
-        if (gc->reserved_bytes > SIZE_MAX - run_bytes) return NETWASM_GC_SIZE_OVERFLOW;
+        if (gc->occupied_bytes > SIZE_MAX - run_bytes) return NETWASM_GC_SIZE_OVERFLOW;
         bitmap_set_range(block_allocated(block), first, end);
         memset(block_slots(block) + first * slot_bytes, 0, run_bytes);
         NWGC_COUNT(gc, run_refills, 1);
         NWGC_COUNT(gc, run_slots, end - first);
         NWGC_COUNT(gc, run_bytes_zeroed, run_bytes);
-        gc->reserved_bytes += run_bytes;
+        gc->occupied_bytes += run_bytes;
         block->search = end;
         if (end == block->slot_count) {
             size_class->available = block->available_next;
             block->available = false;
         }
         size_class->run_block = block;
-        size_class->run_cursor = block_slots(block) + first * slot_bytes;
+        size_class->run_start = size_class->run_cursor = block_slots(block) + first * slot_bytes;
         size_class->run_end = block_slots(block) + end * slot_bytes;
     }
-    if (gc->occupied_bytes > SIZE_MAX - slot_bytes ||
-        gc->live_bytes > SIZE_MAX - payload_bytes) return NETWASM_GC_SIZE_OVERFLOW;
-    *result = consume_small_run(gc, size_class, slot_bytes, count, size, payload_bytes, descriptor);
+    *result = size_class->run_cursor;
+    size_class->run_cursor += slot_bytes;
     return NETWASM_GC_OK;
 }
 
 static NetWasmGcResult allocate_large(
     NetWasmGc *gc,
-    size_t count,
-    size_t size,
     size_t payload_bytes,
-    const NetWasmGcDescriptor *descriptor,
+    bool traced,
     void **result)
 {
     size_t stored_payload = payload_bytes == 0 ? 1 : payload_bytes;
@@ -729,7 +709,7 @@ static NetWasmGcResult allocate_large(
     if (add_overflow(sizeof(NetWasmGcLarge), stored_payload, &allocation_bytes))
         return NETWASM_GC_SIZE_OVERFLOW;
     if (collection_due(gc, allocation_bytes) &&
-        gc->object_count != 0 && !gc->collecting) netwasm_gc_collect(gc);
+        gc->occupied_bytes != 0 && !gc->collecting) netwasm_gc_collect(gc);
     if (gc->occupied_bytes > SIZE_MAX - allocation_bytes ||
         gc->live_bytes > SIZE_MAX - payload_bytes ||
         gc->backing_bytes > SIZE_MAX - allocation_bytes) return NETWASM_GC_SIZE_OVERFLOW;
@@ -742,7 +722,8 @@ static NetWasmGcResult allocate_large(
         .kind = NWGC_REGION_LARGE,
     };
     large->allocation_bytes = allocation_bytes;
-    initialize_header(&large->header.fields, &large->region, count, size, payload_bytes, descriptor);
+    large->payload_bytes = payload_bytes;
+    large->traced = traced;
     NetWasmGcResult registration = register_region(gc, &large->region);
     if (registration != NETWASM_GC_OK) {
         gc->release(large, allocation_bytes, NWGC_ALIGNMENT);
@@ -754,14 +735,14 @@ static NetWasmGcResult allocate_large(
     gc->object_count++;
     gc->live_bytes += payload_bytes;
     gc->occupied_bytes += allocation_bytes;
-    *result = object_payload(&large->header.fields);
+    *result = large_object(large);
     return NETWASM_GC_OK;
 }
 
-static bool object_matches(const NetWasmGcObjectHeader *header, uintptr_t address, bool endpoint)
+/* Whether address is inside the object at first, or at its end when endpoint holds. */
+static bool object_matches(uintptr_t first, size_t bytes, uintptr_t address, bool endpoint)
 {
-    uintptr_t first = (uintptr_t)object_payload_const(header);
-    uintptr_t last = first + header->payload_bytes;
+    uintptr_t last = first + bytes;
     return (address >= first && address < last) || (endpoint && address == last);
 }
 
@@ -771,7 +752,8 @@ static bool block_slot_is_live(const NetWasmGc *gc, const NetWasmGcBlock *block,
         !is_reserved_tail(gc, block, slot);
 }
 
-typedef bool (*ObjectVisitor)(NetWasmGc *, NetWasmGcObjectHeader *, void *);
+/* Receives a small object as its block and slot, or a large object. */
+typedef bool (*ObjectVisitor)(NetWasmGc *, NetWasmGcBlock *, size_t, NetWasmGcLarge *, void *);
 
 static bool visit_block_matches(
     NetWasmGc *gc,
@@ -781,17 +763,17 @@ static bool visit_block_matches(
     ObjectVisitor visitor,
     void *state)
 {
-    uintptr_t first_payload = (uintptr_t)block_slots(block) + sizeof(NetWasmGcAlignedHeader);
-    if (address < first_payload) return false;
-    size_t slot = (size_t)((address - first_payload) / block->slot_bytes);
+    uintptr_t first_slot = (uintptr_t)block_slots(block);
+    if (address < first_slot) return false;
+    size_t slot = (size_t)((address - first_slot) / block->slot_bytes);
     size_t candidates[2] = {slot, slot == 0 ? SIZE_MAX : slot - 1};
     bool matched = false;
     for (size_t index = 0; index < 2; index++) {
         size_t candidate = candidates[index];
         if (!block_slot_is_live(gc, block, candidate)) continue;
-        NetWasmGcObjectHeader *header = block_header(block, candidate);
-        if (!object_matches(header, address, endpoint)) continue;
-        matched = visitor(gc, header, state) || matched;
+        unsigned char *object = block_object(block, candidate);
+        if (!object_matches((uintptr_t)object, object_bytes(object), address, endpoint)) continue;
+        matched = visitor(gc, block, candidate, NULL, state) || matched;
     }
     return matched;
 }
@@ -808,8 +790,9 @@ static bool visit_region_matches(
     if (region->kind == NWGC_REGION_BLOCK)
         return visit_block_matches(gc, (NetWasmGcBlock *)region, address, endpoint, visitor, state);
     NetWasmGcLarge *large = (NetWasmGcLarge *)region;
-    if (!object_matches(&large->header.fields, address, endpoint)) return false;
-    return visitor(gc, &large->header.fields, state);
+    if (!object_matches((uintptr_t)large_object(large), large->payload_bytes, address, endpoint))
+        return false;
+    return visitor(gc, NULL, 0, large, state);
 }
 
 static bool visit_page_matches(
@@ -853,14 +836,8 @@ static bool visit_address(
     return matched;
 }
 
-static size_t block_index_of(const NetWasmGcBlock *block, const NetWasmGcObjectHeader *header)
-{
-    return ((const unsigned char *)header - block_slots_const(block)) / block->slot_bytes;
-}
-
 static bool mark_resolved(
     NetWasmGc *gc,
-    NetWasmGcObjectHeader *header,
     NetWasmGcBlock *block,
     size_t slot,
     NetWasmGcLarge *large)
@@ -876,37 +853,31 @@ static bool mark_resolved(
     if (already_marked) return false;
     NWGC_COUNT(gc, marked_objects, 1);
     gc->marked_object_count++;
-    gc->marked_live_bytes += header->payload_bytes;
-    const NetWasmGcDescriptor *descriptor = header->descriptor;
-    if (descriptor != NULL && descriptor->reference_count != 0 && header->element_count != 0) {
-        if (block != NULL) {
-            set_bit(block_pending(block), slot);
-            if (!block->pending_queued) {
-                block->pending_next = gc->pending_blocks;
-                gc->pending_blocks = block;
-                block->pending_queued = true;
-                block->pending_first = slot / NWGC_WORD_BITS;
-            } else if (slot / NWGC_WORD_BITS < block->pending_first)
-                block->pending_first = slot / NWGC_WORD_BITS;
-        } else if (!large->pending_queued) {
-            large->pending_next = gc->pending_large;
-            gc->pending_large = large;
-            large->pending_queued = true;
-        }
+    gc->marked_live_bytes += block != NULL ? block->slot_bytes : large->payload_bytes;
+    if (block != NULL) {
+        if (!block->traced) return true;
+        set_bit(block_pending(block), slot);
+        if (!block->pending_queued) {
+            block->pending_next = gc->pending_blocks;
+            gc->pending_blocks = block;
+            block->pending_queued = true;
+            block->pending_first = slot / NWGC_WORD_BITS;
+        } else if (slot / NWGC_WORD_BITS < block->pending_first)
+            block->pending_first = slot / NWGC_WORD_BITS;
+    } else if (large->traced && !large->pending_queued) {
+        large->pending_next = gc->pending_large;
+        gc->pending_large = large;
+        large->pending_queued = true;
     }
     return true;
 }
 
 /* Keep collection policy here so root, interior and exact-reference resolution
  * share the same future generation eligibility and promotion decisions. */
-static bool mark_object(NetWasmGc *gc, NetWasmGcObjectHeader *header, void *state)
+static bool mark_object(NetWasmGc *gc, NetWasmGcBlock *block, size_t slot, NetWasmGcLarge *large, void *state)
 {
     (void)state;
-    if (header->owner->kind == NWGC_REGION_BLOCK) {
-        NetWasmGcBlock *block = (NetWasmGcBlock *)header->owner;
-        return mark_resolved(gc, header, block, block_index_of(block, header), NULL);
-    }
-    return mark_resolved(gc, header, NULL, 0, (NetWasmGcLarge *)header->owner);
+    return mark_resolved(gc, block, slot, large);
 }
 
 static bool mark_reference(NetWasmGc *gc, uintptr_t address)
@@ -919,28 +890,23 @@ static bool mark_reference(NetWasmGc *gc, uintptr_t address)
     }
     NetWasmGcPage *page = find_page_cached(gc, address >> NWGC_PAGE_SHIFT);
     if (page == NULL) return false;
-    if (address >= sizeof(NetWasmGcAlignedHeader)) {
-        uintptr_t header_address = address - sizeof(NetWasmGcAlignedHeader);
-        for (size_t index = 0; index < 2; index++) {
-            NetWasmGcRegion *region = page->regions[index];
-            if (region == NULL) continue;
-            if (region->kind == NWGC_REGION_BLOCK) {
-                NetWasmGcBlock *block = (NetWasmGcBlock *)region;
-                uintptr_t slots = (uintptr_t)block_slots(block);
-                if (header_address < slots) continue;
-                size_t distance = (size_t)(header_address - slots);
-                size_t slot = distance / block->slot_bytes;
-                if (slot >= block->slot_count || distance != slot * block->slot_bytes ||
-                    !block_slot_is_live(gc, block, slot)) continue;
-                NetWasmGcObjectHeader *header = block_header(block, slot);
-                if ((uintptr_t)object_payload(header) == address)
-                    return mark_resolved(gc, header, block, slot, NULL);
-            } else {
-                NetWasmGcLarge *large = (NetWasmGcLarge *)region;
-                if ((uintptr_t)object_payload(&large->header.fields) == address)
-                    return mark_resolved(gc, &large->header.fields, NULL, 0, large);
-            }
+    for (size_t index = 0; index < 2; index++) {
+        NetWasmGcRegion *region = page->regions[index];
+        if (region == NULL) continue;
+        if (region->kind == NWGC_REGION_BLOCK) {
+            NetWasmGcBlock *block = (NetWasmGcBlock *)region;
+            uintptr_t slots = (uintptr_t)block_slots(block);
+            if (address < slots) continue;
+            size_t distance = (size_t)(address - slots);
+            size_t slot = distance / block->slot_bytes;
+            /* Collection retires every run first, so an allocated slot is live. */
+            if (slot >= block->slot_count || distance != slot * block->slot_bytes ||
+                !bit_is_set(block_allocated_const(block), slot)) continue;
+            return mark_resolved(gc, block, slot, NULL);
         }
+        NetWasmGcLarge *large = (NetWasmGcLarge *)region;
+        if ((uintptr_t)large_object(large) == address)
+            return mark_resolved(gc, NULL, 0, large);
     }
     /* Packed and unsafe managed fields may contain supported interior or
      * endpoint references. Preserve the general resolver on an exact miss. */
@@ -948,14 +914,10 @@ static bool mark_reference(NetWasmGc *gc, uintptr_t address)
     return visit_page_matches(gc, page, address, true, mark_object, NULL);
 }
 
-static bool query_marked(NetWasmGc *gc, NetWasmGcObjectHeader *header, void *state)
+static bool query_marked(NetWasmGc *gc, NetWasmGcBlock *block, size_t slot, NetWasmGcLarge *large, void *state)
 {
     (void)gc;
-    bool marked;
-    if (header->owner->kind == NWGC_REGION_BLOCK) {
-        NetWasmGcBlock *block = (NetWasmGcBlock *)header->owner;
-        marked = bit_is_set(block_marked_const(block), block_index_of(block, header));
-    } else marked = ((NetWasmGcLarge *)header->owner)->marked;
+    bool marked = block != NULL ? bit_is_set(block_marked_const(block), slot) : large->marked;
     *(bool *)state = *(bool *)state || marked;
     return marked;
 }
@@ -967,16 +929,37 @@ typedef struct {
     uintptr_t endpoint;
 } BaseQuery;
 
-static bool query_base(NetWasmGc *gc, NetWasmGcObjectHeader *header, void *state)
+static bool query_base(NetWasmGc *gc, NetWasmGcBlock *block, size_t slot, NetWasmGcLarge *large, void *state)
 {
     (void)gc;
     BaseQuery *query = state;
-    uintptr_t first = (uintptr_t)object_payload(header);
-    uintptr_t last = first + header->payload_bytes;
+    unsigned char *object = block != NULL ? block_object(block, slot) : large_object(large);
+    uintptr_t first = (uintptr_t)object;
+    uintptr_t last = first + (block != NULL ? object_bytes(object) : large->payload_bytes);
     if (query->address == first) query->exact = first;
     else if (query->address < last) query->interior = first;
     else if (query->address == last) query->endpoint = first;
     return true;
+}
+
+/* Marks every reference the object's layout names. */
+static void trace_object(NetWasmGc *gc, unsigned char *object)
+{
+    NetWasmCollectorLayout layout;
+    collector_object_layout(object, &layout);
+    for (size_t field = 0; field < layout.fixed_reference_count; field++) {
+        uintptr_t reference;
+        memcpy(&reference, object + layout.fixed_offsets[field], sizeof(reference));
+        mark_reference(gc, reference);
+    }
+    unsigned char *item = object + layout.fixed_bytes;
+    for (size_t element = 0; element < layout.element_count; element++, item += layout.element_size) {
+        for (size_t field = 0; field < layout.element_reference_count; field++) {
+            uintptr_t reference;
+            memcpy(&reference, item + layout.element_offsets[field], sizeof(reference));
+            mark_reference(gc, reference);
+        }
+    }
 }
 
 static void sweep(NetWasmGc *gc)
@@ -1039,7 +1022,8 @@ NetWasmGcResult netwasm_gc_create(
     size_t minimum_collection_budget,
     NetWasmGc **result)
 {
-    if (allocate == NULL || release == NULL || result == NULL || minimum_collection_budget == 0)
+    if (allocate == NULL || release == NULL || result == NULL ||
+        minimum_collection_budget == 0)
         return NETWASM_GC_INVALID_ARGUMENT;
     NetWasmGc *gc = allocate(sizeof(*gc), alignof(NetWasmGc));
     if (gc == NULL) return NETWASM_GC_OUT_OF_MEMORY;
@@ -1066,62 +1050,42 @@ void netwasm_gc_set_mark_completion(NetWasmGc *gc, NetWasmGcCompleteMark complet
     gc->mark_state = state;
 }
 
+/* A bump through the class's open run. Collection retires every run, so this
+ * never succeeds while collecting. */
 __attribute__((always_inline)) void *netwasm_gc_try_allocate_available(
-    NetWasmGc *gc, size_t element_count, size_t element_size,
-    const NetWasmGcDescriptor *descriptor)
+    NetWasmGc *gc, size_t bytes, bool contains_references)
 {
-    if (gc == NULL || gc->collecting ||
-        !valid_layout(element_count, element_size, descriptor)) return NULL;
-    size_t payload_bytes;
-    if (multiply_overflow(element_count, element_size, &payload_bytes)) return NULL;
-    if (gc->object_count == SIZE_MAX || gc->live_bytes > SIZE_MAX - payload_bytes) return NULL;
-    size_t stored_payload = payload_bytes == 0 ? 1 : payload_bytes;
-    size_t total;
-    if (add_overflow(sizeof(NetWasmGcAlignedHeader), stored_payload, &total)) return NULL;
-    size_t slot_bytes;
-    if (!align_size(total, NWGC_ALIGNMENT, &slot_bytes) || slot_bytes > NWGC_SMALL_LIMIT)
-        return NULL;
-    NetWasmGcClass *size_class = &gc->classes[slot_bytes / NWGC_ALIGNMENT - 1];
-    if (size_class->run_block == NULL || size_class->run_cursor == size_class->run_end ||
-        gc->occupied_bytes > SIZE_MAX - slot_bytes) return NULL;
-    void *result = consume_small_run(gc, size_class, slot_bytes,
-        element_count, element_size, payload_bytes, descriptor);
+    if (gc == NULL || bytes >= NWGC_SMALL_LIMIT) return NULL;
+    /* The slot of slot_size: at least one byte past the object, aligned. */
+    size_t slot_bytes = (bytes + NWGC_ALIGNMENT) & ~(size_t)(NWGC_ALIGNMENT - 1);
+    NetWasmGcClass *size_class = &gc->classes[contains_references][slot_bytes / NWGC_ALIGNMENT - 1];
+    unsigned char *object = size_class->run_cursor;
+    if (object == size_class->run_end) return NULL;
+    size_class->run_cursor = object + slot_bytes;
     NWGC_COUNT(gc, fast_allocations, 1);
-    if (payload_bytes > UINT64_MAX - gc->allocated_bytes) gc->allocated_bytes = UINT64_MAX;
-    else gc->allocated_bytes += payload_bytes;
-    return result;
+    gc->allocated_bytes += bytes;
+    return object;
 }
 
 NetWasmGcResult netwasm_gc_allocate(
     NetWasmGc *gc,
-    size_t element_count,
-    size_t element_size,
-    const NetWasmGcDescriptor *descriptor,
+    size_t bytes,
+    bool contains_references,
     void **result)
 {
     if (gc == NULL || result == NULL || gc->collecting)
         return NETWASM_GC_INVALID_ARGUMENT;
-    if (!valid_layout(element_count, element_size, descriptor))
-        return NETWASM_GC_INVALID_LAYOUT;
-    size_t payload_bytes;
-    if (multiply_overflow(element_count, element_size, &payload_bytes))
-        return NETWASM_GC_SIZE_OVERFLOW;
-    if (gc->object_count == SIZE_MAX || gc->live_bytes > SIZE_MAX - payload_bytes)
-        return NETWASM_GC_SIZE_OVERFLOW;
-    size_t stored_payload = payload_bytes == 0 ? 1 : payload_bytes;
-    size_t total;
-    if (add_overflow(sizeof(NetWasmGcAlignedHeader), stored_payload, &total))
-        return NETWASM_GC_SIZE_OVERFLOW;
+    if (gc->object_count == SIZE_MAX) return NETWASM_GC_SIZE_OVERFLOW;
     size_t slot_bytes;
-    if (!align_size(total, NWGC_ALIGNMENT, &slot_bytes)) return NETWASM_GC_SIZE_OVERFLOW;
+    if (!slot_size(bytes, &slot_bytes)) return NETWASM_GC_SIZE_OVERFLOW;
     NetWasmGcResult allocation = slot_bytes <= NWGC_SMALL_LIMIT ?
-        allocate_small(gc, slot_bytes, element_count, element_size, payload_bytes, descriptor, result) :
-        allocate_large(gc, element_count, element_size, payload_bytes, descriptor, result);
+        allocate_small(gc, slot_bytes, contains_references, result) :
+        allocate_large(gc, bytes, contains_references, result);
     if (allocation == NETWASM_GC_OK) {
         if (slot_bytes <= NWGC_SMALL_LIMIT) NWGC_COUNT(gc, small_allocations, 1);
         else NWGC_COUNT(gc, large_allocations, 1);
-        if (payload_bytes > UINT64_MAX - gc->allocated_bytes) gc->allocated_bytes = UINT64_MAX;
-        else gc->allocated_bytes += payload_bytes;
+        if (bytes > UINT64_MAX - gc->allocated_bytes) gc->allocated_bytes = UINT64_MAX;
+        else gc->allocated_bytes += bytes;
     }
     return allocation;
 }
@@ -1137,7 +1101,6 @@ void netwasm_gc_drain(NetWasmGc *gc)
 {
     if (gc == NULL || !gc->collecting) return;
     while (gc->pending_blocks != NULL || gc->pending_large != NULL) {
-        NetWasmGcObjectHeader *header;
         if (gc->pending_blocks != NULL) {
             NetWasmGcBlock *block = gc->pending_blocks;
             gc->pending_blocks = block->pending_next;
@@ -1150,18 +1113,7 @@ void netwasm_gc_drain(NetWasmGc *gc)
                 }
                 size_t bit = bitmap_trailing_zeros(pending);
                 block_pending(block)[word] = pending & (pending - 1);
-                size_t slot = word * NWGC_WORD_BITS + bit;
-                header = block_header(block, slot);
-                const NetWasmGcDescriptor *descriptor = header->descriptor;
-                unsigned char *payload = object_payload(header);
-                for (size_t element = 0; element < header->element_count; element++) {
-                    unsigned char *item = payload + element * header->element_size;
-                    for (size_t field = 0; field < descriptor->reference_count; field++) {
-                        uintptr_t reference;
-                        memcpy(&reference, item + descriptor->offsets[field], sizeof(reference));
-                        mark_reference(gc, reference);
-                    }
-                }
+                trace_object(gc, block_object(block, word * NWGC_WORD_BITS + bit));
             }
             block->pending_queued = false;
             block->pending_next = NULL;
@@ -1172,17 +1124,7 @@ void netwasm_gc_drain(NetWasmGc *gc)
         gc->pending_large = large->pending_next;
         large->pending_next = NULL;
         large->pending_queued = false;
-        header = &large->header.fields;
-        const NetWasmGcDescriptor *descriptor = header->descriptor;
-        unsigned char *payload = object_payload(header);
-        for (size_t element = 0; element < header->element_count; element++) {
-            unsigned char *item = payload + element * header->element_size;
-            for (size_t field = 0; field < descriptor->reference_count; field++) {
-                uintptr_t reference;
-                memcpy(&reference, item + descriptor->offsets[field], sizeof(reference));
-                mark_reference(gc, reference);
-            }
-        }
+        trace_object(gc, large_object(large));
     }
 }
 
@@ -1242,7 +1184,10 @@ uint64_t netwasm_gc_total_allocated_bytes(const NetWasmGc *gc)
 
 uint64_t netwasm_gc_live_bytes(const NetWasmGc *gc)
 {
-    return gc == NULL ? 0 : gc->live_bytes;
+    if (gc == NULL) return 0;
+    size_t objects, bytes;
+    open_runs(gc, &objects, &bytes);
+    return gc->live_bytes + bytes;
 }
 
 uint64_t netwasm_gc_reserved_bytes(const NetWasmGc *gc)
@@ -1252,7 +1197,10 @@ uint64_t netwasm_gc_reserved_bytes(const NetWasmGc *gc)
 
 size_t netwasm_gc_object_count(const NetWasmGc *gc)
 {
-    return gc == NULL ? 0 : gc->object_count;
+    if (gc == NULL) return 0;
+    size_t objects, bytes;
+    open_runs(gc, &objects, &bytes);
+    return gc->object_count + objects;
 }
 
 #ifdef NETWASM_GC_STATISTICS
@@ -1260,30 +1208,40 @@ void netwasm_gc_read_statistics(const NetWasmGc *gc, NetWasmGcStatistics *result
 {
     *result = gc->statistics;
     result->collections = gc->collections;
-    result->object_count = gc->object_count;
-    result->live_payload_bytes = gc->live_bytes;
-    result->reserved_run_bytes = gc->reserved_bytes;
+    result->object_count = netwasm_gc_object_count(gc);
+    for (size_t index = 0; index < 2 * NWGC_CLASS_COUNT; index++) {
+        const NetWasmGcClass *size_class = &gc->classes[index / NWGC_CLASS_COUNT][index % NWGC_CLASS_COUNT];
+        result->reserved_run_bytes += (uint64_t)(size_class->run_end - size_class->run_cursor);
+    }
     uint64_t large_payload = 0;
     for (const NetWasmGcLarge *large = gc->large_objects; large != NULL; large = large->next) {
         result->large_object_count++;
         result->large_bytes += large->allocation_bytes;
-        large_payload += large->header.fields.payload_bytes;
+        large_payload += large->payload_bytes;
     }
+    uint64_t small_payload = 0;
     for (const NetWasmGcBlock *block = gc->blocks; block != NULL; block = block->next) {
         const uintptr_t *allocated = block_allocated_const(block);
         size_t assigned = 0;
         for (size_t word = 0; word < block->bitmap_words; word++)
             assigned += bitmap_population(allocated[word] & bitmap_valid_mask(block->slot_count, word));
+        size_t live = 0;
+        for (size_t slot = 0; slot < block->slot_count; slot++) {
+            if (!block_slot_is_live(gc, block, slot)) continue;
+            live++;
+            small_payload += object_bytes(block_slots_const(block) + slot * block->slot_bytes);
+        }
         result->block_count++;
         result->block_metadata_bytes += block->slots_offset;
         result->block_tail_bytes += NWGC_BLOCK_BYTES - block->slots_offset - block->slot_count * block->slot_bytes;
-        result->small_occupied_bytes += block->live * block->slot_bytes;
+        result->small_occupied_bytes += live * block->slot_bytes;
         result->free_slot_bytes += (block->slot_count - assigned) * block->slot_bytes;
     }
-    uint64_t small_objects = result->object_count - result->large_object_count;
-    result->small_header_bytes = small_objects * sizeof(NetWasmGcAlignedHeader);
-    result->small_padding_bytes = result->small_occupied_bytes - result->small_header_bytes -
-        (result->live_payload_bytes - large_payload);
+    /* Objects carry no collector header; live bytes count whole slots, and
+     * the layout tells padding from payload. */
+    result->small_header_bytes = 0;
+    result->live_payload_bytes = small_payload + large_payload;
+    result->small_padding_bytes = result->small_occupied_bytes - small_payload;
     for (const NetWasmGcBlock *block = gc->empty_blocks; block != NULL; block = block->available_next)
         result->empty_block_count++;
     for (const NetWasmGcArena *arena = gc->arenas; arena != NULL; arena = arena->next) {

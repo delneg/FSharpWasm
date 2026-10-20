@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: MIT */
 #include "../../src/NetWasm.Runtime/collector/netwasm/netwasm_gc.c"
+#include "netwasm_gc_test_layouts.h"
 
 #include <assert.h>
 
@@ -46,6 +47,13 @@ typedef struct {
     size_t count;
 } LayoutRoots;
 
+static NetWasmGcBlock *object_block(NetWasmGc *gc, void *object)
+{
+    NetWasmGcRegion *region = find_page(gc, (uintptr_t)object >> NWGC_PAGE_SHIFT)->regions[0];
+    assert(region->kind == NWGC_REGION_BLOCK);
+    return (NetWasmGcBlock *)region;
+}
+
 static void trace_roots(NetWasmGc *gc, void *state)
 {
     LayoutRoots *roots = state;
@@ -59,7 +67,7 @@ static void page_boundary_endpoint_keeps_owner(void)
     assert(netwasm_gc_create(page_aligned_backing, release_backing, 1024 * 1024, &gc) == NETWASM_GC_OK);
     size_t bytes = 2 * NWGC_PAGE_BYTES - sizeof(NetWasmGcLarge);
     void *object = NULL;
-    assert(netwasm_gc_allocate(gc, 1, bytes, NULL, &object) == NETWASM_GC_OK);
+    assert(test_allocate(gc, 1, bytes, NULL, &object) == NETWASM_GC_OK);
     uintptr_t endpoint = (uintptr_t)object + bytes;
     assert((endpoint & (NWGC_PAGE_BYTES - 1)) == 0);
     assert(netwasm_gc_base(gc, endpoint) == (uintptr_t)object);
@@ -73,7 +81,7 @@ static void page_boundary_endpoint_keeps_owner(void)
     static const size_t offsets[] = {0};
     static const NetWasmGcDescriptor reference = {offsets, 1};
     void *owner = NULL;
-    assert(netwasm_gc_allocate(gc, 1, sizeof(uintptr_t), &reference, &owner) == NETWASM_GC_OK);
+    assert(test_allocate(gc, 1, sizeof(uintptr_t), &reference, &owner) == NETWASM_GC_OK);
     *(uintptr_t *)owner = endpoint;
     root = (uintptr_t)owner;
     netwasm_gc_collect(gc);
@@ -90,7 +98,7 @@ static void word_run_operations_cross_bitmap_boundaries(void)
     NetWasmGc *gc = NULL;
     assert(netwasm_gc_create(page_aligned_backing, release_backing, SIZE_MAX, &gc) == NETWASM_GC_OK);
     NetWasmGcBlock *block = NULL;
-    assert(create_block(gc, NWGC_ALIGNMENT, &block) == NETWASM_GC_OK);
+    assert(create_block(gc, NWGC_ALIGNMENT, false, &block) == NETWASM_GC_OK);
     assert(block->slot_count > NWGC_WORD_BITS + 3);
 
     uintptr_t *allocated = block_allocated(block);
@@ -140,22 +148,22 @@ static void reserved_run_tail_is_unpublished_and_retired(void)
     NetWasmGc *gc = NULL;
     assert(netwasm_gc_create(page_aligned_backing, release_backing, SIZE_MAX, &gc) == NETWASM_GC_OK);
     void *object = NULL;
-    assert(netwasm_gc_allocate(gc, 1, 1, NULL, &object) == NETWASM_GC_OK);
-    NetWasmGcObjectHeader *header = (NetWasmGcObjectHeader *)
-        ((unsigned char *)object - sizeof(NetWasmGcAlignedHeader));
-    NetWasmGcBlock *block = (NetWasmGcBlock *)header->owner;
-    NetWasmGcClass *size_class = &gc->classes[block->class_index];
+    assert(test_allocate(gc, 1, 1, NULL, &object) == NETWASM_GC_OK);
+    NetWasmGcBlock *block = object_block(gc, object);
+    NetWasmGcClass *size_class = block_class(gc, block);
     assert(size_class->run_cursor < size_class->run_end);
-    uintptr_t reserved_payload = (uintptr_t)size_class->run_cursor + sizeof(NetWasmGcAlignedHeader);
+    uintptr_t reserved_payload = (uintptr_t)size_class->run_cursor;
     assert(!netwasm_gc_contains(gc, reserved_payload));
-    assert(gc->reserved_bytes != 0);
+    /* The whole run is charged to the heap when it is reserved. */
+    assert(gc->occupied_bytes > block->slot_bytes);
 
     uintptr_t root = (uintptr_t)object;
     netwasm_gc_set_root_tracer(gc, trace_root, &root);
     netwasm_gc_collect(gc);
-    assert(gc->reserved_bytes == 0);
+    /* Collection retires the run; only the live slot stays charged. */
+    assert(gc->occupied_bytes == block->slot_bytes);
     assert(netwasm_gc_object_count(gc) == 1);
-    assert(gc->classes[block->class_index].available == block);
+    assert(block_class(gc, block)->available == block);
     netwasm_gc_destroy(gc);
 }
 
@@ -164,24 +172,22 @@ static void full_blocks_stay_off_available_lists(void)
     NetWasmGc *gc = NULL;
     assert(netwasm_gc_create(page_aligned_backing, release_backing, SIZE_MAX, &gc) == NETWASM_GC_OK);
     void *first = NULL;
-    assert(netwasm_gc_allocate(gc, 1, 1, NULL, &first) == NETWASM_GC_OK);
-    NetWasmGcObjectHeader *header = (NetWasmGcObjectHeader *)
-        ((unsigned char *)first - sizeof(NetWasmGcAlignedHeader));
-    NetWasmGcBlock *block = (NetWasmGcBlock *)header->owner;
+    assert(test_allocate(gc, 1, 1, NULL, &first) == NETWASM_GC_OK);
+    NetWasmGcBlock *block = object_block(gc, first);
     size_t count = block->slot_count;
     uintptr_t *roots = malloc(count * sizeof(*roots));
     assert(roots != NULL);
     roots[0] = (uintptr_t)first;
     for (size_t index = 1; index < count; index++) {
         void *object = NULL;
-        assert(netwasm_gc_allocate(gc, 1, 1, NULL, &object) == NETWASM_GC_OK);
+        assert(test_allocate(gc, 1, 1, NULL, &object) == NETWASM_GC_OK);
         roots[index] = (uintptr_t)object;
     }
     LayoutRoots root_set = {roots, count};
     netwasm_gc_set_root_tracer(gc, trace_roots, &root_set);
     netwasm_gc_collect(gc);
     assert(block->live == block->slot_count);
-    assert(gc->classes[block->class_index].available == NULL);
+    assert(block_class(gc, block)->available == NULL);
     free(roots);
     netwasm_gc_destroy(gc);
 }
@@ -192,7 +198,7 @@ static void full_collection_preserves_the_floor_above_twice_live_slots(void)
     NetWasmGc *gc = NULL;
     assert(netwasm_gc_create(page_aligned_backing, release_backing, floor, &gc) == NETWASM_GC_OK);
     void *object = NULL;
-    assert(netwasm_gc_allocate(gc, 1, 1, NULL, &object) == NETWASM_GC_OK);
+    assert(test_allocate(gc, 1, 1, NULL, &object) == NETWASM_GC_OK);
     uintptr_t root = (uintptr_t)object;
     netwasm_gc_set_root_tracer(gc, trace_root, &root);
     netwasm_gc_collect(gc);
@@ -205,18 +211,15 @@ static void empty_blocks_leave_and_reenter_the_active_list(void)
     NetWasmGc *gc = NULL;
     assert(netwasm_gc_create(page_aligned_backing, release_backing, SIZE_MAX, &gc) == NETWASM_GC_OK);
     void *object = NULL;
-    assert(netwasm_gc_allocate(gc, 1, 1, NULL, &object) == NETWASM_GC_OK);
-    NetWasmGcObjectHeader *header = (NetWasmGcObjectHeader *)
-        ((unsigned char *)object - sizeof(NetWasmGcAlignedHeader));
-    NetWasmGcBlock *block = (NetWasmGcBlock *)header->owner;
+    assert(test_allocate(gc, 1, 1, NULL, &object) == NETWASM_GC_OK);
+    NetWasmGcBlock *block = object_block(gc, object);
     assert(gc->blocks == block);
     netwasm_gc_collect(gc);
     assert(gc->blocks == NULL);
     assert(gc->empty_blocks == block);
 
-    assert(netwasm_gc_allocate(gc, 1, 1, NULL, &object) == NETWASM_GC_OK);
-    header = (NetWasmGcObjectHeader *)((unsigned char *)object - sizeof(NetWasmGcAlignedHeader));
-    assert((NetWasmGcBlock *)header->owner == block);
+    assert(test_allocate(gc, 1, 1, NULL, &object) == NETWASM_GC_OK);
+    assert(object_block(gc, object) == block);
     assert(gc->blocks == block);
     assert(gc->empty_blocks == NULL);
     netwasm_gc_destroy(gc);

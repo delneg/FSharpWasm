@@ -95,8 +95,14 @@ preopen a read-only directory at `/netwasm-timezones` containing the
 uncompressed payload. Both native and browser lanes therefore expose the same
 standard `wasi:filesystem` contract to managed code.
 
-Bootstrap validates the requested identifier, payload format, embedded SHA-256
-digest, pinned IANA version, and selected-zone membership before the managed
-entry point runs. Invalid `TZ`, missing capabilities, missing files, corrupt or
-incompatible data, and absent zones fail loudly with a deterministic diagnostic;
-they never fall back to UTC.
+Hosts check the payload's SHA-256 digest against the deployment manifest before
+mounting it: browser hosts with Web Crypto, the local launcher before it
+preopens the directory. A custom host that mounts a payload from the standalone
+generator should verify it the same way, because the guest trusts the mounted
+file. Bootstrap then validates the requested identifier, payload format, pinned
+IANA version, and selected-zone membership before the managed entry point runs.
+It reads only the zone index and the selected zone; other zones are read and
+validated when `FindSystemTimeZoneById` or `GetSystemTimeZones` first needs
+them. Invalid `TZ`, missing capabilities, missing files, incompatible data, and
+absent zones fail loudly with a deterministic diagnostic; they never fall back
+to UTC.

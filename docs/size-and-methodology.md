@@ -47,16 +47,17 @@ ordinary SDK users do not need a maintainer Emscripten installation.
 
 ### Collector selection and compression
 
+With NetWasm 0.10.0, the same application measures:
+
 | Collector | Uncompressed component | Brotli quality 11 |
 | --- | ---: | ---: |
-| Compact (default) | 47,798 bytes | 13,501 bytes |
-| NetWasmGC | 51,300 bytes | 15,157 bytes |
-| Bump | 43,794 bytes | 11,929 bytes |
-| Boehm | 74,142 bytes | 25,023 bytes |
+| Compact (default) | 47,895 bytes | 13,660 bytes |
+| NetWasmGC | 50,855 bytes | 15,053 bytes |
+| Bump | 43,864 bytes | 11,959 bytes |
 
 These are complete optimized components for the same application and command
 WIT, not isolated collector sizes. Brotli uses generic mode with `lgwin=22`.
-All four components execute and print `42`; default, explicit Compact and a
+All three components execute and print `42`; default, explicit Compact and a
 switch back to Compact produce identical final bytes. See
 [Choosing a garbage collector](runtime-garbage-collection.md) for tradeoffs and
 the `NetWasmGarbageCollector` setting.

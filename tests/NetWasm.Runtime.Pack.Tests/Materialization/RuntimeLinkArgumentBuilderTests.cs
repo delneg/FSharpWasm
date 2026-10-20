@@ -68,10 +68,8 @@ public sealed class RuntimeLinkArgumentBuilderTests
     }
 
     [Theory]
-    [InlineData("wasm32", "Boehm")]
     [InlineData("wasm32", "Compact")]
     [InlineData("wasm32", "NetWasm")]
-    [InlineData("wasm64", "Boehm")]
     [InlineData("wasm64", "Compact")]
     [InlineData("wasm64", "NetWasm")]
     [InlineData("wasm32", "Bump")]

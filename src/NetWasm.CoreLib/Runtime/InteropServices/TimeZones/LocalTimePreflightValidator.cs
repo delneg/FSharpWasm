@@ -2,7 +2,7 @@ namespace System.Runtime.InteropServices.TimeZones
 {
     internal sealed class LocalTimePreflightValidator(
         IEnvironmentVariableReader environment,
-        ITimeZoneAssetByteReader assetBytes,
+        ITimeZoneAssetFileOpener assetFiles,
         ITimeZoneAssetParser assets,
         ITimeZoneDefinitionResolverFactory definitions,
         ILocalTimeOffsetResolverFactory offsets,
@@ -14,8 +14,8 @@ namespace System.Runtime.InteropServices.TimeZones
         internal const string RequiredDataVersion = "2026c";
         private readonly IEnvironmentVariableReader _environment =
             environment ?? throw new ArgumentNullException();
-        private readonly ITimeZoneAssetByteReader _assetBytes =
-            assetBytes ?? throw new ArgumentNullException();
+        private readonly ITimeZoneAssetFileOpener _assetFiles =
+            assetFiles ?? throw new ArgumentNullException();
         private readonly ITimeZoneAssetParser _assets =
             assets ?? throw new ArgumentNullException();
         private readonly ITimeZoneDefinitionResolverFactory _definitions =
@@ -46,10 +46,10 @@ namespace System.Runtime.InteropServices.TimeZones
             var identity = "unavailable";
             try
             {
-                byte[] contents;
+                ITimeZoneAssetFile file;
                 try
                 {
-                    contents = _assetBytes.Read(AssetName);
+                    file = _assetFiles.Open(AssetName);
                 }
                 catch (PlatformNotSupportedException exception)
                 {
@@ -59,7 +59,7 @@ namespace System.Runtime.InteropServices.TimeZones
                 TimeZoneAsset asset;
                 try
                 {
-                    asset = _assets.Parse(contents);
+                    asset = _assets.Parse(file);
                 }
                 catch (TimeZoneAssetValidationException exception)
                 {
@@ -78,7 +78,16 @@ namespace System.Runtime.InteropServices.TimeZones
                         "asset data version is '" + asset.DataVersion + "'");
                 }
                 var definitions = _definitions.Create(asset);
-                var definition = definitions.Resolve(timeZone);
+                TimeZoneDefinition definition;
+                try
+                {
+                    definition = definitions.Resolve(timeZone);
+                }
+                catch (TimeZoneAssetValidationException exception)
+                {
+                    throw new PlatformNotSupportedException(
+                        "asset could not be validated: " + exception.Reason);
+                }
                 _installer.Install(_offsets.Create(definition));
                 _catalogs.Install(new TimeZoneCatalogSnapshot(
                     timeZone,

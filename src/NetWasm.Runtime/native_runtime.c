@@ -49,9 +49,10 @@ _Static_assert(sizeof(netwasm_id_t) == sizeof(u32),
 _Static_assert(sizeof(netwasm_reference_t) == sizeof(void *),
                "A managed reference must match the selected Wasm address width");
 
+/* The compiler emits each type's reference bitmap as words of this size. */
+typedef uintptr_t NetWasmReferenceBitmapWord;
+
 typedef struct {
-    NetWasmCollectorDescriptor descriptor;
-    NetWasmCollectorDescriptor value_descriptor;
     u32 base_type_id;
     netwasm_address_t size;
     netwasm_address_t bitmap_address;
@@ -65,6 +66,10 @@ typedef struct {
     int value_contains_references;
     int value_registered;
     int registered;
+    const size_t *reference_offsets;
+    size_t reference_count;
+    const size_t *value_reference_offsets;
+    size_t value_reference_count;
 } TypeDescriptor;
 
 typedef struct {
@@ -165,7 +170,6 @@ static netwasm_reference_t dispatch_root;
 static uintptr_t allocation_root;
 
 netwasm_reference_t allocate_string(u32 value, u32 length, u32 type_id);
-static NetWasmCollectorDescriptor reference_word_descriptor;
 static netwasm_reference_t *type_object_cache;
 
 __attribute__((import_module("netwasm.application.v1"),
@@ -727,8 +731,8 @@ void initialize(
     /*
      * The compiler publishes only semantically live managed references and
      * managed byrefs in exact shadow-root slots. A managed byref can point into
-     * an object or array, so BDWGC must resolve that interior address back to
-     * its containing allocation. This does not enable conventional stack
+     * an object or array, so the collector must resolve that interior address
+     * back to its containing allocation. This does not enable conventional stack
      * scanning; the registered shadow/static/runtime roots remain the complete
      * root set.
      */
@@ -739,8 +743,6 @@ void initialize(
             SIZE_MAX / sizeof(netwasm_address_t)) {
         __builtin_trap();
     }
-    collector_enable_interior_pointers();
-    collector_disable_stack_scanning();
     runtime_initialize_system();
     collector_initialize();
     collector_clear_roots();
@@ -769,11 +771,6 @@ void initialize(
     type_capacity = required_type_capacity;
     static_root_capacity = required_static_root_capacity;
     collector_set_root_enumerator(enumerate_managed_roots);
-    {
-        NetWasmCollectorDescriptorWord reference_bitmap[1] = {0};
-        collector_mark_descriptor_word(reference_bitmap, 0);
-        reference_word_descriptor = collector_create_descriptor(reference_bitmap, 1);
-    }
     initialized = 1;
 }
 
@@ -787,8 +784,6 @@ void initialize_finalization(void)
     if (finalization_initialized) {
         return;
     }
-    collector_enable_on_demand_finalization();
-    collector_enable_java_finalization_order();
     finalization_initialized = 1;
 #endif
 }
@@ -990,6 +985,89 @@ netwasm_reference_t finalizer_safepoint(void)
 #endif
 }
 
+/* The byte offsets of a reference bitmap's set bits, one bit per reference slot. */
+static const size_t *reference_offsets(
+    netwasm_address_t bitmap_address,
+    u32 bitmap_bits,
+    size_t *count)
+{
+    const NetWasmReferenceBitmapWord *bitmap =
+        (const NetWasmReferenceBitmapWord *)(uintptr_t)bitmap_address;
+    size_t word_bits = sizeof(*bitmap) * 8;
+    size_t total = 0;
+    for (u32 bit = 0; bitmap != NULL && bit < bitmap_bits; bit++) {
+        total += (bitmap[bit / word_bits] >> (bit % word_bits)) & 1;
+    }
+    *count = total;
+    if (total == 0) {
+        return NULL;
+    }
+    size_t *offsets = collector_allocate_metadata(total * sizeof(size_t));
+    if (offsets == NULL) {
+        __builtin_trap();
+    }
+    size_t index = 0;
+    for (u32 bit = 0; bit < bitmap_bits; bit++) {
+        if ((bitmap[bit / word_bits] >> (bit % word_bits)) & 1) {
+            offsets[index++] = (size_t)bit * sizeof(netwasm_reference_t);
+        }
+    }
+    return offsets;
+}
+
+static const size_t reference_element_offsets[] = {0};
+
+void collector_object_layout(const void *object, NetWasmCollectorLayout *layout)
+{
+    netwasm_reference_t reference = (netwasm_reference_t)(uintptr_t)object;
+    u32 type_id = *(const u32 *)object;
+    const TypeDescriptor *type = &type_descriptors[type_id];
+    *layout = (NetWasmCollectorLayout){0};
+    switch (type_data_kinds[type_id]) {
+    case NETWASM_OBJECT_DATA_STRING:
+        layout->fixed_bytes = NETWASM_STRING_DATA_OFFSET;
+        layout->element_size = sizeof(uint16_t);
+        layout->element_count =
+            *(const u32 *)(uintptr_t)(reference + NETWASM_STRING_LENGTH_OFFSET);
+        return;
+    case NETWASM_OBJECT_DATA_ARRAY: {
+        const TypeDescriptor *element = &type_descriptors[
+            *(const u32 *)(uintptr_t)(reference + NETWASM_ARRAY_ELEMENT_TYPE_ID_OFFSET)];
+        /* Elements are inline, so the data pointer marks where the fields end. */
+        layout->fixed_bytes = (size_t)(*(const netwasm_reference_t *)(uintptr_t)(
+            reference + NETWASM_ARRAY_DATA_POINTER_OFFSET) - reference);
+        layout->element_count =
+            *(const u32 *)(uintptr_t)(reference + NETWASM_ARRAY_LENGTH_OFFSET);
+        if (element->value_registered) {
+            layout->element_offsets = element->value_reference_offsets;
+            layout->element_reference_count = element->value_reference_count;
+            layout->element_size = element->value_size;
+        } else {
+            layout->element_offsets = reference_element_offsets;
+            layout->element_reference_count = 1;
+            layout->element_size = sizeof(netwasm_reference_t);
+        }
+        return;
+    }
+    default:
+        layout->fixed_offsets = type->reference_offsets;
+        layout->fixed_reference_count = type->reference_count;
+        layout->fixed_bytes = type->size;
+        return;
+    }
+}
+
+/* An object of a registered type; collectors read its layout from the type id. */
+static void *allocate_typed(size_t bytes, const TypeDescriptor *type)
+{
+    return collector_allocate_object(bytes, type->reference_count != 0);
+}
+
+static void *allocate_untraced(size_t bytes)
+{
+    return collector_allocate_object(bytes, false);
+}
+
 NETWASM_EXPORT("register_type")
 void register_type(
     u32 type_id,
@@ -1010,9 +1088,8 @@ void register_type(
     if (entry->registered) {
         return;
     }
-    entry->descriptor = collector_create_descriptor(
-        (const NetWasmCollectorDescriptorWord *)(uintptr_t)bitmap_address,
-        bitmap_bits);
+    entry->reference_offsets = reference_offsets(
+        bitmap_address, bitmap_bits, &entry->reference_count);
     entry->size = size;
     entry->base_type_id = base_type_id;
     entry->bitmap_address = bitmap_address;
@@ -1043,16 +1120,15 @@ void register_value_type(
         }
         return;
     }
-    entry->value_descriptor = collector_create_descriptor(
-        (const NetWasmCollectorDescriptorWord *)(uintptr_t)bitmap_address,
-        bitmap_bits);
+    entry->value_reference_offsets = reference_offsets(
+        bitmap_address, bitmap_bits, &entry->value_reference_count);
     entry->value_size = size;
     entry->boxed_payload_offset = boxed_payload_offset;
     entry->value_contains_references = 0;
     for (u32 bit = 0; bitmap_address != 0 && bit < bitmap_bits; bit++) {
-        const NetWasmCollectorDescriptorWord *bitmap = (const NetWasmCollectorDescriptorWord *)(uintptr_t)bitmap_address;
-        if ((bitmap[bit / (sizeof(NetWasmCollectorDescriptorWord) * 8)] &
-             ((NetWasmCollectorDescriptorWord)1 << (bit % (sizeof(NetWasmCollectorDescriptorWord) * 8)))) != 0) {
+        const NetWasmReferenceBitmapWord *bitmap = (const NetWasmReferenceBitmapWord *)(uintptr_t)bitmap_address;
+        if ((bitmap[bit / (sizeof(NetWasmReferenceBitmapWord) * 8)] &
+             ((NetWasmReferenceBitmapWord)1 << (bit % (sizeof(NetWasmReferenceBitmapWord) * 8)))) != 0) {
             entry->value_contains_references = 1;
         }
     }
@@ -1284,9 +1360,7 @@ static netwasm_reference_t allocate_registered(
         size != type_descriptors[type_id].size) {
         __builtin_trap();
     }
-    allocation = collector_allocate_exact(
-        size,
-        type_descriptors[type_id].descriptor);
+    allocation = allocate_typed(size, &type_descriptors[type_id]);
     if (allocation == NULL) {
         return 0;
     }
@@ -1297,7 +1371,7 @@ static netwasm_reference_t allocate_registered(
 #endif
     track(allocation);
     allocation_root = 0;
-type_data_kinds[type_id] = NETWASM_OBJECT_DATA_FIELDS;
+    type_data_kinds[type_id] = NETWASM_OBJECT_DATA_FIELDS;
     return (netwasm_reference_t)(uintptr_t)allocation;
 }
 
@@ -1338,8 +1412,7 @@ netwasm_reference_t boxed_value_clone(netwasm_reference_t source)
         (void *)(uintptr_t)(clone + entry->boxed_payload_offset),
         (const void *)(uintptr_t)(source + entry->boxed_payload_offset),
         1,
-        entry->value_size,
-        entry->value_descriptor);
+        entry->value_size);
     return clone;
 }
 
@@ -1622,15 +1695,54 @@ netwasm_reference_t get_type_object(u32 semantic_type_id, u32 facade_type_id)
     return object;
 }
 
+/* An array is one allocation: its fields, then its elements from
+   NETWASM_ARRAY_INLINE_DATA_OFFSET. An empty array keeps one spare word so its
+   data pointer stays inside the allocation for any collector. */
+static netwasm_reference_t allocate_inline_array(
+    u32 type_id,
+    u32 element_type_id,
+    u32 length,
+    size_t element_size,
+    bool contains_references)
+{
+    size_t bytes;
+    netwasm_reference_t array;
+    if (element_size != 0 &&
+        (size_t)length > (SIZE_MAX - NETWASM_ARRAY_INLINE_DATA_OFFSET -
+            NETWASM_OBJECT_REFERENCE_SIZE) / element_size) {
+        return 0;
+    }
+    bytes = NETWASM_ARRAY_INLINE_DATA_OFFSET + (size_t)length * element_size;
+    if (length == 0) {
+        bytes += NETWASM_OBJECT_REFERENCE_SIZE;
+    }
+    type_data_kinds[type_id] = NETWASM_OBJECT_DATA_ARRAY;
+    array = (netwasm_reference_t)(uintptr_t)collector_allocate_object(
+        bytes, contains_references && length != 0);
+    if (array == 0) {
+        return 0;
+    }
+    *(u32 *)(uintptr_t)array = type_id;
+    *(u32 *)(uintptr_t)(array + NETWASM_ARRAY_LENGTH_OFFSET) = length;
+    *(netwasm_reference_t *)(uintptr_t)(array + NETWASM_ARRAY_DATA_POINTER_OFFSET) =
+        array + NETWASM_ARRAY_INLINE_DATA_OFFSET;
+    *(u32 *)(uintptr_t)(array + NETWASM_ARRAY_ELEMENT_TYPE_ID_OFFSET) =
+        element_type_id;
+#ifndef NETWASM_RUNTIME_PACK
+    allocation_count++;
+#endif
+    allocation_root = array;
+    track((void *)(uintptr_t)array);
+    allocation_root = 0;
+    return array;
+}
+
 NETWASM_EXPORT("allocate_reference_array")
 netwasm_reference_t allocate_reference_array(
     u32 length,
     u32 type_id,
     u32 element_type_id)
 {
-    netwasm_reference_t array;
-    size_t array_allocation_size = NETWASM_ARRAY_OBJECT_SIZE;
-    void *elements = NULL;
     if (type_id >= type_capacity || !type_descriptors[type_id].registered ||
         type_descriptors[type_id].size != NETWASM_ARRAY_OBJECT_SIZE ||
         element_type_id >= type_capacity || !type_descriptors[element_type_id].registered) {
@@ -1640,45 +1752,8 @@ netwasm_reference_t allocate_reference_array(
         return 0;
     }
     collect_for_allocation_test();
-    if (length != 0) {
-        elements = collector_allocate_exact_zeroed(
-            length,
-            sizeof(netwasm_reference_t),
-            reference_word_descriptor);
-        if (elements == NULL) {
-            return 0;
-        }
-        allocation_root = (uintptr_t)elements;
-    } else {
-        array_allocation_size += NETWASM_OBJECT_REFERENCE_SIZE;
-    }
-    array = (netwasm_reference_t)(uintptr_t)collector_allocate_exact(
-        array_allocation_size,
-        type_descriptors[type_id].descriptor);
-    if (array == 0) {
-        allocation_root = 0;
-        return 0;
-    }
-    *(u32 *)(uintptr_t)array = type_id;
-    *(u32 *)(uintptr_t)(array + NETWASM_ARRAY_LENGTH_OFFSET) = length;
-    *(netwasm_reference_t *)(uintptr_t)(
-        array + NETWASM_ARRAY_DATA_POINTER_OFFSET) =
-        length == 0
-            ? array + NETWASM_ARRAY_OBJECT_SIZE
-            : (netwasm_reference_t)(uintptr_t)elements;
-    *(u32 *)(uintptr_t)(array + NETWASM_ARRAY_ELEMENT_TYPE_ID_OFFSET) =
-        element_type_id;
-    allocation_root = array;
-#ifndef NETWASM_RUNTIME_PACK
-    allocation_count += length == 0 ? 1 : 2;
-#endif
-    track((void *)(uintptr_t)array);
-    if (elements != NULL) {
-        track(elements);
-    }
-    allocation_root = 0;
-type_data_kinds[type_id] = NETWASM_OBJECT_DATA_ARRAY;
-    return array;
+    return allocate_inline_array(
+        type_id, element_type_id, length, sizeof(netwasm_reference_t), true);
 }
 
 NETWASM_EXPORT("allocate_value_array")
@@ -1689,9 +1764,6 @@ netwasm_reference_t allocate_value_array(
     u32 element_size)
 {
     TypeDescriptor *element;
-    netwasm_reference_t array;
-    size_t array_allocation_size = NETWASM_ARRAY_OBJECT_SIZE;
-    void *elements = NULL;
     if (type_id >= type_capacity || !type_descriptors[type_id].registered ||
         type_descriptors[type_id].size != NETWASM_ARRAY_OBJECT_SIZE ||
         element_type_id >= type_capacity) {
@@ -1704,53 +1776,8 @@ netwasm_reference_t allocate_value_array(
         __builtin_trap();
     }
     collect_for_allocation_test();
-    if (length != 0) {
-        size_t size = (size_t)length * element->value_size;
-        if (element->value_contains_references) {
-            elements = collector_allocate_exact_zeroed(
-                length,
-                element->value_size,
-                element->value_descriptor);
-        } else {
-            elements = collector_allocate_atomic(size);
-            if (elements != NULL && !collector_atomic_allocation_is_zeroed()) {
-                memset(elements, 0, size);
-            }
-        }
-        if (elements == NULL) {
-            return 0;
-        }
-        allocation_root = (uintptr_t)elements;
-    } else {
-        array_allocation_size += NETWASM_OBJECT_REFERENCE_SIZE;
-    }
-    array = (netwasm_reference_t)(uintptr_t)collector_allocate_exact(
-        array_allocation_size,
-        type_descriptors[type_id].descriptor);
-    if (array == 0) {
-        allocation_root = 0;
-        return 0;
-    }
-    *(u32 *)(uintptr_t)array = type_id;
-    *(u32 *)(uintptr_t)(array + NETWASM_ARRAY_LENGTH_OFFSET) = length;
-    *(netwasm_reference_t *)(uintptr_t)(
-        array + NETWASM_ARRAY_DATA_POINTER_OFFSET) =
-        length == 0
-            ? array + NETWASM_ARRAY_OBJECT_SIZE
-            : (netwasm_reference_t)(uintptr_t)elements;
-    *(u32 *)(uintptr_t)(array + NETWASM_ARRAY_ELEMENT_TYPE_ID_OFFSET) =
-        element_type_id;
-    allocation_root = array;
-#ifndef NETWASM_RUNTIME_PACK
-    allocation_count += length == 0 ? 1 : 2;
-#endif
-    track((void *)(uintptr_t)array);
-    if (elements != NULL) {
-        track(elements);
-    }
-    allocation_root = 0;
-type_data_kinds[type_id] = NETWASM_OBJECT_DATA_ARRAY;
-    return array;
+    return allocate_inline_array(type_id, element_type_id, length,
+        element->value_size, element->value_contains_references != 0);
 }
 
 NETWASM_EXPORT("allocate_rectangular_array")
@@ -1768,7 +1795,6 @@ netwasm_reference_t allocate_rectangular_array(
     u32 total = 1;
     u32 stride = 1;
     netwasm_reference_t array;
-    void *elements = NULL;
     if (rank == 0 || rank > NETWASM_MAX_ARRAY_RANK || dimensions == NULL ||
         type_id >= type_capacity || !type_descriptors[type_id].registered ||
         type_descriptors[type_id].size != NETWASM_RECTANGULAR_ARRAY_OBJECT_SIZE ||
@@ -1802,73 +1828,57 @@ netwasm_reference_t allocate_rectangular_array(
     }
 
     collect_for_allocation_test();
-    array = (netwasm_reference_t)(uintptr_t)collector_allocate_exact(
-        NETWASM_RECTANGULAR_ARRAY_OBJECT_SIZE,
-        type_descriptors[type_id].descriptor);
-    if (array == 0) {
-        return 0;
-    }
-    *(u32 *)(uintptr_t)array = type_id;
-    allocation_root = array;
-
-    shape = (u32 *)collector_allocate_atomic(
-        (size_t)rank * NETWASM_RECTANGULAR_ARRAY_DIMENSION_SIZE);
-    if (shape == NULL) {
-        allocation_root = 0;
-        return 0;
-    }
-    *(netwasm_reference_t *)(uintptr_t)(
-        array + NETWASM_RECTANGULAR_ARRAY_SHAPE_POINTER_OFFSET) =
-        (netwasm_reference_t)(uintptr_t)shape;
-    for (u32 dimension = rank; dimension != 0; dimension--) {
-        u32 index = dimension - 1;
-        shape[index * 2] = dimensions[index];
-        shape[index * 2 + 1] = stride;
-        stride *= dimensions[index];
-    }
-
-    if (total != 0) {
-        if (elements_are_references != 0) {
-            elements = collector_allocate_exact_zeroed(
-                total,
-                sizeof(netwasm_reference_t),
-                reference_word_descriptor);
-        } else if (element->value_contains_references) {
-            elements = collector_allocate_exact_zeroed(
-                total,
-                element->value_size,
-                element->value_descriptor);
-        } else {
-            size_t size = (size_t)total * element->value_size;
-            elements = collector_allocate_atomic(size);
-            if (elements != NULL) {
-                memset(elements, 0, size);
-            }
-        }
-        if (elements == NULL) {
-            allocation_root = 0;
+    {
+        /* One allocation: the fields, the shape with room for lower bounds,
+           then the elements. */
+        size_t element_bytes = elements_are_references != 0
+            ? sizeof(netwasm_reference_t)
+            : element->value_size;
+        size_t shape_offset = NETWASM_RECTANGULAR_ARRAY_OBJECT_SIZE;
+        size_t data_offset = (shape_offset + (size_t)rank * 3 * sizeof(u32) +
+            NETWASM_INLINE_DATA_ALIGNMENT - 1) &
+            ~(size_t)(NETWASM_INLINE_DATA_ALIGNMENT - 1);
+        size_t bytes;
+        if (element_bytes != 0 && (size_t)total >
+                (SIZE_MAX - data_offset - NETWASM_OBJECT_REFERENCE_SIZE) / element_bytes) {
             return 0;
         }
-    }
-
-    *(u32 *)(uintptr_t)(array + NETWASM_ARRAY_LENGTH_OFFSET) = total;
-    *(netwasm_reference_t *)(uintptr_t)(
-        array + NETWASM_ARRAY_DATA_POINTER_OFFSET) =
-        (netwasm_reference_t)(uintptr_t)elements;
-    *(u32 *)(uintptr_t)(array + NETWASM_ARRAY_ELEMENT_TYPE_ID_OFFSET) =
-        element_type_id;
-    *(u32 *)(uintptr_t)(array + NETWASM_RECTANGULAR_ARRAY_RANK_OFFSET) = rank;
+        bytes = data_offset + (size_t)total * element_bytes;
+        if (total == 0) {
+            bytes += NETWASM_OBJECT_REFERENCE_SIZE;
+        }
+        type_data_kinds[type_id] = NETWASM_OBJECT_DATA_ARRAY;
+        array = (netwasm_reference_t)(uintptr_t)collector_allocate_object(bytes,
+            total != 0 &&
+                (elements_are_references != 0 || element->value_contains_references));
+        if (array == 0) {
+            return 0;
+        }
+        *(u32 *)(uintptr_t)array = type_id;
+        shape = (u32 *)(uintptr_t)(array + shape_offset);
+        *(netwasm_reference_t *)(uintptr_t)(
+            array + NETWASM_RECTANGULAR_ARRAY_SHAPE_POINTER_OFFSET) =
+            (netwasm_reference_t)(uintptr_t)shape;
+        for (u32 dimension = rank; dimension != 0; dimension--) {
+            u32 index = dimension - 1;
+            shape[index * 2] = dimensions[index];
+            shape[index * 2 + 1] = stride;
+            stride *= dimensions[index];
+        }
+        *(u32 *)(uintptr_t)(array + NETWASM_ARRAY_LENGTH_OFFSET) = total;
+        *(netwasm_reference_t *)(uintptr_t)(
+            array + NETWASM_ARRAY_DATA_POINTER_OFFSET) = array + data_offset;
+        *(u32 *)(uintptr_t)(array + NETWASM_ARRAY_ELEMENT_TYPE_ID_OFFSET) =
+            element_type_id;
+        *(u32 *)(uintptr_t)(array + NETWASM_RECTANGULAR_ARRAY_RANK_OFFSET) = rank;
 #ifndef NETWASM_RUNTIME_PACK
-    allocation_count += total == 0 ? 2 : 3;
+        allocation_count++;
 #endif
-    track((void *)(uintptr_t)array);
-    track(shape);
-    if (elements != NULL) {
-        track(elements);
+        allocation_root = array;
+        track((void *)(uintptr_t)array);
+        allocation_root = 0;
+        return array;
     }
-    allocation_root = 0;
-type_data_kinds[type_id] = NETWASM_OBJECT_DATA_ARRAY;
-    return array;
 }
 
 NETWASM_EXPORT("array_rank")
@@ -1931,28 +1941,16 @@ netwasm_reference_t allocate_bounded_rectangular_array(
     if (array == 0) {
         return 0;
     }
-    allocation_root = array;
-    u32 *shape = (u32 *)collector_allocate_atomic((size_t)rank * 3 * sizeof(u32));
-    if (shape == NULL) {
-        allocation_root = 0;
-        return 0;
+    {
+        /* The inline shape already has room for the lower bounds. */
+        u32 *shape = (u32 *)(uintptr_t)*(netwasm_reference_t *)(uintptr_t)(
+            array + NETWASM_RECTANGULAR_ARRAY_SHAPE_POINTER_OFFSET);
+        memcpy(shape + rank * 2, (u32 *)(uintptr_t)dimensions_address + rank,
+            (size_t)rank * sizeof(u32));
+        *(u32 *)(uintptr_t)(array + NETWASM_RECTANGULAR_ARRAY_RANK_OFFSET) =
+            rank | 0x80000000u;
+        return array;
     }
-    u32 *old_shape = (u32 *)(uintptr_t)*(netwasm_reference_t *)(uintptr_t)(
-        array + NETWASM_RECTANGULAR_ARRAY_SHAPE_POINTER_OFFSET);
-    memcpy(shape, old_shape, (size_t)rank * 2 * sizeof(u32));
-    memcpy(shape + rank * 2, (u32 *)(uintptr_t)dimensions_address + rank,
-        (size_t)rank * sizeof(u32));
-    *(netwasm_reference_t *)(uintptr_t)(
-        array + NETWASM_RECTANGULAR_ARRAY_SHAPE_POINTER_OFFSET) =
-        (netwasm_reference_t)(uintptr_t)shape;
-    *(u32 *)(uintptr_t)(array + NETWASM_RECTANGULAR_ARRAY_RANK_OFFSET) =
-        rank | 0x80000000u;
-#ifndef NETWASM_RUNTIME_PACK
-    allocation_count++;
-#endif
-    track(shape);
-    allocation_root = 0;
-    return array;
 }
 
 NETWASM_EXPORT("array_get_lower_bound")
@@ -2028,9 +2026,7 @@ netwasm_reference_t array_get_value(netwasm_reference_t array, u32 index,
     }
     allocation_root = array;
     collect_for_allocation_test();
-    boxed = (netwasm_reference_t)(uintptr_t)collector_allocate_exact(
-        element->size,
-        element->descriptor);
+    boxed = (netwasm_reference_t)(uintptr_t)allocate_typed(element->size, element);
     if (boxed == 0) {
         allocation_root = 0;
         return (netwasm_reference_t)1;
@@ -2042,8 +2038,7 @@ netwasm_reference_t array_get_value(netwasm_reference_t array, u32 index,
         (void *)(uintptr_t)(boxed + element->boxed_payload_offset),
         (const void *)(uintptr_t)(data + slot_offset),
         1,
-        element->value_size,
-        element->value_descriptor);
+        element->value_size);
 #ifndef NETWASM_RUNTIME_PACK
     allocation_count++;
 #endif
@@ -2135,9 +2130,8 @@ u32 array_copy(
         for (u32 offset = 0; offset < length; offset++) {
             netwasm_reference_t boxed;
             collect_for_allocation_test();
-            boxed = (netwasm_reference_t)(uintptr_t)collector_allocate_exact(
-                source_element->size,
-                source_element->descriptor);
+            boxed = (netwasm_reference_t)(uintptr_t)allocate_typed(
+                source_element->size, source_element);
             if (boxed == 0) {
                 return ARRAY_COPY_OUT_OF_MEMORY;
             }
@@ -2150,8 +2144,7 @@ u32 array_copy(
                     (netwasm_address_t)(source_index + offset) *
                         source_element->value_size),
                 1,
-                source_element->value_size,
-                source_element->value_descriptor);
+                source_element->value_size);
 #ifndef NETWASM_RUNTIME_PACK
             allocation_count++;
 #endif
@@ -2188,8 +2181,7 @@ u32 array_copy(
                 (const void *)(uintptr_t)(boxed +
                     destination_element->boxed_payload_offset),
                 1,
-                destination_element->value_size,
-                destination_element->value_descriptor);
+                destination_element->value_size);
         }
         return ARRAY_COPY_SUCCESS;
     }
@@ -2235,8 +2227,7 @@ u32 array_copy(
         (const void *)(uintptr_t)(source_data +
             (netwasm_address_t)source_index * source_element->value_size),
         length,
-        source_element->value_size,
-        destination_element->value_descriptor);
+        source_element->value_size);
     return ARRAY_COPY_SUCCESS;
 }
 
@@ -2302,10 +2293,10 @@ netwasm_reference_t array_clone(
             element->value_registered ? element->value_size : 0,
             element->value_registered ? 0 : 1);
         if (clone != 0 && (rank_flags & 0x80000000u) != 0) {
-            /* Shape metadata is immutable and may be shared by a shallow clone. */
-            *(netwasm_reference_t *)(uintptr_t)(
-                clone + NETWASM_RECTANGULAR_ARRAY_SHAPE_POINTER_OFFSET) =
-                (netwasm_reference_t)(uintptr_t)shape;
+            /* Each array carries its shape inline, room for lower bounds included. */
+            memcpy((u32 *)(uintptr_t)*(netwasm_reference_t *)(uintptr_t)(
+                    clone + NETWASM_RECTANGULAR_ARRAY_SHAPE_POINTER_OFFSET) + rank * 2,
+                shape + rank * 2, (size_t)rank * sizeof(u32));
             *(u32 *)(uintptr_t)(clone + NETWASM_RECTANGULAR_ARRAY_RANK_OFFSET) = rank_flags;
         }
     } else if (type_descriptors[type_id].size == NETWASM_ARRAY_OBJECT_SIZE) {
@@ -2348,8 +2339,7 @@ netwasm_reference_t array_clone(
             (const void *)(uintptr_t)(source_data +
                 (netwasm_address_t)source_index * element->value_size),
             length,
-            element->value_size,
-            element->value_descriptor);
+            element->value_size);
     }
     return clone;
 }
@@ -2395,8 +2385,7 @@ void array_clear(netwasm_reference_t array, u32 index, u32 length)
         (void *)(uintptr_t)(data +
             (netwasm_address_t)index * element->value_size),
         length,
-        element->value_size,
-        element->value_descriptor);
+        element->value_size);
 }
 
 NETWASM_EXPORT("allocate_string")
@@ -2423,14 +2412,15 @@ netwasm_reference_t allocate_string(u32 value, u32 length, u32 type_id)
     }
 #endif
     byte_count = NETWASM_STRING_DATA_OFFSET + length * sizeof(uint16_t);
-    string = (netwasm_reference_t)(uintptr_t)collector_allocate_atomic(byte_count);
+    type_data_kinds[type_id] = NETWASM_OBJECT_DATA_STRING;
+    string = (netwasm_reference_t)(uintptr_t)allocate_untraced(byte_count);
     if (string == 0) {
         return 0;
     }
     *(u32 *)(uintptr_t)string = type_id;
     *(u32 *)(uintptr_t)(string + NETWASM_STRING_LENGTH_OFFSET) = length;
     characters = (uint16_t *)(uintptr_t)(string + NETWASM_STRING_DATA_OFFSET);
-    if (value != 0 || !collector_atomic_allocation_is_zeroed()) {
+    if (value != 0) {
         for (u32 index = 0; index < length; index++) {
             characters[index] = (uint16_t)value;
         }
@@ -2441,7 +2431,6 @@ netwasm_reference_t allocate_string(u32 value, u32 length, u32 type_id)
 #endif
     track((void *)(uintptr_t)string);
     allocation_root = 0;
-type_data_kinds[type_id] = NETWASM_OBJECT_DATA_STRING;
     return string;
 }
 

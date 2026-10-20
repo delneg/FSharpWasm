@@ -36,7 +36,7 @@ SCENARIOS = {
     'default-interface': ('net11', ['default-interface', '1000']),
     'activator-exact': ('net11', ['activator-exact', '100']),
 }
-COLLECTORS = ['Compact', 'NetWasm', 'Boehm', 'Bump']
+COLLECTORS = ['Compact', 'NetWasm', 'Bump']
 NAMES = {'transaction': 'Transaction', 'gc': 'GcWorkloads', 'net11': 'Net11Patterns'}
 
 
@@ -55,7 +55,8 @@ def isolated_environment(root):
     return env
 
 
-def publish(side, feed, version, workload, optimization, root, sdk, environment=None, collector=None):
+def publish(side, feed, version, workload, optimization, root, sdk, environment=None, collector=None,
+            properties=()):
     """Publishes one workload for one package set and preset, with the runtime
     pack's default collector unless one is named; returns the component."""
     cell = root / side / f'{workload}-{optimization.lower()}'
@@ -74,6 +75,7 @@ def publish(side, feed, version, workload, optimization, root, sdk, environment=
         '<add key="nuget.org" value="https://api.nuget.org/v3/index.json"/></packageSources></configuration>')
     env = dict(isolated_environment(root / side), **(environment or {}))
     selection = [f'-p:NetWasmGarbageCollector={collector}'] if collector else []
+    selection += [f'-p:{value}' for value in properties]
     run(['dotnet', 'publish', f'{name}.csproj', '-c', 'Release', f'-p:NetWasmOptimization={optimization}',
          *selection, '-o', 'out', '--disable-build-servers', '--nologo'], cell, env, cell / 'publish.log')
     return cell / 'out' / f'{name}.wasm'
@@ -147,6 +149,10 @@ def main():
                         help='a regenerated runtime pack runtime directory for the baseline side')
     parser.add_argument('--candidate-runtime', type=Path,
                         help='a regenerated runtime pack runtime directory for the candidate side')
+    parser.add_argument('--baseline-property', action='append', default=[], metavar='NAME=VALUE',
+                        help="an MSBuild property for the baseline's publishes; repeatable")
+    parser.add_argument('--candidate-property', action='append', default=[], metavar='NAME=VALUE',
+                        help="an MSBuild property for the candidate's publishes; repeatable")
     parser.add_argument('--semantic-changes', nargs='*', default=[],
                         help='scenarios whose baseline result may differ from desktop .NET 11')
     args = parser.parse_args()
@@ -158,6 +164,7 @@ def main():
     sides = {'baseline': args.baseline, 'candidate': args.candidate}
     collectors = {'baseline': args.baseline_collector, 'candidate': args.candidate_collector}
     runtimes = {'baseline': args.baseline_runtime, 'candidate': args.candidate_runtime}
+    properties = {'baseline': args.baseline_property, 'candidate': args.candidate_property}
     workloads = sorted({SCENARIOS[name][0] for name in args.scenarios})
 
     references = {}
@@ -173,13 +180,14 @@ def main():
             # Restore the side's packages once, then swap in the regenerated runtime.
             packages = root / side / 'packages'
             publish(f'{side}-restore', Path(feed).resolve(), version, workloads[0], args.optimizations[0], root,
-                    sdk10, {'NUGET_PACKAGES': str(packages)}, collector=collectors[side])
+                    sdk10, {'NUGET_PACKAGES': str(packages)}, collector=collectors[side],
+                    properties=properties[side])
             overlay_runtime(packages, version, runtimes[side].resolve())
         for optimization in args.optimizations:
             for workload in workloads:
                 components[side, optimization, workload] = publish(
                     side, Path(feed).resolve(), version, workload, optimization, root, sdk10,
-                    collector=collectors[side])
+                    collector=collectors[side], properties=properties[side])
 
     results = []
     for optimization in args.optimizations:
@@ -212,7 +220,7 @@ def main():
                   f"desktop match {row['baseline']['matchesDesktop']}/{row['candidate']['matchesDesktop']}",
                   flush=True)
             (root / 'summary.json').write_text(json.dumps({
-                'collectors': collectors, 'runtimes': {side: str(path) if path else None for side, path in runtimes.items()},
+                'collectors': collectors, 'properties': properties, 'runtimes': {side: str(path) if path else None for side, path in runtimes.items()},
                 'results': results}, indent=2))
 
     failures = [row for row in results if not row['candidate']['matchesDesktop'] or

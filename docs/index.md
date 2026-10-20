@@ -46,7 +46,7 @@ repository.
 - [CoreLib and runtime compatibility](corelib-runtime.md) — the supported
   platform boundary, intentionally unsupported surfaces, and license split.
 - [Choosing a garbage collector](runtime-garbage-collection.md) — Compact's
-  size-first default, the Boehm alternative, and build-time selection.
+  size-first default, NetWasmGC and Bump, and build-time selection.
 - [Language, CLI, and .NET behavior differences](spec-deviations.md) — the
   durable ledger for deliberate profile differences and
   specification-permitted results.

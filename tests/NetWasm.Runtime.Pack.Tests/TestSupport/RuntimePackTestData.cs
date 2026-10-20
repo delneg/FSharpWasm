@@ -10,7 +10,6 @@ internal static class RuntimePackTestData
     public static RuntimePackManifest Manifest()
     {
         var targets = ImmutableArray.Create(Target("wasm32"), Target("wasm64"),
-            Target("wasm32", "Compact"), Target("wasm64", "Compact"),
             Target("wasm32", "NetWasm"), Target("wasm64", "NetWasm"),
             Target("wasm32", "Bump"), Target("wasm64", "Bump"));
         return new(
@@ -28,13 +27,13 @@ internal static class RuntimePackTestData
             "per-application wasm-ld final link"),
         targets)
         {
-            DefaultGarbageCollector = "Boehm",
+            DefaultGarbageCollector = "Compact",
             InlineIntents = [new("initialize", RuntimeFunctionInlinePreference.Aggressive)],
             TargetLookup = targets.ToImmutableDictionary(target => (target.Target, target.GarbageCollector)),
         };
     }
 
-    public static RuntimePackTarget Target(string target, string collector = "Boehm") => target == "wasm64"
+    public static RuntimePackTarget Target(string target, string collector = "Compact") => target == "wasm64"
         ? new(
             target,
             8,

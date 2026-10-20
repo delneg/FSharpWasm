@@ -77,6 +77,7 @@
     <NetWasmManagedDevirtualization Condition="'$(NetWasmManagedDevirtualization)' == ''">Auto</NetWasmManagedDevirtualization>
     <NetWasmManagedAllocationElimination Condition="'$(NetWasmManagedAllocationElimination)' == ''">Auto</NetWasmManagedAllocationElimination>
     <NetWasmManagedLoopRotation Condition="'$(NetWasmManagedLoopRotation)' == ''">Auto</NetWasmManagedLoopRotation>
+    <NetWasmManagedArrayStoreCheckElimination Condition="'$(NetWasmManagedArrayStoreCheckElimination)' == ''">Auto</NetWasmManagedArrayStoreCheckElimination>
     <_NetWasmCanonicalOptimization Condition="'$(_NetWasmCanonicalOptimization)' == ''">$(NetWasmOptimization)</_NetWasmCanonicalOptimization>
     <NetWasmTarget Condition="'$(NetWasmTarget)' == ''">wasm32</NetWasmTarget>
     <NetWasmIntermediateOutputPath Condition="'$(NetWasmIntermediateOutputPath)' == ''">$(IntermediateOutputPath)netwasm\$(NetWasmTarget)\</NetWasmIntermediateOutputPath>
@@ -194,6 +195,7 @@
       <_NetWasmCompilationIdentityLine Include="managedDevirtualization=$(NetWasmManagedDevirtualization)" />
       <_NetWasmCompilationIdentityLine Include="managedAllocationElimination=$(NetWasmManagedAllocationElimination)" />
       <_NetWasmCompilationIdentityLine Include="managedLoopRotation=$(NetWasmManagedLoopRotation)" />
+      <_NetWasmCompilationIdentityLine Include="managedArrayStoreCheckElimination=$(NetWasmManagedArrayStoreCheckElimination)" />
       <_NetWasmCompilationIdentityLine Include="pathMap=$(PathMap)" />
       <_NetWasmPortablePdbCandidate Remove="@(_NetWasmPortablePdbCandidate)" />
       <_NetWasmPortablePdbInput Remove="@(_NetWasmPortablePdbInput)" />
@@ -288,6 +290,7 @@
                         ManagedDevirtualization="$(NetWasmManagedDevirtualization)"
                         ManagedAllocationElimination="$(NetWasmManagedAllocationElimination)"
                         ManagedLoopRotation="$(NetWasmManagedLoopRotation)"
+                        ManagedArrayStoreCheckElimination="$(NetWasmManagedArrayStoreCheckElimination)"
                         NoLogo="$(NoLogo)"
                         ExceptionTypeMapPath="$(NetWasmExceptionTypeMapPath)"
                         StackTraceSymbolsPath="$(NetWasmStackTraceSymbolsPath)">

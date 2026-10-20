@@ -10,7 +10,7 @@ if (!packageRoot) {
 const toolchainPath = toolchainArgument ?? join(packageRoot, "..", "..", "eng", "toolchain.json");
 const runtimeRoot = join(packageRoot, "runtime");
 const policy = JSON.parse(await readFile(join(runtimeRoot, "runtime-policy.json"), "utf8"));
-if (!['Compact', 'NetWasm', 'Boehm', 'Bump'].includes(policy.defaultGarbageCollector)) {
+if (!['Compact', 'NetWasm', 'Bump'].includes(policy.defaultGarbageCollector)) {
   throw new Error('The runtime policy default garbage collector is invalid.');
 }
 const toolchain = JSON.parse(await readFile(toolchainPath, "utf8"));
@@ -33,7 +33,6 @@ const fingerprintInput = {
   llvmLld: toolchain.llvmLld,
   wasmTools: toolchain.wasmTools,
   runtimeAbi: toolchain.runtimeAbi,
-  bdwgc: toolchain.bdwgc,
 };
 const toolchainFingerprint = createHash("sha256")
   .update(JSON.stringify(fingerprintInput))
@@ -58,7 +57,7 @@ for (const [target, targetPolicy] of Object.entries(policy.targets)) {
   });
   const allowedUndefinedSymbols = await describeAsset(
     `${target}/allowed-undefined-symbols.txt`);
-  for (const garbageCollector of ['Compact', 'NetWasm', 'Boehm', 'Bump']) {
+  for (const garbageCollector of ['Compact', 'NetWasm', 'Bump']) {
   const collectorDirectory = garbageCollector.toLowerCase();
   const measured = JSON.parse(await readFile(join(runtimeRoot, target, collectorDirectory, "layout.json"), "utf8"));
   const runtimeArchive = await describeAsset(`${target}/${collectorDirectory}/libnetwasm-runtime.a`);

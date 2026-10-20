@@ -56,11 +56,8 @@ def stage(emsdk_root: Path, toolchain: Path, output: Path) -> None:
         if hashlib.sha256(data).hexdigest() != pins["runtimePackLicenseSources"][key]:
             raise ValueError(f"The pinned {title} notice changed.")
         sections.extend((f"\n=== {title} notice ===\n", data.decode("utf-8")))
-    compact_root = Path(__file__).resolve().parents[1] / "src/NetWasm.Runtime/collector/compact"
-    for name in ("LICENSE", "NOTICE", "UPSTREAM-NOTICE"):
-        sections.extend((f"\n=== Compact collector {name} ===\n",
-                         (compact_root / name).read_text(encoding="utf-8")))
-    netwasm_root = compact_root.parent / "netwasm"
+    # NetWasmGC's sources build both the NetWasm and the Compact collectors.
+    netwasm_root = Path(__file__).resolve().parents[1] / "src/NetWasm.Runtime/collector/netwasm"
     for name in ("LICENSE", "NOTICE"):
         sections.extend((f"\n=== NetWasmGC {name} ===\n",
                          (netwasm_root / name).read_text(encoding="utf-8")))

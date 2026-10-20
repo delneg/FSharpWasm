@@ -631,6 +631,7 @@ public sealed class SdkRoutingTests
         Assert.Equal("Auto", defaultPolicy.Property("NetWasmManagedDevirtualization"));
         Assert.Equal("Auto", defaultPolicy.Property("NetWasmManagedAllocationElimination"));
         Assert.Equal("Auto", defaultPolicy.Property("NetWasmManagedLoopRotation"));
+        Assert.Equal("Auto", defaultPolicy.Property("NetWasmManagedArrayStoreCheckElimination"));
     }
 
     [Theory]
@@ -654,6 +655,7 @@ public sealed class SdkRoutingTests
     [InlineData("NetWasmManagedDevirtualization")]
     [InlineData("NetWasmManagedAllocationElimination")]
     [InlineData("NetWasmManagedLoopRotation")]
+    [InlineData("NetWasmManagedArrayStoreCheckElimination")]
     public void PreservesExplicitCompilerReductionSelections(string property)
     {
         using var project = EvaluationProject.Create(
@@ -697,6 +699,7 @@ public sealed class SdkRoutingTests
                      "$(NetWasmManagedDevirtualization)",
                      "$(NetWasmManagedAllocationElimination)",
                      "$(NetWasmManagedLoopRotation)",
+                     "$(NetWasmManagedArrayStoreCheckElimination)",
                  })
         {
             Assert.Contains(value, frontendIdentityContract, StringComparison.Ordinal);
@@ -724,6 +727,7 @@ public sealed class SdkRoutingTests
         Assert.Equal("$(NetWasmManagedDevirtualization)", (string?)compilation.Attribute("ManagedDevirtualization"));
         Assert.Equal("$(NetWasmManagedAllocationElimination)", (string?)compilation.Attribute("ManagedAllocationElimination"));
         Assert.Equal("$(NetWasmManagedLoopRotation)", (string?)compilation.Attribute("ManagedLoopRotation"));
+        Assert.Equal("$(NetWasmManagedArrayStoreCheckElimination)", (string?)compilation.Attribute("ManagedArrayStoreCheckElimination"));
         foreach (var value in new[]
                  {
                      "$(_NetWasmCanonicalOptimization)",
@@ -1015,6 +1019,7 @@ public sealed class SdkRoutingTests
                     <Message Importance="High" Text="__NETWASM_PROP__NetWasmManagedDevirtualization=$(NetWasmManagedDevirtualization)" />
                     <Message Importance="High" Text="__NETWASM_PROP__NetWasmManagedAllocationElimination=$(NetWasmManagedAllocationElimination)" />
                     <Message Importance="High" Text="__NETWASM_PROP__NetWasmManagedLoopRotation=$(NetWasmManagedLoopRotation)" />
+                    <Message Importance="High" Text="__NETWASM_PROP__NetWasmManagedArrayStoreCheckElimination=$(NetWasmManagedArrayStoreCheckElimination)" />
                     <Message Importance="High" Text="__NETWASM_PROP___NetWasmCanonicalOptimization=$(_NetWasmCanonicalOptimization)" />
                     <Message Importance="High" Text="__NETWASM_PROP__NetWasmRefPackageVersion=$(NetWasmRefPackageVersion)" />
                     <Message Importance="High" Text="__NETWASM_ITEM__NetWasmSdkProfile=@(NetWasmSdkProfile->'%(Identity)|%(CanonicalFolder)', '{ItemSeparator}')" />

@@ -11,43 +11,13 @@
 
 #include <stdlib.h>
 
-void collector_mark_descriptor_word(NetWasmCollectorDescriptorWord *bitmap, size_t bit)
+/* Bump chunks are zeroed when acquired and never reused, so every allocation is
+ * zeroed; nothing is traced. */
+void *collector_allocate_object(size_t bytes, bool contains_references)
 {
-    size_t bits = sizeof(uintptr_t) * 8;
-    bitmap[bit / bits] |= (uintptr_t)1 << (bit % bits);
+    (void)contains_references;
+    return netwasm_bump_allocate(bytes);
 }
-
-NetWasmCollectorDescriptor collector_create_descriptor(
-    const NetWasmCollectorDescriptorWord *bitmap,
-    size_t length)
-{
-    (void)bitmap;
-    (void)length;
-    return 0;
-}
-
-void *collector_allocate_exact(size_t size, NetWasmCollectorDescriptor descriptor)
-{
-    (void)descriptor;
-    return netwasm_bump_allocate(size);
-}
-
-void *collector_allocate_exact_zeroed(
-    size_t count,
-    size_t size,
-    NetWasmCollectorDescriptor descriptor)
-{
-    (void)descriptor;
-    if (size != 0 && count > SIZE_MAX / size) return NULL;
-    return netwasm_bump_allocate(count * size);
-}
-
-void *collector_allocate_atomic(size_t size)
-{
-    return netwasm_bump_allocate(size);
-}
-
-bool collector_atomic_allocation_is_zeroed(void) { return true; }
 
 void collector_initialize(void)
 {
@@ -55,10 +25,6 @@ void collector_initialize(void)
     netwasm_bump_initialize();
 }
 
-void collector_enable_interior_pointers(void) { }
-void collector_disable_stack_scanning(void) { }
-void collector_enable_on_demand_finalization(void) { }
-void collector_enable_java_finalization_order(void) { }
 
 void collector_collect(void) { }
 uint64_t collector_collection_count(void) { return 0; }

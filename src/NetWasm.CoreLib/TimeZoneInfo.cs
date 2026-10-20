@@ -266,7 +266,17 @@ namespace System
 
         public static ReadOnlyCollection<TimeZoneInfo> GetSystemTimeZones(bool skipSorting)
         {
-            var zones = (s_catalog ??= new TimeZoneCatalog()).GetAll();
+            List<TimeZoneInfo> zones;
+            try
+            {
+                zones = (s_catalog ??= new TimeZoneCatalog()).GetAll();
+            }
+            catch (TimeZoneAssetValidationException exception)
+            {
+                throw new InvalidTimeZoneException(
+                    "The selected timezone asset is invalid.",
+                    exception);
+            }
             if (!skipSorting)
             {
                 zones.Sort(static (left, right) =>
@@ -790,9 +800,9 @@ namespace System
                 var result = new List<TimeZoneInfo> { Utc };
                 if (_asset != null)
                 {
-                    foreach (var definition in _asset.Zones)
+                    foreach (var zone in _asset.Zones)
                     {
-                        result.Add(Create(definition.Name, isLocal: false));
+                        result.Add(Create(zone.Name, isLocal: false));
                     }
                 }
                 return result;

@@ -5,7 +5,7 @@ namespace NetWasm.Sdk.Pack.Tests;
 public sealed partial class SdkToolchainContractTests
 {
     private static readonly string[] RuntimeTargets = ["wasm32", "wasm64"];
-    private static readonly string[] RuntimeCollectors = ["compact", "netwasm", "boehm", "bump"];
+    private static readonly string[] RuntimeCollectors = ["compact", "netwasm", "bump"];
     private static readonly string[] RuntimeVariantFiles = ["libnetwasm-runtime.a", "libgc.a", "layout.json"];
 
     [Fact]
@@ -678,8 +678,8 @@ public sealed partial class SdkToolchainContractTests
     [InlineData("", "", null)]
     [InlineData("NetWasm", "", null)]
     [InlineData("Compact", "", null)]
-    [InlineData("Boehm", "", null)]
     [InlineData("Bump", "", null)]
+    [InlineData("Boehm", "", "NWPACK007")]
     [InlineData("", "property", "NWPACK006")]
     [InlineData("NetWasm", "property", "NWPACK006")]
     [InlineData("", "item", "NWPACK006")]

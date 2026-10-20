@@ -21,7 +21,7 @@ The negative entry points are intentionally separate from the desktop oracle:
 desktop .NET uses its host timezone database and cannot model an absent or
 corrupt NetWasm asset. The WASI/native and browser host adapters must set
 `TZ=Australia/Melbourne`, run `RunMissingAsset` without the asset, and run
-`RunCorruptAsset` with a digest-invalid asset. Both cases must produce a
+`RunCorruptAsset` with an asset whose format header is invalid. Both cases must produce a
 managed `PlatformNotSupportedException` and must not silently fall back to UTC
 or the host timezone.
 
@@ -29,8 +29,9 @@ The qualification test supplies `timeZoneAssetPath` and the `TZ` environment
 entry through the existing Node/WASI oracle boundary. The selected asset path
 comes from `NETWASM_TIMEZONE_ASSET_PATH`; this keeps deployment data outside
 the repository and lets native and browser adapters use the same payload. The
-negative cases make a temporary digest-invalid copy for the corrupt-asset
-case; no production or shared test helper is changed in this lane.
+negative cases make a temporary copy with an invalid format header for the
+corrupt-asset case; no production or shared test helper is changed in this lane.
+The guest does not check the asset digest: hosts verify it before mounting.
 
 Generate the minimal qualification payload with `NetWasm.TimeZones generate`,
 selecting both named zones above and writing the asset, Brotli payload, manifest,

@@ -17,5 +17,6 @@ public interface IManagedCompilerOptimizationOverridesParser
         string? switchBitTests = null,
         string? devirtualization = null,
         string? allocationElimination = null,
-        string? loopRotation = null);
+        string? loopRotation = null,
+        string? arrayStoreCheckElimination = null);
 }

@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: MIT */
 #include "../../src/NetWasm.Runtime/collector/netwasm/netwasm_gc.h"
+#include "netwasm_gc_test_layouts.h"
 
 #include <assert.h>
 #include <stdlib.h>
@@ -40,8 +41,8 @@ static void trace_roots(NetWasmGc *gc, void *state)
 
 static unsigned char *allocate(NetWasmGc *gc, size_t bytes)
 {
-    void *result = netwasm_gc_try_allocate_available(gc, 1, bytes, &referencing);
-    if (result == NULL) assert(netwasm_gc_allocate(gc, 1, bytes, &referencing, &result) == NETWASM_GC_OK);
+    void *result = test_try_allocate_available(gc, 1, bytes, &referencing);
+    if (result == NULL) assert(test_allocate(gc, 1, bytes, &referencing, &result) == NETWASM_GC_OK);
     return result;
 }
 

@@ -74,6 +74,7 @@ internal sealed class MethodSpecializerFactory(
                 symbols,
                 relationships),
             new ConstrainedCallRewriter(
+                types,
                 typeDefinitions,
                 methods,
                 methodInstances,

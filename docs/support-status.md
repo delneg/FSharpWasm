@@ -246,8 +246,7 @@ behavior, but diagnostics are not its only intended use.
 Select it with `NetWasmGarbageCollector=Bump`. Memory grows until the application
 ends or the Wasm memory limit is reached. The SDK rejects applications that use
 finalization, weak handles or ephemeron handles with Bump. Compact remains the
-default precise tracing collector, and Boehm remains the alternative tracing
-backend.
+default precise tracing collector, and NetWasmGC the throughput-oriented one.
 
 ## External toolchain blocker
 

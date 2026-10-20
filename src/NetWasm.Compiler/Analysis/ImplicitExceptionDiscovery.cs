@@ -97,6 +97,16 @@ internal sealed class ImplicitExceptionDiscovery(
                 requirements.Add(new(
                     ManagedExceptionKind.IndexOutOfRange,
                     "System.IndexOutOfRangeException"));
+                // A writable address of a reference-type element checks the array's exact element
+                // type, which throws on a covariant array. Without the readonly. prefix in view, any
+                // element type not known to be a value type needs the exception.
+                if (instruction.Operation == CilOperation.LoadArrayElementAddress &&
+                    instruction.Operand is not CilOperand.TypeIdentity { Value.IsValueType: true })
+                {
+                    requirements.Add(new(
+                        ManagedExceptionKind.ArrayTypeMismatch,
+                        "System.ArrayTypeMismatchException"));
+                }
                 break;
             case CilOperation.LoadStaticDataElement:
                 requirements.Add(new(

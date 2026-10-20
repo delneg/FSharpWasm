@@ -41,10 +41,10 @@ def inspect(package: Path, pins_root: Path, version: str) -> None:
         targets = manifest.get("targets", [])
         pairs = [(target.get("target"), target.get("garbageCollector")) for target in targets]
         expected_pairs = {(target, collector) for target in ("wasm32", "wasm64")
-                          for collector in ("Compact", "NetWasm", "Boehm", "Bump")}
-        if len(pairs) != 8 or set(pairs) != expected_pairs:
+                          for collector in ("Compact", "NetWasm", "Bump")}
+        if len(pairs) != len(expected_pairs) or set(pairs) != expected_pairs:
             raise ValueError("Runtime-pack target inventory is incomplete.")
-        if manifest.get("defaultGarbageCollector") not in ("Compact", "NetWasm", "Boehm", "Bump") or \
+        if manifest.get("defaultGarbageCollector") not in ("Compact", "NetWasm", "Bump") or \
                 manifest.get("defaultGarbageCollector") != policy["defaultGarbageCollector"]:
             raise ValueError("Runtime-pack default collector does not match source policy.")
 
@@ -104,8 +104,6 @@ def inspect(package: Path, pins_root: Path, version: str) -> None:
         if any(title not in license_text for title in (
             "=== NetWasm runtime support: MIT, except separately identified collectors ===", "=== Emscripten notice ===",
             "=== musl libc notice ===", "=== LLVM compiler-rt notice ===",
-            "=== Compact collector LICENSE ===", "=== Compact collector NOTICE ===",
-            "=== Compact collector UPSTREAM-NOTICE ===",
             "=== NetWasmGC LICENSE ===", "=== NetWasmGC NOTICE ===",
         )):
             raise ValueError("Runtime-pack package is missing an upstream notice.")

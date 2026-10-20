@@ -50,6 +50,9 @@ internal sealed record MethodEmissionContext(
 
     public ArrayMetadataCachingLayout ArrayMetadata { get; init; } = ArrayMetadataCachingLayout.Empty;
 
+    // Reference stores whose array has an exact element type need no covariant store check.
+    public ImmutableHashSet<int> ExactArrayStores { get; init; } = [];
+
     public TerminalBranchValueFramePlacement? TerminalBranchValueFramePlacement { get; init; }
 
     public TransientAggregatePromotionLayout TransientAggregatePromotions { get; init; } =

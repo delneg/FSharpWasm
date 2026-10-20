@@ -50,7 +50,7 @@ pinned Node binary and uses pinned `patchelf` to set Node's package-relative
 corresponding-source URLs; the host package verifier checks this closure.
 
 Changes to `src/NetWasm.Runtime`, the runtime-pack policy or regeneration tools,
-the BDWGC adaptation, or the pinned native toolchain have a separate maintainer
+the collectors, or the pinned native toolchain have a separate maintainer
 gate. Regenerate with the pinned Emscripten environment by running
 `src/NetWasm.Runtime.Pack/tools/regenerate-runtime-pack.sh --allow-emscripten`,
 commit the resulting runtime-pack assets, and let the pull-request CI verify the

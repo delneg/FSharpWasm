@@ -26,7 +26,8 @@ public sealed class BrowserOptimizationOverridesDeserializerTests
               "switchBitTests":"Disabled",
               "devirtualization":"Enabled",
               "allocationElimination":"Disabled",
-              "loopRotation":"Enabled"
+              "loopRotation":"Enabled",
+              "arrayStoreCheckElimination":"Disabled"
             }
             """);
         Assert.Equal(new WasmOptimizationOverrides(
@@ -45,7 +46,8 @@ public sealed class BrowserOptimizationOverridesDeserializerTests
             ManagedSwitchBitTests.Disabled,
             ManagedDevirtualization.Enabled,
             ManagedAllocationElimination.Disabled,
-            ManagedLoopRotation.Enabled), result);
+            ManagedLoopRotation.Enabled,
+            ManagedArrayStoreCheckElimination.Disabled), result);
     }
 
     [Fact]

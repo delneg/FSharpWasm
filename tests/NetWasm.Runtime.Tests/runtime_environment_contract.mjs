@@ -2,13 +2,10 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { createRuntimeContractImports } from './runtime-contract-imports.mjs';
 
-const [modulePath, target, collectionMode = 'normal', configuration = 'debug'] =
-  process.argv.slice(2);
+const [modulePath, target, collectionMode = 'normal'] = process.argv.slice(2);
 assert.ok(modulePath);
 assert.ok(target === 'wasm32' || target === 'wasm64');
 assert.ok(collectionMode === 'normal' || collectionMode === 'forced');
-assert.ok(configuration === 'debug' || configuration === 'release');
-const supportsCollectionDiagnostic = configuration === 'debug';
 const addressSize = target === 'wasm64' ? 8 : 4;
 const address = value => addressSize === 8 ? BigInt(value) : Number(value);
 const prefix = addressSize === 8 ? 'cm64p2' : 'cm32p2';
@@ -16,21 +13,17 @@ const module = await WebAssembly.compile(fs.readFileSync(modulePath));
 assert.equal(WebAssembly.Module.imports(module).some(entry =>
   /wasi_snapshot_preview1|wasi_unstable/.test(entry.module)), false);
 const cases = [
-  { environment: {}, disabled: false },
-  { environment: { GC_DONT_GC_EXTRA: '1', GC_DONT_G: '1' }, disabled: false },
-  { environment: { gc_dont_gc: '1' }, disabled: false },
-  { environment: { BEFORE: 'value', GC_DONT_GC: '1', AFTER: 'value' }, disabled: true },
-  { environment: { GC_DONT_GC: '' }, disabled: true },
-  { environment: { GC_DONT_GC: '0' }, disabled: true },
-  { environment: { UNICODE: 'caf\u00e9=\u6c34', EMPTY: '', GC_DONT_GC: '1' }, disabled: true },
+  { environment: {} },
+  { environment: { BEFORE: 'value', MIDDLE: '1', AFTER: 'value' } },
+  { environment: { EMPTY: '' } },
+  { environment: { UNICODE: 'caf\u00e9=\u6c34', EMPTY: '', LAST: '0' } },
 ];
 
 const startupCases = cases.flatMap(entry => [
   { ...entry, earlyAllocation: false },
   { ...entry, earlyAllocation: true },
 ]);
-for (const { environment, disabled: requestedDisabled, earlyAllocation } of startupCases) {
-  const disabled = requestedDisabled && supportsCollectionDiagnostic;
+for (const { environment, earlyAllocation } of startupCases) {
   const encoded = Object.entries(environment).map(([key, value]) =>
     [new TextEncoder().encode(key), new TextEncoder().encode(value)]);
   let instance;
@@ -124,7 +117,7 @@ for (const { environment, disabled: requestedDisabled, earlyAllocation } of star
   }
   const collectionsBeforeLateAllocation = instance.exports.gc_get_metric(0);
   const late = allocate(29, 16);
-  if (collectionMode === 'forced' && !disabled) {
+  if (collectionMode === 'forced') {
     assert.ok(BigInt(instance.exports.gc_get_metric(0)) > BigInt(collectionsBeforeLateAllocation));
   }
   assert.equal(instance.exports.test_component_active_allocation_count(), 1 + Number(earlyAllocation));
@@ -142,12 +135,7 @@ for (const { environment, disabled: requestedDisabled, earlyAllocation } of star
   const before = instance.exports.gc_get_metric(0);
   instance.exports.collect();
   const after = instance.exports.gc_get_metric(0);
-  if (disabled) {
-    assert.equal(BigInt(before), 0n);
-    assert.equal(BigInt(after), 0n);
-  } else {
-    assert.ok(BigInt(after) > BigInt(before));
-  }
+  assert.ok(BigInt(after) > BigInt(before));
   instance.exports.initialize(staticDataEnd, 1, 1);
   assert.equal(valueReads, 1);
   instance.exports.report_unobserved_task_exception(address(0), address(0), address(0));
