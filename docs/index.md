@@ -12,6 +12,9 @@ repository.
 - [Size measurements and methodology](size-and-methodology.md) — reproduce the
   47,798-byte C# component and read the Rust, Kotlin, TinyGo, Blazor and JSON
   comparison boundaries.
+- [Performance compared with Mono AOT and desktop .NET](performance.md):
+  speed, size and memory on allocation and garbage-collection workloads, with
+  versions, settings and reproduction.
 - [NetWasm SDK quickstart](sdk-quickstart.md) — create an app or dual-target
   library, restore the pinned host tools through NuGet, then build, run and
   publish with ordinary `dotnet` commands.

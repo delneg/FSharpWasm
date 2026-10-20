@@ -5,6 +5,32 @@
 #include "../collector_collection.h"
 #include "runtime_state.h"
 
+#ifdef NETWASM_GC_STATISTICS
+#include "../../runtime_standard_output.h"
+
+#include <inttypes.h>
+#include <stdio.h>
+
+/* A diagnostic build reports its cumulative statistics on stderr whenever the
+ * allocated-bytes counter is read. Workloads read it on both sides of their
+ * timed region, so the difference between two reports covers that region. */
+static void write_statistics(void)
+{
+    NetWasmGcStatistics statistics;
+    netwasm_gc_read_statistics(netwasm_gc_runtime, &statistics);
+    char line[2048];
+    size_t length = (size_t)snprintf(line, sizeof line, "NWGC-STATS");
+#define WRITE_FIELD(name) \
+    if (length < sizeof line) \
+        length += (size_t)snprintf(line + length, sizeof line - length, \
+            "|" #name "=%" PRIu64, statistics.name);
+    NETWASM_GC_STATISTICS_FIELDS(WRITE_FIELD)
+#undef WRITE_FIELD
+    if (length < sizeof line - 1) line[length++] = '\n';
+    runtime_write_standard_output(2, line, length < sizeof line ? length : sizeof line - 1);
+}
+#endif
+
 void collector_collect(void)
 {
     netwasm_gc_collect(netwasm_gc_runtime);
@@ -17,6 +43,9 @@ uint64_t collector_collection_count(void)
 
 uint64_t collector_total_allocated_bytes(void)
 {
+#ifdef NETWASM_GC_STATISTICS
+    write_statistics();
+#endif
     return netwasm_gc_total_allocated_bytes(netwasm_gc_runtime);
 }
 

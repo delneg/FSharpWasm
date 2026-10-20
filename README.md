@@ -44,6 +44,25 @@ result, not a language-wide size ranking.
 
 [Exact sources, versions, settings and reproduction steps](docs/size-and-methodology.md)
 
+## Faster than Mono AOT
+
+As of 0.9.0, NetWasm runs our allocation and garbage-collection benchmarks
+faster than Mono AOT, compiled from the same C# source and run by the same
+Wasmtime:
+
+| Workload | NetWasm 0.9.0, NetWasmGC | Mono AOT, .NET 10 | NetWasm time |
+| --- | ---: | ---: | ---: |
+| Full transaction | 50.4 ms | 59.1 ms | 15% less |
+| Retained object graph | 13.3 ms | 14.2 ms | 6% less |
+| UI churn | 22.0 ms | 29.1 ms | 25% less |
+
+These are medians of 15 runs on an Apple M1 Max under Wasmtime 49.0.3, each run
+checked against desktop .NET's result. Mono AOT is Microsoft's `wasi-wasm`
+target in its default Release configuration. Desktop .NET, running native code,
+is still faster on these workloads.
+
+[Versions, settings, desktop figures and reproduction](docs/performance.md)
+
 ## More than Hello World
 
 The 46.7 KiB program is the baseline, not the boundary.
@@ -187,7 +206,7 @@ linking enabled:
 
 The Blazor total includes its native runtime and required Webcil assemblies;
 NetWasm includes its runtime, garbage collector and WASI component. This is a
-console component versus an empty-UI application—not an equivalent-framework
+console component versus an empty-UI application, not an equivalent-framework
 comparison or a claim about every .NET workload.
 
 [Exact Blazor versions, settings and reproduction](docs/size-and-methodology.md#blazor-webassembly-aot-printing-42)
@@ -223,14 +242,21 @@ mean “desktop .NET, but in Wasm.” The main remaining themes are:
 - a stable `netwasm1.0` platform and runtime contract;
 - production diagnostics and broader host qualification.
 
-**Coming in NetWasm 0.9.0:** broader compatibility with existing .NET Standard
+**New in NetWasm 0.9.0:** C# modules for web pages. A `JsModule` project
+publishes `[JSExport]` methods as a typed JavaScript module that a page imports
+and calls directly, on the page's thread or in a Web Worker. The release also
+ships the time zones each application selects, reports the caught cause of
+every execution failure, and aligns code generation with .NET 11.
+[Release notes](docs/releases/0.9.0.md)
+
+**Coming in NetWasm 0.10.0:** broader compatibility with existing .NET Standard
 2.1 library binaries and NuGet assets. The target is to consume libraries
 unchanged when their reachable code fits the NetWasm profile, without carrying
 unused unsupported paths into the application.
 
 This does not turn NetWasm into desktop .NET. Reachable general runtime
 reflection, `dynamic`, runtime assembly loading, managed threading, unsupported
-host APIs and named-culture globalization remain outside the initial 0.9.0
+host APIs and named-culture globalization remain outside the initial 0.10.0
 compatibility slice and fail at compile time.
 
 [Read the full 1.0 roadmap](docs/roadmap.md)

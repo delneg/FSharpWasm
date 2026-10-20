@@ -7,9 +7,9 @@ The [support inventory](support-status.md) is the source of truth for what is
 implemented today. Everything below is a release gate, not a current support
 claim.
 
-## NetWasm 0.9.0: .NET Standard 2.1 compatibility
+## NetWasm 0.10.0: .NET Standard 2.1 compatibility
 
-NetWasm 0.9.0 targets ordinary NetWasm applications consuming compatible .NET
+NetWasm 0.10.0 targets ordinary NetWasm applications consuming compatible .NET
 Standard 2.1 library binaries and NuGet assets without source forks or patched
 third-party DLLs. Compatibility follows the reachable application: unused
 unsupported functionality does not disqualify an entire library, while required
@@ -19,7 +19,7 @@ This is broader library compatibility within the smaller NetWasm profile, not a
 claim that every .NET Standard API or package works. General runtime reflection,
 `dynamic`, runtime assembly loading, runtime code generation, managed threading,
 unsupported native or host APIs and named-culture globalization remain outside
-the initial 0.9.0 slice. Results attach to a package version, selected assets and
+the initial 0.10.0 slice. Results attach to a package version, selected assets and
 the functionality an application actually uses.
 
 ## Release gates

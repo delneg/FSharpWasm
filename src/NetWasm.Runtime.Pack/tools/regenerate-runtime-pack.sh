@@ -9,13 +9,22 @@ if [[ "${1:-}" != "--allow-emscripten" ]]; then
   exit 2
 fi
 shift
+# --only TARGET/COLLECTOR rebuilds one collector directory, such as
+# wasm32/netwasm, inside an existing regenerated output package root and then
+# rewrites its manifest. It is for measuring collector changes quickly.
+only=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --output-package-root) package_root="$2"; shift 2 ;;
+    --only) only="$2"; shift 2 ;;
     *) echo 'Unknown runtime pack regeneration option.' >&2; exit 2 ;;
   esac
 done
-if [[ "$package_root" != "$source_package_root" ]]; then
+if [[ -n "$only" ]]; then
+  [[ "$package_root" != "$source_package_root" && -f "$package_root/runtime/runtime-pack.json" ]] || {
+    echo '--only requires an existing regenerated output package root.' >&2; exit 2;
+  }
+elif [[ "$package_root" != "$source_package_root" ]]; then
   [[ "$package_root" = /* && ! -e "$package_root" ]] || {
     echo 'Output package root must be a new absolute directory.' >&2; exit 2;
   }
@@ -75,8 +84,9 @@ grep -hEo '(export_name|NETWASM_EXPORT|NETWASM_FINALIZATION_EXPORT)\("[^"]+"\)' 
   | sort -u > "$runtime_root/runtime-exports.txt"
 
 for target in wasm32 wasm64; do
+  if [[ -n "$only" && "${only%%/*}" != "$target" ]]; then continue; fi
   target_root="$runtime_root/$target"
-  rm -rf "$target_root"
+  if [[ -z "$only" ]]; then rm -rf "$target_root"; fi
   mkdir -p "$target_root"
 
   layout="$temporary_root/$target.layout.json"
@@ -160,6 +170,7 @@ NODE
   if [[ "$collector" = tcms ]]; then collector_directory=compact; fi
   if [[ "$collector" = netwasm ]]; then collector_directory=netwasm; fi
   if [[ "$collector" = bump ]]; then collector_directory=bump; fi
+  if [[ -n "$only" && "${only#*/}" != "$collector_directory" ]]; then continue; fi
   build_collector="$collector"
   if [[ "$collector" = netwasm ]]; then build_collector=netwasm-next; fi
   for native_profile in size speed; do
