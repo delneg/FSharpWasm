@@ -281,6 +281,16 @@ public sealed class WasmOptimizationSettingsResolver : IWasmOptimizationSettings
             ManagedLoopRotation.Enabled => LoopRotationPolicy.Guarded,
             _ => throw new ArgumentOutOfRangeException(nameof(options)),
         };
+        // Removing a provably redundant check only shrinks code, so every optimizing preset keeps it.
+        var storeCheckOverride = options?.ArrayStoreCheckElimination ?? ManagedArrayStoreCheckElimination.Auto;
+        var storeChecks = storeCheckOverride switch
+        {
+            ManagedArrayStoreCheckElimination.Auto => preset is FinalWasmOptimization.None or FinalWasmOptimization.O0
+                ? ArrayStoreCheckEliminationPolicy.Disabled : ArrayStoreCheckEliminationPolicy.ExactElementTypes,
+            ManagedArrayStoreCheckElimination.Disabled => ArrayStoreCheckEliminationPolicy.Disabled,
+            ManagedArrayStoreCheckElimination.Enabled => ArrayStoreCheckEliminationPolicy.ExactElementTypes,
+            _ => throw new ArgumentOutOfRangeException(nameof(options)),
+        };
 
         if (preset == FinalWasmOptimization.None &&
             (hint != ManagedInliningHints.Auto ||
@@ -298,6 +308,7 @@ public sealed class WasmOptimizationSettingsResolver : IWasmOptimizationSettings
              devirtualizationOverride == ManagedDevirtualization.Enabled ||
              allocationOverride == ManagedAllocationElimination.Enabled ||
              rotationOverride == ManagedLoopRotation.Enabled ||
+             storeCheckOverride == ManagedArrayStoreCheckElimination.Enabled ||
              branchPrefixDuplicationOverride ==
                 ManagedBranchPrefixDuplication.Enabled))
         {
@@ -323,6 +334,7 @@ public sealed class WasmOptimizationSettingsResolver : IWasmOptimizationSettings
             bitTests,
             devirtualization,
             allocations,
-            rotation);
+            rotation,
+            storeChecks);
     }
 }

@@ -45,6 +45,7 @@ public sealed class ManagedMethodBodyEmitterTests
             EnableAddressTakenAggregatePromotion = true,
             HoistArrayNullChecks = true,
             EnableLoopRotation = true,
+            EliminateArrayStoreChecks = true,
             ManagedByRefEffects = new(
                 ImmutableDictionary<string, ManagedByRefMethodEffects>.Empty.Add(
                     "Tests.Caller",
@@ -131,6 +132,7 @@ public sealed class ManagedMethodBodyEmitterTests
         Assert.Same(byRefEffects, methods.ByRefEffects);
         Assert.True(methods.HoistArrayNullChecks);
         Assert.True(methods.RotateLoops);
+        Assert.True(methods.EliminateArrayStoreChecks);
         Assert.Same(promotionPlan, methods.AddressTakenScalarPromotions);
         Assert.Same(
             aggregatePromotionPlan,
@@ -385,6 +387,7 @@ public sealed class ManagedMethodBodyEmitterTests
                 new InstructionCountingWriterFactory(), new TerminalBranchValueFramePlanner(),
                 new ArrayMetadataCachingPlanner(types),
                 new ArrayMetadataSnapshotEmitter(layouts, layouts, addresses, new ImplicitExceptionEmitter(layouts, layouts, 7)),
+                new ArrayStoreCheckPlanner(types, new UnusedTypeDefinitionResolver()),
                 new ScalarCallLifetimePlanner(new ControlFlowGraphBuilderFactory().Create(),
                     new ControlFlowNaturalLoopAnalyzer(new ControlFlowDominanceAnalyzer())),
                 new AuthoritativeRootSourceSelector(), new AuthoritativeRootLayoutPlanner(), new RootClearElisionPlanner(), new RootValueElisionPlanner()),
@@ -480,6 +483,8 @@ public sealed class ManagedMethodBodyEmitterTests
 
         public bool RotateLoops { get; private set; }
 
+        public bool EliminateArrayStoreChecks { get; private set; }
+
         public ManagedMethodEmission Emit(
 MethodDefinitionModel method,
 ManagedMethodIdentity callerIdentity,
@@ -501,11 +506,13 @@ StructuredMethod structured,
             bool enableArrayMetadataCaching = false,
             bool enableScalarCallPreservation = false,
             bool hoistArrayNullChecks = false,
-            bool rotateLoops = false)
+            bool rotateLoops = false,
+            bool eliminateArrayStoreChecks = false)
         {
             Method = method;
             HoistArrayNullChecks = hoistArrayNullChecks;
             RotateLoops = rotateLoops;
+            EliminateArrayStoreChecks = eliminateArrayStoreChecks;
             Structured = structured;
             NativeImports = nativeImports;
             MemberExecution = memberExecution;

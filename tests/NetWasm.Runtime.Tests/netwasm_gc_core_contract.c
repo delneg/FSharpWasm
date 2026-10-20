@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: MIT */
 #include "../../src/NetWasm.Runtime/collector/netwasm/netwasm_gc.h"
+#include "netwasm_gc_test_layouts.h"
 
 #include <assert.h>
 #include <stdlib.h>
@@ -55,7 +56,7 @@ static void *allocate_object(
     const NetWasmGcDescriptor *descriptor)
 {
     void *result = NULL;
-    assert(netwasm_gc_allocate(gc, count, size, descriptor, &result) == NETWASM_GC_OK);
+    assert(test_allocate(gc, count, size, descriptor, &result) == NETWASM_GC_OK);
     assert(result != NULL);
     return result;
 }
@@ -177,10 +178,6 @@ static void zero_sized_and_layout_validation(void)
     assert(netwasm_gc_contains(gc, (uintptr_t)first));
     assert(!netwasm_gc_contains(gc, (uintptr_t)second));
 
-    static const size_t invalid_offset[] = {1};
-    static const NetWasmGcDescriptor invalid = {invalid_offset, 1};
-    void *result = NULL;
-    assert(netwasm_gc_allocate(gc, 1, 1, &invalid, &result) == NETWASM_GC_INVALID_LAYOUT);
     netwasm_gc_destroy(gc);
 }
 
@@ -242,15 +239,23 @@ static void large_pending_object_traces_references(void)
     netwasm_gc_destroy(gc);
 }
 
-static void geometric_arena_growth(void)
+/* NetWasmGC reserves arenas of 16 blocks, doubling to 256. Compact takes one
+ * 64 KiB chunk at a time: 21 slots of 3008 bytes fit, so 6000 need 286. */
+static void storage_growth(void)
 {
     NetWasmGc *gc = NULL;
     assert(netwasm_gc_create(allocate_memory, release_memory, SIZE_MAX, &gc) == NETWASM_GC_OK);
     for (size_t index = 0; index < 6000; index++)
         (void)allocate_object(gc, 3000, 1, NULL);
     uint64_t backing = netwasm_gc_reserved_bytes(gc);
+#ifdef NETWASM_GC_COMPACT
+    /* Each chunk adds its header and start bitmap, at most 2 KiB. */
+    assert(backing >= 286u * 64u * 1024u);
+    assert(backing <= 286u * 66u * 1024u);
+#else
     assert(backing >= 31u * 1024u * 1024u);
     assert(backing < 32u * 1024u * 1024u);
+#endif
     netwasm_gc_destroy(gc);
 }
 
@@ -264,7 +269,7 @@ int main(void)
     bitmap_word_sweep_and_padding();
     pending_bitmap_requeues_backward_edges();
     large_pending_object_traces_references();
-    geometric_arena_growth();
+    storage_growth();
     assert(allocations == releases);
     return 0;
 }

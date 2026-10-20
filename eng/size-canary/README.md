@@ -21,9 +21,12 @@ Playground comparison. Assembly identity participates in deterministic
 method/type ordering, so an otherwise identical project with another assembly
 name can differ by a few encoded index bytes.
 
-The final component must also match `expected-component-bytes.txt`. Change that
-file only after reproducing and reviewing an intentional size change through
-both this source canary and a clean SDK package consumer.
+The final component must also match `expected-component-bytes.txt`. The same
+program built from the SDK packages, as `eng/qualify-sdk-consumers.sh` does,
+must match `expected-package-component-bytes.txt`; the two builds link
+differently, so their sizes differ. Change either file only after reproducing
+and reviewing an intentional size change through both this source canary and a
+clean SDK package consumer.
 
 For each compiler fix, run this canary on clean pre-fix and post-fix worktrees
 with the same toolchain and compare the final `NetWasmApp.wasm` byte sizes. Any

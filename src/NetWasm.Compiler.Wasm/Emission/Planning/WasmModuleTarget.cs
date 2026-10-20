@@ -45,6 +45,7 @@ internal sealed record WasmModuleTarget(
         EnableArrayMetadataCaching = Request.EnableArrayMetadataCaching,
         HoistArrayNullChecks = Request.HoistArrayNullChecks,
         EnableLoopRotation = Request.EnableLoopRotation,
+        EliminateArrayStoreChecks = Request.EliminateArrayStoreChecks,
         EnableScalarCallPreservation = Request.EnableScalarCallPreservation,
         RootMaps = Request.Methods.Values.Select(method =>
                 (ManagedMethodBodyKey.Resolve(method), Request.RootMaps[method.Header.Method.Key]))
@@ -80,6 +81,7 @@ internal sealed record InstructionModuleTarget(
     public bool EnableArrayMetadataCaching { get; init; }
     public bool HoistArrayNullChecks { get; init; }
     public bool EnableLoopRotation { get; init; }
+    public bool EliminateArrayStoreChecks { get; init; }
     public bool EnableScalarCallPreservation { get; init; }
     public NativeImportPlan NativeImports { get; init; } = NativeImportPlan.Empty;
     public NativeCallbackPlan NativeCallbacks { get; init; } = NativeCallbackPlan.Empty;

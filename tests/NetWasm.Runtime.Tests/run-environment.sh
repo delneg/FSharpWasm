@@ -14,8 +14,7 @@ for target in wasm32 wasm64; do
     bash "$workspace_dir/eng/build-netwasm-runtime.sh" \
       --target "$target" --configuration "$configuration" \
       --runtime-layout "$layout" --output "$module"
-    node "$script_dir/runtime_environment_contract.mjs" \
-      "$module" "$target" normal "$configuration"
+    node "$script_dir/runtime_environment_contract.mjs" "$module" "$target" normal
     node "$script_dir/runtime_metadata_contract.mjs" "$module" "$target"
     node "$script_dir/command_diagnostics_gc_contract.mjs" "$module" "$target"
   done

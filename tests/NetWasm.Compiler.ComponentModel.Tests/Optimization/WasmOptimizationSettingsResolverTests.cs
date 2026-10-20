@@ -35,6 +35,8 @@ public sealed class WasmOptimizationSettingsResolverTests
                 ? ManagedAllocationElimination.Enabled : ManagedAllocationElimination.Disabled));
             var rotation = resolver.Resolve(preset, new(LoopRotation: enabled
                 ? ManagedLoopRotation.Enabled : ManagedLoopRotation.Disabled));
+            var storeChecks = resolver.Resolve(preset, new(ArrayStoreCheckElimination: enabled
+                ? ManagedArrayStoreCheckElimination.Enabled : ManagedArrayStoreCheckElimination.Disabled));
             Assert.Equal(baseline with
             {
                 ConstantArgumentPropagation = enabled ? ConstantArgumentPropagationPolicy.Conservative : ConstantArgumentPropagationPolicy.Disabled,
@@ -63,6 +65,11 @@ public sealed class WasmOptimizationSettingsResolverTests
             {
                 LoopRotation = enabled ? LoopRotationPolicy.Guarded : LoopRotationPolicy.Disabled,
             }, rotation);
+            Assert.Equal(baseline with
+            {
+                ArrayStoreCheckElimination = enabled
+                    ? ArrayStoreCheckEliminationPolicy.ExactElementTypes : ArrayStoreCheckEliminationPolicy.Disabled,
+            }, storeChecks);
         }
     }
 
@@ -84,6 +91,8 @@ public sealed class WasmOptimizationSettingsResolverTests
             new(AllocationElimination: (ManagedAllocationElimination)255)));
         Assert.Throws<ArgumentOutOfRangeException>(() => resolver.Resolve(FinalWasmOptimization.Oz,
             new(LoopRotation: (ManagedLoopRotation)255)));
+        Assert.Throws<ArgumentOutOfRangeException>(() => resolver.Resolve(FinalWasmOptimization.Oz,
+            new(ArrayStoreCheckElimination: (ManagedArrayStoreCheckElimination)255)));
         Assert.Throws<ArgumentException>(() => resolver.Resolve(FinalWasmOptimization.None,
             new(ConstantArgumentPropagation: ManagedConstantArgumentPropagation.Enabled)));
         Assert.Throws<ArgumentException>(() => resolver.Resolve(FinalWasmOptimization.None,
@@ -99,6 +108,8 @@ public sealed class WasmOptimizationSettingsResolverTests
         Assert.Throws<ArgumentException>(() => resolver.Resolve(FinalWasmOptimization.None,
             new(LoopRotation: ManagedLoopRotation.Enabled)));
         Assert.Throws<ArgumentException>(() => resolver.Resolve(FinalWasmOptimization.None,
+            new(ArrayStoreCheckElimination: ManagedArrayStoreCheckElimination.Enabled)));
+        Assert.Throws<ArgumentException>(() => resolver.Resolve(FinalWasmOptimization.None,
             new(LoopInvariantFieldHoisting: ManagedLoopInvariantFieldHoisting.NullChecks)));
         Assert.Equal(resolver.Resolve(FinalWasmOptimization.None), resolver.Resolve(FinalWasmOptimization.None,
             new(ConstantArgumentPropagation: ManagedConstantArgumentPropagation.Disabled,
@@ -107,7 +118,8 @@ public sealed class WasmOptimizationSettingsResolverTests
                 SwitchBitTests: ManagedSwitchBitTests.Disabled,
                 Devirtualization: ManagedDevirtualization.Disabled,
                 AllocationElimination: ManagedAllocationElimination.Disabled,
-                LoopRotation: ManagedLoopRotation.Disabled)));
+                LoopRotation: ManagedLoopRotation.Disabled,
+                ArrayStoreCheckElimination: ManagedArrayStoreCheckElimination.Disabled)));
     }
 
     [Theory]
@@ -171,7 +183,9 @@ public sealed class WasmOptimizationSettingsResolverTests
             preset is FinalWasmOptimization.None or FinalWasmOptimization.O0 ? SwitchBitTestPolicy.Disabled : SwitchBitTestPolicy.Conservative,
             preset is FinalWasmOptimization.None or FinalWasmOptimization.O0 ? DevirtualizationPolicy.Disabled : DevirtualizationPolicy.ExactType,
             preset is FinalWasmOptimization.None or FinalWasmOptimization.O0 ? AllocationEliminationPolicy.Disabled : AllocationEliminationPolicy.Unused,
-            preset == FinalWasmOptimization.O3 ? LoopRotationPolicy.Guarded : LoopRotationPolicy.Disabled);
+            preset == FinalWasmOptimization.O3 ? LoopRotationPolicy.Guarded : LoopRotationPolicy.Disabled,
+            preset is FinalWasmOptimization.None or FinalWasmOptimization.O0
+                ? ArrayStoreCheckEliminationPolicy.Disabled : ArrayStoreCheckEliminationPolicy.ExactElementTypes);
         var actual = resolver.Resolve(preset);
         Assert.Equal(expected, actual);
         Assert.Equal(preset, actual.BackendPreset);
@@ -241,7 +255,9 @@ public sealed class WasmOptimizationSettingsResolverTests
                     preset is FinalWasmOptimization.None or FinalWasmOptimization.O0 ? SwitchBitTestPolicy.Disabled : SwitchBitTestPolicy.Conservative,
                     preset is FinalWasmOptimization.None or FinalWasmOptimization.O0 ? DevirtualizationPolicy.Disabled : DevirtualizationPolicy.ExactType,
                     preset is FinalWasmOptimization.None or FinalWasmOptimization.O0 ? AllocationEliminationPolicy.Disabled : AllocationEliminationPolicy.Unused,
-                    preset == FinalWasmOptimization.O3 ? LoopRotationPolicy.Guarded : LoopRotationPolicy.Disabled),
+                    preset == FinalWasmOptimization.O3 ? LoopRotationPolicy.Guarded : LoopRotationPolicy.Disabled,
+                    preset is FinalWasmOptimization.None or FinalWasmOptimization.O0
+                        ? ArrayStoreCheckEliminationPolicy.Disabled : ArrayStoreCheckEliminationPolicy.ExactElementTypes),
                 resolver.Resolve(preset, new(hint)));
         }
     }

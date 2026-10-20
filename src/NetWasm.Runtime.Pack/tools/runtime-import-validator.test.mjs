@@ -23,7 +23,7 @@ for (const target of ['wasm32', 'wasm64']) {
   const allowed = importsFor(target);
   test(`${target}: accepts the supported Preview 2 runtime interfaces`, () => {
     assert.doesNotThrow(() => validateRuntimeImports(allowed, target));
-    for (const collector of ['boehm', 'tcms', 'netwasm', 'bump']) {
+    for (const collector of ['compact', 'netwasm', 'bump']) {
       assert.doesNotThrow(() => validateRuntimeImports(allowed, target, collector));
     }
   });
@@ -31,7 +31,7 @@ for (const target of ['wasm32', 'wasm64']) {
     assert.doesNotThrow(() => validateRuntimeImports(allowed.slice(0, 4), target));
   });
   test(`${target}: accepts pruned finalization for every collector`, () => {
-    for (const collector of [undefined, 'boehm', 'tcms', 'netwasm', 'bump']) {
+    for (const collector of [undefined, 'compact', 'netwasm', 'bump']) {
       assert.doesNotThrow(() => validateRuntimeImports(
         allowed.filter(entry => entry.name !== 'netwasm.finalize'), target, collector));
     }

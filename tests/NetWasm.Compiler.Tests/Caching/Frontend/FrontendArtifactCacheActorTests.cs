@@ -31,6 +31,7 @@ public sealed class FrontendArtifactCacheActorTests
     [InlineData(6)]
     [InlineData(7)]
     [InlineData(8)]
+    [InlineData(9)]
     public void BodyAffectingOverridesGetIndependentCacheNamespaces(int feature)
     {
         var builder = new FrontendArtifactCacheIdentityBuilder(
@@ -50,7 +51,8 @@ public sealed class FrontendArtifactCacheActorTests
             5 => new WasmOptimizationOverrides(SwitchBitTests: ManagedSwitchBitTests.Disabled),
             6 => new WasmOptimizationOverrides(Devirtualization: ManagedDevirtualization.Disabled),
             7 => new WasmOptimizationOverrides(AllocationElimination: ManagedAllocationElimination.Disabled),
-            _ => new WasmOptimizationOverrides(LoopRotation: ManagedLoopRotation.Disabled),
+            8 => new WasmOptimizationOverrides(LoopRotation: ManagedLoopRotation.Disabled),
+            _ => new WasmOptimizationOverrides(ArrayStoreCheckElimination: ManagedArrayStoreCheckElimination.Disabled),
         };
 
         var enabledContext = builder.Build(options);

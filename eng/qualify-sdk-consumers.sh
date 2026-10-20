@@ -377,15 +377,15 @@ from pathlib import Path
 assert not Path(sys.argv[1]).read_text().strip(), 'Default canary must leave the collector property unset'
 manifest = json.loads(Path(sys.argv[2]).read_text())
 assert manifest['defaultGarbageCollector'] == 'Compact'
-assert len(manifest['targets']) == 8
+assert len(manifest['targets']) == 6
 assert {(target['target'], target['garbageCollector']) for target in manifest['targets']} == {
-    (target, collector) for target in ('wasm32', 'wasm64') for collector in ('Compact', 'NetWasm', 'Boehm', 'Bump')
+    (target, collector) for target in ('wasm32', 'wasm64') for collector in ('Compact', 'NetWasm', 'Bump')
 }
 PY
   # Keep the first-use default proof above. Switch the same ordinary project
   # without cleaning or changing its package graph, then inspect resolved output.
   sequence=0
-  for selection in Default Compact NetWasm Bump Boehm Compact; do
+  for selection in Default Compact NetWasm Bump Compact; do
     sequence=$((sequence + 1))
     collector_arguments=()
     expected_collector=Compact
@@ -655,7 +655,7 @@ for target in wasm32 wasm64; do
           "${NETWASM_QUALIFY_SDK_VERSION:-}" == 11.* ]]; then
       published_component="$consumer_root/publish/local/NetWasmApp.wasm"
       expected_component_bytes="$(tr -d '[:space:]' < \
-        "$source_root/eng/size-canary/expected-compact-component-bytes.txt")"
+        "$source_root/eng/size-canary/expected-package-component-bytes.txt")"
       actual_component_bytes="$(wc -c < "$published_component" | tr -d ' ')"
       if [[ "$actual_component_bytes" != "$expected_component_bytes" ]]; then
         printf 'Console42 package component size mismatch: expected %s bytes, found %s bytes\n' \
@@ -853,7 +853,7 @@ EOF
 if [[ "$skip_test_consumers" == false && "$skip_tunit_consumer" == false ]]; then
 selections=("")
 if [[ "$test_collectors" == true ]]; then
-  selections=(Compact NetWasm Boehm)
+  selections=(Compact NetWasm)
   cp "$source_root/eng/qualify-sdk-consumers.sh" "$work_root/qualified-runner.sh"
 fi
 for selection in "${selections[@]}"; do
@@ -1022,7 +1022,7 @@ manifest = json.loads(producer.read_text())
 for package in manifest['packages']:
     assert digest(producer.parent / f"{package['id']}.{package['version']}.nupkg") == package['sha256']
 cells = []
-for collector in ['Compact', 'NetWasm', 'Boehm']:
+for collector in ['Compact', 'NetWasm']:
     logs = root / ('test-' + collector)
     before = json.loads((logs / 'assets-before.json').read_text())
     after = json.loads((logs / 'assets-after.json').read_text())

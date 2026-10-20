@@ -172,7 +172,7 @@ internal sealed class ArrayInstructionEmitter(
             request.Context,
             arraySlot + 2,
             CliValueKind.ManagedReference);
-        EmitReferenceStoreTypeCheck(code, arrayLocal, valueLocal);
+        EmitReferenceStoreTypeCheck(request, code, arrayLocal, valueLocal);
         elementAddresses.Emit(
             request,
             code,
@@ -189,10 +189,15 @@ internal sealed class ArrayInstructionEmitter(
     }
 
     private void EmitReferenceStoreTypeCheck(
+        InstructionEmissionRequest request,
         IWasmInstructionWriter code,
         int arrayLocal,
         int valueLocal)
     {
+        if (request.Context.ExactArrayStores.Contains(request.Instruction.Offset))
+        {
+            return;
+        }
         code.Write(WasmInstruction.WithOperand(WasmOpcodes.LocalGet, WasmInstructionOperand.Unsigned((uint)(valueLocal))));
         addresses.Emit(code, AddressOperation.EqualZero);
         code.Write(WasmInstruction.NoOperand(WasmOpcodes.I32EqualZero));
@@ -348,7 +353,7 @@ internal sealed class ArrayInstructionEmitter(
             elementType.StackKind);
         if (elementType.StackKind == CliValueKind.ManagedReference)
         {
-            EmitReferenceStoreTypeCheck(code, arrayLocal, valueLocal);
+            EmitReferenceStoreTypeCheck(request, code, arrayLocal, valueLocal);
         }
         elementAddresses.Emit(
             request,

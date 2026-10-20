@@ -55,8 +55,14 @@ measures a semantic change, so its cost is reported and explained instead.
 
 Every component uses the runtime pack's default collector (Compact) unless
 `--baseline-collector` or `--candidate-collector` names one of `Compact`,
-`NetWasm`, `Boehm` or `Bump`; `summary.json` records the selection. Comparing one
+`NetWasm` or `Bump`; `summary.json` records the selection. Comparing one
 feed with two collectors isolates collector cost on an identical compiler.
+
+`--baseline-property` and `--candidate-property` pass `NAME=VALUE` MSBuild
+properties to one side's publishes, and repeat. One feed with an optimization
+switched off on one side, such as
+`--baseline-property NetWasmManagedArrayStoreCheckElimination=Disabled`,
+measures that optimization alone on an identical compiler.
 
 `--baseline-runtime` and `--candidate-runtime` replace a side's restored native
 runtime with the `runtime` directory that

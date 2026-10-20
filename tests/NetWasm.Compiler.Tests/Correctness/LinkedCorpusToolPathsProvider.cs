@@ -3,7 +3,8 @@ namespace NetWasm.Compiler.Tests.Correctness;
 internal sealed record LinkedCorpusToolEnvironment(
     string? EmsdkRoot,
     string? NodePath,
-    string? WasmToolsPath);
+    string? WasmToolsPath,
+    string? Collector = null);
 
 internal interface ILinkedCorpusToolPathsProvider
 {
@@ -20,12 +21,20 @@ internal sealed class LinkedCorpusToolPathsProvider(
         var node = RequireAbsolute(environment.NodePath, "NETWASM_NODE_PATH");
         var wasmTools = RequireAbsolute(
             environment.WasmToolsPath, "NETWASM_WASM_TOOLS_PATH");
+        // Compact unless a run asks for another collector.
+        var collector = string.IsNullOrEmpty(environment.Collector) ? "compact" : environment.Collector;
+        if (collector is not ("compact" or "netwasm" or "bump"))
+        {
+            throw new InvalidOperationException(
+                "NETWASM_CORPUS_COLLECTOR must be compact, netwasm or bump");
+        }
         return new(
             emsdk,
             Path.Combine(emsdk, "upstream", "bin", "wasm-merge"),
             Path.Combine(emsdk, "upstream", "bin", "wasm-opt"),
             wasmTools,
-            node);
+            node,
+            collector);
     }
 
     private static string RequireAbsolute(string? path, string name)

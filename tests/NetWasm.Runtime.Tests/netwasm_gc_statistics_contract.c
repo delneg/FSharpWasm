@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: MIT */
 #include "../../src/NetWasm.Runtime/collector/netwasm/netwasm_gc.h"
+#include "netwasm_gc_test_layouts.h"
 
 #include <assert.h>
 #include <stdlib.h>
@@ -33,8 +34,8 @@ static void trace_roots(NetWasmGc *gc, void *state)
 
 static void *allocate(NetWasmGc *gc, size_t count, size_t size, const NetWasmGcDescriptor *descriptor)
 {
-    void *result = netwasm_gc_try_allocate_available(gc, count, size, descriptor);
-    if (result == NULL) assert(netwasm_gc_allocate(gc, count, size, descriptor, &result) == NETWASM_GC_OK);
+    void *result = test_try_allocate_available(gc, count, size, descriptor);
+    if (result == NULL) assert(test_allocate(gc, count, size, descriptor, &result) == NETWASM_GC_OK);
     return result;
 }
 
@@ -48,7 +49,9 @@ static NetWasmGcStatistics read_partitioned(const NetWasmGc *gc)
         statistics.block_metadata_bytes + statistics.block_tail_bytes + statistics.small_occupied_bytes +
         statistics.reserved_run_bytes + statistics.free_slot_bytes);
     assert(statistics.object_count == netwasm_gc_object_count(gc));
-    assert(statistics.live_payload_bytes == netwasm_gc_live_bytes(gc));
+    /* Live bytes count whole small slots: payload plus padding. */
+    assert(statistics.live_payload_bytes + statistics.small_padding_bytes == netwasm_gc_live_bytes(gc));
+    assert(statistics.small_header_bytes == 0);
     assert(statistics.collections == netwasm_gc_collection_count(gc));
     assert(statistics.directory_bytes > 0);
     return statistics;

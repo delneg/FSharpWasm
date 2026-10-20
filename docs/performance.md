@@ -1,8 +1,9 @@
 # Performance compared with Mono AOT and desktop .NET
 
-NetWasm 0.9.0 runs our allocation and garbage-collection benchmarks faster than
-Mono AOT, compiled from the same C# source and run by the same Wasmtime.
-Desktop .NET, running native code, is still faster on these workloads.
+NetWasm 0.10.0 runs our allocation and garbage-collection benchmarks faster than
+Mono AOT, compiled from the same C# source and run by the same Wasmtime. With
+NetWasmGC it also takes less time than desktop .NET 11's JIT on two of the three
+workloads. Desktop NativeAOT, running native code, is still the fastest.
 
 ## Results
 
@@ -10,17 +11,19 @@ Median time of 15 runs in milliseconds, with the fastest and slowest run:
 
 | Workload | NetWasm, NetWasmGC | NetWasm, Compact | Mono AOT | Desktop .NET 11 JIT | Desktop .NET 11 NativeAOT |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| Full transaction | **50.4** (49.9–53.1) | 75.1 (73.6–83.2) | 59.1 (58.2–60.9) | 50.8 (49.5–65.1) | 33.5 (32.4–35.1) |
-| Retained object graph | **13.3** (13.1–13.9) | 27.7 (27.2–28.8) | 14.2 (14.1–14.7) | 9.9 (9.7–10.4) | 7.6 (7.5–8.0) |
-| UI churn | **22.0** (21.6–22.5) | 44.2 (43.8–45.7) | 29.1 (28.6–30.3) | 8.7 (8.6–9.2) | 6.6 (6.6–6.8) |
+| Full transaction | **43.9** (43.7–44.4) | 59.1 (58.4–62.6) | 59.1 (58.2–60.9) | 49.9 (49.3–50.7) | 32.6 (32.2–33.2) |
+| Retained object graph | **8.8** (8.7–9.1) | 17.8 (17.6–17.9) | 14.2 (14.1–14.7) | 9.7 (9.7–9.8) | 7.5 (7.4–7.7) |
+| UI churn | **17.6** (17.5–18.3) | 32.9 (32.8–33.8) | 29.1 (28.6–30.3) | 8.6 (8.5–8.7) | 6.6 (6.6–6.7) |
 
-NetWasm with NetWasmGC takes 15%, 6% and 25% less time than Mono AOT on the
-three workloads.
+NetWasm with NetWasmGC takes 26%, 38% and 40% less time than Mono AOT on the
+three workloads, and 12% and 10% less than the desktop JIT on the full
+transaction and the object graph. Compact, the size-first default, takes the
+same time as Mono AOT on the full transaction.
 
 | Wasm build | Program size (Brotli 11) | Peak linear memory: transaction, graph, churn |
 | --- | ---: | ---: |
-| NetWasm, NetWasmGC | 135,825–274,796 B (23,747–46,575 B) | 36.9, 31.7 and 7.3 MiB |
-| NetWasm, Compact | 132,233–271,468 B (22,115–45,167 B) | 32.8, 26.7 and 2.9 MiB |
+| NetWasm, NetWasmGC | 136,202–275,271 B (23,766–46,846 B) | 20.9, 15.7 and 7.3 MiB |
+| NetWasm, Compact | 131,666–270,580 B (22,125–44,912 B) | 17.4, 11.9 and 1.7 MiB |
 | Mono AOT | 8,185,047–8,256,888 B (1,572,917–1,593,051 B) | 50, 50 and 50 MiB |
 
 Mono reserves 50 MiB of linear memory when it starts, so its peak on every
@@ -49,14 +52,16 @@ small Wasmtime host that follows every memory's growth.
 
 ## Versions and settings
 
-- **NetWasm:** 0.9.0 packages from NuGet.org, `NetWasmOptimization=O3`, with
-  `NetWasmGarbageCollector` set to `NetWasm` or `Compact`.
+- **NetWasm:** 0.10.0, `NetWasmOptimization=O3`, with `NetWasmGarbageCollector`
+  set to `NetWasm` or `Compact`. The figures are the lower median of two
+  15-run cohorts.
 - **Mono AOT:** .NET SDK 10.0.401 with the `wasi-experimental` workload (Mono
   runtime pack 10.0.12) and wasi-sdk 25.0, building for `wasi-wasm` in Release
   with `RunAOTCompilation`, `WasmSingleFileBundle` and `InvariantGlobalization`.
   In this default configuration Mono compiles the program and CoreLib ahead of
   time, keeps its interpreter for methods it cannot compile, and leaves Wasm
-  SIMD off.
+  SIMD off. Mono's figures were measured for NetWasm 0.9.0 on the same host and
+  Wasmtime; nothing on the Mono side has changed since.
 - **Desktop .NET:** .NET 11 RC2 (SDK 11.0.100-rc.2.26504.105), with the default
   tiered JIT and with NativeAOT.
 - **Engine:** Wasmtime 49.0.3 for every Wasm build, compiling each module on one
@@ -73,7 +78,7 @@ restores the released NetWasm packages from NuGet.org:
 
 ```sh
 python3 compiler-qualification/runtime-performance/collectors.py \
-  --feed <empty-directory> 0.9.0 --output <new-directory> \
+  --feed <empty-directory> 0.10.0 --output <new-directory> \
   --collectors NetWasm Compact \
   --mono-aot <dotnet-root> <wasi-sdk-root> \
   --desktop jit aot

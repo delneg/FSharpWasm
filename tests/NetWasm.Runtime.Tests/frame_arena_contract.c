@@ -5,7 +5,6 @@
  * enumeration are tested directly. Unused runtime entry points are discarded
  * by the contract link, not replaced by test implementations. */
 #define NETWASM_RUNTIME_PACK
-#define NETWASM_UNMANAGED_ALLOCATOR_BACKEND "unmanaged_allocator_libc.h"
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wattributes"
 #include "../../src/NetWasm.Runtime/native_runtime.c"

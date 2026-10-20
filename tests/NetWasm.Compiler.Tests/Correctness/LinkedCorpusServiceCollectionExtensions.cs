@@ -12,7 +12,8 @@ internal static class LinkedCorpusServiceCollectionExtensions
         services.AddSingleton(new LinkedCorpusToolEnvironment(
             Environment.GetEnvironmentVariable("NETWASM_EMSDK_ROOT"),
             Environment.GetEnvironmentVariable("NETWASM_NODE_PATH"),
-            Environment.GetEnvironmentVariable("NETWASM_WASM_TOOLS_PATH")));
+            Environment.GetEnvironmentVariable("NETWASM_WASM_TOOLS_PATH"),
+            Environment.GetEnvironmentVariable("NETWASM_CORPUS_COLLECTOR")));
         services.AddSingleton<ILinkedCorpusToolPathsProvider,
             LinkedCorpusToolPathsProvider>();
         services.AddSingleton<ICorpusArtifactFingerprint,

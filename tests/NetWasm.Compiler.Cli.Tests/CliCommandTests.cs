@@ -261,6 +261,7 @@ public sealed class CliCommandTests
             "--managed-devirtualization", "Disabled",
             "--managed-allocation-elimination", "Enabled",
             "--managed-loop-rotation", "Enabled",
+            "--managed-array-store-check-elimination", "Disabled",
         ]);
 
         Assert.Equal(FinalWasmOptimization.O3, compiler.Options!.Optimization);
@@ -285,6 +286,7 @@ public sealed class CliCommandTests
         Assert.Equal(ManagedDevirtualization.Disabled, compiler.Options.OptimizationOverrides.Devirtualization);
         Assert.Equal(ManagedAllocationElimination.Enabled, compiler.Options.OptimizationOverrides.AllocationElimination);
         Assert.Equal(ManagedLoopRotation.Enabled, compiler.Options.OptimizationOverrides.LoopRotation);
+        Assert.Equal(ManagedArrayStoreCheckElimination.Disabled, compiler.Options.OptimizationOverrides.ArrayStoreCheckElimination);
     }
 
     [Fact]

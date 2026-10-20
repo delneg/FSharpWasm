@@ -8,7 +8,13 @@
 
 #include <stdlib.h>
 
+/* Compact is built for size: it collects after less growth, so small heaps
+ * stay small. */
+#ifdef NETWASM_GC_COMPACT
+#define NETWASM_GC_MINIMUM_COLLECTION_BUDGET (1u * 1024u * 1024u)
+#else
 #define NETWASM_GC_MINIMUM_COLLECTION_BUDGET (4u * 1024u * 1024u)
+#endif
 
 NetWasmGc *netwasm_gc_runtime;
 
@@ -37,8 +43,3 @@ void collector_initialize(void)
     netwasm_gc_set_root_tracer(netwasm_gc_runtime, netwasm_gc_trace_registered_roots, NULL);
     netwasm_gc_lifetime_initialize(netwasm_gc_runtime);
 }
-
-void collector_enable_interior_pointers(void) { }
-void collector_disable_stack_scanning(void) { }
-void collector_enable_on_demand_finalization(void) { }
-void collector_enable_java_finalization_order(void) { }

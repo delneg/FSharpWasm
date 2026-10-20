@@ -4,12 +4,11 @@ internal static class RuntimeGarbageCollectors
 {
     public const string Compact = "Compact";
     public const string NetWasm = "NetWasm";
-    public const string Boehm = "Boehm";
     public const string Bump = "Bump";
     public const string ValidationMessage =
-        "The NetWasm garbage collector must be Compact, NetWasm, Boehm or Bump.";
-    public const int TargetCount = 8;
+        "The NetWasm garbage collector must be Compact, NetWasm or Bump.";
+    public const int TargetCount = 6;
 
     public static bool IsSupported(string? value) =>
-        value is Compact or NetWasm or Boehm or Bump;
+        value is Compact or NetWasm or Bump;
 }

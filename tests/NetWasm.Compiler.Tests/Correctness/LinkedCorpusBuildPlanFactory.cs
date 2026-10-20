@@ -5,8 +5,10 @@ namespace NetWasm.Compiler.Tests.Correctness;
 
 internal enum LinkedCorpusBuildStage { NativeRuntime, Merge, ValidateMerged, Optimize, ValidateFinal }
 
+// Collector names the native runtime's collector: compact (the default), netwasm (NetWasmGC) or bump.
 internal sealed record LinkedCorpusToolPaths(
-    string EmsdkRoot, string Merge, string Optimize, string Validate, string Node);
+    string EmsdkRoot, string Merge, string Optimize, string Validate, string Node,
+    string Collector = "compact");
 
 internal sealed record LinkedCorpusBuildRequest(
     string RepositoryRoot,
@@ -79,7 +81,7 @@ internal sealed class LinkedCorpusBuildPlanFactory : ILinkedCorpusBuildPlanFacto
         var steps = ImmutableArray.CreateBuilder<LinkedCorpusBuildStep>();
         Add(LinkedCorpusBuildStage.NativeRuntime, "bash",
             [Path.Combine(request.RepositoryRoot, "eng", "build-netwasm-runtime.sh"),
-             "--collector", "tcms",
+             "--collector", request.Tools.Collector,
              "--runtime-layout", request.RuntimeLayoutPath, "--target", target,
              "--configuration", configuration, "--output", runtime],
             ImmutableDictionary<string, string>.Empty

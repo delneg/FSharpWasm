@@ -133,7 +133,7 @@ def main():
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--optimization', default='O3')
     parser.add_argument('--collectors', nargs='+', choices=run.COLLECTORS,
-                        default=['Bump', 'NetWasm', 'Boehm', 'Compact'])
+                        default=['Bump', 'NetWasm', 'Compact'])
     parser.add_argument('--scenarios', nargs='+', choices=run.SCENARIOS, default=DEFAULT_SCENARIOS)
     parser.add_argument('--warmups', type=int, default=3)
     parser.add_argument('--samples', type=int, default=15)

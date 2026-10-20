@@ -22,8 +22,7 @@ int main(void)
         &values[1],
         &values[0],
         3,
-        sizeof(values[0]),
-        0);
+        sizeof(values[0]));
     const uint32_t moved[] = {1, 1, 2, 3};
     if (memcmp(values, moved, sizeof(values)) != 0) {
         abort();
@@ -32,8 +31,7 @@ int main(void)
         17,
         &values[1],
         2,
-        sizeof(values[0]),
-        0);
+        sizeof(values[0]));
     const uint32_t cleared[] = {1, 0, 0, 3};
     if (memcmp(values, cleared, sizeof(values)) != 0) {
         abort();

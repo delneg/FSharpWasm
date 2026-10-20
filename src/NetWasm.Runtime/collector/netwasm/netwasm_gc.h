@@ -5,16 +5,16 @@
 #ifndef NETWASM_GC_H
 #define NETWASM_GC_H
 
+#include "../collector_allocation.h"
+
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
+/* Objects carry no collector header: the collector calls the runtime's
+ * collector_object_layout directly whenever it needs an object's size or
+ * references. */
 typedef struct NetWasmGc NetWasmGc;
-
-typedef struct {
-    const size_t *offsets;
-    size_t reference_count;
-} NetWasmGcDescriptor;
 
 typedef void *(*NetWasmGcAllocate)(size_t bytes, size_t alignment);
 typedef void (*NetWasmGcRelease)(void *address, size_t bytes, size_t alignment);
@@ -24,7 +24,6 @@ typedef void (*NetWasmGcCompleteMark)(NetWasmGc *gc, void *state);
 typedef enum {
     NETWASM_GC_OK,
     NETWASM_GC_INVALID_ARGUMENT,
-    NETWASM_GC_INVALID_LAYOUT,
     NETWASM_GC_SIZE_OVERFLOW,
     NETWASM_GC_OUT_OF_MEMORY,
     NETWASM_GC_UNKNOWN_OBJECT,
@@ -46,18 +45,21 @@ void netwasm_gc_set_mark_completion(
     NetWasmGcCompleteMark complete_mark,
     void *state);
 
-/* Returns NULL without changing state when no precharged run is available. */
+/* Allocations return zeroed storage. Only objects that contain references
+ * are traced. */
+#ifndef NETWASM_GC_COMPACT
+/* Returns NULL without changing state when no precharged run is available.
+ * Compact (compact_gc.c) has no fast path. */
 void *netwasm_gc_try_allocate_available(
     NetWasmGc *gc,
-    size_t element_count,
-    size_t element_size,
-    const NetWasmGcDescriptor *descriptor);
+    size_t bytes,
+    bool contains_references);
+#endif
 
 NetWasmGcResult netwasm_gc_allocate(
     NetWasmGc *gc,
-    size_t element_count,
-    size_t element_size,
-    const NetWasmGcDescriptor *descriptor,
+    size_t bytes,
+    bool contains_references,
     void **result);
 
 void netwasm_gc_collect(NetWasmGc *gc);

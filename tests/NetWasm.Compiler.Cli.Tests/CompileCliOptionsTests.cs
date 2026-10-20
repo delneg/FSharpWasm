@@ -112,6 +112,7 @@ public sealed class CompileCliOptionsTests
             "--managed-devirtualization", "Enabled",
             "--managed-allocation-elimination", "Disabled",
             "--managed-loop-rotation", "Disabled",
+            "--managed-array-store-check-elimination", "Enabled",
         ]);
 
         Assert.Equal(expected, options.Optimization);
@@ -130,6 +131,7 @@ public sealed class CompileCliOptionsTests
         Assert.Equal("Enabled", options.ManagedDevirtualization);
         Assert.Equal("Disabled", options.ManagedAllocationElimination);
         Assert.Equal("Disabled", options.ManagedLoopRotation);
+        Assert.Equal("Enabled", options.ManagedArrayStoreCheckElimination);
     }
 
     [Fact]
@@ -158,6 +160,7 @@ public sealed class CompileCliOptionsTests
     [InlineData("--managed-devirtualization")]
     [InlineData("--managed-allocation-elimination")]
     [InlineData("--managed-loop-rotation")]
+    [InlineData("--managed-array-store-check-elimination")]
     public void RejectsRepeatedPromotionAndInliningSelections(string option)
     {
         var exception = Assert.Throws<CompilerException>(() => CompileCliOptions.Parse([
@@ -195,6 +198,7 @@ public sealed class CompileCliOptionsTests
         Assert.Null(options.ManagedDevirtualization);
         Assert.Null(options.ManagedAllocationElimination);
         Assert.Null(options.ManagedLoopRotation);
+        Assert.Null(options.ManagedArrayStoreCheckElimination);
         Assert.Throws<CompilerException>(() => CompileCliOptions.Parse([
             "--input", "application.dll",
             "--output", "application.wasm",

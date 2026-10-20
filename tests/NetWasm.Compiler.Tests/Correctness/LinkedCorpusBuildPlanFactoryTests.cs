@@ -26,7 +26,7 @@ public sealed class LinkedCorpusBuildPlanFactoryTests
         Assert.Equal("bash", native.FileName);
         Assert.Equal(
             new[] { Path.Combine(request.RepositoryRoot, "eng", "build-netwasm-runtime.sh"),
-                "--collector", "tcms",
+                "--collector", "compact",
                 "--runtime-layout", request.RuntimeLayoutPath, "--target", targetName,
                 "--configuration", configuration, "--output", plan.RuntimeModulePath },
             native.Arguments);

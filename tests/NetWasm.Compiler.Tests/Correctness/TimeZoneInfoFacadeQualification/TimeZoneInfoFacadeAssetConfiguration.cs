@@ -60,7 +60,8 @@ internal sealed class TimeZoneInfoFacadeAssetConfiguration : IDisposable
             throw new InvalidOperationException("timezone asset is empty");
         }
 
-        contents[^1] ^= 0x01;
+        // Hosts verify the digest before mounting, so the guest only rejects data it cannot read.
+        contents[0] ^= 0x01;
         File.WriteAllBytes(corruptPath, contents);
         return new(corruptPath, timeZone, corruptPath);
     }

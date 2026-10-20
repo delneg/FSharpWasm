@@ -415,6 +415,10 @@ namespace System.Runtime.CompilerServices
         {
         }
 
+        // The compiler calls this for a value type that inherits ToString from Object or ValueType,
+        // passing the receiver by reference instead of boxing it.
+        internal static string ValueTypeToString<T>(ref T value) where T : struct => typeof(T).ToString();
+
         [Obsolete("The Constrained Execution Region (CER) feature is not supported.",
             DiagnosticId = "SYSLIB0004",
             UrlFormat = "https://aka.ms/dotnet-warnings/{0}")]

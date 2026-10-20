@@ -133,6 +133,7 @@ internal sealed record CompileCliOptions(
     public string? ManagedDevirtualization { get; init; }
     public string? ManagedAllocationElimination { get; init; }
     public string? ManagedLoopRotation { get; init; }
+    public string? ManagedArrayStoreCheckElimination { get; init; }
 
     public static CompileCliOptions Parse(string[] arguments)
     {
@@ -166,6 +167,7 @@ internal sealed record CompileCliOptions(
         string? managedDevirtualization = null;
         string? managedAllocationElimination = null;
         string? managedLoopRotation = null;
+        string? managedArrayStoreCheckElimination = null;
         var references = ImmutableArray.CreateBuilder<string>();
         var exports = ImmutableArray.CreateBuilder<RequestedExport>();
         var sources = ImmutableArray.CreateBuilder<string>();
@@ -253,6 +255,9 @@ internal sealed record CompileCliOptions(
                 case "--managed-loop-rotation":
                     managedLoopRotation = SetOnce(managedLoopRotation, value, option);
                     break;
+                case "--managed-array-store-check-elimination":
+                    managedArrayStoreCheckElimination = SetOnce(managedArrayStoreCheckElimination, value, option);
+                    break;
                 case "--reference": references.Add(value); break;
                 case "--export": exports.Add(ParseExport(value)); break;
                 case "--source": sources.Add(value); break;
@@ -321,6 +326,7 @@ internal sealed record CompileCliOptions(
             ManagedDevirtualization = managedDevirtualization,
             ManagedAllocationElimination = managedAllocationElimination,
             ManagedLoopRotation = managedLoopRotation,
+            ManagedArrayStoreCheckElimination = managedArrayStoreCheckElimination,
         };
     }
 

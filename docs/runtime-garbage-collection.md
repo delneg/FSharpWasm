@@ -17,9 +17,9 @@ synchronously. It uses the same compiler-published roots and managed lifetime
 contracts as Compact. Benchmark your application rather than assuming one
 collector is universally faster.
 
-Boehm is the alternative BDWGC backend. NetWasm supplies exact roots and layouts
-to it, but Boehm retains conservative pressure paths. Its allocation and
-collection tradeoffs differ from Compact and NetWasmGC.
+NetWasm 0.10.0 removed the Boehm (BDWGC) backend. A project that still sets
+`NetWasmGarbageCollector` to `Boehm` fails to build; remove the property to use
+Compact, or select `NetWasm` for throughput.
 
 Bump is a production non-collecting allocator for workloads with bounded
 lifetimes and memory consumption, such as one-shot tools and plugins whose
@@ -36,7 +36,7 @@ the supported NetWasm profile.
 
 ## Measured performance
 
-NetWasm 0.9.0 was measured on complete managed workloads, not isolated
+NetWasm 0.10.0 was measured on complete managed workloads, not isolated
 allocator microbenchmarks. The figures below are the lower median from two
 cohorts on an Apple M1 Max under Wasmtime 49.0.3. Each cohort ran three warmups
 and then fifteen fresh-process samples per collector, rotating the collector
@@ -46,38 +46,35 @@ lower is better.
 
 | Collector | Full transaction | Retained object graph | UI-style object churn |
 | --- | ---: | ---: | ---: |
-| Bump | 41.96 ms | 9.34 ms | 20.61 ms |
-| NetWasmGC | 51.30 ms | 13.49 ms | 22.03 ms |
-| Boehm | 58.47 ms | 15.17 ms | 30.44 ms |
-| Compact | 77.04 ms | 28.10 ms | 44.82 ms |
+| Bump | 40.79 ms | 8.77 ms | 19.46 ms |
+| NetWasmGC | 43.90 ms | 8.78 ms | 17.59 ms |
+| Compact | 59.12 ms | 17.76 ms | 32.87 ms |
 
 The full transaction creates 100,000 transactions, normalizes their account
 strings and aggregates them into growing containers, with allocation and
-collection inside the timed region. Using those medians, NetWasmGC was 12.3%
-faster than Boehm on the full transaction, 11.1% faster on the retained object
-graph and 27.6% faster on UI churn. Bump is useful as a performance ceiling, but
-the comparison is not equivalent lifetime behaviour: it never collects or
-reclaims managed objects.
+collection inside the timed region. Bump is not an equivalent lifetime choice:
+it never collects or reclaims managed objects. Nor is it always fastest. On UI
+churn, where Bump grows to 20 MiB while NetWasmGC reuses 7.3 MiB, NetWasmGC
+takes less time.
 
 The same artifacts reached this aggregate Wasm linear memory capacity:
 
 | Collector | Full transaction | Retained object graph | UI-style object churn |
 | --- | ---: | ---: | ---: |
 | Bump | 20.375 MiB | 12.375 MiB | 20 MiB |
-| NetWasmGC | 36.9375 MiB | 31.6875 MiB | 7.3125 MiB |
-| Boehm | 17.25 MiB | 9.125 MiB | 0.6875 MiB |
-| Compact | 32.8125 MiB | 26.6875 MiB | 2.875 MiB |
+| NetWasmGC | 20.9375 MiB | 15.6875 MiB | 7.3125 MiB |
+| Compact | 17.4375 MiB | 11.875 MiB | 1.6875 MiB |
 
 This is whole-invocation linear-memory capacity, not live managed bytes, host
 RSS or a promised ceiling. Each figure repeated exactly across runs. It makes
-the tradeoffs visible: NetWasmGC's throughput gain over Boehm uses more linear
-memory, Bump keeps growing because it never reclaims, and Compact trades
-throughput for the smallest tracing-collector artifact.
+the tradeoffs visible: Bump keeps growing because it never reclaims, and Compact
+trades throughput for the smallest tracing-collector artifact.
 
-The corresponding complete Console `42` component sizes are 43,794 bytes for
-Bump, 47,798 for Compact, 51,300 for NetWasmGC and 74,142 for Boehm. See
+The corresponding complete Console `42` components, published with the SDK at
+`Oz`, are 43,864 bytes for Bump (11,959 with Brotli quality 11), 47,895 for
+Compact (13,660) and 50,855 for NetWasmGC (15,053). See
 [Size and methodology](size-and-methodology.md#collector-selection-and-compression)
-for Brotli-11 results and the exact size boundary. Timing and file size measure
+for the exact size boundary. Timing and file size measure
 different things; neither table is a universal collector ranking.
 
 ## Selecting a collector
@@ -96,9 +93,9 @@ Or select it for a build/run:
 dotnet run -c Release -p:NetWasmGarbageCollector=NetWasm
 ```
 
-The canonical, case-sensitive values are `Compact`, `NetWasm`, `Boehm` and
-`Bump`. Leaving the property unset selects Compact. All four are packaged for
-wasm32 and wasm64; only the selected backend is linked into an application.
+The canonical, case-sensitive values are `Compact`, `NetWasm` and `Bump`.
+Leaving the property unset selects Compact. All three are packaged for wasm32
+and wasm64; only the selected backend is linked into an application.
 Class libraries remain collector-neutral.
 
 Selection is a build-time choice, not a runtime switch or a `global.json`
@@ -131,17 +128,3 @@ Release C# builds use these prebuilt archives.
 `O1`, `O2` and `O3` select speed-oriented native archives. `None`, `O0`, `Os`
 and `Oz` select the size-oriented archives. Collector choice and optimization
 mode are separate settings.
-
-## Boehm diagnostic-enabled native runtimes
-
-`GC_DONT_GC` is a maintainer diagnostic for a Boehm native runtime compiled with
-`NETWASM_GC_DIAGNOSTICS`. The native runtime build script enables this only in
-its debug configuration. Published runtime packs do not enable it:
-**`dotnet build -c Debug` neither enables the hook nor rebuilds the collector.**
-
-With that diagnostic-enabled runtime, providing `GC_DONT_GC` through the module's
-WASI Preview 2 environment before initialization disables collection while
-retaining the allocator. Presence alone enables it, including an empty value
-or `0`. It cannot be switched after initialization, and explicit collection
-requests do not override it. Native Release builds preprocess the hook out.
-It does not apply to Compact, NetWasmGC or Bump.

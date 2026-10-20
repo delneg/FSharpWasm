@@ -22,4 +22,6 @@ public sealed record WasmOptimizationOverrides(
     ManagedSwitchBitTests SwitchBitTests = ManagedSwitchBitTests.Auto,
     ManagedDevirtualization Devirtualization = ManagedDevirtualization.Auto,
     ManagedAllocationElimination AllocationElimination = ManagedAllocationElimination.Auto,
-    ManagedLoopRotation LoopRotation = ManagedLoopRotation.Auto);
+    ManagedLoopRotation LoopRotation = ManagedLoopRotation.Auto,
+    ManagedArrayStoreCheckElimination ArrayStoreCheckElimination =
+        ManagedArrayStoreCheckElimination.Auto);

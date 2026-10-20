@@ -112,7 +112,7 @@
     global.set $type_interfaces)
 
   ;; The portable runtime preserves the native runtime ABI. A future collector replaces
-  ;; these registration no-ops with exact BDWGC descriptors and root ranges.
+  ;; these registration no-ops with exact type layouts and root ranges.
   (func (export "register_type")
     (param $type_id i32) (param $base_type_id i32) (param $size i32) (param $bitmap i32)
     (param $bit_count i32) (param $assignable_types i32)

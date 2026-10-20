@@ -49,7 +49,8 @@ internal sealed class CompileCliCommand(
             options.ManagedSwitchBitTests,
             options.ManagedDevirtualization,
             options.ManagedAllocationElimination,
-            options.ManagedLoopRotation);
+            options.ManagedLoopRotation,
+            options.ManagedArrayStoreCheckElimination);
         var result = _compiler.Compile(new CompilerOptions(
             options.Input,
             options.References,

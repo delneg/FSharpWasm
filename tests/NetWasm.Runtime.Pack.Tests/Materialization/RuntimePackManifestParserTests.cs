@@ -30,11 +30,9 @@ public sealed class RuntimePackManifestParserTests
     [Theory]
     [InlineData("wasm32", "Compact")]
     [InlineData("wasm32", "NetWasm")]
-    [InlineData("wasm32", "Boehm")]
     [InlineData("wasm32", "Bump")]
     [InlineData("wasm64", "Compact")]
     [InlineData("wasm64", "NetWasm")]
-    [InlineData("wasm64", "Boehm")]
     [InlineData("wasm64", "Bump")]
     public void ValidatesSpeedAssetsForEveryTargetAndCollector(string target, string collector)
     {
@@ -72,8 +70,8 @@ public sealed class RuntimePackManifestParserTests
             JsonSerializer.Serialize(RuntimePackTestData.Manifest()));
 
         Assert.Equal(6, manifest.SchemaVersion);
-        Assert.Equal("Boehm", manifest.DefaultGarbageCollector);
-        Assert.Equal(8, manifest.TargetLookup.Count);
+        Assert.Equal("Compact", manifest.DefaultGarbageCollector);
+        Assert.Equal(6, manifest.TargetLookup.Count);
         Assert.Equal("netwasm.runtime.v1", manifest.RuntimeAbi);
         Assert.Equal("6.0.7", manifest.EmscriptenVersion);
         Assert.Equal(65_536, manifest.WasmPageSize);
@@ -81,9 +79,9 @@ public sealed class RuntimePackManifestParserTests
         var inlineIntent = Assert.Single(manifest.InlineIntents);
         Assert.Equal("initialize", inlineIntent.Export);
         Assert.Equal(RuntimeFunctionInlinePreference.Aggressive, inlineIntent.Preference);
-        Assert.Equal(["wasm32", "wasm64", "wasm32", "wasm64", "wasm32", "wasm64", "wasm32", "wasm64"], manifest.Targets.Select(static target => target.Target));
-        Assert.Equal([4, 8, 4, 8, 4, 8, 4, 8], manifest.Targets.Select(static target => target.PointerSizeBytes));
-        Assert.Equal([91_968, 114_352, 91_968, 114_352, 91_968, 114_352, 91_968, 114_352], manifest.Targets.Select(static target => target.RuntimeFootprintBytes));
+        Assert.Equal(["wasm32", "wasm64", "wasm32", "wasm64", "wasm32", "wasm64"], manifest.Targets.Select(static target => target.Target));
+        Assert.Equal([4, 8, 4, 8, 4, 8], manifest.Targets.Select(static target => target.PointerSizeBytes));
+        Assert.Equal([91_968, 114_352, 91_968, 114_352, 91_968, 114_352], manifest.Targets.Select(static target => target.RuntimeFootprintBytes));
         foreach (var target in manifest.Targets)
         {
             var profile = Assert.IsType<RuntimeNativeValidationProfile>(target.NativeValidation);
@@ -404,8 +402,7 @@ public sealed class RuntimePackManifestParserTests
     }
 
     private static System.Collections.Immutable.ImmutableArray<RuntimePackTarget> ReplaceTarget(RuntimePackTarget target) =>
-        [target, RuntimePackTestData.Target("wasm64"), RuntimePackTestData.Target("wasm32", "Compact"),
-            RuntimePackTestData.Target("wasm64", "Compact"), RuntimePackTestData.Target("wasm32", "NetWasm"),
+        [target, RuntimePackTestData.Target("wasm64"), RuntimePackTestData.Target("wasm32", "NetWasm"),
             RuntimePackTestData.Target("wasm64", "NetWasm"), RuntimePackTestData.Target("wasm32", "Bump"),
             RuntimePackTestData.Target("wasm64", "Bump")];
 

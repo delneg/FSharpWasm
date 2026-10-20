@@ -90,6 +90,7 @@ public sealed record WasmEmissionRequest(
     public bool EnableArrayMetadataCaching { get; init; }
     public bool HoistArrayNullChecks { get; init; }
     public bool EnableLoopRotation { get; init; }
+    public bool EliminateArrayStoreChecks { get; init; }
     public bool EnableScalarCallPreservation { get; init; }
 
     public ImmutableDictionary<EntityKey, ImmutableArray<WasmSourceLocation>>

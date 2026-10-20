@@ -75,7 +75,7 @@ not public Component services. Do not exchange raw pointers or assume wasm32
 addresses when targeting wasm64.
 
 Starting with 0.7.0, Compact is the default precise, non-moving garbage collector;
-Boehm remains selectable at build time. See
+NetWasmGC and Bump are also selectable at build time. See
 [Choosing a garbage collector](runtime-garbage-collection.md) for the tradeoffs
 and application project setting. Class libraries remain collector-neutral.
 

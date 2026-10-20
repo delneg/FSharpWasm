@@ -17,6 +17,50 @@
 
 void runtime_initialize_libc(void) { }
 
+/* The runtime's part: each object's layout, as it would read it from a type id. */
+typedef struct {
+    uintptr_t object;
+    NetWasmCollectorLayout layout;
+} RecordedLayout;
+
+static RecordedLayout recorded[256];
+static size_t recorded_count;
+
+void collector_object_layout(const void *object, NetWasmCollectorLayout *layout)
+{
+    for (size_t index = 0; index < recorded_count; index++) {
+        if (recorded[index].object == (uintptr_t)object) {
+            *layout = recorded[index].layout;
+            return;
+        }
+    }
+    assert(!"object has no recorded layout");
+}
+
+static void *allocate_with_layout(NetWasmCollectorLayout layout)
+{
+    size_t bytes = layout.fixed_bytes + layout.element_count * layout.element_size;
+    void *object = collector_allocate_object(bytes,
+        layout.fixed_reference_count != 0 ||
+            (layout.element_reference_count != 0 && layout.element_count != 0));
+    assert(object != NULL);
+    size_t index = 0;
+    while (index < recorded_count && recorded[index].object != (uintptr_t)object) index++;
+    if (index == recorded_count) {
+        assert(recorded_count < sizeof(recorded) / sizeof(recorded[0]));
+        recorded_count++;
+    }
+    recorded[index] = (RecordedLayout){(uintptr_t)object, layout};
+    return object;
+}
+
+static void *allocate_atomic(size_t bytes)
+{
+    return allocate_with_layout((NetWasmCollectorLayout){.fixed_bytes = bytes});
+}
+
+static const size_t first_word[] = {0};
+
 static uintptr_t frame_root;
 static size_t finalized;
 
@@ -36,13 +80,13 @@ static void finalize(void *object, void *context)
 
 static void allocation_and_roots(void)
 {
-    uintptr_t unrooted = (uintptr_t)collector_allocate_atomic(32);
+    uintptr_t unrooted = (uintptr_t)allocate_atomic(32);
     assert(unrooted != 0);
     collector_collect();
     assert(!netwasm_gc_contains(netwasm_gc_runtime, unrooted));
 
     collector_set_root_enumerator(enumerate_roots);
-    frame_root = (uintptr_t)collector_allocate_atomic(32);
+    frame_root = (uintptr_t)allocate_atomic(32);
     collector_collect();
     assert(netwasm_gc_contains(netwasm_gc_runtime, frame_root));
     frame_root = 0;
@@ -50,8 +94,8 @@ static void allocation_and_roots(void)
     assert(netwasm_gc_object_count(netwasm_gc_runtime) == 0);
 
     uintptr_t roots[2] = {
-        (uintptr_t)collector_allocate_atomic(8),
-        (uintptr_t)collector_allocate_atomic(8),
+        (uintptr_t)allocate_atomic(8),
+        (uintptr_t)allocate_atomic(8),
     };
     collector_register_roots(roots, sizeof(roots));
     collector_register_roots(roots, sizeof(roots));
@@ -65,14 +109,16 @@ static void allocation_and_roots(void)
     assert(netwasm_gc_object_count(netwasm_gc_runtime) == 0);
 }
 
-static void descriptors_and_ranges(void)
+static void layouts_and_ranges(void)
 {
-    NetWasmCollectorDescriptorWord bitmap = 0;
-    collector_mark_descriptor_word(&bitmap, 0);
-    NetWasmCollectorDescriptor descriptor = collector_create_descriptor(&bitmap, 2);
-    uintptr_t *parent = collector_allocate_exact(2 * sizeof(uintptr_t), descriptor);
-    uintptr_t reference = (uintptr_t)collector_allocate_atomic(8);
-    uintptr_t integer = (uintptr_t)collector_allocate_atomic(8);
+    /* A reference, then an integer that only looks like one. */
+    uintptr_t *parent = allocate_with_layout((NetWasmCollectorLayout){
+        .fixed_offsets = first_word,
+        .fixed_reference_count = 1,
+        .fixed_bytes = 2 * sizeof(uintptr_t),
+    });
+    uintptr_t reference = (uintptr_t)allocate_atomic(8);
+    uintptr_t integer = (uintptr_t)allocate_atomic(8);
     parent[0] = reference;
     parent[1] = integer;
     frame_root = (uintptr_t)parent;
@@ -81,12 +127,15 @@ static void descriptors_and_ranges(void)
     assert(!netwasm_gc_contains(netwasm_gc_runtime, integer));
     frame_root = 0;
     collector_collect();
-    collector_release_metadata((void *)descriptor);
 
-    descriptor = collector_create_descriptor(&bitmap, 1);
-    uintptr_t *array = collector_allocate_exact_zeroed(3, sizeof(uintptr_t), descriptor);
+    uintptr_t *array = allocate_with_layout((NetWasmCollectorLayout){
+        .element_offsets = first_word,
+        .element_reference_count = 1,
+        .element_size = sizeof(uintptr_t),
+        .element_count = 3,
+    });
     for (size_t index = 0; index < 3; index++)
-        array[index] = (uintptr_t)collector_allocate_atomic(8);
+        array[index] = (uintptr_t)allocate_atomic(8);
     uintptr_t endpoint = (uintptr_t)(array + 3);
     collector_register_root_range(&endpoint, &endpoint + 1);
     collector_collect();
@@ -94,13 +143,12 @@ static void descriptors_and_ranges(void)
     collector_unregister_root_range(&endpoint, &endpoint + 1);
     collector_collect();
     assert(netwasm_gc_object_count(netwasm_gc_runtime) == 0);
-    collector_release_metadata((void *)descriptor);
 }
 
 static void lifetime_contract(void)
 {
-    uintptr_t key = (uintptr_t)collector_allocate_atomic(8);
-    uintptr_t value = (uintptr_t)collector_allocate_atomic(8);
+    uintptr_t key = (uintptr_t)allocate_atomic(8);
+    uintptr_t value = (uintptr_t)allocate_atomic(8);
     uintptr_t short_slot = key;
     uintptr_t long_slot = key;
     collector_register_finalizer((void *)key, finalize, &finalized, NULL, NULL);
@@ -127,11 +175,11 @@ static void stores_hash_and_metrics(void)
 {
     uintptr_t source[3] = {1, 2, 3};
     uintptr_t destination[3] = {0};
-    collector_move_value_range(0, destination, source, 3, sizeof(uintptr_t), 0);
+    collector_move_value_range(0, destination, source, 3, sizeof(uintptr_t));
     assert(memcmp(source, destination, sizeof(source)) == 0);
     collector_store_reference(0, &destination[1], 7);
     assert(destination[1] == 7);
-    collector_clear_value_range(0, destination, 3, sizeof(uintptr_t), 0);
+    collector_clear_value_range(0, destination, 3, sizeof(uintptr_t));
     assert(destination[0] == 0 && destination[1] == 0 && destination[2] == 0);
     assert(collector_identity_hash(1234) == collector_identity_hash(1234));
     assert(collector_pinned_reference_count() == 0);
@@ -147,13 +195,12 @@ static void stores_hash_and_metrics(void)
 
 static void atomic_allocations_are_zeroed_after_reclamation(void)
 {
-    assert(collector_atomic_allocation_is_zeroed());
     static const size_t sizes[] = {0, 1, 32, 4096, 8192};
     frame_root = 0;
     for (size_t iteration = 0; iteration < 3; iteration++) {
         for (size_t index = 0; index < sizeof(sizes) / sizeof(sizes[0]); index++) {
             size_t size = sizes[index];
-            unsigned char *object = collector_allocate_atomic(size);
+            unsigned char *object = allocate_atomic(size);
             assert(object != NULL);
             for (size_t offset = 0; offset < size; offset++) assert(object[offset] == 0);
             memset(object, 0xa5, size);
@@ -166,12 +213,8 @@ static void atomic_allocations_are_zeroed_after_reclamation(void)
 int main(void)
 {
     collector_initialize();
-    collector_enable_interior_pointers();
-    collector_disable_stack_scanning();
-    collector_enable_on_demand_finalization();
-    collector_enable_java_finalization_order();
     allocation_and_roots();
-    descriptors_and_ranges();
+    layouts_and_ranges();
     lifetime_contract();
     stores_hash_and_metrics();
     atomic_allocations_are_zeroed_after_reclamation();

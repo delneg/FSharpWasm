@@ -26,13 +26,13 @@ class RuntimePackPackageTests(unittest.TestCase):
         (self.root / "eng/toolchain.json").write_text(json.dumps({"emscripten": "6.0.7"}))
         policy_root = self.root / "src/NetWasm.Runtime.Pack/runtime"
         policy_root.mkdir(parents=True)
-        policy = {"defaultGarbageCollector": "Boehm", "targets": {
+        policy = {"defaultGarbageCollector": "Compact", "targets": {
             target: {"systemLibraries": ["libc.a"]} for target in ("wasm32", "wasm64")}}
         (policy_root / "runtime-policy.json").write_text(json.dumps(policy))
         self.entries = {}
         targets = []
         for target in ("wasm32", "wasm64"):
-            for collector in ("Compact", "NetWasm", "Boehm", "Bump"):
+            for collector in ("Compact", "NetWasm", "Bump"):
                 prefix = f"{target}/{collector.lower()}"
                 self.entries[f"runtime/{prefix}/layout.json"] = json.dumps({
                     "schemaVersion": 1, "target": target, "runtimeFootprintBytes": 70_000,
@@ -58,14 +58,12 @@ class RuntimePackPackageTests(unittest.TestCase):
                         self.asset(f"{target}/system-libraries/libc.a", b"system")]},
                 })
         self.manifest = {"schemaVersion": 6, "emscriptenVersion": "6.0.7",
-                         "defaultGarbageCollector": "Boehm", "exports": ["allocate"],
+                         "defaultGarbageCollector": "Compact", "exports": ["allocate"],
                          "targets": targets}
         self.entries["runtime/runtime-exports.txt"] = b"allocate\n"
         self.entries["LICENSE.txt"] = "\n".join([
             "=== NetWasm runtime support: MIT, except separately identified collectors ===", "=== Emscripten notice ===",
             "=== musl libc notice ===", "=== LLVM compiler-rt notice ===",
-            "=== Compact collector LICENSE ===", "=== Compact collector NOTICE ===",
-            "=== Compact collector UPSTREAM-NOTICE ===",
             "=== NetWasmGC LICENSE ===", "=== NetWasmGC NOTICE ===",
         ]).encode()
         self.entries["NetWasm.Runtime.Pack.nuspec"] = b'<package><metadata><license type="file">LICENSE.txt</license></metadata></package>'
@@ -85,7 +83,7 @@ class RuntimePackPackageTests(unittest.TestCase):
             archive.writestr("runtime/runtime-pack.json", json.dumps(manifest or self.manifest))
         return path
 
-    def test_accepts_eight_pairs_with_shared_closure(self) -> None:
+    def test_accepts_six_pairs_with_shared_closure(self) -> None:
         MODULE.inspect(self.package(), self.root, self.version)
 
     def test_rejects_old_schema(self) -> None:
@@ -133,7 +131,7 @@ class RuntimePackPackageTests(unittest.TestCase):
             MODULE.inspect(self.package(), self.root, self.version)
 
     def test_rejects_policy_default_mismatch(self) -> None:
-        manifest = self.manifest | {"defaultGarbageCollector": "Compact"}
+        manifest = self.manifest | {"defaultGarbageCollector": "NetWasm"}
         with self.assertRaisesRegex(ValueError, "default collector"):
             MODULE.inspect(self.package(manifest), self.root, self.version)
 
@@ -152,12 +150,6 @@ class RuntimePackPackageTests(unittest.TestCase):
         manifest["targets"][0]["collectorArchive"] = manifest["targets"][1]["collectorArchive"]
         with self.assertRaisesRegex(ValueError, "archive paths"):
             MODULE.inspect(self.package(manifest), self.root, self.version)
-
-    def test_rejects_missing_compact_notices(self) -> None:
-        self.entries["LICENSE.txt"] = self.entries["LICENSE.txt"].replace(
-            b"=== Compact collector NOTICE ===", b"")
-        with self.assertRaisesRegex(ValueError, "upstream notice"):
-            MODULE.inspect(self.package(), self.root, self.version)
 
     def test_rejects_missing_netwasmgc_license_or_notice(self) -> None:
         complete = self.entries["LICENSE.txt"]
