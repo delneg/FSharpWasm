@@ -180,6 +180,20 @@ cc -std=c11 -Wall -Wextra -Werror -pedantic \
 echo "Independent NetWasmGC available-run contract PASS"
 
 cc -std=c11 -Wall -Wextra -Werror -pedantic \
+  "$workspace_dir/src/NetWasm.Runtime/collector/netwasm/netwasm_gc.c" \
+  "$script_dir/netwasm_gc_recycling_contract.c" \
+  -o "$output_dir/netwasm_gc_recycling_contract"
+"$output_dir/netwasm_gc_recycling_contract"
+echo "Independent NetWasmGC slot recycling contract PASS"
+
+cc -std=c11 -Wall -Wextra -Werror -pedantic -DNETWASM_GC_STATISTICS \
+  "$workspace_dir/src/NetWasm.Runtime/collector/netwasm/netwasm_gc.c" \
+  "$script_dir/netwasm_gc_statistics_contract.c" \
+  -o "$output_dir/netwasm_gc_statistics_contract"
+"$output_dir/netwasm_gc_statistics_contract"
+echo "Independent NetWasmGC diagnostic statistics contract PASS"
+
+cc -std=c11 -Wall -Wextra -Werror -pedantic \
   "$script_dir/netwasm_gc_layout_contract.c" \
   -o "$output_dir/netwasm_gc_layout_contract"
 "$output_dir/netwasm_gc_layout_contract"

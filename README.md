@@ -187,10 +187,29 @@ linking enabled:
 
 The Blazor total includes its native runtime and required Webcil assemblies;
 NetWasm includes its runtime, garbage collector and WASI component. This is a
-console component versus an empty-UI application—not an equivalent-framework
+console component versus an empty-UI application, not an equivalent-framework
 comparison or a claim about every .NET workload.
 
 [Exact Blazor versions, settings and reproduction](docs/size-and-methodology.md#blazor-webassembly-aot-printing-42)
+
+### Faster than Mono AOT
+
+As of 0.9.0, NetWasm runs our allocation and garbage-collection benchmarks
+faster than Mono AOT, compiled from the same C# source and run by the same
+Wasmtime:
+
+| Workload | NetWasm 0.9.0, NetWasmGC | Mono AOT, .NET 10 | NetWasm time |
+| --- | ---: | ---: | ---: |
+| Full transaction | 50.4 ms | 59.1 ms | 15% less |
+| Retained object graph | 13.3 ms | 14.2 ms | 6% less |
+| UI churn | 22.0 ms | 29.1 ms | 25% less |
+
+These are medians of 15 runs on an Apple M1 Max under Wasmtime 49.0.3, each run
+checked against desktop .NET's result. Mono AOT is Microsoft's `wasi-wasm`
+target in its default Release configuration. Desktop .NET, running native code,
+is still faster on these workloads.
+
+[Versions, settings, desktop figures and reproduction](docs/performance.md)
 
 ## Current boundary
 

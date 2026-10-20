@@ -76,4 +76,57 @@ size_t netwasm_gc_object_count(const NetWasmGc *gc);
 
 void netwasm_gc_destroy(NetWasmGc *gc);
 
+#ifdef NETWASM_GC_STATISTICS
+/* Diagnostic-only allocator accounting. Shipped builds never define
+ * NETWASM_GC_STATISTICS. Event counts are cumulative; the memory fields
+ * describe the heap when read and partition it without double counting:
+ * arena_bytes = (block_count + empty_block_count) * 64 KiB + unused_arena_bytes,
+ * and each block's 64 KiB = metadata + tail + occupied + reserved + free. */
+#define NETWASM_GC_STATISTICS_FIELDS(X) \
+    X(fast_allocations) \
+    X(small_allocations) \
+    X(large_allocations) \
+    X(run_refills) \
+    X(run_slots) \
+    X(run_bytes_zeroed) \
+    X(free_run_searches) \
+    X(bitmap_words_searched) \
+    X(exhausted_blocks) \
+    X(fresh_blocks) \
+    X(recycled_blocks) \
+    X(root_marks) \
+    X(reference_marks) \
+    X(reference_fallbacks) \
+    X(marked_objects) \
+    X(swept_blocks) \
+    X(emptied_blocks) \
+    X(freed_large_objects) \
+    X(collections) \
+    X(object_count) \
+    X(large_object_count) \
+    X(live_payload_bytes) \
+    X(small_header_bytes) \
+    X(small_padding_bytes) \
+    X(small_occupied_bytes) \
+    X(reserved_run_bytes) \
+    X(free_slot_bytes) \
+    X(block_count) \
+    X(block_metadata_bytes) \
+    X(block_tail_bytes) \
+    X(empty_block_count) \
+    X(unused_arena_bytes) \
+    X(arena_bytes) \
+    X(arena_header_bytes) \
+    X(large_bytes) \
+    X(directory_bytes)
+
+typedef struct {
+#define NETWASM_GC_STATISTICS_FIELD(name) uint64_t name;
+    NETWASM_GC_STATISTICS_FIELDS(NETWASM_GC_STATISTICS_FIELD)
+#undef NETWASM_GC_STATISTICS_FIELD
+} NetWasmGcStatistics;
+
+void netwasm_gc_read_statistics(const NetWasmGc *gc, NetWasmGcStatistics *result);
+#endif
+
 #endif

@@ -98,7 +98,7 @@ static void word_run_operations_cross_bitmap_boundaries(void)
     bitmap_clear_range(allocated, NWGC_WORD_BITS - 2, NWGC_WORD_BITS + 3);
     block->search = NWGC_WORD_BITS - 4;
     size_t end = 0;
-    size_t first = find_free_run(block, NWGC_WORD_BITS, &end);
+    size_t first = find_free_run(gc, block, NWGC_WORD_BITS, &end);
     assert(first == NWGC_WORD_BITS - 2);
     assert(end == NWGC_WORD_BITS + 3);
 

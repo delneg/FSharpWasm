@@ -1,0 +1,13 @@
+[package]
+name = "netwasm-memory-host"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[[bin]]
+name = "netwasm-memory-host"
+path = "src/main.rs"
+
+[dependencies]
+wasmtime = { version = "=49.0.3", default-features = false, features = ["component-model", "cranelift", "gc", "gc-null", "runtime", "std"] }
+wasmtime-wasi = { version = "=49.0.3", default-features = false, features = ["p2"] }
