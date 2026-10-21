@@ -9,7 +9,7 @@ separate component or upstream notice applies. NetWasmGC and CompactGC are
 licensed under Apache-2.0 and carry their own licence texts and notices.
 
 The published licensor is the pseudonym **Zion Sati**. Commercial licensing
-questions and agreements: <zionsatidev@gmail.com>. Project repository:
+questions and agreements: <zion.sati@netwasm.com>. Project repository:
 <https://github.com/zion-sati/netwasm>.
 
 | Area | License |

@@ -2,7 +2,7 @@
 
 Version 1.0 — 2 September 2026
 Licensor: Zion Sati
-Commercial licensing: zionsatidev@gmail.com
+Commercial licensing: zion.sati@netwasm.com
 Project repository: https://github.com/zion-sati/netwasm
 
 > This is a source-available license, not an Open Source Initiative approved
