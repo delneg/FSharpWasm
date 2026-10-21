@@ -24,7 +24,8 @@ and .NET CIL directly to WebAssembly. It does not carry the desktop CLR, Mono,
 
 For the same print-`42` workload, NetWasm's result includes the runtime and
 precise Compact garbage collector. Both artifacts are standalone WASI Preview 2
-Components built with size-oriented settings.
+Components, built the way a developer gets them out of the box: each
+toolchain's standard library and ordinary build, with no hand-added tools.
 
 **10.7% smaller raw. 19.5% smaller with Brotli-11.**
 
@@ -41,6 +42,19 @@ Rust is the headline comparison because it uses the same workload and output
 form. Kotlin/Wasm and TinyGo show the broader footprint landscape, but their
 targets and runtime boundaries differ. This is a measured workload/profile
 result, not a language-wide size ranking.
+
+NetWasm's figure is the template application's default Release publish. Rust's
+adds Cargo's documented size settings (`opt-level = "z"`, LTO, one codegen
+unit, `panic = "abort"` and stripped symbols) to an ordinary `cargo build`.
+Binaryen's wasm-opt is not a post-processing step here: it is part of NetWasm's
+compiler pipeline and runs in every ordinary build, with nothing to install or
+enable. Rust's `wasm32-wasip2` output is a component, so applying wasm-opt to it
+means extracting the core module, optimizing it and re-encoding the component
+by hand.
+
+Both languages can go lower, but that is a different class of program: Rust
+with `no_std`, or C# with a minimal library such as bflat's zero library, each
+giving up most of the standard library and, for C#, the garbage collector.
 
 [Exact sources, versions, settings and reproduction steps](docs/size-and-methodology.md)
 
