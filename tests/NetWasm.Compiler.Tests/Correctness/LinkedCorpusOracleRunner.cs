@@ -38,11 +38,6 @@ internal sealed class LinkedCorpusOracleRunner(
     ILinkedCorpusObservationRequestFactory observationRequests,
     ILinkedCorpusObservationProcess observations) : ILinkedCorpusOracleRunner
 {
-    private const OracleRuntimeCapabilities LinkedCapabilities =
-        OracleRuntimeCapabilities.GarbageCollection |
-        OracleRuntimeCapabilities.Finalization |
-        OracleRuntimeCapabilities.WeakReferenceClearing;
-
     public LinkedCorpusExecution CompileBuildAndRun(
         CorpusCompilation compilation,
         CorpusMatrixCell cell,
@@ -56,9 +51,10 @@ internal sealed class LinkedCorpusOracleRunner(
                 "linked cell profile differs from its compiled corpus", nameof(cell));
         }
         cancellationToken.ThrowIfCancellationRequested();
-        capabilities.Verify(
-            compilation.Fixture.RequiredRuntimeCapabilities, LinkedCapabilities);
         var selectedTools = tools.Get();
+        capabilities.Verify(
+            compilation.Fixture.RequiredRuntimeCapabilities,
+            LinkedCorpusCollectorCapabilities.Of(selectedTools.Collector));
         var targetName = cell.Target switch
         {
             WasmTarget.Wasm32 => "wasm32",

@@ -1,6 +1,6 @@
 # C# Web Workers
 
-NetWasm 0.6.0 can publish C# as a browser Web Worker with a generated
+NetWasm can publish C# as a browser Web Worker with a generated
 JavaScript client. The worker has its own WebAssembly instance and managed heap,
 so page code communicates with it asynchronously through the generated boundary.
 It does not create a managed thread or share managed objects with the page.

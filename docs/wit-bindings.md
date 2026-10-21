@@ -10,7 +10,7 @@ or discover this tool automatically.
 Install the released tool:
 
 ```sh
-dotnet tool install --global NetWasm.Wit.Bindings.Tool --version 0.6.0
+dotnet tool install --global NetWasm.Wit.Bindings.Tool
 ```
 
 The package includes NetWasm's pinned platform-neutral `wasm-tools` module.
@@ -60,7 +60,7 @@ generated top-level declarations.
 
 The example above, directory input, omitted single-world selection, both
 accessibility modes, and absolute input/output paths were executed against the
-published 0.6.0 tool. Its generated source contains
+published tool. Its generated source contains
 `HostImports.Transform(Point)` and this partial export declaration:
 
 ```csharp
@@ -90,7 +90,7 @@ an ordinary NetWasm SDK build does not invoke the standalone tool.
 ## Run the generated bindings in a browser worker
 
 To exercise both directions in the example above, create an application named
-`BindingConsumer` with the 0.6.0 template, put the initial contract in
+`BindingConsumer` with the template, put the initial contract in
 `wit/service.wit`, and generate `Bindings.g.cs` before adding the worker
 world:
 
@@ -175,11 +175,11 @@ Run `dotnet publish -c Release`, serve
 `bin/Release/netwasm0.1/publish` over HTTP, and open `index.html`. It displays
 `42`. This example exercises the generated record and variant marshalling,
 JavaScript host import, managed export, and worker client using the released
-0.6.0 packages.
+packages.
 
 After the worker world has been added, regenerate from the SDK's materialized
 package, which contains the platform dependency. For the default Release wasm32
-layout in 0.6.0:
+layout:
 
 ```sh
 dotnet build -c Release

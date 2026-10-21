@@ -18,20 +18,32 @@ public sealed class CorrectnessTestRunner : IDisposable
             ValidateScopes = true,
         });
 
-    internal void Run(CorpusFixture fixture) =>
-        _services.GetRequiredService<IDifferentialCorpusRunner>().Run(fixture);
+    internal void Run(CorpusFixture fixture)
+    {
+        if (Applies(fixture.Name, fixture.RequiredRuntimeCapabilities))
+            _services.GetRequiredService<IDifferentialCorpusRunner>().Run(fixture);
+    }
 
-    internal void Run(CorpusFixture fixture, IEmittedAssemblyBuilder builder) =>
-        _services.GetRequiredService<IEmittedCorpusRunner>().Run(fixture, builder);
+    internal void Run(CorpusFixture fixture, IEmittedAssemblyBuilder builder)
+    {
+        if (Applies(fixture.Name, fixture.RequiredRuntimeCapabilities))
+            _services.GetRequiredService<IEmittedCorpusRunner>().Run(fixture, builder);
+    }
 
     internal void RunRejection(CompilerRejectionCase testCase) =>
         _services.GetRequiredService<ICompilerRejectionRunner>().Run(testCase);
 
-    internal void Run(CorpusCaseManifest manifest, string cell) =>
-        _services.GetRequiredService<IRegisteredCorpusRunner>().Run(manifest, cell);
+    internal void Run(CorpusCaseManifest manifest, string cell)
+    {
+        if (Applies(manifest.Name, manifest.RequiredRuntimeCapabilities))
+            _services.GetRequiredService<IRegisteredCorpusRunner>().Run(manifest, cell);
+    }
 
-    internal void Run(CorpusCaseManifest manifest, string cell, IEmittedAssemblyBuilder builder, int? input = null) =>
-        _services.GetRequiredService<IRegisteredCorpusRunner>().Run(manifest, cell, builder, input);
+    internal void Run(CorpusCaseManifest manifest, string cell, IEmittedAssemblyBuilder builder, int? input = null)
+    {
+        if (Applies(manifest.Name, manifest.RequiredRuntimeCapabilities))
+            _services.GetRequiredService<IRegisteredCorpusRunner>().Run(manifest, cell, builder, input);
+    }
 
     internal IReadOnlyList<GeneratedCorpusCase> GeneratedCases =>
         _services.GetRequiredService<ILanguageCorpusGenerator>()
@@ -52,6 +64,19 @@ public sealed class CorrectnessTestRunner : IDisposable
 
     internal void RunCfgProperty(CfgPropertyCase property) =>
         _services.GetRequiredService<ICfgPropertyRunner>().Run(property);
+
+    // A fixture that needs a capability the selected linked collector lacks,
+    // such as garbage collection under Bump, cannot run there; it is reported
+    // as not applicable instead of failing.
+    private bool Applies(string name, OracleRuntimeCapabilities required)
+    {
+        var collector = _services.GetRequiredService<LinkedCorpusToolEnvironment>().Collector;
+        var missing = required & LinkedCorpusCollectorCapabilities.Collecting &
+            ~LinkedCorpusCollectorCapabilities.Of(collector);
+        if (missing == OracleRuntimeCapabilities.None) return true;
+        Console.WriteLine($"Not applicable under the {collector} collector: {name} requires {missing}.");
+        return false;
+    }
 
     public void Dispose() => _services.Dispose();
 }

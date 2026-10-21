@@ -6,6 +6,19 @@ internal sealed record LinkedCorpusToolEnvironment(
     string? WasmToolsPath,
     string? Collector = null);
 
+// What each linked collector gives a fixture. Bump never collects, finalizes or
+// clears weak references.
+internal static class LinkedCorpusCollectorCapabilities
+{
+    public const OracleRuntimeCapabilities Collecting =
+        OracleRuntimeCapabilities.GarbageCollection |
+        OracleRuntimeCapabilities.Finalization |
+        OracleRuntimeCapabilities.WeakReferenceClearing;
+
+    public static OracleRuntimeCapabilities Of(string? collector) =>
+        collector == "bump" ? OracleRuntimeCapabilities.None : Collecting;
+}
+
 internal interface ILinkedCorpusToolPathsProvider
 {
     LinkedCorpusToolPaths Get();
