@@ -1,6 +1,6 @@
 # Bounded custom attribute queries
 
-Status: available in NetWasm 0.6.0.
+Status: available.
 
 NetWasm can resolve a custom attribute query during compilation when its target
 and attribute filter each identify one exact, closed type. The resulting program

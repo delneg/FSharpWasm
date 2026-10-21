@@ -47,6 +47,14 @@ public sealed class LinkedCorpusToolPathsProviderTests
             new LinkedCorpusToolPathsProvider(environment).Get());
     }
 
+    [Theory]
+    [InlineData(null, 7)]
+    [InlineData("compact", 7)]
+    [InlineData("netwasm", 7)]
+    [InlineData("bump", 0)]
+    public void OnlyBumpLacksCollectionCapabilities(string? collector, int provided) =>
+        Assert.Equal((OracleRuntimeCapabilities)provided, LinkedCorpusCollectorCapabilities.Of(collector));
+
     [Fact]
     public void GetRejectsNullEnvironment() =>
         Assert.Throws<ArgumentNullException>(() =>

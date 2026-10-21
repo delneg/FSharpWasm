@@ -74,7 +74,7 @@ declared WIT/WASI imports. Runtime ABI imports are implementation mechanics,
 not public Component services. Do not exchange raw pointers or assume wasm32
 addresses when targeting wasm64.
 
-Starting with 0.7.0, Compact is the default precise, non-moving garbage collector;
+Compact is the default precise, non-moving garbage collector;
 NetWasmGC and Bump are also selectable at build time. See
 [Choosing a garbage collector](runtime-garbage-collection.md) for the tradeoffs
 and application project setting. Class libraries remain collector-neutral.
@@ -90,8 +90,7 @@ pre-reserved runtime tiers.
 
 ## Static native interop
 
-The bounded static C implementation is available in NetWasm 0.6.0 and has been
-qualified across ordinary application, library and test consumers on wasm32
+The bounded static C implementation is qualified across ordinary application, library and test consumers on wasm32
 and raw wasm64. See the [two-way tutorial](static-native-interop.md)
 and [support inventory](support-status.md).
 

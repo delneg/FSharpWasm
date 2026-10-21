@@ -1,6 +1,6 @@
 # Performance compared with Mono AOT and desktop .NET
 
-NetWasm 0.10.0 runs our allocation and garbage-collection benchmarks faster than
+NetWasm runs our allocation and garbage-collection benchmarks faster than
 Mono AOT, compiled from the same C# source and run by the same Wasmtime. With
 NetWasmGC it also takes less time than desktop .NET 11's JIT on two of the three
 workloads. Desktop NativeAOT, running native code, is still the fastest.
@@ -60,7 +60,7 @@ small Wasmtime host that follows every memory's growth.
   with `RunAOTCompilation`, `WasmSingleFileBundle` and `InvariantGlobalization`.
   In this default configuration Mono compiles the program and CoreLib ahead of
   time, keeps its interpreter for methods it cannot compile, and leaves Wasm
-  SIMD off. Mono's figures were measured for NetWasm 0.9.0 on the same host and
+  SIMD off. Mono's figures come from an earlier run on the same host and
   Wasmtime; nothing on the Mono side has changed since.
 - **Desktop .NET:** .NET 11 RC2 (SDK 11.0.100-rc.2.26504.105), with the default
   tiered JIT and with NativeAOT.

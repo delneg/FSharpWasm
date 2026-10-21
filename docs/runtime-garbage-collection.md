@@ -1,6 +1,6 @@
 # Choosing a garbage collector
 
-**Compact is the default garbage collector**, starting with NetWasm 0.7.0.
+**Compact is the default garbage collector**.
 You do not need to configure a collector to build an application.
 
 ## Collector choices
@@ -17,7 +17,7 @@ synchronously. It uses the same compiler-published roots and managed lifetime
 contracts as Compact. Benchmark your application rather than assuming one
 collector is universally faster.
 
-NetWasm 0.10.0 removed the Boehm (BDWGC) backend. A project that still sets
+The Boehm (BDWGC) backend has been removed. A project that still sets
 `NetWasmGarbageCollector` to `Boehm` fails to build; remove the property to use
 Compact, or select `NetWasm` for throughput.
 
@@ -36,7 +36,7 @@ the supported NetWasm profile.
 
 ## Measured performance
 
-NetWasm 0.10.0 was measured on complete managed workloads, not isolated
+These figures come from complete managed workloads, not isolated
 allocator microbenchmarks. The figures below are the lower median from two
 cohorts on an Apple M1 Max under Wasmtime 49.0.3. Each cohort ran three warmups
 and then fifteen fresh-process samples per collector, rotating the collector

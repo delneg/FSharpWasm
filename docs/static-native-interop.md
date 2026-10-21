@@ -1,6 +1,6 @@
 # Static native C interop
 
-NetWasm 0.6.0 can link regular WebAssembly `.a` archives into the final
+NetWasm can link regular WebAssembly `.a` archives into the final
 application. Managed code imports C symbols with ordinary .NET
 `[LibraryImport]` declarations. Native code can call selected managed methods
 through named `[UnmanagedCallersOnly]` symbols or supported address-taken
@@ -13,13 +13,13 @@ explicit archive for each Wasm target.
 ## Minimal two-way example
 
 The following walkthrough was package-only qualified with the published
-NetWasm 0.6.0 SDK on .NET SDK 10.0.401. The sample archive was built with
+NetWasm SDK on .NET SDK 10.0.401. The sample archive was built with
 Emscripten 6.0.7; `dotnet run -c Release` printed `42` and `41`.
 
 Create an ordinary application:
 
 ```sh
-dotnet new install NetWasm.Templates@0.6.0
+dotnet new install NetWasm.Templates
 dotnet new netwasm-app -n NativeSample
 cd NativeSample
 mkdir -p native/wasm32

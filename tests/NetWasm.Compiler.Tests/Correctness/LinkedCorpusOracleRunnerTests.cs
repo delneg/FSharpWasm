@@ -71,7 +71,7 @@ public sealed class LinkedCorpusOracleRunnerTests
         Assert.Equal(result.RuntimeLayoutPath, dependencies.CompilerRequest.RuntimeLayoutPath);
         Assert.Equal(result.InteropManifestPath, dependencies.CompilerRequest.InteropManifestPath);
         Assert.Equal([
-            "capabilities", "tools", "exports", "compiler-request", "compile",
+            "tools", "capabilities", "exports", "compiler-request", "compile",
             "fingerprint-application", "build-plan", "build",
             "fingerprint-layout", "fingerprint-manifest", "fingerprint-module",
             "observation-request", "observe",
@@ -79,8 +79,8 @@ public sealed class LinkedCorpusOracleRunnerTests
     }
 
     [Theory]
-    [InlineData("capabilities", 1)]
-    [InlineData("tools", 2)]
+    [InlineData("tools", 1)]
+    [InlineData("capabilities", 2)]
     [InlineData("exports", 3)]
     [InlineData("compiler-request", 4)]
     [InlineData("compile", 5)]
@@ -139,7 +139,19 @@ public sealed class LinkedCorpusOracleRunnerTests
             target ? CorpusWasmForm.Direct : (CorpusWasmForm)99);
         Assert.Throws<ArgumentOutOfRangeException>(() =>
             CreateRunner(dependencies).CompileBuildAndRun(compilation, cell));
-        Assert.Equal(["capabilities", "tools"], dependencies.Calls);
+        Assert.Equal(["tools", "capabilities"], dependencies.Calls);
+    }
+
+    [Fact]
+    public void BumpProvidesNoCollectionCapabilities()
+    {
+        var dependencies = new Dependencies { Tools = new Dependencies().Tools with { Collector = "bump" } };
+        var compilation = CreateCompilation();
+
+        CreateRunner(dependencies).CompileBuildAndRun(compilation,
+            new(compilation.Profile, WasmTarget.Wasm32, CorpusWasmForm.Direct));
+
+        Assert.Equal(OracleRuntimeCapabilities.None, dependencies.ProvidedCapabilities);
     }
 
     [Fact]
@@ -187,7 +199,7 @@ public sealed class LinkedCorpusOracleRunnerTests
         public string ManifestHash { get; } = new('b', 64);
         public string ModuleHash { get; } = new('d', 64);
         public string CompilerHash { get; init; } = new('a', 64);
-        public LinkedCorpusToolPaths Tools { get; } = new(
+        public LinkedCorpusToolPaths Tools { get; init; } = new(
             Path.GetFullPath("emsdk"), Path.GetFullPath("wasm-merge"),
             Path.GetFullPath("wasm-opt"), Path.GetFullPath("wasm-tools"),
             Path.GetFullPath("node"));
