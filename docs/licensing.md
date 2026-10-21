@@ -4,7 +4,7 @@ This guide is explanatory. If it conflicts with the [NetWasm Community License
 1.0](../LICENSES/LicenseRef-NetWasm-Community-1.0.txt), the license controls.
 
 The published licensor is the pseudonym **Zion Sati**. Commercial licensing
-questions and agreements can be directed to <zionsatidev@gmail.com>. The
+questions and agreements can be directed to <zion.sati@netwasm.com>. The
 project repository is <https://github.com/zion-sati/netwasm>.
 
 ## The model

@@ -80,11 +80,11 @@ faster on UI churn (8.6 ms), and desktop NativeAOT is the fastest on all three.
 
 ## More than Hello World
 
-The 46.7 KiB program is the baseline, not the boundary.
+Hello World is just the smallest example. NetWasm builds real applications too.
 
 **C# 15** · **JavaScript modules and Web Workers** · **static `.a` interop** · **WIT/WASI P2** ·
 **expression trees** · **HTTP/JSON/XML/Regex** · **reflection-free DI** ·
-**TUnit/VSTest** · **wasm64** · **four allocation strategies**
+**TUnit/VSTest** · **wasm64** · **three allocation strategies**
 
 Today NetWasm can:
 
@@ -317,7 +317,7 @@ There is no sign-in, activation, telemetry or technical enforcement.
 
 [Licensing guide](docs/licensing.md) ·
 [Third-party notices](THIRD-PARTY-NOTICES.md) ·
-Commercial licensing: <zionsatidev@gmail.com>
+Commercial licensing: <zion.sati@netwasm.com>
 
 ## Bring a workload
 
