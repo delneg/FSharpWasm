@@ -129,9 +129,10 @@ document, maintain, or distribute a software project for which:
 **Sponsors Commercial Grant** means the limited internal commercial-use right
 described in Section 5.1, available while an Organization maintains an active
 GitHub Sponsors tier designated for its Developer count at
-<https://github.com/sponsors/zion-sati>. A current matching tier or sponsorship
-receipt is sufficient proof. This License requires no sign-in, activation
-code, telemetry, or technical enforcement.
+<https://github.com/sponsors/zion-sati>. The sponsorship itself is the license
+and its proof: a current matching tier or sponsorship receipt is sufficient,
+and no license key, certificate, or separate agreement is issued. This License
+requires no sign-in, activation code, telemetry, or technical enforcement.
 
 **You** means the individual or Organization exercising rights under this
 License.
@@ -261,9 +262,15 @@ this License and applies only during the active sponsorship period.
 The Organization must use a tier whose Developer cap covers all Developers
 using the Software for the Organization and its Affiliates. The available
 Developer caps and their USD monthly prices are stated in the published
-Licensing Guide; an active matching tier or current sponsorship receipt is the
-operative proof. Compliance is honor-system and does not require sign-in,
-activation, telemetry, or another technical control.
+Licensing Guide.
+
+The active sponsorship is itself the Organization's license. The Licensor
+issues no license key, certificate, order form, or separate signed agreement
+for this grant, and none is required. An active matching tier at
+<https://github.com/sponsors/zion-sati>, or a current sponsorship receipt, is
+complete proof that the Organization holds this grant. Compliance is
+honor-system and does not require sign-in, activation, telemetry, or another
+technical control.
 
 This grant is strictly internal. It does not authorize a Commercial Offering,
 OEM arrangement, bundling, installation for third parties, redistribution,

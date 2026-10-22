@@ -314,14 +314,16 @@ subject to preserved upstream notices. The compiler and developer tooling use
 the [NetWasm Community License 1.0](LICENSES/LicenseRef-NetWasm-Community-1.0.txt).
 The Compact and NetWasmGC collectors are Apache-2.0.
 
-The Community License is free for individuals, education, open-source
-projects, evaluation, and small and medium-sized businesses: any organization
-with fewer than 250 employees and less than USD 10,000,000 in annual revenue.
-Larger organizations pay for internal commercial use by sponsoring a matching
-[GitHub Sponsors tier](https://github.com/sponsors/zion-sati), from USD 149 a
-month for five developers up to USD 2,499 a month for unlimited developers.
-OEM and Commercial Offering use require a separate agreement. Generated applications may use their authors' chosen licenses.
-There is no sign-in, activation, telemetry or technical enforcement.
+The Community License is free for individuals, education, open-source projects,
+evaluation, and small and medium-sized businesses: any organization with fewer
+than 250 employees and less than USD 10,000,000 in annual revenue. Larger
+organizations pay for internal commercial use by sponsoring a matching [GitHub
+Sponsors tier](https://github.com/sponsors/zion-sati), from USD 149 a month for
+five developers up to USD 2,499 a month for unlimited developers. OEM and
+Commercial Offering use require a separate agreement. Generated applications
+may use their authors' chosen licenses. The sponsorship itself is the license:
+there is no license key, sign-in, activation, telemetry or technical
+enforcement.
 
 [Licensing guide](docs/licensing.md) ·
 [Third-party notices](THIRD-PARTY-NOTICES.md) ·

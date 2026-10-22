@@ -62,9 +62,10 @@ using the tooling for the Organization and its Affiliates.
 | NetWasm Commercial — 100 Developers | 100 | $999 |
 | NetWasm Commercial — Unlimited | Unlimited | $2,499 |
 
-A current matching tier or sponsorship receipt is the operative proof. The
-grant is honor-system and requires no sign-in, activation, telemetry, or
-technical enforcement. It covers internal development, testing, production
+Your sponsorship is your license. There is no license key, certificate, order
+form, or separate agreement to sign: an active matching tier, or a current
+sponsorship receipt, is the complete proof. The grant is honor-system and
+requires no sign-in, activation, telemetry, or technical enforcement. It covers internal development, testing, production
 builds, and maintenance only, during the active sponsorship period.
 
 Bundling, embedding, installing for third parties, redistribution, resale,
