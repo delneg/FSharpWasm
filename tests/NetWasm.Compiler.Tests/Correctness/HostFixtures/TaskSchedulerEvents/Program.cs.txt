@@ -1,0 +1,113 @@
+using System;
+using System.Collections.Generic;
+using System.Runtime.CompilerServices;
+using System.Threading;
+using System.Threading.Tasks;
+
+namespace TaskSchedulerEventContracts;
+
+public static class EntryPoint
+{
+    private static int _stage;
+    private static int _events;
+    private static int _senderId;
+    private static bool _valid;
+    private static Exception? _expected;
+    private static WeakReference? _sender;
+    public static int Trace() => _stage;
+    public static int Main()
+    {
+        var result = Run(42);
+        Console.WriteLine(result);
+        return result == 42 ? 0 : 1;
+    }
+
+    public static int Run(int input)
+    {
+        _events = 0;
+        _stage = 1;
+        TaskScheduler.UnobservedTaskException += Observe;
+        try
+        {
+            for (int mode = 0; mode < 4; mode++)
+            {
+                _stage = 2 + mode;
+                CreateUnobserved(mode);
+                GC.Collect();
+                GC.WaitForPendingFinalizers();
+                Check(_events == mode + 1 && _valid);
+                GC.Collect();
+                GC.WaitForPendingFinalizers();
+                GC.Collect();
+                Check(!_sender!.IsAlive && _events == mode + 1);
+            }
+            _stage = 6;
+            CreateObservedAndCanceled();
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+            Check(_events == 4);
+        }
+        finally
+        {
+            TaskScheduler.UnobservedTaskException -= Observe;
+            _expected = null;
+            _sender = null;
+        }
+        _stage = 7;
+        return input;
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static void CreateUnobserved(int mode)
+    {
+        _valid = false;
+        _expected = mode == 1
+            ? new AggregateException(new ArgumentException("nested"))
+            : new InvalidOperationException("unobserved");
+        Task task;
+        if (mode == 2)
+        {
+            var source = new TaskCompletionSource<int>();
+            source.SetException((IEnumerable<Exception>)new Exception[] { _expected });
+            task = source.Task;
+        }
+        else task = Task.FromException(_expected);
+        _senderId = task.Id;
+    }
+
+    private static void Observe(object? sender, UnobservedTaskExceptionEventArgs args)
+    {
+        _events++;
+        _valid = sender is Task task && task.Id == _senderId && task.IsFaulted &&
+            !args.Observed && args.Exception.InnerExceptions.Count == 1 &&
+            ReferenceEquals(args.Exception.InnerExceptions[0], _expected);
+        _sender = new WeakReference(sender, true);
+        if (_stage == 5)
+        {
+            // Observing through the sender must also suppress the diagnostic;
+            // the event args' independent Observed property remains false.
+            _ = ((Task)sender!).Exception;
+            _valid = _valid && !args.Observed;
+        }
+        else
+        {
+            args.SetObserved();
+            _valid = _valid && args.Observed;
+        }
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static void CreateObservedAndCanceled()
+    {
+        var failure = new InvalidOperationException("observed");
+        _ = Task.FromException(failure).Exception;
+        try { Task.FromException(failure).GetAwaiter().GetResult(); }
+        catch (InvalidOperationException) { }
+        _ = Task.FromCanceled(new CancellationToken(true));
+    }
+
+    private static void Check(bool condition)
+    {
+        if (!condition) throw new Exception("unobserved event contract");
+    }
+}

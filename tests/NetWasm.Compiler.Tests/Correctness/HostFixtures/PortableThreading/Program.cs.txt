@@ -1,0 +1,180 @@
+using System;
+using System.Runtime.CompilerServices;
+using System.Threading;
+
+namespace PortableThreading;
+
+public static class EntryPoint
+{
+    public static int Main()
+    {
+        var result = Run(42);
+        Console.WriteLine(result);
+        return result == 42 ? 0 : 1;
+    }
+
+    public static int Trace() => 0;
+
+    public static int Run(int input)
+    {
+        var values = Values();
+        if (values != 0) return values;
+        var bits = FloatingPointBits();
+        if (bits != 0) return bits;
+        var references = References();
+        if (references != 0) return references;
+        var nulls = NullLocations();
+        if (nulls != 0) return nulls;
+        if (Timeout.Infinite != -1
+            || Timeout.InfiniteTimeSpan.Ticks != -TimeSpan.TicksPerMillisecond
+            || Timeout.InfiniteTimeSpan.TotalMilliseconds != -1) return 50;
+        return input;
+    }
+
+    private static int Values()
+    {
+        var value0 = false;
+        if (Volatile.Read(ref value0) != false) return 100;
+        Volatile.Write(ref value0, true);
+        if (value0 != true || Volatile.Read(ref value0) != true) return 101;
+        var value1 = (byte)0;
+        if (Volatile.Read(ref value1) != (byte)0) return 102;
+        Volatile.Write(ref value1, byte.MaxValue);
+        if (value1 != byte.MaxValue || Volatile.Read(ref value1) != byte.MaxValue) return 103;
+        var value2 = (sbyte)0;
+        if (Volatile.Read(ref value2) != (sbyte)0) return 104;
+        Volatile.Write(ref value2, sbyte.MinValue);
+        if (value2 != sbyte.MinValue || Volatile.Read(ref value2) != sbyte.MinValue) return 105;
+        var value3 = (short)0;
+        if (Volatile.Read(ref value3) != (short)0) return 106;
+        Volatile.Write(ref value3, short.MinValue);
+        if (value3 != short.MinValue || Volatile.Read(ref value3) != short.MinValue) return 107;
+        var value4 = (ushort)0;
+        if (Volatile.Read(ref value4) != (ushort)0) return 108;
+        Volatile.Write(ref value4, ushort.MaxValue);
+        if (value4 != ushort.MaxValue || Volatile.Read(ref value4) != ushort.MaxValue) return 109;
+        var value5 = 0;
+        if (Volatile.Read(ref value5) != 0) return 110;
+        Volatile.Write(ref value5, int.MinValue);
+        if (value5 != int.MinValue || Volatile.Read(ref value5) != int.MinValue) return 111;
+        var value6 = 0u;
+        if (Volatile.Read(ref value6) != 0u) return 112;
+        Volatile.Write(ref value6, uint.MaxValue);
+        if (value6 != uint.MaxValue || Volatile.Read(ref value6) != uint.MaxValue) return 113;
+        var value7 = 0L;
+        if (Volatile.Read(ref value7) != 0L) return 114;
+        Volatile.Write(ref value7, long.MinValue + 42);
+        if (value7 != long.MinValue + 42 || Volatile.Read(ref value7) != long.MinValue + 42) return 115;
+        var value8 = 0UL;
+        if (Volatile.Read(ref value8) != 0UL) return 116;
+        Volatile.Write(ref value8, ulong.MaxValue - 42);
+        if (value8 != ulong.MaxValue - 42 || Volatile.Read(ref value8) != ulong.MaxValue - 42) return 117;
+        var value9 = (nint)0;
+        if (Volatile.Read(ref value9) != (nint)0) return 118;
+        Volatile.Write(ref value9, nint.MinValue + 42);
+        if (value9 != nint.MinValue + 42 || Volatile.Read(ref value9) != nint.MinValue + 42) return 119;
+        var value10 = (nuint)0;
+        if (Volatile.Read(ref value10) != (nuint)0) return 120;
+        Volatile.Write(ref value10, nuint.MaxValue - 42);
+        if (value10 != nuint.MaxValue - 42 || Volatile.Read(ref value10) != nuint.MaxValue - 42) return 121;
+        var value11 = 0f;
+        if (Volatile.Read(ref value11) != 0f) return 122;
+        Volatile.Write(ref value11, -42.5f);
+        if (value11 != -42.5f || Volatile.Read(ref value11) != -42.5f) return 123;
+        var value12 = 0d;
+        if (Volatile.Read(ref value12) != 0d) return 124;
+        Volatile.Write(ref value12, -42.5d);
+        if (value12 != -42.5d || Volatile.Read(ref value12) != -42.5d) return 125;
+        return 0;
+    }
+
+    private static int FloatingPointBits()
+    {
+        var single = 0f;
+        foreach (var bits in new[] { unchecked((int)0x80000000), 0x7fc00001 })
+        {
+            Volatile.Write(ref single, BitConverter.Int32BitsToSingle(bits));
+            if (BitConverter.SingleToInt32Bits(single) != bits
+                || BitConverter.SingleToInt32Bits(Volatile.Read(ref single)) != bits) return 150;
+        }
+        var wide = 0d;
+        foreach (var bits in new[] { unchecked((long)0x8000000000000000), 0x7ff8000000000001 })
+        {
+            Volatile.Write(ref wide, BitConverter.Int64BitsToDouble(bits));
+            if (BitConverter.DoubleToInt64Bits(wide) != bits
+                || BitConverter.DoubleToInt64Bits(Volatile.Read(ref wide)) != bits) return 151;
+        }
+        return 0;
+    }
+
+    private static int References()
+    {
+        var first = new EqualReference();
+        var second = new EqualReference();
+        object? location = null;
+        if (Volatile.Read(ref location) != null) return 160;
+        Volatile.Write(ref location, first);
+        if (!ReferenceEquals(location, first) || !ReferenceEquals(Volatile.Read(ref location), first)) return 161;
+        Volatile.Write(ref location, second);
+        if (!ReferenceEquals(location, second) || !ReferenceEquals(Volatile.Read(ref location), second)) return 162;
+        Volatile.Write(ref location, null);
+        if (location != null || Volatile.Read(ref location) != null) return 163;
+        EqualReference? typed = first;
+        if (!ReferenceEquals(Volatile.Read(ref typed), first)) return 164;
+        Volatile.Write(ref typed, second);
+        if (!ReferenceEquals(typed, second) || !ReferenceEquals(Volatile.Read(ref typed), second)) return 165;
+        Volatile.Write(ref typed, null);
+        if (typed != null || Volatile.Read(ref typed) != null) return 166;
+        return 0;
+    }
+
+    private static int NullLocations()
+    {
+        for (var operation = 0; operation < 28; operation++)
+        {
+            try
+            {
+                switch (operation)
+                {
+                    case 0: Volatile.Read(ref Unsafe.NullRef<bool>()); break;
+                    case 1: Volatile.Write(ref Unsafe.NullRef<bool>(), true); break;
+                    case 2: Volatile.Read(ref Unsafe.NullRef<byte>()); break;
+                    case 3: Volatile.Write(ref Unsafe.NullRef<byte>(), byte.MaxValue); break;
+                    case 4: Volatile.Read(ref Unsafe.NullRef<sbyte>()); break;
+                    case 5: Volatile.Write(ref Unsafe.NullRef<sbyte>(), sbyte.MinValue); break;
+                    case 6: Volatile.Read(ref Unsafe.NullRef<short>()); break;
+                    case 7: Volatile.Write(ref Unsafe.NullRef<short>(), short.MinValue); break;
+                    case 8: Volatile.Read(ref Unsafe.NullRef<ushort>()); break;
+                    case 9: Volatile.Write(ref Unsafe.NullRef<ushort>(), ushort.MaxValue); break;
+                    case 10: Volatile.Read(ref Unsafe.NullRef<int>()); break;
+                    case 11: Volatile.Write(ref Unsafe.NullRef<int>(), int.MinValue); break;
+                    case 12: Volatile.Read(ref Unsafe.NullRef<uint>()); break;
+                    case 13: Volatile.Write(ref Unsafe.NullRef<uint>(), uint.MaxValue); break;
+                    case 14: Volatile.Read(ref Unsafe.NullRef<long>()); break;
+                    case 15: Volatile.Write(ref Unsafe.NullRef<long>(), long.MinValue + 42); break;
+                    case 16: Volatile.Read(ref Unsafe.NullRef<ulong>()); break;
+                    case 17: Volatile.Write(ref Unsafe.NullRef<ulong>(), ulong.MaxValue - 42); break;
+                    case 18: Volatile.Read(ref Unsafe.NullRef<nint>()); break;
+                    case 19: Volatile.Write(ref Unsafe.NullRef<nint>(), nint.MinValue + 42); break;
+                    case 20: Volatile.Read(ref Unsafe.NullRef<nuint>()); break;
+                    case 21: Volatile.Write(ref Unsafe.NullRef<nuint>(), nuint.MaxValue - 42); break;
+                    case 22: Volatile.Read(ref Unsafe.NullRef<float>()); break;
+                    case 23: Volatile.Write(ref Unsafe.NullRef<float>(), -42.5f); break;
+                    case 24: Volatile.Read(ref Unsafe.NullRef<double>()); break;
+                    case 25: Volatile.Write(ref Unsafe.NullRef<double>(), -42.5d); break;
+                    case 26: Volatile.Read(ref Unsafe.NullRef<EqualReference>()); break;
+                    case 27: Volatile.Write(ref Unsafe.NullRef<EqualReference>(), new EqualReference()); break;
+                }
+                return 200 + operation;
+            }
+            catch (NullReferenceException) { }
+        }
+        return 0;
+    }
+
+    private sealed class EqualReference
+    {
+        public override bool Equals(object? obj) => obj is EqualReference;
+        public override int GetHashCode() => 0;
+    }
+}

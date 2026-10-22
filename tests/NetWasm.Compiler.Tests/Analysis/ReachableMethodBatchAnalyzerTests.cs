@@ -1,256 +1,328 @@
+using System;
 using System.Collections.Immutable;
+using System.Linq;
+using System.Runtime.CompilerServices;
+using System.Threading;
+using System.Threading.Tasks;
 using NetWasm.Compiler.Analysis;
+using NetWasm.Compiler.Core;
+using Xunit;
 
 namespace NetWasm.Compiler.Tests.Analysis;
 
 public sealed class ReachableMethodBatchAnalyzerTests
 {
-    [Theory]
-    [InlineData(true)]
-    [InlineData(false)]
-    public void PublishesResultsInRequestOrderAndObservesTheCompletedBatch(bool synchronous)
+    [Fact]
+    public void SynchronousStrategyRequiresItsCollaborators()
     {
-        var requests = CreateRequests();
-        var results = requests.Select(CreateAnalysis).ToArray();
-        var calls = new List<ReachableMethodRequest>();
-        var observer = new RecordingObserver();
-        var analyzer = new RecordingAnalyzer(request =>
-        {
-            calls.Add(request);
-            return results[calls.Count - 1];
-        });
-        var batch = CreateBatch(synchronous, analyzer, observer);
-
-        var actual = batch.Analyze(requests).ToArray();
-
-        Assert.Equal(results, actual);
-        Assert.Equal(requests, calls);
-        for (var index = 0; index < requests.Length; index++)
-        {
-            Assert.Same(results[index], actual[index]);
-            Assert.Same(requests[index], calls[index]);
-        }
-        var observation = Assert.Single(observer.Observations);
-        Assert.Equal(requests.Length, observation.RequestCount);
-        Assert.Equal(1, observation.WorkerCount);
-        Assert.True(observation.Elapsed >= TimeSpan.Zero);
-        Assert.True(observation.WorkerBusy >= TimeSpan.Zero);
-        if (synchronous)
-        {
-            Assert.Equal(TimeSpan.Zero, observation.OrderedWait);
-            Assert.Equal(0, observation.PeakBufferedResults);
-        }
+        Assert.Throws<ArgumentNullException>(() =>
+            new SynchronousReachableMethodBatchAnalyzer(
+                null!, new RecordingReachableMethodBatchObserver()));
+        Assert.Throws<ArgumentNullException>(() =>
+            new SynchronousReachableMethodBatchAnalyzer(
+                new DelegatingAnalyzer(CreateAnalysis), null!));
     }
 
     [Fact]
-    public void SynchronousAnalysisUsesTheEnumeratingThread()
+    public void SynchronousStrategyUsesTheEnumeratingThreadAndReportsTheBatch()
     {
         var threadId = Environment.CurrentManagedThreadId;
-        var analyzer = new RecordingAnalyzer(request =>
-        {
-            Assert.Equal(threadId, Environment.CurrentManagedThreadId);
-            return CreateAnalysis(request);
-        });
-        var batch = CreateBatch(true,
-            analyzer,
-            new RecordingObserver());
+        var calls = 0;
+        var observer = new RecordingReachableMethodBatchObserver();
+        var analyzer = new SynchronousReachableMethodBatchAnalyzer(
+            new DelegatingAnalyzer(request =>
+            {
+                Assert.Equal(threadId, Environment.CurrentManagedThreadId);
+                calls++;
+                return CreateAnalysis(request);
+            }),
+            observer);
+        var requests = ImmutableArray.Create(
+            new ReachableMethodRequest(CreateMethod()),
+            new ReachableMethodRequest(CreateMethod()));
 
-        Assert.Equal(3, batch.Analyze(CreateRequests()).Count());
+        var results = analyzer.Analyze(requests).ToArray();
+
+        Assert.Equal(2, calls);
+        Assert.Equal(requests.Select(request => request.Method),
+            results.Select(result => result.Method));
+        var observation = Assert.Single(observer.Observations);
+        Assert.Equal(2, observation.RequestCount);
+        Assert.Equal(1, observation.WorkerCount);
+        Assert.Equal(TimeSpan.Zero, observation.OrderedWait);
+        Assert.Equal(0, observation.PeakBufferedResults);
     }
 
-    [Theory]
-    [InlineData(true)]
-    [InlineData(false)]
-    public void RejectsAnUninitializedBatchBeforeCallingCollaborators(bool synchronous)
+    [Fact]
+    public void SynchronousStrategyRejectsDefaultAndAcceptsEmptyBatches()
     {
-        var calls = 0;
-        var observer = new RecordingObserver();
-        var batch = CreateBatch(synchronous, new RecordingAnalyzer(request =>
-        {
-            calls++;
-            return CreateAnalysis(request);
-        }), observer);
+        var analyzer = new SynchronousReachableMethodBatchAnalyzer(
+            new DelegatingAnalyzer(CreateAnalysis),
+            new RecordingReachableMethodBatchObserver());
 
-        var failure = Assert.Throws<ArgumentException>(() => batch.Analyze(default));
-
-        Assert.Equal("requests", failure.ParamName);
-        Assert.Equal(0, calls);
-        Assert.Empty(observer.Observations);
+        Assert.Throws<ArgumentException>(() =>
+            analyzer.Analyze(default).ToArray());
+        Assert.Empty(analyzer.Analyze([]));
     }
 
-    [Theory]
-    [InlineData(true)]
-    [InlineData(false)]
-    public void EmptyAndUnenumeratedBatchesDoNotCallCollaborators(bool synchronous)
+    [Fact]
+    public void SynchronousStrategyCompletesTheBatchBeforePublishingTheFirstFailure()
     {
         var calls = 0;
-        var observer = new RecordingObserver();
-        var batch = CreateBatch(synchronous, new RecordingAnalyzer(request =>
-        {
-            calls++;
-            return CreateAnalysis(request);
-        }), observer);
+        var observer = new RecordingReachableMethodBatchObserver();
+        var expected = new InvalidOperationException("first request failed");
+        var analyzer = new SynchronousReachableMethodBatchAnalyzer(
+            new DelegatingAnalyzer(request =>
+            {
+                calls++;
+                if (calls == 1) throw expected;
+                return CreateAnalysis(request);
+            }), observer);
+        var requests = ImmutableArray.Create(
+            new ReachableMethodRequest(CreateMethod()),
+            new ReachableMethodRequest(CreateMethod()));
 
-        Assert.Empty(batch.Analyze([]));
-        _ = batch.Analyze(CreateRequests());
-
-        Assert.Equal(0, calls);
-        Assert.Empty(observer.Observations);
+        Assert.Same(expected, Assert.Throws<InvalidOperationException>(() =>
+            analyzer.Analyze(requests).ToArray()));
+        Assert.Equal(2, calls);
+        Assert.Single(observer.Observations);
     }
 
-    [Theory]
-    [InlineData(true)]
-    [InlineData(false)]
-    public void FinishesTheBatchAndObservesWhenEnumerationStopsEarly(bool synchronous)
+    [Fact]
+    public void SynchronousStrategyRejectsAMissingAnalysisResult()
+    {
+        var analyzer = new SynchronousReachableMethodBatchAnalyzer(
+            new DelegatingAnalyzer(_ => null!),
+            new RecordingReachableMethodBatchObserver());
+
+        Assert.Throws<InvalidOperationException>(() => analyzer.Analyze([
+            new ReachableMethodRequest(CreateMethod())
+        ]).ToArray());
+    }
+
+    [Fact]
+    public void SynchronousStrategyFinishesTheBatchWhenEnumerationStopsEarly()
     {
         var calls = 0;
-        var observer = new RecordingObserver();
-        var batch = CreateBatch(synchronous, new RecordingAnalyzer(request =>
-        {
-            Interlocked.Increment(ref calls);
-            return CreateAnalysis(request);
-        }), observer);
+        var observer = new RecordingReachableMethodBatchObserver();
+        var analyzer = new SynchronousReachableMethodBatchAnalyzer(
+            new DelegatingAnalyzer(request =>
+            {
+                calls++;
+                return CreateAnalysis(request);
+            }),
+            observer);
+        var requests = ImmutableArray.Create(
+            new ReachableMethodRequest(CreateMethod()),
+            new ReachableMethodRequest(CreateMethod()));
 
-        using (var enumerator = batch.Analyze(CreateRequests()).GetEnumerator())
+        using (var enumerator = analyzer.Analyze(requests).GetEnumerator())
         {
             Assert.True(enumerator.MoveNext());
             Assert.Empty(observer.Observations);
         }
 
-        Assert.Equal(3, calls);
-        Assert.Single(observer.Observations);
-    }
-
-    [Theory]
-    [InlineData(true)]
-    [InlineData(false)]
-    public void PublishesTheFirstFailureInOrderWithItsCauseAndFinishesTheBatch(bool synchronous)
-    {
-        var requests = CreateRequests();
-        var calls = 0;
-        var firstFailure = new InvalidOperationException("First analysis failed.");
-        var laterFailure = new ArgumentException("Later analysis failed.");
-        var observer = new RecordingObserver();
-        var batch = CreateBatch(synchronous, new RecordingAnalyzer(request =>
-        {
-            Interlocked.Increment(ref calls);
-            if (ReferenceEquals(request, requests[1]))
-            {
-                return ThrowAnalysisFailure(firstFailure);
-            }
-
-            if (ReferenceEquals(request, requests[2]))
-            {
-                return ThrowAnalysisFailure(laterFailure);
-            }
-
-            return CreateAnalysis(request);
-        }), observer);
-        using var enumerator = batch.Analyze(requests).GetEnumerator();
-
-        Assert.True(enumerator.MoveNext());
-        var actual = Assert.Throws<InvalidOperationException>(() => enumerator.MoveNext());
-
-        Assert.Same(firstFailure, actual);
-        Assert.Contains(nameof(ThrowAnalysisFailure), actual.StackTrace);
-        Assert.Equal(3, calls);
-        Assert.Single(observer.Observations);
-    }
-
-    [Theory]
-    [InlineData(true)]
-    [InlineData(false)]
-    public void RejectsAMissingAnalysisAndStillObservesTheBatch(bool synchronous)
-    {
-        var calls = 0;
-        var observer = new RecordingObserver();
-        var batch = CreateBatch(synchronous, new RecordingAnalyzer(_ =>
-        {
-            Interlocked.Increment(ref calls);
-            return null!;
-        }), observer);
-
-        var failure = Assert.Throws<InvalidOperationException>(() => batch.Analyze(CreateRequests()).ToArray());
-
-        Assert.Equal("A reachable-method analyzer did not publish a result.", failure.Message);
-        Assert.Equal(3, calls);
-        Assert.Single(observer.Observations);
-    }
-
-    [Theory]
-    [InlineData(true)]
-    [InlineData(false)]
-    public void PropagatesObserverFailureAfterCompletingTheBatch(bool synchronous)
-    {
-        var failure = new InvalidOperationException("Observation failed.");
-        var observer = new RecordingObserver(failure);
-        var batch = CreateBatch(synchronous, new RecordingAnalyzer(CreateAnalysis), observer);
-
-        var actual = Assert.Throws<InvalidOperationException>(() => batch.Analyze(CreateRequests()).ToArray());
-
-        Assert.Same(failure, actual);
-        Assert.Single(observer.Observations);
-    }
-
-    [Theory]
-    [InlineData(true)]
-    [InlineData(false)]
-    public void ObserverFailureTakesPrecedenceOverAnAnalysisFailure(bool synchronous)
-    {
-        var analysisFailure = new ArgumentException("Analysis failed.");
-        var observerFailure = new InvalidOperationException("Observation failed.");
-        var observer = new RecordingObserver(observerFailure);
-        var batch = CreateBatch(synchronous,
-            new RecordingAnalyzer(_ => ThrowAnalysisFailure(analysisFailure)), observer);
-
-        var actual = Assert.Throws<InvalidOperationException>(() => batch.Analyze(CreateRequests()).ToArray());
-
-        Assert.Same(observerFailure, actual);
+        Assert.Equal(2, calls);
         Assert.Single(observer.Observations);
     }
 
     [Fact]
-    public void SynchronousStrategyRequiresItsCollaborators()
+    public void ConstructorRejectsAnEmptyWorkerSet()
     {
-        Assert.Throws<ArgumentNullException>(() => new SynchronousReachableMethodBatchAnalyzer(
-            null!, new RecordingObserver()));
-        Assert.Throws<ArgumentNullException>(() => new SynchronousReachableMethodBatchAnalyzer(
-            new RecordingAnalyzer(CreateAnalysis), null!));
+        Assert.Throws<ArgumentException>(() =>
+            new ReachableMethodBatchAnalyzer([], new RecordingReachableMethodBatchObserver()));
     }
 
-    private static IReachableMethodBatchAnalyzer CreateBatch(
-        bool synchronous,
-        IReachableMethodAnalyzer analyzer,
-        IReachableMethodBatchObserver observer) => synchronous
-        ? new SynchronousReachableMethodBatchAnalyzer(analyzer, observer)
-        : new ReachableMethodBatchAnalyzer([analyzer], observer);
-
-    // Method bodies are opaque payloads to the batch contract. These distinct
-    // requests/results exercise identity and ordering without invoking compilation.
-    private static ImmutableArray<ReachableMethodRequest> CreateRequests() =>
-        [new(null!), new(null!), new(null!)];
-
-    private static ReachableMethodAnalysis CreateAnalysis(ReachableMethodRequest request) =>
-        new(request.Method, null!, [], [], new([], [], [], [], [], [], [], [], [], []));
-
-    private static ReachableMethodAnalysis ThrowAnalysisFailure(Exception failure) => throw failure;
-
-    private sealed class RecordingAnalyzer(
-        Func<ReachableMethodRequest, ReachableMethodAnalysis> analyze) : IReachableMethodAnalyzer
+    [Fact]
+    public void ConstructorRejectsAMissingObserver()
     {
-        public ReachableMethodAnalysis Analyze(ReachableMethodRequest request) => analyze(request);
+        var workers = ImmutableArray.Create<IReachableMethodAnalyzer>(
+            new DelegatingAnalyzer(CreateAnalysis));
+
+        Assert.Throws<ArgumentNullException>(
+            () => new ReachableMethodBatchAnalyzer(workers, null!));
     }
 
-    private sealed class RecordingObserver(Exception? failure = null) : IReachableMethodBatchObserver
+    [Fact]
+    public void AnalyzeRejectsADefaultRequestBatch()
     {
-        public List<ReachableMethodBatchObservation> Observations { get; } = [];
+        var analyzer = new ReachableMethodBatchAnalyzer([
+            new DelegatingAnalyzer(CreateAnalysis)
+        ],
+            new RecordingReachableMethodBatchObserver()
+        );
 
-        public void Observe(ReachableMethodBatchObservation observation)
+        Assert.Throws<ArgumentException>(() =>
+            analyzer.Analyze(default).ToArray());
+    }
+
+    [Fact]
+    public void AnalyzeReturnsAnEmptyResultForAnEmptyBatch()
+    {
+        var analyzer = new ReachableMethodBatchAnalyzer([
+            new DelegatingAnalyzer(CreateAnalysis)
+        ],
+            new RecordingReachableMethodBatchObserver()
+        );
+
+        Assert.Empty(analyzer.Analyze([]));
+    }
+
+    [Fact]
+    public async Task AnalyzeUsesIsolatedWorkersAndPublishesResultsInRequestOrder()
+    {
+        using var entered = new CountdownEvent(2);
+        using var release = new ManualResetEventSlim();
+        var analyzers = ImmutableArray.Create<IReachableMethodAnalyzer>(
+            CreateConcurrentAnalyzer(),
+            CreateConcurrentAnalyzer());
+        var analyzer = new ReachableMethodBatchAnalyzer(analyzers, new RecordingReachableMethodBatchObserver());
+        var requests = Enumerable.Range(0, 8)
+            .Select(_ => new ReachableMethodRequest(CreateMethod()))
+            .ToImmutableArray();
+
+        var analysisTask = Task.Run(() => analyzer.Analyze(requests).ToArray());
+
+        Assert.True(entered.Wait(TimeSpan.FromMinutes(1)));
+        release.Set();
+        var results = await analysisTask;
+
+        Assert.Equal(requests.Length, results.Length);
+        for (var index = 0; index < requests.Length; index++)
         {
-            Observations.Add(observation);
-            if (failure is { } exception)
+            Assert.Same(requests[index].Method, results[index].Method);
+        }
+
+        Assert.All(analyzers.Cast<DelegatingAnalyzer>(),
+            worker => Assert.Equal(1, worker.MaximumConcurrentCalls));
+
+        DelegatingAnalyzer CreateConcurrentAnalyzer()
+        {
+            var firstCall = 1;
+            return new DelegatingAnalyzer(request =>
             {
-                throw exception;
+                if (Interlocked.Exchange(ref firstCall, 0) == 1)
+                {
+                    entered.Signal();
+                    release.Wait();
+                }
+
+                return CreateAnalysis(request);
+            });
+        }
+    }
+
+    [Fact]
+    public void AnalyzePreservesTheEarliestRequestFailure()
+    {
+        var firstFailure = new InvalidOperationException("first");
+        var secondFailure = new InvalidOperationException("second");
+        var firstMethod = CreateMethod();
+        var secondMethod = CreateMethod();
+        var analyzer = new ReachableMethodBatchAnalyzer([
+            new DelegatingAnalyzer(request =>
+                throw (ReferenceEquals(request.Method, firstMethod)
+                    ? firstFailure
+                    : secondFailure)),
+            new DelegatingAnalyzer(request =>
+                throw (ReferenceEquals(request.Method, firstMethod)
+                    ? firstFailure
+                    : secondFailure))
+        ],
+            new RecordingReachableMethodBatchObserver()
+        );
+
+        var failure = Record.Exception(() => analyzer.Analyze([
+            new ReachableMethodRequest(firstMethod),
+            new ReachableMethodRequest(secondMethod)
+        ]).ToArray());
+
+        Assert.Same(firstFailure, failure);
+    }
+
+    [Fact]
+    public void AnalyzeRejectsAMissingWorkerResult()
+    {
+        var analyzer = new ReachableMethodBatchAnalyzer([
+            new DelegatingAnalyzer(_ => null!)
+        ],
+            new RecordingReachableMethodBatchObserver()
+        );
+
+        Assert.Throws<InvalidOperationException>(() =>
+            analyzer.Analyze([
+                new ReachableMethodRequest(CreateMethod())
+            ]).ToArray());
+    }
+
+    [Fact]
+    public void AnalyzeReportsAggregateBatchMetrics()
+    {
+        var observer = new RecordingReachableMethodBatchObserver();
+        var analyzer = new ReachableMethodBatchAnalyzer(
+            ImmutableArray.Create<IReachableMethodAnalyzer>(
+                new DelegatingAnalyzer(CreateAnalysis)),
+            observer);
+        var requests = ImmutableArray.Create(
+            new ReachableMethodRequest(CreateMethod()));
+
+        _ = analyzer.Analyze(requests).ToArray();
+
+        var observation = Assert.Single(observer.Observations);
+        Assert.Equal(1, observation.RequestCount);
+        Assert.Equal(1, observation.WorkerCount);
+        Assert.True(observation.Elapsed >= TimeSpan.Zero);
+        Assert.True(observation.WorkerBusy >= TimeSpan.Zero);
+        Assert.True(observation.OrderedWait >= TimeSpan.Zero);
+        Assert.Equal(0, observation.PeakBufferedResults);
+    }
+
+    private static ReachableMethodAnalysis CreateAnalysis(
+        ReachableMethodRequest request) =>
+        new(request.Method, null!, [], [], null!);
+
+    private static MethodInstanceModel CreateMethod() =>
+        (MethodInstanceModel)RuntimeHelpers.GetUninitializedObject(
+            typeof(MethodInstanceModel));
+
+    private static void UpdateMaximum(ref int maximum, int candidate)
+    {
+        var current = Volatile.Read(ref maximum);
+        while (candidate > current)
+        {
+            var observed = Interlocked.CompareExchange(
+                ref maximum,
+                candidate,
+                current);
+            if (observed == current)
+            {
+                return;
+            }
+
+            current = observed;
+        }
+    }
+
+    private sealed class DelegatingAnalyzer(
+        Func<ReachableMethodRequest, ReachableMethodAnalysis> analyze) :
+        IReachableMethodAnalyzer
+    {
+        private int _activeCalls;
+        private int _maximumConcurrentCalls;
+
+        public int MaximumConcurrentCalls => _maximumConcurrentCalls;
+
+        public ReachableMethodAnalysis Analyze(ReachableMethodRequest request)
+        {
+            var active = Interlocked.Increment(ref _activeCalls);
+            UpdateMaximum(ref _maximumConcurrentCalls, active);
+            try
+            {
+                return analyze(request);
+            }
+            finally
+            {
+                Interlocked.Decrement(ref _activeCalls);
             }
         }
     }

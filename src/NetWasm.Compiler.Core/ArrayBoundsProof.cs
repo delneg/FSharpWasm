@@ -10,4 +10,16 @@ public sealed record ArrayBoundsProof(
     ImmutableHashSet<int> AccessOffsets)
 {
     public ImmutableDictionary<int, ArrayIndexOffset> IndexOffsets { get; init; } = [];
+
+    // Accesses whose array an earlier access already checked for null.
+    public ImmutableHashSet<int> NonNullOffsets { get; init; } = [];
+
+    public bool Describes(
+        ImmutableArray<CilInstruction> instructions,
+        ImmutableArray<CliValueKind> locals,
+        ImmutableArray<CliTypeIdentity> localSignatureTypes) =>
+        Instructions == instructions && Locals == locals && LocalSignatureTypes == localSignatureTypes;
+
+    // Whether the access cannot fail its null check.
+    public bool ProvesNonNull(int offset) => AccessOffsets.Contains(offset) || NonNullOffsets.Contains(offset);
 }

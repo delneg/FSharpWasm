@@ -21,6 +21,14 @@
              Link="CoreLib/EnumMetadataView.cs" />
     <Compile Include="../../src/NetWasm.CoreLib/EnumAlgorithms.cs"
              Link="CoreLib/EnumAlgorithms.cs" />
+    <Compile Include="../../src/NetWasm.CoreLib/Linq/Expressions/Interpreter/Instruction.cs"
+             Link="CoreLib/Expressions/Instruction.cs" />
+    <Compile Include="../../src/NetWasm.CoreLib/Linq/Expressions/Interpreter/InterpretedFrame.cs"
+             Link="CoreLib/Expressions/InterpretedFrame.cs" />
+    <Compile Include="../../src/NetWasm.CoreLib/Linq/Expressions/Interpreter/NumericInstructions.cs"
+             Link="CoreLib/Expressions/NumericInstructions.cs" />
+    <Compile Include="../../src/NetWasm.CoreLib/Linq/Expressions/Interpreter/NullableValueInstruction.cs"
+             Link="CoreLib/Expressions/NullableValueInstruction.cs" />
     <Compile Include="../TestInfrastructure/WasmModuleInspection.cs"
              Link="WasmModuleInspection.cs" />
   </ItemGroup>

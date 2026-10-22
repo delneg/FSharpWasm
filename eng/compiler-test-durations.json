@@ -2733,10 +2733,6 @@
       "cases": 1,
       "durationSeconds": 36.6689929
     },
-    "NetWasm.Compiler.Tests.Correctness.LanguageCorpusCampaignManifestTests.PullRequestCorpusMatchesTheCheckedInCaseManifest": {
-      "cases": 1,
-      "durationSeconds": 7.0396888
-    },
     "NetWasm.Compiler.Tests.Correctness.LanguageCorpusGeneratorTests.AsyncCleanupCorpusCoversEverySuspensionCleanupGcTriple": {
       "cases": 1,
       "durationSeconds": 3.5636567
@@ -8862,7 +8858,6 @@
     "NetWasm.Compiler.Tests.Correctness.KnownNonBugCorpusPartitionerTests.StaleOrWholeCaseRuleCannotHideARegression": 0.0066705,
     "NetWasm.Compiler.Tests.Correctness.KnownNonBugCorpusPartitionerTests.UnlistedCaseAndWasm32NativeControlsRemainUnchanged": 0.0003942,
     "NetWasm.Compiler.Tests.Correctness.LambdaIteratorDifferentialTests.DebugAndReleaseClosuresAndIteratorsMatchDesktopDotNet": 36.6689929,
-    "NetWasm.Compiler.Tests.Correctness.LanguageCorpusCampaignManifestTests.PullRequestCorpusMatchesTheCheckedInCaseManifest": 7.0396888,
     "NetWasm.Compiler.Tests.Correctness.LanguageCorpusGeneratorTests.AsyncCleanupCorpusCoversEverySuspensionCleanupGcTriple": 3.5636567,
     "NetWasm.Compiler.Tests.Correctness.LanguageCorpusGeneratorTests.PullRequestCorpusIsDeterministicBoundedAndPairwiseComplete": 5.7387548,
     "NetWasm.Compiler.Tests.Correctness.LanguageCorpusGeneratorTests.SyntaxTreeProfilesCoverEveryAdvancedLanguageFamily": 11.2608529,

@@ -1,0 +1,6 @@
+package example:scalar@1.0.0;
+
+world scalar {
+    import increment: func(value: s32) -> s32;
+    export run: func(value: s32) -> s32;
+}

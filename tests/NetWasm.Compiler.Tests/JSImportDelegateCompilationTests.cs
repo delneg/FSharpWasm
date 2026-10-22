@@ -1,0 +1,126 @@
+using NetWasm.Compiler.Core;
+using NetWasm.TestInfrastructure;
+
+namespace NetWasm.Compiler.Tests;
+
+using static NetWasm.Compiler.Tests.CompilerTestSupport;
+
+public sealed class JSImportDelegateCompilationTests
+{
+    [Theory]
+    [InlineData(WasmTarget.Wasm32)]
+    [InlineData(WasmTarget.Wasm64)]
+    public void DelegateBoundToAJSImportMethodGroupProducesValidWasm(WasmTarget target)
+    {
+        using var assets = TestAssets.Create();
+        var assembly = assets.CompileSource(
+            "JSImportMethodGroupFixture",
+            """
+            using System;
+            using System.Runtime.InteropServices.JavaScript;
+
+            public static class Program
+            {
+                public static int Run(int input)
+                {
+                    Func<string, string?> resolve = Host.Resolve;
+                    Func<string, string?> lambda = name => Host.Resolve(name);
+                    Host.Report(resolve("x") ?? lambda("y") ?? "<null>");
+                    return 0;
+                }
+            }
+
+            internal static class Host
+            {
+                [JSImport("resolve", "repro.host")]
+                internal static extern string? Resolve(string name);
+
+                [JSImport("report", "repro.host")]
+                internal static extern void Report(string value);
+            }
+            """);
+
+        var result = NetWasmCompiler.Compile(new CompilerOptions(
+            assembly,
+            [assets.CoreLib],
+            "Program",
+            "Run",
+            [],
+            target));
+
+        ValidateWithNode(result.ApplicationModule, assets.Directory);
+        Assert.Equal(["report", "resolve"],
+            result.InteropManifest.Imports.Select(import => import.Name).Order(StringComparer.Ordinal));
+    }
+
+    [Fact]
+    public void DelegateBoundToACallbackRegisteringJSImportIsRejected()
+    {
+        var exception = CompileRejected(
+            """
+            using System;
+            using System.Runtime.InteropServices.JavaScript;
+
+            public static class Program
+            {
+                public static int Run(int input)
+                {
+                    Func<Func<int, int>, JSSubscription> register = Host.Register;
+                    using var subscription = register(value => value * 2);
+                    return 0;
+                }
+            }
+
+            internal static class Host
+            {
+                [JSImport("register", "repro.host")]
+                internal static extern JSSubscription Register(Func<int, int> callback);
+            }
+            """);
+
+        Assert.Equal(DiagnosticCode.UnsupportedMetadata, exception.Diagnostic.Code);
+        Assert.Contains("registers a JavaScript callback", exception.Diagnostic.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void DelegateBoundToAnAsynchronousJSImportIsRejected()
+    {
+        var exception = CompileRejected(
+            """
+            using System;
+            using System.Runtime.InteropServices.JavaScript;
+            using System.Threading.Tasks;
+
+            public static class Program
+            {
+                public static int Run(int input)
+                {
+                    Func<Task<int>> fetch = Host.FetchAsync;
+                    return fetch().IsCompleted ? 1 : 0;
+                }
+            }
+
+            internal static class Host
+            {
+                [JSImport("fetch", "repro.host")]
+                internal static extern Task<int> FetchAsync();
+            }
+            """);
+
+        Assert.Equal(DiagnosticCode.UnsupportedMetadata, exception.Diagnostic.Code);
+        Assert.Contains("returns a Task or ValueTask", exception.Diagnostic.Message, StringComparison.Ordinal);
+    }
+
+    private static CompilerException CompileRejected(string source)
+    {
+        using var assets = TestAssets.Create();
+        var assembly = assets.CompileSource("JSImportDelegateRejectionFixture", source);
+
+        return Assert.Throws<CompilerException>(() => NetWasmCompiler.Compile(new CompilerOptions(
+            assembly,
+            [assets.CoreLib],
+            "Program",
+            "Run",
+            [])));
+    }
+}

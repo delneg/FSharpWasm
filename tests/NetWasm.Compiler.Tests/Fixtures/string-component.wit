@@ -1,0 +1,6 @@
+package example:strings@1.0.0;
+
+world strings {
+    import echo: func(value: string) -> string;
+    export echo-back: func(value: string) -> string;
+}

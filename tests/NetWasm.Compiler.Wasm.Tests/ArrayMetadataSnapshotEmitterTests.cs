@@ -47,10 +47,12 @@ public sealed class ArrayMetadataSnapshotEmitterTests
     }
 
     [Theory]
-    [InlineData(WasmTarget.Wasm32, false)]
-    [InlineData(WasmTarget.Wasm64, false)]
-    [InlineData(WasmTarget.Wasm32, true)]
-    public void LoopEntryChecksItsHoistedArraysAfterTheSnapshots(WasmTarget target, bool argument)
+    [InlineData(WasmTarget.Wasm32, false, true)]
+    [InlineData(WasmTarget.Wasm64, false, true)]
+    [InlineData(WasmTarget.Wasm32, true, true)]
+    // A loop inside another uses the outer loop's snapshot but still makes its checks.
+    [InlineData(WasmTarget.Wasm32, false, false)]
+    public void LoopEntryChecksItsHoistedArraysAfterTheSnapshots(WasmTarget target, bool argument, bool snapshotted)
     {
         var layouts = new RecordingLayoutProvider(WasmTargetLayout.For(target));
         var emitter = new ArrayMetadataSnapshotEmitter(layouts, layouts, CreateAddressInstructions(layouts),
@@ -58,7 +60,9 @@ public sealed class ArrayMetadataSnapshotEmitterTests
         var slot = new ArrayReferenceSlot(argument, 0);
         var plan = new ArrayMetadataCachingPlan([slot], [])
         {
-            LoopEntries = ImmutableDictionary<StructuredBlockId, ImmutableArray<ArrayReferenceSlot>>.Empty.Add(new(7), [slot]),
+            LoopEntries = snapshotted
+                ? ImmutableDictionary<StructuredBlockId, ImmutableArray<ArrayReferenceSlot>>.Empty.Add(new(7), [slot])
+                : [],
             EntryNullChecks = ImmutableDictionary<StructuredBlockId, ImmutableArray<ArrayReferenceSlot>>.Empty.Add(new(7), [slot]),
         };
         var context = CreateMethodEmissionContext() with
@@ -69,7 +73,7 @@ public sealed class ArrayMetadataSnapshotEmitterTests
         var snapshot = new RecordingInstructionWriter();
         var entry = new RecordingInstructionWriter();
 
-        emitter.Emit(snapshot, context, slot);
+        if (snapshotted) emitter.Emit(snapshot, context, slot);
         emitter.Emit(entry, context, new StructuredBlockId(7));
 
         var instructions = entry.ToInstructions();

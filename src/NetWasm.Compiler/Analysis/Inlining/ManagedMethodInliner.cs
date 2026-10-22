@@ -41,6 +41,12 @@ internal sealed class ManagedMethodInliner(
         var constructed = new HashSet<int>();
         var maximumInlineStack = 0;
         var changed = false;
+        var loops = LoopSpans(body);
+        var exposed = body.Instructions
+            .Where(static instruction => instruction.Operation is CilOperation.LoadLocalAddress or CilOperation.LoadArgumentAddress)
+            .Select(static instruction => (instruction.Operation == CilOperation.LoadArgumentAddress,
+                ((CilOperand.Index)instruction.Operand).Value))
+            .ToHashSet();
 
         for (var callerIndex = 0;
              callerIndex < body.Instructions.Length;
@@ -58,11 +64,15 @@ internal sealed class ManagedMethodInliner(
             var plan = instruction.Operation is not (CilOperation.Call or CilOperation.CallVirtual or CilOperation.NewObject) ||
                 callerIndex > 0 && body.Instructions[callerIndex - 1].Operation == CilOperation.Constrained
                 ? null
-                : _resolver.Resolve(new(caller, instruction) { Nested = nested });
+                : _resolver.Resolve(new(caller, instruction)
+                {
+                    Nested = nested,
+                    InLoop = loops.Any(loop => loop.Start <= instruction.Offset && instruction.Offset <= loop.End),
+                });
             if (plan is null ||
                 expanded.Count + body.Instructions.Length - callerIndex + plan.Body.Instructions.Length > MaximumInstructions ||
                 locals.Count + GetArgumentTypes(plan.Method).Length + plan.Body.Locals.Length + 1 > MaximumLocals ||
-                instruction.Operation == CilOperation.NewObject && WritesReceiver(plan.Body))
+                instruction.Operation == CilOperation.NewObject && WritesArgument(plan.Body, 0))
             {
                 expanded.Add(new(instruction, RemapCallerBranch: true));
                 continue;
@@ -106,13 +116,22 @@ internal sealed class ManagedMethodInliner(
                 // instance stays a plain local.
                 if (producers.Find(callerIndex, depth) is { } producer &&
                     body.Instructions[producer].Operation is CilOperation.LoadLocalAddress or CilOperation.LoadArgumentAddress &&
-                    !WritesReceiver(plan.Body))
+                    !WritesArgument(plan.Body, 0))
                 {
                     receiver = body.Instructions[producer];
                     expanded[offsets[receiver.Offset]] = new(
                         receiver with { Operation = CilOperation.Nop, Operand = new CilOperand.None() },
                         RemapCallerBranch: true);
                 }
+            }
+
+            var forwarded = ForwardedArguments(body, callerIndex, caller, plan, receiver is not null, instance,
+                exposed, producers, instructionEntryStacks);
+            foreach (var load in forwarded.Values)
+            {
+                expanded[offsets[load.Offset]] = new(
+                    load with { Operation = CilOperation.Nop, Operand = new CilOperand.None() },
+                    RemapCallerBranch: true);
             }
 
             // A continuation would move caller instructions across exception
@@ -128,6 +147,7 @@ internal sealed class ManagedMethodInliner(
                     instruction,
                     plan,
                     receiver,
+                    forwarded,
                     instance,
                     pushesInstance,
                     locals,
@@ -140,6 +160,7 @@ internal sealed class ManagedMethodInliner(
                     instruction,
                     plan,
                     receiver,
+                    forwarded,
                     terminalContinuation,
                     locals,
                     localTypes,
@@ -201,6 +222,7 @@ internal sealed class ManagedMethodInliner(
         CilInstruction call,
         ManagedInliningPlan plan,
         CilInstruction? receiver,
+        IReadOnlyDictionary<int, CilInstruction> forwarded,
         TerminalContinuationInliningPlan continuation,
         ImmutableArray<CliValueKind>.Builder locals,
         ImmutableArray<CliTypeIdentity>.Builder localTypes,
@@ -210,7 +232,7 @@ internal sealed class ManagedMethodInliner(
             plan,
             locals,
             localTypes);
-        AppendArgumentStores(call, plan.Method, argumentStart, receiver is not null, expanded);
+        AppendArgumentStores(call, plan.Method, argumentStart, receiver is not null, forwarded, expanded);
 
         var calleeOffsets = CreateTerminalContinuationCalleeOffsets(
             plan.Body,
@@ -234,7 +256,8 @@ internal sealed class ManagedMethodInliner(
                 call.SourceOffset,
                 argumentStart,
                 calleeLocalStart,
-                receiver);
+                receiver,
+                forwarded);
             expanded.Add(new(
                 rewritten with
                 {
@@ -248,6 +271,7 @@ internal sealed class ManagedMethodInliner(
         CilInstruction call,
         ManagedInliningPlan plan,
         CilInstruction? receiver,
+        IReadOnlyDictionary<int, CilInstruction> forwarded,
         int? instance,
         bool pushesInstance,
         ImmutableArray<CliValueKind>.Builder locals,
@@ -258,7 +282,7 @@ internal sealed class ManagedMethodInliner(
             plan,
             locals,
             localTypes);
-        AppendArgumentStores(call, plan.Method, argumentStart, receiver is not null, expanded);
+        AppendArgumentStores(call, plan.Method, argumentStart, receiver is not null, forwarded, expanded);
         if (instance is { } created)
         {
             // newobj zeroes the value before its constructor runs.
@@ -286,7 +310,8 @@ internal sealed class ManagedMethodInliner(
                 call.SourceOffset,
                 argumentStart,
                 calleeLocalStart,
-                receiver);
+                receiver,
+                forwarded);
             expanded.Add(new(
                 rewritten with
                 {
@@ -348,9 +373,63 @@ internal sealed class ManagedMethodInliner(
         return null;
     }
 
-    // A forwarded receiver must not be replaced or have its own address taken.
-    private static bool WritesReceiver(CilMethodBody body) => body.Instructions.Any(static instruction => instruction is
-    { Operation: CilOperation.StoreArgument or CilOperation.LoadArgumentAddress, Operand: CilOperand.Index { Value: 0 } });
+    // A forwarded argument must not be replaced or have its own address taken.
+    private static bool WritesArgument(CilMethodBody body, int argument) => body.Instructions.Any(instruction => instruction is
+    { Operation: CilOperation.StoreArgument or CilOperation.LoadArgumentAddress, Operand: CilOperand.Index index } &&
+        index.Value == argument);
+
+    // Arguments the body reads from the caller's local or argument instead of
+    // a spilled copy, as it reads a receiver address. The body cannot name a
+    // caller slot, so the slot keeps its value while the body runs when no
+    // address of it exists and nothing between the load and the call stores
+    // it. The slot's type must be the parameter's, so the body sees the value
+    // it would have stored, and a value constructed in place is zeroed first.
+    private static ImmutableDictionary<int, CilInstruction> ForwardedArguments(
+        CilMethodBody body,
+        int callerIndex,
+        MethodInstanceModel caller,
+        ManagedInliningPlan plan,
+        bool receiverBound,
+        int? instance,
+        HashSet<(bool IsArgument, int Index)> exposed,
+        StackSlotProducers producers,
+        IReadOnlyDictionary<int, ImmutableArray<CliValueKind>> instructionEntryStacks)
+    {
+        var call = body.Instructions[callerIndex];
+        var parameters = GetArgumentTypes(plan.Method);
+        // newobj's instance is not on the stack.
+        var first = call.Operation == CilOperation.NewObject ? 1 : 0;
+        if (!instructionEntryStacks.TryGetValue(call.Offset, out var stack) ||
+            stack.Length < parameters.Length - first)
+        {
+            return ImmutableDictionary<int, CilInstruction>.Empty;
+        }
+        var bottom = stack.Length - (parameters.Length - first);
+        var callerArguments = GetArgumentTypes(caller);
+        var forwarded = ImmutableDictionary.CreateBuilder<int, CilInstruction>();
+        for (var parameter = receiverBound ? Math.Max(first, 1) : first; parameter < parameters.Length; parameter++)
+        {
+            if (WritesArgument(plan.Body, parameter) ||
+                producers.Find(callerIndex, bottom + parameter - first) is not { } producer ||
+                body.Instructions[producer] is not
+                { Operation: CilOperation.LoadLocal or CilOperation.LoadArgument, Operand: CilOperand.Index slot } load)
+            {
+                continue;
+            }
+            var isArgument = load.Operation == CilOperation.LoadArgument;
+            var stored = isArgument ? CilOperation.StoreArgument : CilOperation.StoreLocal;
+            if ((isArgument ? callerArguments[slot.Value] : body.LocalSignatureTypes[slot.Value]).Equals(parameters[parameter]) &&
+                !exposed.Contains((isArgument, slot.Value)) &&
+                !(!isArgument && instance == slot.Value) &&
+                !body.Instructions[(producer + 1)..callerIndex].Any(between =>
+                    between.Operation == stored && between.Operand is CilOperand.Index { Value: var target } &&
+                    target == slot.Value))
+            {
+                forwarded.Add(parameter, load);
+            }
+        }
+        return forwarded.ToImmutable();
+    }
 
     private static (int ArgumentStart, int CalleeLocalStart) AppendInlineLocals(
         ManagedInliningPlan plan,
@@ -376,6 +455,7 @@ internal sealed class ManagedMethodInliner(
         MethodInstanceModel method,
         int argumentStart,
         bool forwardedReceiver,
+        IReadOnlyDictionary<int, CilInstruction> forwarded,
         List<PendingInstruction> expanded)
     {
         var argumentTypes = GetArgumentTypes(method);
@@ -383,6 +463,7 @@ internal sealed class ManagedMethodInliner(
              argument >= (forwardedReceiver ? 1 : 0);
              argument--)
         {
+            if (forwarded.ContainsKey(argument)) continue;
             expanded.Add(new(CreateSynthetic(
                 call,
                 CilOperation.StoreLocal,
@@ -441,12 +522,15 @@ internal sealed class ManagedMethodInliner(
         int sourceOffset,
         int argumentStart,
         int calleeLocalStart,
-        CilInstruction? receiver)
+        CilInstruction? receiver,
+        IReadOnlyDictionary<int, CilInstruction> forwarded)
     {
         var rewritten = instruction.Operation switch
         {
             CilOperation.LoadArgument when receiver is not null &&
                 instruction.Operand is CilOperand.Index { Value: 0 } => receiver,
+            CilOperation.LoadArgument when instruction.Operand is CilOperand.Index argument &&
+                forwarded.TryGetValue(argument.Value, out var load) => load,
             CilOperation.LoadArgument => Rewrite(
                 instruction,
                 CilOperation.LoadLocal,
@@ -527,4 +611,17 @@ internal sealed class ManagedMethodInliner(
     private sealed record PendingInstruction(
         CilInstruction Instruction,
         bool RemapCallerBranch);
+
+    // Each backward branch closes a loop from its target to the branch itself.
+    private static (int Start, int End)[] LoopSpans(CilMethodBody body) =>
+        body.Instructions
+            .SelectMany(static instruction => instruction.Operand switch
+            {
+                CilOperand.BranchTarget target => [target.Offset],
+                CilOperand.SwitchTargets targets => targets.Offsets,
+                _ => ImmutableArray<int>.Empty,
+            },
+            static (instruction, target) => (Start: target, End: instruction.Offset))
+            .Where(static loop => loop.Start <= loop.End)
+            .ToArray();
 }

@@ -1,0 +1,257 @@
+using System;
+using System.Collections.Generic;
+using System.Runtime.CompilerServices;
+using System.Threading;
+using System.Threading.Tasks;
+
+namespace TaskSchedulerContinuationContracts;
+
+public static class EntryPoint
+{
+    private static int _stage;
+    private static Task? _retainedContinuation;
+    private static CancellationTokenSource? _retainedCancellation;
+    private static WeakReference? _capturedValue;
+    private static WeakReference? _antecedent;
+    public static int Trace() => _stage;
+    public static int Main() { Console.WriteLine(RunReactor(42)); return 0; }
+
+    public static int Run(int input) => RunCore(input, requireCanceledAntecedentRelease: false);
+    public static int RunReactor(int input) => RunCore(input, requireCanceledAntecedentRelease: true);
+
+    private static int RunCore(int input, bool requireCanceledAntecedentRelease)
+    {
+        _stage = 1;
+        var first = new ManualScheduler();
+        var second = new ManualScheduler();
+        var source = new TaskCompletionSource<int>();
+        var ambient = new AsyncLocal<int>();
+        Task? continuation = null;
+        var calls = 0;
+        var register = new Task(() =>
+        {
+            ambient.Value = 17;
+            continuation = source.Task.ContinueWith(task =>
+            {
+                Check(task.Result == input && ambient.Value == 17);
+                Check(TaskScheduler.Current == first && Task.CurrentId == continuation!.Id);
+                Check(continuation!.Status == TaskStatus.Running);
+                calls++;
+            });
+        });
+        register.RunSynchronously(first);
+        register.GetAwaiter().GetResult();
+        Check(continuation!.Status == TaskStatus.WaitingForActivation);
+        Throws<InvalidOperationException>(() => continuation.Start(first));
+        var complete = new Task(() => source.SetResult(input));
+        complete.RunSynchronously(second);
+        complete.GetAwaiter().GetResult();
+        Check(first.Count == 1 && second.Count == 0 && calls == 0);
+        first.Drain();
+        continuation.GetAwaiter().GetResult();
+        Check(calls == 1 && TaskScheduler.Current == TaskScheduler.Default);
+
+        _stage = 2;
+        var state = new object();
+        Task plain = source.Task;
+        var a = plain.ContinueWith(task => { Check(task == plain); calls++; }, second);
+        Task? b = null;
+        b = plain.ContinueWith((task, value) =>
+        {
+            Check(value == state && b!.AsyncState == state && Task.CurrentId == b.Id);
+            calls++;
+        }, state, default, TaskContinuationOptions.None, second);
+        var c = plain.ContinueWith(task => input, second);
+        var d = plain.ContinueWith((task, value) => value == state ? input : -1, state, second);
+        var e = source.Task.ContinueWith(task => { Check(task.Result == input); calls++; }, second);
+        var f = source.Task.ContinueWith((task, value) => { Check(value == state); calls++; }, state, second);
+        var g = source.Task.ContinueWith(task => task.Result, second);
+        var h = source.Task.ContinueWith((task, value) => value == state ? task.Result : -1,
+            state, default, TaskContinuationOptions.None, second);
+        Check(second.Count == 8);
+        second.Drain();
+        a.GetAwaiter().GetResult(); b.GetAwaiter().GetResult();
+        e.GetAwaiter().GetResult(); f.GetAwaiter().GetResult();
+        Check(c.Result == input && d.Result == input && g.Result == input && h.Result == input && calls == 5);
+
+        _stage = 3;
+        var synchronous = plain.ContinueWith(task => calls++, default,
+            TaskContinuationOptions.ExecuteSynchronously, first);
+        Check(synchronous.IsCompletedSuccessfully && first.Count == 0 && calls == 6);
+        first.RefuseInline = true;
+        var queued = plain.ContinueWith(task => calls++, default,
+            TaskContinuationOptions.ExecuteSynchronously, first);
+        Check(!queued.IsCompleted && first.Count == 1);
+        first.Drain();
+        queued.GetAwaiter().GetResult();
+        first.RefuseInline = false;
+        var asynchronous = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var forced = asynchronous.Task.ContinueWith(task => calls++, default,
+            TaskContinuationOptions.ExecuteSynchronously, first);
+        asynchronous.SetResult(input);
+        Check(!forced.IsCompleted && first.Count == 1);
+        first.Drain();
+        forced.GetAwaiter().GetResult();
+        Check(calls == 8);
+        var hidden = plain.ContinueWith(task => Check(TaskScheduler.Current == TaskScheduler.Default),
+            default, TaskContinuationOptions.HideScheduler | TaskContinuationOptions.ExecuteSynchronously, first);
+        hidden.GetAwaiter().GetResult();
+        Check((hidden.CreationOptions & TaskCreationOptions.HideScheduler) != 0);
+        for (var mode = 0; mode != 4; mode++)
+        {
+            var shouldFault = (mode & 1) != 0;
+            Task terminal = (mode & 2) == 0
+                ? plain.ContinueWith(task => { if (shouldFault) throw new InvalidOperationException(); }, first)
+                : plain.ContinueWith(task => shouldFault ? throw new InvalidOperationException() : input, first);
+            var follower = terminal.ContinueWith(task =>
+            {
+                Check(TaskScheduler.Current == second);
+                if (shouldFault) Check(task.Exception != null);
+            }, second);
+            first.Drain();
+            Check(second.LastQueueCurrent == first && TaskScheduler.Current == TaskScheduler.Default);
+            second.Drain();
+            follower.GetAwaiter().GetResult();
+        }
+
+        _stage = 4;
+        using var cancellation = new CancellationTokenSource();
+        var pending = new TaskCompletionSource<int>();
+        var eager = pending.Task.ContinueWith(task => calls++, cancellation.Token, TaskContinuationOptions.None, first);
+        var lazy = pending.Task.ContinueWith(task => calls++, cancellation.Token, TaskContinuationOptions.LazyCancellation, first);
+        cancellation.Cancel();
+        Check(eager.IsCanceled && !lazy.IsCompleted);
+        var alreadyLazy = pending.Task.ContinueWith(task => calls++, cancellation.Token,
+            TaskContinuationOptions.LazyCancellation, first);
+        Check(!alreadyLazy.IsCompleted);
+        pending.SetResult(input);
+        first.Drain();
+        Check(lazy.IsCanceled && alreadyLazy.IsCanceled && first.Count == 0 && calls == 8);
+        using var queuedCancellation = new CancellationTokenSource();
+        var queuedLazy = plain.ContinueWith(task => calls++, queuedCancellation.Token,
+            TaskContinuationOptions.LazyCancellation, first);
+        queuedCancellation.Cancel();
+        Check(!queuedLazy.IsCompleted && first.Count == 1);
+        first.Drain();
+        Check(queuedLazy.IsCanceled && calls == 8);
+        using var runningCancellation = new CancellationTokenSource();
+        var running = plain.ContinueWith(task => { runningCancellation.Cancel(); return input; },
+            runningCancellation.Token, TaskContinuationOptions.ExecuteSynchronously, first);
+        Check(running.IsCompletedSuccessfully && running.Result == input);
+        using var siblingCancellation = new CancellationTokenSource();
+        var siblings = new TaskCompletionSource<int>();
+        var cancelSibling = siblings.Task.ContinueWith(task => siblingCancellation.Cancel(), default,
+            TaskContinuationOptions.ExecuteSynchronously, first);
+        var sibling = siblings.Task.ContinueWith(task => calls++, siblingCancellation.Token,
+            TaskContinuationOptions.ExecuteSynchronously, first);
+        siblings.SetResult(input);
+        cancelSibling.GetAwaiter().GetResult();
+        Check(sibling.IsCanceled && calls == 8);
+
+        _stage = 5;
+        var successful = plain.ContinueWith(task => input, default,
+            TaskContinuationOptions.OnlyOnRanToCompletion | TaskContinuationOptions.ExecuteSynchronously, first);
+        Check(successful.Result == input);
+        var skipped = plain.ContinueWith(task => calls++, default,
+            TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously, first);
+        Check(skipped.IsCanceled);
+        var fault = Task.FromException(new InvalidOperationException());
+        var faultOnly = fault.ContinueWith(task => { Check(task.Exception != null); return input; }, default,
+            TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously, first);
+        Check(faultOnly.Result == input);
+        var canceled = Task.FromCanceled(cancellation.Token);
+        var cancelOnly = canceled.ContinueWith(task => input, default,
+            TaskContinuationOptions.OnlyOnCanceled | TaskContinuationOptions.ExecuteSynchronously, first);
+        Check(cancelOnly.Result == input);
+
+        _stage = 6;
+        var failure = new InvalidOperationException("queue");
+        var broken = new ManualScheduler { Failure = failure };
+        var brokenSource = new TaskCompletionSource<int>();
+        var failed = brokenSource.Task.ContinueWith(task => calls++, broken);
+        brokenSource.SetResult(input);
+        Check(failed.IsFaulted && failed.Exception!.InnerException is TaskSchedulerException);
+        Check(ReferenceEquals(failed.Exception!.InnerException!.InnerException, failure));
+        Throws<ArgumentNullException>(() => plain.ContinueWith((Action<Task>)null!, first));
+        Throws<ArgumentNullException>(() => source.Task.ContinueWith((Func<Task<int>, int>)null!, first));
+        Throws<ArgumentNullException>(() => plain.ContinueWith(task => { }, (TaskScheduler)null!));
+        Throws<ArgumentOutOfRangeException>(() => plain.ContinueWith(task => { }, default, (TaskContinuationOptions)128, first));
+        Throws<ArgumentOutOfRangeException>(() => plain.ContinueWith(task => { }, default,
+            TaskContinuationOptions.LongRunning | TaskContinuationOptions.ExecuteSynchronously, first));
+        Throws<ArgumentOutOfRangeException>(() => plain.ContinueWith(task => { }, default,
+            TaskContinuationOptions.NotOnCanceled | TaskContinuationOptions.NotOnFaulted |
+            TaskContinuationOptions.NotOnRanToCompletion, first));
+        _stage = 7;
+        for (var mode = 0; mode != 4; mode++)
+        {
+            CreateRetainedContinuation((mode & 1) != 0, (mode & 2) != 0);
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+            GC.Collect();
+            _stage = 70 + mode * 4 + (_capturedValue!.IsAlive ? 1 : 0) + (_antecedent!.IsAlive ? 2 : 0);
+            Check(!_capturedValue!.IsAlive);
+            // Desktop clears the predecessor on delegate entry, which a canceled
+            // continuation never reaches. NetWasm deliberately releases it on all
+            // terminal paths; qualify that stronger lifetime bound independently.
+            if ((mode & 1) == 0 || requireCanceledAntecedentRelease)
+                Check(!_antecedent!.IsAlive);
+            Check(_retainedContinuation!.IsCompleted);
+            _retainedCancellation!.Dispose();
+            _retainedCancellation = null;
+            _retainedContinuation = null;
+        }
+        _capturedValue = null;
+        _antecedent = null;
+        _stage = 8;
+        return input;
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static void CreateRetainedContinuation(bool cancel, bool result)
+    {
+        var cancellation = new CancellationTokenSource();
+        _retainedCancellation = cancellation;
+        var source = new TaskCompletionSource<int>();
+        _antecedent = new WeakReference(source.Task);
+        var ambient = new AsyncLocal<object?>();
+        var payload = new object();
+        _capturedValue = new WeakReference(payload);
+        ambient.Value = payload;
+        var scheduler = new ManualScheduler();
+        _retainedContinuation = result
+            ? source.Task.ContinueWith(static task => task.Result, cancellation.Token,
+                TaskContinuationOptions.ExecuteSynchronously, scheduler)
+            : source.Task.ContinueWith(static task => { }, cancellation.Token,
+                TaskContinuationOptions.ExecuteSynchronously, scheduler);
+        ambient.Value = null;
+        if (cancel)
+            cancellation.Cancel();
+        else
+            source.SetResult(42);
+    }
+
+    private static void Check(bool condition) { if (!condition) throw new Exception("continuation contract"); }
+    private static void Throws<T>(Action action) where T : Exception
+    {
+        try { action(); } catch (T) { return; }
+        throw new Exception("expected failure");
+    }
+
+    private sealed class ManualScheduler : TaskScheduler
+    {
+        private readonly Queue<Task> _tasks = new();
+        public bool RefuseInline;
+        public Exception? Failure;
+        public TaskScheduler? LastQueueCurrent;
+        public int Count => _tasks.Count;
+        protected override void QueueTask(Task task)
+        {
+            LastQueueCurrent = TaskScheduler.Current;
+            if (Failure is not null) throw Failure;
+            _tasks.Enqueue(task);
+        }
+        protected override bool TryExecuteTaskInline(Task task, bool previouslyQueued) => !RefuseInline && TryExecuteTask(task);
+        protected override IEnumerable<Task> GetScheduledTasks() => _tasks.ToArray();
+        public void Drain() { while (_tasks.Count != 0) TryExecuteTask(_tasks.Dequeue()); }
+    }
+}

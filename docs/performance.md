@@ -4,6 +4,8 @@ NetWasm runs our allocation and garbage-collection benchmarks faster than
 Mono AOT, compiled from the same C# source and run by the same Wasmtime. With
 NetWasmGC it also takes less time than desktop .NET 11's JIT on all three
 workloads, and less than desktop NativeAOT on the retained object graph.
+Without allocation, NetWasm takes less time than Mono AOT or matches it on every
+workload.
 
 ## Results
 
@@ -11,19 +13,19 @@ Median time of 15 runs in milliseconds, with the fastest and slowest run:
 
 | Workload | NetWasm, NetWasmGC | NetWasm, Compact | Mono AOT | Desktop .NET 11 JIT | Desktop .NET 11 NativeAOT |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| Full transaction | **34.9** (34.5–35.6) | 49.2 (48.7–51.2) | 59.1 (58.2–60.9) | 49.9 (49.3–50.7) | 32.6 (32.2–33.2) |
-| Retained object graph | **4.6** (4.6–4.8) | 12.5 (12.3–12.7) | 14.2 (14.1–14.7) | 9.7 (9.7–9.8) | 7.5 (7.4–7.7) |
-| UI churn | **7.9** (7.7–8.0) | 20.9 (20.8–21.2) | 29.1 (28.6–30.3) | 8.6 (8.5–8.7) | 6.6 (6.6–6.7) |
+| Full transaction | **34.8** (34.4–36.1) | 49.3 (48.7–50.1) | 59.1 (58.2–60.9) | 49.9 (49.3–50.7) | 32.6 (32.2–33.2) |
+| Retained object graph | **4.7** (4.6–4.8) | 12.4 (12.3–12.8) | 14.2 (14.1–14.7) | 9.7 (9.7–9.8) | 7.5 (7.4–7.7) |
+| UI churn | **7.8** (7.7–8.1) | 20.9 (20.8–21.9) | 29.1 (28.6–30.3) | 8.6 (8.5–8.7) | 6.6 (6.6–6.7) |
 
-NetWasm with NetWasmGC takes 41%, 68% and 73% less time than Mono AOT on the
-three workloads and 30%, 53% and 8% less than the desktop JIT. On the object
-graph it also takes 39% less than desktop NativeAOT. Compact, the size-first
+NetWasm with NetWasmGC takes 41%, 67% and 73% less time than Mono AOT on the
+three workloads and 30%, 52% and 10% less than the desktop JIT. On the object
+graph it also takes 38% less than desktop NativeAOT. Compact, the size-first
 default, takes less time than Mono AOT on all three workloads.
 
 | Wasm build | Program size (Brotli 11) | Peak linear memory: transaction, graph, churn |
 | --- | ---: | ---: |
-| NetWasm, NetWasmGC | 114,897–231,130 B (23,770–46,200 B) | 20.9, 15.7 and 7.3 MiB |
-| NetWasm, Compact | 110,361–226,438 B (22,030–44,696 B) | 17.4, 11.9 and 1.7 MiB |
+| NetWasm, NetWasmGC | 114,741–230,775 B (23,622–46,180 B) | 20.9, 15.7 and 7.3 MiB |
+| NetWasm, Compact | 110,205–226,083 B (21,914–44,393 B) | 17.4, 11.9 and 1.7 MiB |
 | Mono AOT | 8,185,047–8,256,888 B (1,572,917–1,593,051 B) | 50, 50 and 50 MiB |
 
 Mono reserves 50 MiB of linear memory when it starts, so its peak on every
@@ -50,15 +52,14 @@ with the fastest and slowest run:
 
 | Workload | NetWasm, NetWasmGC | NetWasm, Compact | Mono AOT | Desktop .NET 11 JIT | Desktop .NET 11 NativeAOT |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| Preallocated transaction | **18.6** (18.5–18.9) | 18.8 (18.7–19.7) | 23.5 (23.3–24.6) | 11.3 (11.2–11.6) | 7.7 (7.7–7.8) |
-| n-body | **53.5** (53.3–53.6) | 53.3 (53.2–54.7) | 53.3 (53.2–54.6) | 64.5 (64.3–64.9) | 63.0 (63.0–64.2) |
-| Quicksort | **77.2** (77.0–78.5) | 77.4 (77.3–79.0) | 58.0 (57.5–58.6) | 48.7 (48.6–49.3) | 48.5 (48.2–49.9) |
-| CRC-32 | **47.7** (47.6–50.0) | 47.5 (47.4–48.3) | 47.4 (47.3–48.5) | 47.1 (46.9–48.4) | 47.1 (47.0–48.6) |
+| Preallocated transaction | **18.8** (18.6–20.2) | 19.1 (18.6–21.0) | 23.5 (23.3–24.6) | 11.3 (11.2–11.6) | 7.7 (7.7–7.8) |
+| n-body | **52.9** (52.6–53.9) | 53.0 (52.6–53.4) | 53.3 (53.2–54.6) | 64.5 (64.3–64.9) | 63.0 (63.0–64.2) |
+| Quicksort | **54.0** (53.8–54.8) | 53.9 (53.7–55.1) | 58.0 (57.5–58.6) | 48.7 (48.6–49.3) | 48.5 (48.2–49.9) |
+| CRC-32 | **47.4** (47.3–47.6) | 47.4 (47.3–47.6) | 47.4 (47.3–48.5) | 47.1 (46.9–48.4) | 47.1 (47.0–48.6) |
 
-Without allocation, NetWasm takes 21% less time than Mono AOT on the
-transaction's library work and matches it on n-body and CRC-32. On the
-quicksort it takes 33% more time than Mono AOT; branchy integer code like this
-is the next optimization target. Desktop .NET runs the preallocated transaction
+Without allocation, NetWasm takes 20% less time than Mono AOT on the
+transaction's library work and 7% less on the quicksort, and matches it on
+n-body and CRC-32. Desktop .NET runs the preallocated transaction
 and the quicksort faster than either Wasm build, and every build is within 1.5%
 on CRC-32. So much of NetWasm's lead over desktop .NET on the allocating
 workloads comes from allocation and collection.
@@ -89,7 +90,7 @@ small Wasmtime host that follows every memory's growth.
 
 ## Versions and settings
 
-- **NetWasm:** 0.10.1, `NetWasmOptimization=O3`, with `NetWasmGarbageCollector`
+- **NetWasm:** 0.10.2, `NetWasmOptimization=O3`, with `NetWasmGarbageCollector`
   set to `NetWasm` or `Compact`. The figures are the lower median of two
   15-run cohorts.
 - **Mono AOT:** .NET SDK 10.0.401 with the `wasi-experimental` workload (Mono
@@ -100,10 +101,9 @@ small Wasmtime host that follows every memory's growth.
   SIMD off.
 - **Desktop .NET:** .NET 11 RC2 (SDK 11.0.100-rc.2.26504.105), with the default
   tiered JIT and with NativeAOT.
-- **Comparison figures:** the Mono AOT and desktop .NET figures for the three
-  allocating workloads come from an earlier run on the same host and Wasmtime.
-  Nothing on those sides has changed since. The workloads without allocation
-  were measured for every build in one run.
+- **Comparison figures:** the Mono AOT and desktop .NET figures come from
+  earlier runs on the same host and Wasmtime. Nothing on those sides has
+  changed since.
 - **Engine:** Wasmtime 49.0.3 for every Wasm build, compiling each module on one
   thread (`-C parallel-compilation=n`).
 - **Host:** Apple M1 Max, macOS 26.6.2, otherwise idle.
@@ -118,7 +118,7 @@ restores the released NetWasm packages from NuGet.org:
 
 ```sh
 python3 compiler-qualification/runtime-performance/collectors.py \
-  --feed <empty-directory> 0.10.1 --output <new-directory> \
+  --feed <empty-directory> 0.10.2 --output <new-directory> \
   --collectors NetWasm Compact \
   --mono-aot <dotnet-root> <wasi-sdk-root> \
   --desktop jit aot

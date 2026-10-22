@@ -9,6 +9,7 @@ and .NET CIL directly to WebAssembly. It does not carry the desktop CLR, Mono,
 
 [![Star NetWasm on GitHub](https://img.shields.io/github/stars/zion-sati/NetWasm?style=for-the-badge&logo=github&label=Star%20NetWasm)](https://github.com/zion-sati/NetWasm)
 [![Publication](https://img.shields.io/github/actions/workflow/status/zion-sati/NetWasm/release.yml?label=publish&event=release)](https://github.com/zion-sati/NetWasm/actions/workflows/release.yml)
+[![Compiler coverage](https://img.shields.io/endpoint?url=https%3A%2F%2Fgithub.com%2Fzion-sati%2FNetWasm%2Freleases%2Flatest%2Fdownload%2Fcoverage-badge.json)](https://github.com/zion-sati/NetWasm/actions/workflows/release.yml)
 [![License: Community + MIT](https://img.shields.io/badge/license-Community%20%2B%20MIT-blue)](docs/licensing.md)
 
 [Compile C# to WebAssembly](https://www.netwasm.com/compile-csharp-to-webassembly/) ·
@@ -67,21 +68,21 @@ native code outside any Wasm sandbox:
 
 | Workload | NetWasm, NetWasmGC | Mono AOT, .NET 10 | Desktop .NET 11 JIT | Desktop .NET 11 NativeAOT |
 | --- | ---: | ---: | ---: | ---: |
-| Full transaction | **34.9 ms** | 59.1 ms | 49.9 ms | 32.6 ms |
-| Retained object graph | **4.6 ms** | 14.2 ms | 9.7 ms | 7.5 ms |
-| UI churn | **7.9 ms** | 29.1 ms | 8.6 ms | 6.6 ms |
+| Full transaction | **34.8 ms** | 59.1 ms | 49.9 ms | 32.6 ms |
+| Retained object graph | **4.7 ms** | 14.2 ms | 9.7 ms | 7.5 ms |
+| UI churn | **7.8 ms** | 29.1 ms | 8.6 ms | 6.6 ms |
 
 These are medians of 15 runs on an Apple M1 Max, with every Wasm build under
 Wasmtime 49.0.3 and each run checked against desktop .NET's result. Mono AOT is
 Microsoft's `wasi-wasm` target in its default Release configuration. NetWasmGC
-takes 41% to 73% less time than Mono AOT and 8% to 53% less than the desktop
+takes 41% to 73% less time than Mono AOT and 10% to 52% less than the desktop
 JIT. Desktop NativeAOT is still faster on the full transaction and UI churn;
 NetWasmGC is faster on the retained object graph.
 
-Without allocation in the timed region, NetWasm takes 21% less time than Mono AOT
-on the transaction's library work and matches it on n-body and CRC-32 kernels,
-but takes 33% more on a quicksort, which we're working to improve next. Desktop
-.NET is faster on library-heavy code without allocation.
+Without allocation in the timed region, NetWasm takes 20% less time than Mono AOT
+on the transaction's library work and 7% less on a quicksort, and matches it on
+n-body and CRC-32 kernels. Desktop .NET is faster on the library work and the
+quicksort without allocation.
 
 [Versions, settings, desktop figures and reproduction](docs/performance.md)
 
@@ -263,13 +264,12 @@ mean “desktop .NET, but in Wasm.” The main remaining themes are:
 - a stable `netwasm1.0` platform and runtime contract;
 - production diagnostics and broader host qualification.
 
-**New in NetWasm 0.10.1:** faster and smaller compiled code. Methods no longer
-pay on every call for exception handling they do not use, and CoreLib copies
-memory and formats integers with far less work. NetWasmGC now beats desktop
-.NET 11's JIT on all three of our allocation benchmarks, and the print-`42`
-component is 10% smaller. Programs in the default command world can await,
-including from an asynchronous `Main`.
-[Release notes](docs/releases/0.10.1.md)
+**New in NetWasm 0.10.2:** faster array and loop code. Small helpers called in
+loops are inlined, and array accesses skip null and bounds checks an earlier
+access already made. Our quicksort benchmark now takes 7% less time than Mono
+AOT instead of 33% more, so NetWasm takes less time than Mono AOT, or matches
+it, on every workload we publish.
+[Release notes](docs/releases/0.10.2.md)
 
 **In progress:** broader compatibility with existing .NET Standard
 2.1 library binaries and NuGet assets. The target is to consume libraries

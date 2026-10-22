@@ -1,0 +1,244 @@
+using System;
+using System.Runtime.CompilerServices;
+using System.Threading;
+
+namespace ThreadLocalContracts;
+
+public static class EntryPoint
+{
+    private static int _stage;
+    public static int Main()
+    {
+        var result = Run(42);
+        Console.WriteLine(result);
+        return result == 42 ? 0 : 1;
+    }
+
+    public static int Trace() => _stage;
+
+    public static int Run(int input)
+    {
+        _stage = 1;
+        DefaultsAndSnapshots();
+        _stage = 2;
+        Factories();
+        _stage = 3;
+        Disposal();
+        _stage = 4;
+        GenericStorage();
+        _stage = 5;
+        Finalization();
+        _stage = 6;
+        return input;
+    }
+
+    private static void Check(bool condition)
+    {
+        if (!condition) throw new InvalidOperationException("ThreadLocal contract");
+    }
+
+    private static void DefaultsAndSnapshots()
+    {
+        using var number = new ThreadLocal<int>();
+        _stage = 101;
+        Check(!number.IsValueCreated && number.Value == 0 && number.IsValueCreated);
+        _stage = 102;
+        number.Value = 42;
+        Check(number.ToString() == "42");
+        _stage = 103;
+        using var reference = new ThreadLocal<string?>();
+        Check(reference.Value is null && reference.IsValueCreated);
+        _stage = 1031;
+        try { reference.ToString(); Check(false); }
+        catch (NullReferenceException) { }
+        _stage = 104;
+        using var tracked = new ThreadLocal<string?>(true);
+        var empty = tracked.Values;
+        Check(empty.Count == 0 && !tracked.IsValueCreated);
+        _stage = 105;
+        tracked.Value = "first";
+        var snapshot = tracked.Values;
+        Check(snapshot.Count == 1 && snapshot[0] == "first");
+        _stage = 106;
+        snapshot[0] = "changed";
+        snapshot.Add("extra");
+        Check(tracked.Value == "first" && tracked.Values.Count == 1 && empty.Count == 0);
+        _stage = 107;
+        tracked.Value = null;
+        Check(tracked.Values.Count == 1 && tracked.Values[0] is null);
+        _stage = 108;
+        var rejected = false;
+        try { _ = number.Values; }
+        catch (InvalidOperationException) { rejected = true; }
+        Check(rejected);
+        _stage = 109;
+        number.Dispose();
+        rejected = false;
+        try { _ = number.Values; }
+        catch (InvalidOperationException) { rejected = true; }
+        Check(rejected);
+    }
+
+    private static void Factories()
+    {
+        var calls = 0;
+        var failure = new InvalidOperationException("retry");
+        using var retry = new ThreadLocal<int>(() => ++calls == 1 ? throw failure : 42, true);
+        var rejected = false;
+        try { _ = retry.Value; }
+        catch (InvalidOperationException error) { rejected = ReferenceEquals(error, failure); }
+        Check(rejected && !retry.IsValueCreated && retry.Values.Count == 0);
+        Check(retry.Value == 42 && retry.Value == 42 && calls == 2);
+        using var skipped = new ThreadLocal<int>(() => throw new InvalidOperationException());
+        skipped.Value = 7;
+        Check(skipped.Value == 7);
+        ThreadLocal<int>? assigned = null;
+        assigned = new ThreadLocal<int>(() => { assigned!.Value = 9; return 10; });
+        using (assigned)
+        {
+            rejected = false;
+            try { _ = assigned.Value; }
+            catch (InvalidOperationException) { rejected = true; }
+            Check(rejected && assigned.Value == 9);
+        }
+        calls = 0;
+        ThreadLocal<int>? recursive = null;
+        recursive = new ThreadLocal<int>(() => ++calls == 1 ? recursive!.Value : 11);
+        using (recursive)
+        {
+            rejected = false;
+            try { _ = recursive.Value; }
+            catch (InvalidOperationException) { rejected = true; }
+            Check(rejected && recursive.Value == 11 && calls == 2);
+        }
+        rejected = false;
+        try { _ = new ThreadLocal<int>(null!); }
+        catch (ArgumentNullException error) { rejected = error.ParamName == "valueFactory"; }
+        Check(rejected);
+        rejected = false;
+        try { _ = new ThreadLocal<int>(null!, true); }
+        catch (ArgumentNullException error) { rejected = error.ParamName == "valueFactory"; }
+        Check(rejected);
+    }
+
+    private static void Disposal()
+    {
+        ThreadLocal<int>? local = null;
+        local = new ThreadLocal<int>(() => { local!.Dispose(); return 42; }, true);
+        var failures = 0;
+        try { _ = local.Value; } catch (ObjectDisposedException) { failures++; }
+        try { local.Value = 1; } catch (ObjectDisposedException) { failures++; }
+        try { _ = local.Values; } catch (ObjectDisposedException) { failures++; }
+        try { _ = local.IsValueCreated; } catch (ObjectDisposedException) { failures++; }
+        try { _ = local.ToString(); } catch (ObjectDisposedException) { failures++; }
+        Check(failures == 5);
+        local.Dispose();
+        var derived = new DerivedLocal();
+        derived.Value = 42;
+        ((IDisposable)derived).Dispose();
+        derived.Dispose();
+        Check(derived.Disposals == 2);
+    }
+
+    private static void GenericStorage()
+    {
+        PayloadReference.Finalized = 0;
+        using var local = CreatePayloadLocal();
+        GC.Collect();
+        GC.WaitForPendingFinalizers();
+        Check(PayloadReference.Finalized == 0);
+        InspectPayload(local, 41, 42);
+        ReplacePayload(local);
+        GC.Collect();
+        GC.WaitForPendingFinalizers();
+        Check(PayloadReference.Finalized == 1);
+        InspectPayload(local, 43, long.MaxValue);
+        local.Dispose();
+        GC.Collect();
+        GC.WaitForPendingFinalizers();
+        Check(PayloadReference.Finalized == 2);
+    }
+
+    // Keep allocation and reads outside the collecting frame. A literal string
+    // or a surviving temporary would mask missing roots in the generic field.
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static ThreadLocal<Payload> CreatePayloadLocal()
+    {
+        var local = new ThreadLocal<Payload>(() => new Payload
+            { Reference = new PayloadReference { Number = 41 }, Number = 42 }, true);
+        _ = local.Value;
+        return local;
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static void InspectPayload(ThreadLocal<Payload> local, int reference, long number) =>
+        Check(local.Value.Reference!.Number == reference && local.Values[0].Number == number);
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static void ReplacePayload(ThreadLocal<Payload> local) =>
+        local.Value = new Payload { Reference = new PayloadReference { Number = 43 }, Number = long.MaxValue };
+
+    private static void Finalization()
+    {
+        FinalizingLocal.Count = 0;
+        FinalizingLocal.PartialConstructionDisposed = false;
+        FinalizingLocal.PartialConstructionUntracked = false;
+        CreateFinalizable();
+        GC.Collect();
+        GC.WaitForPendingFinalizers();
+        Check(FinalizingLocal.Count == 2 && FinalizingLocal.PartialConstructionDisposed &&
+            FinalizingLocal.PartialConstructionUntracked);
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static void CreateFinalizable()
+    {
+        _ = new FinalizingLocal(false);
+        try { _ = new FinalizingLocal(true); }
+        catch (ArgumentNullException) { }
+        new FinalizingLocal(false).Dispose();
+    }
+
+    private struct Payload { public PayloadReference? Reference; public long Number; }
+
+    private sealed class PayloadReference
+    {
+        public int Number;
+        public static int Finalized;
+        ~PayloadReference() { Finalized++; }
+    }
+
+    private sealed class DerivedLocal : ThreadLocal<int>
+    {
+        public int Disposals;
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing) Disposals++;
+            base.Dispose(disposing);
+        }
+    }
+
+    private sealed class FinalizingLocal : ThreadLocal<int>
+    {
+        public static int Count;
+        public static bool PartialConstructionDisposed;
+        public static bool PartialConstructionUntracked;
+        public FinalizingLocal(bool fail) : base(fail ? null! : () => 42, true) { }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (!disposing)
+            {
+                Count++;
+                try { _ = IsValueCreated; }
+                catch (ObjectDisposedException)
+                {
+                    PartialConstructionDisposed = true;
+                    try { _ = Values; }
+                    catch (InvalidOperationException) { PartialConstructionUntracked = true; }
+                }
+            }
+            base.Dispose(disposing);
+        }
+    }
+}

@@ -28,16 +28,17 @@ internal sealed class ArrayIndexAdapter(
         }
 
         var sourceLocal = GetStackLocal(request.Context, stackSlot, sourceType);
-        if (sourceType == CliValueKind.I4 && request.Header.ArrayBoundsProof is { } proof &&
-            proof.Instructions == request.Header.Instructions &&
-            proof.Locals == request.Header.Locals &&
-            proof.LocalSignatureTypes == request.Header.LocalSignatureTypes &&
-            proof.AccessOffsets.Contains(request.Instruction.Offset) &&
-            proof.Instructions.Any(instruction => ReferenceEquals(instruction, request.Instruction)))
+        var proof = request.Header.ArrayBoundsProof is { } candidate &&
+            candidate.Describes(request.Header.Instructions, request.Header.Locals, request.Header.LocalSignatureTypes) &&
+            candidate.Instructions.Any(instruction => ReferenceEquals(instruction, request.Instruction))
+            ? candidate
+            : null;
+        if (sourceType == CliValueKind.I4 && proof is not null && proof.AccessOffsets.Contains(request.Instruction.Offset))
         {
             return sourceLocal;
         }
-        if (!request.Context.ArrayMetadata.Plan.CheckedAccesses.Contains(request.Instruction.Offset))
+        if (!request.Context.ArrayMetadata.Plan.CheckedAccesses.Contains(request.Instruction.Offset) &&
+            proof?.ProvesNonNull(request.Instruction.Offset) != true)
         {
             EmitNullCheck(code, arrayLocal, request.Context.ManagedThrowFunction);
         }

@@ -179,6 +179,7 @@
       <_NetWasmCompilationIdentityLine Include="wit=$(_NetWasmCompilerWitPath)" />
       <_NetWasmCompilationIdentityLine Include="world=$(NetWasmCompilerWitWorld)" />
       <_NetWasmCompilationIdentityLine Include="stackTrace=$(NetWasmManagedStackTrace)" />
+      <_NetWasmCompilationIdentityLine Include="structuredDiagnostics=$(NetWasmStructuredDiagnostics)" />
       <_NetWasmCompilationIdentityLine Include="optimization=$(_NetWasmCanonicalOptimization)" />
       <_NetWasmCompilationIdentityLine Include="managedLoopInvariantFieldHoisting=$(NetWasmManagedLoopInvariantFieldHoisting)" />
       <_NetWasmCompilationIdentityLine Include="managedStaticDataViewElimination=$(NetWasmManagedStaticDataViewElimination)" />
