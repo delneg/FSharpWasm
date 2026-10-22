@@ -301,6 +301,7 @@ jobs:
         shell: bash
         run: |
           mapfile -t reports < <(find "$RUNNER_TEMP/shard-coverage" -name coverage.json | sort)
+          mkdir -p "$RUNNER_TEMP/coverage"
           python3 eng/merge-coverlet-reports.py --output "$RUNNER_TEMP/coverage.json" "${reports[@]}"
           node eng/check-coverage.mjs "$RUNNER_TEMP/coverage.json" eng/coverage-baseline.json \
             "$RUNNER_TEMP/coverage/coverage-report.json"

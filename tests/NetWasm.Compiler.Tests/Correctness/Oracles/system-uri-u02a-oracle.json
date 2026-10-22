@@ -1,0 +1,40 @@
+{
+  "schemaVersion": 2,
+  "fixture": "SystemUriU02ACompatibility",
+  "runtimeIdentity": {
+    "sdkVersion": "10.0.302",
+    "targetFramework": ".NETCoreApp,Version=v8.0",
+    "runtimeVersion": "10.0.10",
+    "frameworkDescription": ".NET 10.0.10",
+    "processArchitecture": "Arm64"
+  },
+  "hashes": {
+    "sourceSha256": "2101b399a7b9d43d64e650b7b9babb3f0dbaa928851bd6b8b8513d169a7e3498",
+    "desktopAssemblySha256": {
+      "Debug": "f7cdd866f2d8217267a66c17c03db748d9e6d8a50ae034e48197abc87715c1d8",
+      "Release": "695a8feae17193017895749cf3e25ef043e4b3c72cbb7a0885fb65f5e0a8247e"
+    },
+    "canonicalOracleSha256": {
+      "Debug": "6a29749c4b93b3f8dbe22e62c0d2158e04aff73b54b612532a7cc1187b97638f",
+      "Release": "6a29749c4b93b3f8dbe22e62c0d2158e04aff73b54b612532a7cc1187b97638f"
+    }
+  },
+  "profiles": {
+    "Debug": {
+      "0": { "kind": "Value", "value": 401, "exceptionType": null, "trace": 0 },
+      "1": { "kind": "Value", "value": 402, "exceptionType": null, "trace": 0 },
+      "2": { "kind": "Value", "value": 403, "exceptionType": null, "trace": 0 },
+      "3": { "kind": "Value", "value": 404, "exceptionType": null, "trace": 0 },
+      "4": { "kind": "Value", "value": 405, "exceptionType": null, "trace": 0 },
+      "5": { "kind": "Value", "value": 406, "exceptionType": null, "trace": 0 }
+    },
+    "Release": {
+      "0": { "kind": "Value", "value": 401, "exceptionType": null, "trace": 0 },
+      "1": { "kind": "Value", "value": 402, "exceptionType": null, "trace": 0 },
+      "2": { "kind": "Value", "value": 403, "exceptionType": null, "trace": 0 },
+      "3": { "kind": "Value", "value": 404, "exceptionType": null, "trace": 0 },
+      "4": { "kind": "Value", "value": 405, "exceptionType": null, "trace": 0 },
+      "5": { "kind": "Value", "value": 406, "exceptionType": null, "trace": 0 }
+    }
+  }
+}

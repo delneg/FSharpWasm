@@ -44,7 +44,9 @@ public sealed class PortableNumericsCorpusTests(CorrectnessTestRunner runner)
                         out _) ? 0 : 1,
                     11 => (int)(System.Numerics.BigInteger.Parse(
                         "18446744073709551615") + 1).ToByteArray().Length,
-                    12 => System.Numerics.Vector<nint>.Count * System.IntPtr.Size,
+                    // The vector width itself follows the host: 32 bytes with AVX2.
+                    12 => System.Numerics.Vector<nint>.Count * System.IntPtr.Size ==
+                        System.Numerics.Vector<byte>.Count ? 1 : 0,
                     13 => System.Numerics.BitOperations.Log2(0u) +
                         System.Numerics.BitOperations.Log2(1u) +
                         System.Numerics.BitOperations.Log2(2u) +

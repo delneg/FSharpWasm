@@ -219,7 +219,7 @@ internal static class CorrectnessTestAssets
         ExecuteWasm64 = true,
         ExecuteOptimizedWasm = true,
         FrozenOracleEvidencePath =
-            "compiler-qualification/diagnostics/system-uri-oracle.json",
+            "tests/NetWasm.Compiler.Tests/Correctness/Oracles/system-uri-oracle.json",
         SameSourceReason = "The fixture exercises portable System.Uri CoreLib behavior."
     };
 
@@ -354,7 +354,7 @@ internal static class CorrectnessTestAssets
         ExecuteWasm64 = true,
         ExecuteOptimizedWasm = true,
         FrozenOracleEvidencePath =
-            "compiler-qualification/diagnostics/system-uri-u01b-oracle.json",
+            "tests/NetWasm.Compiler.Tests/Correctness/Oracles/system-uri-u01b-oracle.json",
         SameSourceReason = "The fixture exercises U01B portable parsing and relative resolution."
     };
 
@@ -477,7 +477,7 @@ internal static class CorrectnessTestAssets
         ExecuteWasm64 = true,
         ExecuteOptimizedWasm = true,
         FrozenOracleEvidencePath =
-            "compiler-qualification/diagnostics/system-uri-u01c-oracle.json",
+            "tests/NetWasm.Compiler.Tests/Correctness/Oracles/system-uri-u01c-oracle.json",
         SameSourceReason = "The fixture exercises U01C escaping, components, and well-formedness."
     };
 
@@ -573,7 +573,7 @@ internal static class CorrectnessTestAssets
         ExecuteWasm64 = true,
         ExecuteOptimizedWasm = true,
         FrozenOracleEvidencePath =
-            "compiler-qualification/diagnostics/system-uri-u02a-oracle.json"
+            "tests/NetWasm.Compiler.Tests/Correctness/Oracles/system-uri-u02a-oracle.json"
     };
 
     public static CorpusFixture CreateUriU02BFixture() => new CorpusFixture(
@@ -704,7 +704,7 @@ internal static class CorrectnessTestAssets
         ExecuteWasm64 = true,
         ExecuteOptimizedWasm = true,
         FrozenOracleEvidencePath =
-            "compiler-qualification/diagnostics/system-uri-u02b-oracle.json"
+            "tests/NetWasm.Compiler.Tests/Correctness/Oracles/system-uri-u02b-oracle.json"
     };
 
     public static ServiceProvider CreateServices(string? repositoryStartDirectory = null) => new ServiceCollection()
