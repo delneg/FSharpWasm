@@ -443,7 +443,7 @@ jobs:
         run: |
           gh release upload "$RELEASE_TAG" artifacts/coverage/coverage-badge.json \
             --repo "$GITHUB_REPOSITORY" --clobber
-      - name: Carry the preview's coverage badge to the stable GitHub Release
+      - name: Carry the preview's coverage badge to the stable GitHub Release and the README
         if: needs.build.outputs.mode == 'promote'
         shell: bash
         env:
@@ -457,6 +457,11 @@ jobs:
             --pattern coverage-badge.json --dir "$badge"
           gh release upload "$STABLE_TAG" "$badge/coverage-badge.json" \
             --repo "$GITHUB_REPOSITORY" --clobber
+          # Shields cannot read github.com, so the README badge reads the badges branch.
+          contents="repos/$GITHUB_REPOSITORY/contents/coverage-badge.json"
+          gh api -X PUT "$contents" -f branch=badges -f message="Coverage for $STABLE_TAG" \
+            -f sha="$(gh api "$contents?ref=badges" --jq .sha)" \
+            -f content="$(base64 -w0 "$badge/coverage-badge.json")"
       - name: Resolve retained release train coordinates
         if: needs.build.outputs.mode != 'build'
         id: retained-train
