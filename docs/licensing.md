@@ -65,8 +65,18 @@ using the tooling for the Organization and its Affiliates.
 Your sponsorship is your license. There is no license key, certificate, order
 form, or separate agreement to sign: an active matching tier, or a current
 sponsorship receipt, is the complete proof. The grant is honor-system and
-requires no sign-in, activation, telemetry, or technical enforcement. It covers internal development, testing, production
-builds, and maintenance only, during the active sponsorship period.
+requires no sign-in, activation, telemetry, or technical enforcement. It covers
+internal development, testing, production builds, and maintenance only.
+
+Sponsor continuously for 12 months, and the releases published while you
+sponsored stay licensed for your internal use, maintenance, and modification
+after the sponsorship ends. If the tiers are ever withdrawn with no
+replacement, every active sponsor keeps the releases published up to then,
+whatever the length of its sponsorship. The Licensor is a sole trader
+registered in Australia, trading as Zion Sati; its legal name, Australian
+Business Number, and vendor details are available on request at
+<zion.sati@netwasm.com>. Organizations can pay by card or, through GitHub, by
+invoice.
 
 Bundling, embedding, installing for third parties, redistribution, resale,
 sublicensing, hosted/cloud/API/build access, and other OEM or Commercial

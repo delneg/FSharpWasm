@@ -1,6 +1,6 @@
 # NetWasm Community License 1.0
 
-Version 1.0 — 2 September 2026
+Version 1.0, 2 September 2026, revised 22 October 2026
 Licensor: Zion Sati
 Commercial licensing: zion.sati@netwasm.com
 Project repository: https://github.com/zion-sati/netwasm
@@ -102,7 +102,10 @@ educational use.
 
 **Licensor** means Zion Sati, the published pseudonymous licensor and owner of
 the Software, or a successor owner identified in an accompanying copyright
-notice.
+notice. Zion Sati is the trading name of a sole trader registered in Australia
+with an active Australian Business Number. The Licensor discloses its legal
+name, Australian Business Number, and vendor details to any licensee or
+prospective licensee on request to the commercial licensing contact.
 
 **Organization** means any legal entity, business, sole trader, partnership,
 nonprofit body, association, institution, or Government Entity, together with
@@ -158,6 +161,12 @@ that the Licensor owns or controls and that are necessarily infringed by
 exercising those rights in the Software as provided by the Licensor. This
 patent grant does not cover claims infringed only because of your
 modifications, combinations, or additions.
+
+The Licensor represents that it owns the copyright in the Software, or
+otherwise has the right to license it, and that it has the authority to grant
+this License. Third-party material identified in the Software's license map or
+notices is licensed under its own terms and is not covered by this
+representation.
 
 Regardless of whether another Permitted Free Use applies, any person may view
 source code that the Licensor has intentionally made public and may make a
@@ -257,7 +266,8 @@ grants that Organization a non-exclusive, worldwide, royalty-free,
 non-transferable, and non-sublicensable right to use the Software internally
 for commercial development, testing, production builds, and maintenance, up to
 the Developer cap of that tier. This is a limited Commercial License under
-this License and applies only during the active sponsorship period.
+this License and applies during the active sponsorship period, and afterwards
+only as provided below.
 
 The Organization must use a tier whose Developer cap covers all Developers
 using the Software for the Organization and its Affiliates. The available
@@ -280,8 +290,22 @@ written commercial or OEM agreement with the Licensor, regardless of the
 Organization’s size, Developer count, or active Sponsors tier.
 
 If the sponsorship ends or the Organization exceeds its Developer cap, it must
-stop the newly unlicensed use or obtain a separate Commercial License. Rights
-in Generated Output remain governed by Section 8.
+stop the newly unlicensed use or obtain a separate Commercial License, except
+as the next two paragraphs provide. Rights in Generated Output remain governed
+by Section 8.
+
+**Continued use after a sponsorship ends.** If an Organization's sponsorship
+ends after it has been active continuously for at least 12 months, the
+Organization keeps a perpetual right, on the terms of this Section 5.1 and up
+to the Developer cap of its last tier, to use, modify, and maintain internally
+every release of the Software published during that continuous sponsorship.
+
+**Discontinuation.** If the Licensor stops offering Sponsors tiers for the
+Software for 90 consecutive days without offering another way to obtain this
+grant, every Organization whose sponsorship was active when the tiers were
+withdrawn keeps the perpetual right described in the previous paragraph for
+every release of the Software published up to that date, whatever the length
+of its sponsorship.
 
 ## 6. Change in qualification
 
@@ -451,8 +475,9 @@ The Software is provided **“as is”** and **“as available.”** The Licenso
 no obligation to provide maintenance, updates, support, security fixes,
 service levels, or error correction under this License.
 
-To the maximum extent permitted by law, the Licensor disclaims all express,
-implied, and statutory warranties, including warranties of title,
+Except for the representation in Section 3, and to the maximum extent
+permitted by law, the Licensor disclaims all express, implied, and statutory
+warranties, including warranties of title,
 non-infringement, merchantability, satisfactory quality, fitness for a
 particular purpose, accuracy, availability, and freedom from defects.
 
