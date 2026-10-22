@@ -16,8 +16,9 @@ internal sealed class DelegateAsynchronousCallBodyBuilder(
     private readonly Lazy<MethodInstanceModel> _constructor = new(() =>
     {
         var exception = types.Create(snapshot).FindType("System.PlatformNotSupportedException");
+        // The type declares only its three constructors; this one takes the message.
         var constructor = exception.Methods.Select(methods.GetMethod)
-            .Single(method => method.Name == ".ctor" &&
+            .Single(static method =>
                 method.Signature.ParameterSignatureTypes is [{ CanonicalName: "primitive:string" }]);
         return new(constructor, CliTypeIdentity.FromDefinition(exception), [], constructor.Signature);
     });
