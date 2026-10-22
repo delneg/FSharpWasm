@@ -31,8 +31,9 @@ annual revenue. Larger organizations pay for a limited internal commercial-use
 right by sponsoring a matching GitHub Sponsors tier, which covers that tier's
 Developer cap. The designated tiers are
 published at <https://github.com/sponsors/zion-sati> and the prices are listed
-in the [licensing guide](docs/licensing.md). Use is honor-system; no sign-in,
-activation, or telemetry is required.
+in the [licensing guide](docs/licensing.md). The sponsorship itself is the
+license and its proof; there is no license key or separate agreement. Use is
+honor-system; no sign-in, activation, or telemetry is required.
 
 The Sponsors grant does not permit bundling, embedding, redistribution,
 resale, sublicensing, OEM distribution, or hosted/cloud/API/build access to
