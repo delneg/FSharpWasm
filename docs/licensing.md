@@ -10,14 +10,15 @@ project repository is <https://github.com/zion-sati/netwasm>.
 ## The model
 
 NetWasm compiler and developer-tooling source is public under the Community
-License. Individuals, education, qualifying non-commercial open-source work,
-evaluators, and organizations with fewer than 250 employees **and** less than
-USD 10,000,000 in annual revenue may use the tooling without charge. Larger
-organizations can obtain internal commercial use through an active matching
-GitHub Sponsors tier. Any organization that productizes the compiler itself—by
-bundling it into an SDK or IDE, redistributing it as a commercial feature, or
-exposing compilation as a service—needs a separate OEM or commercial agreement
-regardless of size. CoreLib, runtime components, WIT/WASI libraries, generated
+License. The tooling is free for individuals, education, non-commercial
+open-source work, evaluation, and small and medium-sized businesses:
+organizations with fewer than 250 employees **and** less than USD 10,000,000 in
+annual revenue. Larger organizations pay for internal commercial use by
+sponsoring a matching GitHub Sponsors tier; the Unlimited tier covers any number
+of developers. Any organization that productizes the
+compiler itself, by bundling it into an SDK or IDE, redistributing it as a
+commercial feature, or exposing compilation as a service, needs a separate OEM
+or commercial agreement regardless of size. CoreLib, runtime components, WIT/WASI libraries, generated
 support code, and templates are MIT licensed unless a component or upstream
 notice says otherwise. NetWasmGC and CompactGC are Apache-2.0 licensed.
 Generated applications may use any license their authors choose, subject to
@@ -38,19 +39,19 @@ those notices in addition to the path assignment.
 
 ## Free-use thresholds
 
-Small and medium-sized businesses can use NetWasm free. An organization
-qualifies when it is not a Government Entity, has fewer than 250 Employees, and
-has Annual Revenue below USD 10,000,000, with Employees and revenue counted
-across Affiliates. It may use the tooling internally for any purpose and may
-sell, license, host, deploy, or distribute unlimited Generated Output. Other
-free uses include personal non-commercial work, education and academic
-research, qualifying open-source work, official NetWasm contributions, and a
-30-day internal evaluation.
+Small and medium-sized businesses use NetWasm free: any organization that is
+not a Government Entity, has fewer than 250 Employees, and has Annual Revenue
+below USD 10,000,000, with Employees and revenue counted across Affiliates. It
+may use the tooling internally for any purpose and may sell, license, host,
+deploy, or distribute unlimited Generated Output. Personal non-commercial work,
+education and academic research, unpaid work on open-source projects under an
+OSI-approved license, official NetWasm contributions, and a 30-day internal
+evaluation are free too.
 
 ## Sponsors commercial tiers
 
-An organization outside the free-use exceptions may establish the limited
-internal commercial-use grant with an active matching GitHub Sponsors tier at
+A larger organization or a Government Entity pays for the limited internal
+commercial-use grant by sponsoring a matching tier at
 <https://github.com/sponsors/zion-sati>. The tier must cover every Developer
 using the tooling for the Organization and its Affiliates.
 

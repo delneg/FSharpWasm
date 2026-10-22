@@ -24,11 +24,12 @@ questions and agreements: <zion.sati@netwasm.com>. Project repository:
 upstream copyright, license, or provenance headers retain those notices; this
 policy does not replace them.
 
-The Community License permits free use for individuals, education, qualifying
-open-source work, official contributions, evaluation, and organizations with
-fewer than 250 employees and less than USD 10,000,000 in annual revenue. It
-also grants an active matching GitHub Sponsors tier a limited internal
-commercial-use right for that tier's Developer cap. The designated tiers are
+The Community License is free for individuals, education, open-source work,
+official contributions, evaluation, and small and medium-sized businesses:
+organizations with fewer than 250 employees and less than USD 10,000,000 in
+annual revenue. Larger organizations pay for a limited internal commercial-use
+right by sponsoring a matching GitHub Sponsors tier, which covers that tier's
+Developer cap. The designated tiers are
 published at <https://github.com/sponsors/zion-sati> and the prices are listed
 in the [licensing guide](docs/licensing.md). Use is honor-system; no sign-in,
 activation, or telemetry is required.
