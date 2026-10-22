@@ -1,0 +1,48 @@
+{
+  "schemaVersion": 2,
+  "fixture": "SystemUriU01BCompatibility",
+  "runtimeIdentity": {
+    "sdkVersion": "10.0.302",
+    "targetFramework": ".NETCoreApp,Version=v8.0",
+    "runtimeVersion": "10.0.10",
+    "frameworkDescription": ".NET 10.0.10",
+    "processArchitecture": "Arm64"
+  },
+  "hashes": {
+    "sourceSha256": "5473084c269879dd0f145900a7a7b813a9617e36c0fd1ef726a596d6ec413f6d",
+    "desktopAssemblySha256": {
+      "Debug": "710787a1d485cbc783bbc8120a79362a1cc2806be6b15df22051484df3a602ba",
+      "Release": "effd985d309ce1a9ab2a0a1bab2c7f9a1500dd7bd26a84b0d86bf5afd0cfc249"
+    },
+    "canonicalOracleSha256": {
+      "Debug": "51d76be16ada04725b8565fcadf0104335ac2151443f5c3b6d613e20224be9ce",
+      "Release": "51d76be16ada04725b8565fcadf0104335ac2151443f5c3b6d613e20224be9ce"
+    }
+  },
+  "profiles": {
+    "Debug": {
+      "0": { "kind": "Value", "value": 201, "exceptionType": null, "trace": 0 },
+      "1": { "kind": "Value", "value": 202, "exceptionType": null, "trace": 0 },
+      "2": { "kind": "Value", "value": 203, "exceptionType": null, "trace": 0 },
+      "3": { "kind": "Value", "value": 204, "exceptionType": null, "trace": 0 },
+      "4": { "kind": "Value", "value": 205, "exceptionType": null, "trace": 0 },
+      "5": { "kind": "Value", "value": 206, "exceptionType": null, "trace": 0 },
+      "6": { "kind": "Value", "value": 207, "exceptionType": null, "trace": 0 },
+      "7": { "kind": "Value", "value": 208, "exceptionType": null, "trace": 0 },
+      "8": { "kind": "Value", "value": 209, "exceptionType": null, "trace": 0 },
+      "9": { "kind": "Value", "value": 210, "exceptionType": null, "trace": 0 }
+    },
+    "Release": {
+      "0": { "kind": "Value", "value": 201, "exceptionType": null, "trace": 0 },
+      "1": { "kind": "Value", "value": 202, "exceptionType": null, "trace": 0 },
+      "2": { "kind": "Value", "value": 203, "exceptionType": null, "trace": 0 },
+      "3": { "kind": "Value", "value": 204, "exceptionType": null, "trace": 0 },
+      "4": { "kind": "Value", "value": 205, "exceptionType": null, "trace": 0 },
+      "5": { "kind": "Value", "value": 206, "exceptionType": null, "trace": 0 },
+      "6": { "kind": "Value", "value": 207, "exceptionType": null, "trace": 0 },
+      "7": { "kind": "Value", "value": 208, "exceptionType": null, "trace": 0 },
+      "8": { "kind": "Value", "value": 209, "exceptionType": null, "trace": 0 },
+      "9": { "kind": "Value", "value": 210, "exceptionType": null, "trace": 0 }
+    }
+  }
+}

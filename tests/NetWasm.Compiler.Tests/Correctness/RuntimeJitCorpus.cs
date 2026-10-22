@@ -48,7 +48,10 @@ internal static class RuntimeJitCorpus
         var root = CompilerCorrectnessEnvironment.Discover().RepositoryRoot;
         var path = Path.Combine(
             root,
-            "compiler-qualification",
+            "tests",
+            "NetWasm.Compiler.Tests",
+            "Correctness",
+            "RuntimeJit",
             "runtime-jit-whitelist.json");
         var manifest = JsonSerializer.Deserialize<RuntimeJitWhitelist>(
             File.ReadAllText(path),

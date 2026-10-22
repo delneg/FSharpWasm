@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 2,
+  "fixture": "SystemUriU01CCompatibility",
+  "runtimeIdentity": {
+    "sdkVersion": "10.0.302",
+    "targetFramework": ".NETCoreApp,Version=v8.0",
+    "runtimeVersion": "10.0.10",
+    "frameworkDescription": ".NET 10.0.10",
+    "processArchitecture": "Arm64"
+  },
+  "hashes": {
+    "sourceSha256": "e1c0bcf2681efdd676ec6f6afeb874c17e8362b288ed26cda77d843a3f16f413",
+    "desktopAssemblySha256": {
+      "Debug": "ae9feb0adc9e054be6ef23b4fa6432b6f41496881412b8b0e86eead651db1a3b",
+      "Release": "f86279315d7f3170839029901d70df2610a62727aee154cc421c3e4251033f12"
+    },
+    "canonicalOracleSha256": {
+      "Debug": "468b8adb45bc8768f9975258867328d0969ac50cf4321ee94b11d85669aea49b",
+      "Release": "468b8adb45bc8768f9975258867328d0969ac50cf4321ee94b11d85669aea49b"
+    }
+  },
+  "profiles": {
+    "Debug": {
+      "0": { "kind": "Value", "value": 301, "exceptionType": null, "trace": 0 },
+      "1": { "kind": "Value", "value": 302, "exceptionType": null, "trace": 0 },
+      "2": { "kind": "Value", "value": 303, "exceptionType": null, "trace": 0 },
+      "3": { "kind": "Value", "value": 304, "exceptionType": null, "trace": 0 },
+      "4": { "kind": "Value", "value": 305, "exceptionType": null, "trace": 0 },
+      "5": { "kind": "Value", "value": 306, "exceptionType": null, "trace": 0 },
+      "6": { "kind": "Value", "value": 307, "exceptionType": null, "trace": 0 }
+    },
+    "Release": {
+      "0": { "kind": "Value", "value": 301, "exceptionType": null, "trace": 0 },
+      "1": { "kind": "Value", "value": 302, "exceptionType": null, "trace": 0 },
+      "2": { "kind": "Value", "value": 303, "exceptionType": null, "trace": 0 },
+      "3": { "kind": "Value", "value": 304, "exceptionType": null, "trace": 0 },
+      "4": { "kind": "Value", "value": 305, "exceptionType": null, "trace": 0 },
+      "5": { "kind": "Value", "value": 306, "exceptionType": null, "trace": 0 },
+      "6": { "kind": "Value", "value": 307, "exceptionType": null, "trace": 0 }
+    }
+  }
+}
