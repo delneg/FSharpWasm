@@ -78,6 +78,11 @@ takes 41% to 73% less time than Mono AOT and 8% to 53% less than the desktop
 JIT. Desktop NativeAOT is still faster on the full transaction and UI churn;
 NetWasmGC is faster on the retained object graph.
 
+Without allocation in the timed region, NetWasm takes 21% less time than Mono AOT
+on the transaction's library work and matches it on n-body and CRC-32 kernels,
+but takes 33% more on a quicksort, which we're working to improve next. Desktop
+.NET is faster on library-heavy code without allocation.
+
 [Versions, settings, desktop figures and reproduction](docs/performance.md)
 
 ## More than Hello World

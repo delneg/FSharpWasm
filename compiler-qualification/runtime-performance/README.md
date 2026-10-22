@@ -38,6 +38,12 @@ python3 compiler-qualification/runtime-performance/run.py \
   short strings and copies spans of every length from 0 to 16 chars;
   `integer-formatting` formats integers of every digit count to strings and
   into spans.
+- `compute`: computation with no library work and no allocation. `nbody` is
+  the Computer Language Benchmarks Game n-body simulation of the Sun and the
+  four gas giants in double precision. `sort` quicksorts 100,000 integers in
+  place, refilled from seed data every round. `crc32` computes a table-driven
+  CRC-32 over a 1 MiB buffer. The program fails if a timed region allocates, and
+  each checksum is exact, the bits of the final energy for `nbody`.
 
 `gc_statistics.py` reports NetWasmGC's allocator statistics for each
 scenario's timed region: allocations by path, run refills, bitmap search,
