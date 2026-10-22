@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using NetWasm.Compiler.Core;
 using NetWasm.Compiler.Diagnostics;
+using NetWasm.Compiler.ExceptionTypes;
 using NetWasm.Compiler.Wasm;
 using NetWasm.Compiler.Wasm.Emission;
 
@@ -27,4 +28,11 @@ public sealed record BrowserCompilationResult(
 
     /// <summary>Optional native callback object owned by the caller after compilation.</summary>
     public WasmNativeCallbackSupportArtifact? NativeCallbackSupport { get; init; }
+
+    /// <summary>
+    /// The exception type map and its build binding, which name the type
+    /// identities a structured failure report carries, when the compilation
+    /// emitted them.
+    /// </summary>
+    public DiagnosticArtifactBundle? DiagnosticArtifacts { get; init; }
 }

@@ -1,0 +1,94 @@
+package netwasm:test-canonical@1.0.0;
+
+interface host {
+    enum mode {
+        first,
+        second,
+        third,
+    }
+
+    flags wide-permissions {
+        p00,
+        p01,
+        p02,
+        p03,
+        p04,
+        p05,
+        p06,
+        p07,
+        p08,
+        p09,
+        p10,
+        p11,
+        p12,
+        p13,
+        p14,
+        p15,
+        p16,
+        p17,
+        p18,
+        p19,
+        p20,
+        p21,
+        p22,
+        p23,
+        p24,
+        p25,
+        p26,
+        p27,
+        p28,
+        p29,
+        p30,
+        p31,
+    }
+
+    record scalar-values {
+        boolean: bool,
+        signed8: s8,
+        unsigned8: u8,
+        signed16: s16,
+        unsigned16: u16,
+        signed32: s32,
+        unsigned32: u32,
+        signed64: s64,
+        unsigned64: u64,
+        float32: f32,
+        float64: f64,
+        character: char,
+        text: string,
+        mode: mode,
+        wide: wide-permissions,
+    }
+
+    record item {
+        name: string,
+        count: u32,
+    }
+
+    variant choice {
+        none,
+        item(item),
+        ratio(f64),
+    }
+
+    flags permissions {
+        read,
+        write,
+        execute,
+    }
+
+    transform: func(
+        values: list<item>,
+        selected: option<choice>,
+        permissions: permissions,
+    ) -> result<tuple<u32, string>, string>;
+
+    round-trip-scalars: func(value: scalar-values) -> scalar-values;
+
+    boundary-probes: func() -> u32;
+}
+
+world test-canonical {
+    import host;
+    export host;
+}

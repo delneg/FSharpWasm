@@ -1,6 +1,7 @@
 using NetWasm.Compiler.Browser.Results;
 using NetWasm.Compiler.Core;
 using NetWasm.Compiler.Core.ManagedExecutables;
+using NetWasm.Compiler.ExceptionTypes;
 using NetWasm.Compiler.Wasm;
 using NetWasm.Compiler.Wasm.Emission;
 
@@ -29,6 +30,11 @@ public sealed class BrowserCompilationResultProjectorTests
             FunctionImports = [new WasmFunctionImport("runtime", "function", new([], default))],
             NativeImports = [new WasmNativeImport("sample", "native_add", [WasmValueType.I32], WasmValueType.I32)],
             NativeCallbackSupport = callback,
+            // A raw function's compilation here emitted no diagnostic artifacts.
+            DiagnosticArtifacts = kind == CompilerEntryPointKind.ManagedExecutable
+                ? new([0, 97, 115, 109], new([123, 125], "application/json", "app.exceptions.json", new string('b', 64)),
+                    [], null!)
+                : null,
         };
         var projector = CreateProjector();
 
@@ -45,6 +51,7 @@ public sealed class BrowserCompilationResultProjectorTests
         Assert.Equal(source.FunctionImports, actual.FunctionImports);
         Assert.Equal(source.NativeImports, actual.NativeImports);
         Assert.Same(callback, actual.NativeCallbackSupport);
+        Assert.Same(source.DiagnosticArtifacts, actual.DiagnosticArtifacts);
         Assert.Same(manifest, actual.InteropManifest);
         Assert.Equal(new BrowserCompilationEntryPoint("app.dll", "Program", "Main", token, kind, abi), actual.EntryPoint);
         Assert.Null(actual.CompilerMetrics);

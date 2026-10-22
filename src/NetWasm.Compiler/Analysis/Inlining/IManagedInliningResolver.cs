@@ -14,6 +14,9 @@ internal sealed record ManagedInliningRequest(
 {
     // The call came from a callee inlined in an earlier round.
     public bool Nested { get; init; }
+
+    // A backward branch of the caller spans the call, so it runs repeatedly.
+    public bool InLoop { get; init; }
 }
 
 internal sealed record ManagedInliningPlan(

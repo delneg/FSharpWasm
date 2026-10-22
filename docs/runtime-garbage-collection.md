@@ -46,9 +46,9 @@ lower is better.
 
 | Collector | Full transaction | Retained object graph | UI-style object churn |
 | --- | ---: | ---: | ---: |
-| Bump | 31.53 ms | 4.15 ms | 9.33 ms |
-| NetWasmGC | 34.93 ms | 4.62 ms | 7.86 ms |
-| Compact | 49.18 ms | 12.45 ms | 20.93 ms |
+| Bump | 31.35 ms | 4.17 ms | 9.40 ms |
+| NetWasmGC | 34.77 ms | 4.65 ms | 7.77 ms |
+| Compact | 49.33 ms | 12.43 ms | 20.89 ms |
 
 The full transaction creates 100,000 transactions, normalizes their account
 strings and aggregates them into growing containers, with allocation and

@@ -95,6 +95,34 @@ public sealed class ArrayIndexAdapterTests
             code.ToInstructions().Select(instruction => instruction.Opcode));
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void AdaptSkipsOnlyTheNullCheckAnEarlierAccessProved(bool stale)
+    {
+        var layouts = new RecordingLayoutProvider();
+        var exceptions = new RecordingImplicitExceptionEmitter();
+        var request = CreateInstructionRequest(CilOperation.LoadArrayElement,
+            [CliValueKind.ManagedReference, CliValueKind.I4]);
+        var header = request.Header with { Instructions = [request.Instruction] };
+        header = header with
+        {
+            ArrayBoundsProof = new(header.Instructions, header.Locals, header.LocalSignatureTypes, [])
+            {
+                NonNullOffsets = [request.Instruction.Offset],
+            },
+        };
+        if (stale) header = header with { Instructions = [request.Instruction with { OriginalOffset = 123 }] };
+        request = request with { Header = header };
+
+        CreateAdapter(layouts, exceptions).Adapt(request, new RecordingInstructionWriter(),
+            GetStackLocal(request.Context, 0, CliValueKind.ManagedReference, layouts.Target), 1);
+
+        Assert.Equal(stale
+            ? [ManagedExceptionKind.NullReference, ManagedExceptionKind.IndexOutOfRange]
+            : [ManagedExceptionKind.IndexOutOfRange], exceptions.Kinds);
+    }
+
     [Fact]
     public void AdaptLeavesTheNullCheckToTheLoopEntryThatMadeIt()
     {

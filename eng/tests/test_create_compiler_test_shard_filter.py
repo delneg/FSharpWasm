@@ -220,6 +220,43 @@ class CompilerTestShardFilterTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "no NetWasm.Sdk.Tests tests"):
             SHARDS.parse_test_cases(listing, "NetWasm.Sdk.Tests.")
 
+    def test_class_list_keeps_listed_classes_and_rejects_stale_entries(self):
+        listing = [
+            "    NetWasm.Compiler.Tests.AlphaTests.Fact",
+            "    NetWasm.Compiler.Tests.AlphaTests+Nested.Fact",
+            "    NetWasm.Compiler.Tests.AlphaTestsExtra.Fact",
+            "    NetWasm.Compiler.Tests.Correctness.BetaTests.Run(cell: 1)",
+        ]
+        cases = SHARDS.parse_test_cases(listing)
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "classes.txt"
+            path.write_text(
+                "# Pull request tier\nNetWasm.Compiler.Tests.AlphaTests\n\n"
+                "NetWasm.Compiler.Tests.Correctness.BetaTests\n",
+                encoding="utf-8")
+            selected = SHARDS.select_classes(cases, SHARDS.load_class_list(path))
+
+            # A class does not select another whose name it prefixes.
+            self.assertEqual(
+                [
+                    "NetWasm.Compiler.Tests.AlphaTests+Nested.Fact",
+                    "NetWasm.Compiler.Tests.AlphaTests.Fact",
+                    "NetWasm.Compiler.Tests.Correctness.BetaTests.Run",
+                ],
+                sorted(selected))
+
+            path.write_text("NetWasm.Compiler.Tests.GoneTests\n", encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "no discovered tests: NetWasm.Compiler.Tests.GoneTests"):
+                SHARDS.select_classes(cases, SHARDS.load_class_list(path))
+            path.write_text("# nothing\n", encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "names no classes"):
+                SHARDS.load_class_list(path)
+            path.write_text("A\nA\n", encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "more than once"):
+                SHARDS.load_class_list(path)
+            with self.assertRaisesRegex(ValueError, "Cannot read"):
+                SHARDS.load_class_list(Path(directory) / "missing.txt")
+
     def test_rejects_empty_discovery_and_empty_shards(self):
         with self.assertRaisesRegex(ValueError, "no NetWasm.Compiler.Tests tests"):
             SHARDS.parse_test_method_counts(["The following Tests are available:"])

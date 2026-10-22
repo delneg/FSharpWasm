@@ -1,0 +1,178 @@
+using System;
+using System.Collections.Generic;
+using System.Threading;
+using System.Threading.Tasks;
+
+namespace TaskSchedulerContracts;
+
+public static class EntryPoint
+{
+    private static int _stage;
+    public static int Trace() => _stage;
+    public static Task Main()
+    {
+        int result = RunReactor(42);
+        Console.WriteLine(result);
+        if (result != 42)
+            throw new InvalidOperationException("Unexpected scheduler result.");
+        return Task.CompletedTask;
+    }
+
+    public static int Run(int input)
+    {
+        _stage = 1;
+        var scheduler = new ManualScheduler();
+        Check(TaskScheduler.Current == TaskScheduler.Default);
+        Check(scheduler.Id != 0 && scheduler.Id == scheduler.Id && scheduler.Id != TaskScheduler.Default.Id);
+        Check(scheduler.MaximumConcurrencyLevel == int.MaxValue);
+        var calls = 0;
+        Task? outer = null;
+        outer = new Task(() =>
+        {
+            Check(TaskScheduler.Current == scheduler);
+            Check(Task.CurrentId == outer!.Id && outer.Status == TaskStatus.Running);
+            Check(!scheduler.Execute(outer));
+            var nested = new Task(() => { Check(TaskScheduler.Current == scheduler); calls++; });
+            nested.Start();
+            Check(nested.Status == TaskStatus.WaitingToRun);
+            calls++;
+        });
+        outer.Start(scheduler);
+        Check(calls == 0 && outer.Status == TaskStatus.WaitingToRun);
+        Throws<InvalidOperationException>(() => new ManualScheduler().Execute(outer));
+        scheduler.Drain();
+        outer.GetAwaiter().GetResult();
+        Check(calls == 2 && !scheduler.Execute(outer));
+        Check(TaskScheduler.Current == TaskScheduler.Default && Task.CurrentId == null);
+        Throws<InvalidOperationException>(() => outer.Start(scheduler));
+        Throws<InvalidOperationException>(() => Task.CompletedTask.Start(scheduler));
+
+        _stage = 2;
+        var inline = new Task<int>(() => { Check(TaskScheduler.Current == scheduler); return input; });
+        inline.RunSynchronously(scheduler);
+        Check(inline.Result == input);
+        var hidden = new Task(() => Check(TaskScheduler.Current == TaskScheduler.Default), TaskCreationOptions.HideScheduler);
+        hidden.RunSynchronously(scheduler);
+        hidden.GetAwaiter().GetResult();
+        Check(TaskScheduler.Current == TaskScheduler.Default);
+        var ambient = new AsyncLocal<int>();
+        ambient.Value = 17;
+        var capturedTask = new Task(() => { Check(ambient.Value == 17); ambient.Value = 99; });
+        ambient.Value = 23;
+        capturedTask.RunSynchronously(scheduler);
+        capturedTask.GetAwaiter().GetResult();
+        Check(ambient.Value == 23);
+        var failure = new InvalidOperationException("body");
+        var fault = new Task(() => throw failure);
+        fault.RunSynchronously(scheduler);
+        Check(fault.IsFaulted && ReferenceEquals(fault.Exception!.InnerException, failure));
+        Throws<ArgumentNullException>(() => new Task(() => { }).Start(null!));
+        Throws<ArgumentNullException>(() => new Task(() => { }).RunSynchronously(null!));
+        using (var cancellation = new CancellationTokenSource())
+        {
+            var canceled = new Task(() => calls++, cancellation.Token);
+            canceled.Start(scheduler);
+            cancellation.Cancel();
+            scheduler.Drain();
+            Check(canceled.IsCanceled && calls == 2);
+        }
+
+        _stage = 3;
+        var queueFailure = new InvalidOperationException("queue");
+        var broken = new ManualScheduler { Failure = queueFailure };
+        var rejected = new Task(() => { });
+        try { rejected.Start(broken); throw new Exception("missing scheduler failure"); }
+        catch (TaskSchedulerException exception) { Check(ReferenceEquals(exception.InnerException, queueFailure)); }
+        Check(rejected.IsFaulted && rejected.Exception!.InnerException is TaskSchedulerException);
+        var liar = new ManualScheduler { PretendInline = true };
+        Throws<TaskSchedulerException>(() => new Task(() => { }).RunSynchronously(liar));
+
+        _stage = 4;
+        var previous = SynchronizationContext.Current;
+        try
+        {
+            SynchronizationContext.SetSynchronizationContext(null);
+            Throws<InvalidOperationException>(() => TaskScheduler.FromCurrentSynchronizationContext());
+            var context = new ManualContext();
+            SynchronizationContext.SetSynchronizationContext(context);
+            var captured = TaskScheduler.FromCurrentSynchronizationContext();
+            Check(captured.MaximumConcurrencyLevel == 1);
+            var contextTask = new Task(() => { Check(TaskScheduler.Current == captured); calls++; });
+            contextTask.Start(captured);
+            Check(calls == 2 && context.Count == 1);
+            context.Drain();
+            contextTask.GetAwaiter().GetResult();
+            Check(calls == 3);
+            var immediate = new Task(() => calls++);
+            immediate.RunSynchronously(captured);
+            Check(calls == 4 && context.Count == 0);
+        }
+        finally { SynchronizationContext.SetSynchronizationContext(previous); }
+        _stage = 5;
+        return input;
+    }
+
+    public static int RunReactor(int input)
+    {
+        Run(input);
+        var ambient = new AsyncLocal<int>();
+        ambient.Value = 31;
+        var scheduler = new ManualScheduler { RefuseInline = true };
+        var calls = 0;
+        var task = new Task(() => { Check(ambient.Value == 31); calls++; });
+        ambient.Value = 47;
+        Throws<PlatformNotSupportedException>(() => task.RunSynchronously(scheduler));
+        Check(task.Status == TaskStatus.Created && calls == 0 && scheduler.Count == 0);
+        task.Start(scheduler);
+        scheduler.Drain();
+        task.GetAwaiter().GetResult();
+        Check(calls == 1 && ambient.Value == 47);
+        _stage = 6;
+        return input;
+    }
+
+    private static void Check(bool condition)
+    {
+        if (!condition) throw new Exception("scheduler contract");
+    }
+
+    private static void Throws<T>(Action action) where T : Exception
+    {
+        try { action(); }
+        catch (T) { return; }
+        throw new Exception("expected failure");
+    }
+
+    private sealed class ManualScheduler : TaskScheduler
+    {
+        private readonly Queue<Task> _tasks = new();
+        public Exception? Failure;
+        public bool PretendInline;
+        public bool RefuseInline;
+        public int Count => _tasks.Count;
+        protected override void QueueTask(Task task)
+        {
+            if (Failure is not null) throw Failure;
+            _tasks.Enqueue(task);
+        }
+        protected override IEnumerable<Task> GetScheduledTasks() => _tasks.ToArray();
+        protected override bool TryExecuteTaskInline(Task task, bool taskWasPreviouslyQueued) =>
+            PretendInline || !RefuseInline && TryExecuteTask(task);
+        public bool Execute(Task task) => TryExecuteTask(task);
+        public void Drain()
+        {
+            while (_tasks.Count > 0) TryExecuteTask(_tasks.Dequeue());
+        }
+    }
+
+    private sealed class ManualContext : SynchronizationContext
+    {
+        private readonly Queue<Action> _callbacks = new();
+        public int Count => _callbacks.Count;
+        public override void Post(SendOrPostCallback callback, object? state) => _callbacks.Enqueue(() => callback(state));
+        public void Drain()
+        {
+            while (_callbacks.Count > 0) _callbacks.Dequeue()();
+        }
+    }
+}

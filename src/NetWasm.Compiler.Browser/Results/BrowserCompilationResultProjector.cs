@@ -33,6 +33,7 @@ internal sealed class BrowserCompilationResultProjector : IBrowserCompilationRes
         {
             NativeImports = result.NativeImports,
             NativeCallbackSupport = result.NativeCallbackSupport,
+            DiagnosticArtifacts = result.DiagnosticArtifacts,
         };
     }
 }

@@ -1,0 +1,33 @@
+package netwasm:test-resource@1.0.0;
+
+interface host-handles {
+    resource host-counter {
+        constructor(initial: u32);
+        get: func() -> u32;
+        add: func(delta: u32);
+    }
+
+    inspect: func(value: borrow<host-counter>) -> u32;
+    consume: func(value: own<host-counter>) -> u32;
+    make: func(initial: u32) -> own<host-counter>;
+}
+
+interface guest-handles {
+    resource counter {
+        constructor(initial: u32);
+        get: func() -> u32;
+        add: func(delta: u32);
+    }
+
+    inspect: func(value: borrow<counter>) -> u32;
+    consume: func(value: own<counter>) -> u32;
+    make: func(initial: u32) -> own<counter>;
+    exercise-host: func(initial: u32) -> u32;
+    guest-resource-live: func() -> u32;
+    guest-resource-disposed: func() -> u32;
+}
+
+world test-resource {
+    import host-handles;
+    export guest-handles;
+}

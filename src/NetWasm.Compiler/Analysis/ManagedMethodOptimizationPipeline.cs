@@ -18,6 +18,7 @@ internal sealed class ManagedMethodOptimizationPipeline(
     ISimpleValueTypeAccessorCanonicalizer accessors,
     IArrayBoundsCheckEliminator arrayBounds,
     IArrayLoopUnroller unroller,
+    IRepeatedArrayAccessEliminator repeatedAccesses,
     IExactReceiverDevirtualizer devirtualizer,
     IMethodSpecializer allocations) : IManagedMethodOptimizer
 {
@@ -36,6 +37,8 @@ internal sealed class ManagedMethodOptimizationPipeline(
     private readonly IArrayBoundsCheckEliminator _arrayBounds = arrayBounds ??
         throw new ArgumentNullException(nameof(arrayBounds));
     private readonly IArrayLoopUnroller _unroller = unroller ?? throw new ArgumentNullException(nameof(unroller));
+    private readonly IRepeatedArrayAccessEliminator _repeatedAccesses = repeatedAccesses ??
+        throw new ArgumentNullException(nameof(repeatedAccesses));
     private readonly IExactReceiverDevirtualizer _devirtualizer = devirtualizer ??
         throw new ArgumentNullException(nameof(devirtualizer));
     private readonly IMethodSpecializer _allocations = allocations ?? throw new ArgumentNullException(nameof(allocations));
@@ -87,6 +90,7 @@ internal sealed class ManagedMethodOptimizationPipeline(
             optimized = _devirtualizer.Rewrite(optimized, ImmutableDictionary<int, ImmutableArray<CliValueKind>>.Empty);
         }
         // Inlined callees leave receivers and allocations that nothing reads.
-        return _unroller.Rewrite(_arrayBounds.Rewrite(_accessors.Canonicalize(_allocations.Rewrite(optimized))));
+        return _repeatedAccesses.Rewrite(
+            _unroller.Rewrite(_arrayBounds.Rewrite(_accessors.Canonicalize(_allocations.Rewrite(optimized)))));
     }
 }

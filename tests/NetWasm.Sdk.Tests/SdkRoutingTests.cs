@@ -683,9 +683,12 @@ public sealed class SdkRoutingTests
             SaveOptions.DisableFormatting);
         Assert.DoesNotContain("NetWasmManagedInliningHints", frontendIdentityContract,
             StringComparison.Ordinal);
+        // Structured diagnostics adds a runtime feature to the core module, so
+        // switching it must recompile rather than reuse the previous module.
         foreach (var value in new[]
                  {
                      "$(_NetWasmCanonicalOptimization)",
+                     "$(NetWasmStructuredDiagnostics)",
                      "$(NetWasmManagedLoopInvariantFieldHoisting)",
                      "$(NetWasmManagedStaticDataViewElimination)",
                      "$(NetWasmManagedBranchPrefixDuplication)",

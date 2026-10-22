@@ -1,0 +1,127 @@
+using System;
+using System.Runtime.CompilerServices;
+using System.Threading;
+
+namespace MonitorContracts;
+
+public static class EntryPoint
+{
+    private static int _stage;
+
+    public static int Trace() => _stage;
+
+    public static int Main()
+    {
+        var result = Run(42);
+        Console.WriteLine(result);
+        return result == 42 ? 0 : 1;
+    }
+
+    public static int Run(int input)
+    {
+        _stage = 1;
+        var first = new EqualReference();
+        var second = new EqualReference();
+        Check(!Monitor.IsEntered(first));
+        Monitor.Enter(first);
+        Monitor.Enter(first);
+        Monitor.Enter(second);
+        Check(Monitor.IsEntered(first) && Monitor.IsEntered(second));
+        Monitor.Exit(first);
+        Check(Monitor.IsEntered(first));
+        Monitor.Exit(first);
+        Check(!Monitor.IsEntered(first) && Monitor.IsEntered(second));
+        Monitor.Exit(second);
+        Check(!Monitor.IsEntered(second));
+        Throws<SynchronizationLockException>(() => Monitor.Exit(first));
+
+        _stage = 2;
+        var gate = new object();
+        Check(Monitor.TryEnter(gate));
+        Monitor.Exit(gate);
+        var taken = false;
+        Monitor.TryEnter(gate, ref taken);
+        Check(taken);
+        Monitor.Exit(gate);
+        Check(Monitor.TryEnter(gate, 0));
+        Monitor.Exit(gate);
+        Check(Monitor.TryEnter(gate, Timeout.Infinite));
+        Monitor.Exit(gate);
+        taken = false;
+        Monitor.TryEnter(gate, 1, ref taken);
+        Check(taken);
+        Monitor.Exit(gate);
+        Check(Monitor.TryEnter(gate, TimeSpan.Zero));
+        Monitor.Exit(gate);
+        Check(Monitor.TryEnter(gate, TimeSpan.FromTicks(-1)));
+        Monitor.Exit(gate);
+        taken = false;
+        Monitor.TryEnter(gate, TimeSpan.FromMilliseconds(1), ref taken);
+        Check(taken);
+        Monitor.Exit(gate);
+
+        _stage = 3;
+        var alreadyTaken = true;
+        Throws<ArgumentException>(() => Monitor.Enter(gate, ref alreadyTaken));
+        Throws<ArgumentException>(() => Monitor.TryEnter(gate, ref alreadyTaken));
+        taken = false;
+        Throws<ArgumentNullException>(() => Monitor.Enter(null!, ref taken));
+        Check(!taken);
+        Throws<ArgumentOutOfRangeException>(() => Monitor.TryEnter(gate, -2));
+        Throws<ArgumentOutOfRangeException>(() =>
+            Monitor.TryEnter(gate, TimeSpan.FromMilliseconds(-2)));
+        Throws<ArgumentOutOfRangeException>(() =>
+            Monitor.TryEnter(gate, TimeSpan.FromMilliseconds((double)int.MaxValue + 1)));
+
+        _stage = 4;
+        FinalizedGate.Count = 0;
+        AcquireAndRelease();
+        for (var i = 0; i < 4; i++)
+        {
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+        }
+        Check(FinalizedGate.Count == 1);
+        _stage = 5;
+        return input;
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static void AcquireAndRelease()
+    {
+        var gate = new FinalizedGate();
+        Monitor.Enter(gate);
+        Monitor.Exit(gate);
+    }
+
+    private static void Check(bool condition)
+    {
+        if (!condition)
+            throw new InvalidOperationException("Monitor contract failed.");
+    }
+
+    private static void Throws<T>(Action action) where T : Exception
+    {
+        try
+        {
+            action();
+        }
+        catch (T)
+        {
+            return;
+        }
+        throw new InvalidOperationException("Expected Monitor failure was not raised.");
+    }
+
+    private sealed class EqualReference
+    {
+        public override bool Equals(object? obj) => obj is EqualReference;
+        public override int GetHashCode() => 1;
+    }
+
+    private sealed class FinalizedGate
+    {
+        public static int Count;
+        ~FinalizedGate() => Count++;
+    }
+}

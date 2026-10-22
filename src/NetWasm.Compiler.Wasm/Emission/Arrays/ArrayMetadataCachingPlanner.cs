@@ -25,7 +25,8 @@ internal sealed class ArrayMetadataCachingPlanner(
         var loopOffsets = new HashSet<int>();
         var loopEntries = new Dictionary<StructuredBlockId, HashSet<int>>();
         var preTested = new HashSet<StructuredBlockId>();
-        CollectLoopOffsets(method.Body, method, false, loopOffsets, loopEntries, preTested);
+        var nestedLoops = new HashSet<StructuredBlockId>();
+        CollectLoopOffsets(method.Body, method, false, false, loopOffsets, loopEntries, preTested, nestedLoops);
         if (loopOffsets.Count == 0)
         {
             return ArrayMetadataCachingPlan.Empty;
@@ -91,20 +92,41 @@ internal sealed class ArrayMetadataCachingPlanner(
         var entryChecks = hoistNullChecks
             ? EntryNullChecks(method, preTested, selectedAccesses)
             : [];
+        var proof = method.Header.ArrayBoundsProof is { } candidate &&
+            candidate.Describes(method.Header.Instructions, method.Header.Locals, method.Header.LocalSignatureTypes)
+            ? candidate
+            : null;
+        // Method entry snapshots an argument, which holds while it is never stored.
+        var unstoredArguments = selected.Where(slot => slot.IsArgument).ToHashSet();
+        foreach (var instruction in method.Header.Instructions)
+        {
+            if (instruction.Operation == CilOperation.StoreArgument)
+                unstoredArguments.Remove(new(true, CilOperandReader.GetIndex(instruction)));
+        }
         return new(
             [.. selected.OrderBy(slot => slot.IsArgument).ThenBy(slot => slot.Index)],
             selectedAccesses)
         {
-            LoopEntries = loopEntries.ToImmutableDictionary(
+            // Candidates are never stored inside a loop, so the snapshot an
+            // enclosing loop's entry takes holds for every loop inside it.
+            LoopEntries = loopEntries.Where(pair => !nestedLoops.Contains(pair.Key)).ToImmutableDictionary(
                 pair => pair.Key,
-                pair => accesses.Where(access => pair.Value.Contains(access.Key) && selected.Contains(access.Value))
+                pair => accesses.Where(access => pair.Value.Contains(access.Key) && selected.Contains(access.Value) &&
+                        !unstoredArguments.Contains(access.Value))
                     .Select(access => access.Value).Distinct()
                     .OrderBy(slot => slot.IsArgument).ThenBy(slot => slot.Index).ToImmutableArray()),
-            EntryNullChecks = entryChecks,
-            // Candidates are never stored inside a loop, so a slot checked on
-            // entry stays non-null for every access in that loop.
+            // An earlier access already proves some of these arrays non-null.
+            EntryNullChecks = entryChecks
+                .Select(pair => KeyValuePair.Create(pair.Key, pair.Value
+                    .Where(check => proof?.ProvesNonNull(check.Offset) != true)
+                    .Select(check => check.Slot).ToImmutableArray()))
+                .Where(pair => !pair.Value.IsEmpty)
+                .ToImmutableDictionary(),
+            // Candidates are never stored inside a loop, so a slot checked or
+            // proven non-null on entry stays non-null for every access in that loop.
             CheckedAccesses = [.. entryChecks.SelectMany(entry => selectedAccesses
-                .Where(access => loopEntries[entry.Key].Contains(access.Key) && entry.Value.Contains(access.Value))
+                .Where(access => loopEntries[entry.Key].Contains(access.Key) &&
+                    entry.Value.Any(check => check.Slot == access.Value))
                 .Select(access => access.Key))],
         };
     }
@@ -131,20 +153,21 @@ internal sealed class ArrayMetadataCachingPlanner(
     // entry can make that check instead: it throws exactly when the first
     // evaluation would. A length read has no other effect, so the next one
     // can move too; an element access may throw something else first.
-    private static ImmutableDictionary<StructuredBlockId, ImmutableArray<ArrayReferenceSlot>> EntryNullChecks(
+    private static ImmutableDictionary<StructuredBlockId, ImmutableArray<(ArrayReferenceSlot Slot, int Offset)>> EntryNullChecks(
         StructuredMethod method,
         HashSet<StructuredBlockId> preTested,
         ImmutableDictionary<int, ArrayReferenceSlot> accesses)
     {
-        var checks = ImmutableDictionary.CreateBuilder<StructuredBlockId, ImmutableArray<ArrayReferenceSlot>>();
+        var checks = ImmutableDictionary.CreateBuilder<StructuredBlockId, ImmutableArray<(ArrayReferenceSlot Slot, int Offset)>>();
         foreach (var condition in preTested)
         {
-            var slots = ImmutableArray.CreateBuilder<ArrayReferenceSlot>();
+            // Each array with the offset of its first access.
+            var slots = ImmutableArray.CreateBuilder<(ArrayReferenceSlot Slot, int Offset)>();
             foreach (var instruction in method.Blocks[condition].Instructions)
             {
                 if (accesses.TryGetValue(instruction.Offset, out var slot))
                 {
-                    if (!slots.Contains(slot)) slots.Add(slot);
+                    if (!slots.Any(check => check.Slot == slot)) slots.Add((slot, instruction.Offset));
                     if (instruction.Operation == CilOperation.LoadArrayLength) continue;
                     break;
                 }
@@ -253,13 +276,17 @@ internal sealed class ArrayMetadataCachingPlanner(
         if (produces) origins.Add(null);
     }
 
+    // `enclosed` is whether a loop with an entry encloses the sequence; loops
+    // inside one are collected into `nestedLoops`.
     private static void CollectLoopOffsets(
         StructuredSequence sequence,
         StructuredMethod method,
         bool repeating,
+        bool enclosed,
         HashSet<int> offsets,
         Dictionary<StructuredBlockId, HashSet<int>> loopEntries,
-        HashSet<StructuredBlockId> preTested)
+        HashSet<StructuredBlockId> preTested,
+        HashSet<StructuredBlockId> nestedLoops)
     {
         foreach (var region in sequence.Regions)
         {
@@ -270,30 +297,30 @@ internal sealed class ArrayMetadataCachingPlanner(
                     break;
                 case StructuredIf conditional:
                     Add(conditional.Condition, repeating);
-                    CollectLoopOffsets(conditional.WhenTrue, method, repeating, offsets, loopEntries, preTested);
-                    CollectLoopOffsets(conditional.WhenFalse, method, repeating, offsets, loopEntries, preTested);
+                    CollectLoopOffsets(conditional.WhenTrue, method, repeating, enclosed, offsets, loopEntries, preTested, nestedLoops);
+                    CollectLoopOffsets(conditional.WhenFalse, method, repeating, enclosed, offsets, loopEntries, preTested, nestedLoops);
                     break;
                 case StructuredLoop { Condition: { } condition } loop:
                     preTested.Add(condition.Block);
                     AddLoop(condition, loop.Body, loop.ContinueBody);
-                    CollectLoopOffsets(loop.ExitBody, method, repeating, offsets, loopEntries, preTested);
+                    CollectLoopOffsets(loop.ExitBody, method, repeating, enclosed, offsets, loopEntries, preTested, nestedLoops);
                     break;
                 case StructuredPostTestLoop loop:
                     AddLoop(loop.Condition, loop.Body, loop.ContinueBody);
-                    CollectLoopOffsets(loop.ExitBody, method, repeating, offsets, loopEntries, preTested);
+                    CollectLoopOffsets(loop.ExitBody, method, repeating, enclosed, offsets, loopEntries, preTested, nestedLoops);
                     break;
                 case StructuredLoop loop:
                     // Like a dispatcher, an unconditional loop has no entry
                     // condition to snapshot metadata before; its body repeats.
-                    CollectLoopOffsets(loop.Body, method, true, offsets, loopEntries, preTested);
+                    CollectLoopOffsets(loop.Body, method, true, enclosed, offsets, loopEntries, preTested, nestedLoops);
                     break;
                 case StructuredSequence nested:
-                    CollectLoopOffsets(nested, method, repeating, offsets, loopEntries, preTested);
+                    CollectLoopOffsets(nested, method, repeating, enclosed, offsets, loopEntries, preTested, nestedLoops);
                     break;
                 case StructuredDispatcher dispatcher:
                     foreach (var block in dispatcher.Blocks) Add(block.Occurrence, true);
                     foreach (var exit in dispatcher.Exits)
-                        CollectLoopOffsets(exit.Body, method, repeating, offsets, loopEntries, preTested);
+                        CollectLoopOffsets(exit.Body, method, repeating, enclosed, offsets, loopEntries, preTested, nestedLoops);
                     break;
             }
         }
@@ -309,9 +336,10 @@ internal sealed class ArrayMetadataCachingPlanner(
             StructuredSequence body,
             StructuredSequence continuation)
         {
+            if (enclosed) nestedLoops.Add(condition.Block);
             var current = method.Blocks[condition.Block].Instructions.Select(value => value.Offset).ToHashSet();
-            CollectLoopOffsets(body, method, true, current, loopEntries, preTested);
-            CollectLoopOffsets(continuation, method, true, current, loopEntries, preTested);
+            CollectLoopOffsets(body, method, true, true, current, loopEntries, preTested, nestedLoops);
+            CollectLoopOffsets(continuation, method, true, true, current, loopEntries, preTested, nestedLoops);
             offsets.UnionWith(current);
             if (loopEntries.TryGetValue(condition.Block, out var existing)) existing.UnionWith(current);
             else loopEntries.Add(condition.Block, current);

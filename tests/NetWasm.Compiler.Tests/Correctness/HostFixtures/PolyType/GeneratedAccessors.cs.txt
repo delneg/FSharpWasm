@@ -1,0 +1,163 @@
+// Actual PolyType generator output at 5e39fd42766edaafe6d6a39b4cdfcec4b3f539a7.
+// Upstream: https://github.com/AArnott/PolyType (MIT).
+// Fifteen extern declarations below are unchanged slices from four generated files.
+// The only generator adjustment removes the SupportsReflectionMetadata condition
+// that replaces externs with throwing bodies. Reflection generation stays disabled.
+// Targets remove only selection attributes. This harness calls the generated externs.
+// Static kinds, generic nested owners and generic struct methods are outside the
+// pinned generator profile; separate compiler regressions cover supported bindings.
+
+public class Secret
+{
+    private Secret(int value) { _field = value; }
+    private int _field;
+    private int Init { get; init; }
+    private ref int Echo(ref int value) { value += _field; return ref value; }
+}
+public class Generic<T> where T : struct
+{
+    private Generic(T value) { Value = value; }
+    private T Value { get; set; }
+    private T Echo(ref T value) => value;
+}
+public class Container
+{
+    public class Nested
+    {
+        private Nested(int value) { Value = value; }
+        private int Value { get; set; }
+    }
+}
+public struct ValueSecret
+{
+    private ValueSecret(int value) { _field = value; }
+    private int _field;
+    private int Add(int value) => _field + value;
+}
+
+
+// Generated source: PolyType.SourceGenerator.TypeShapeProvider.Secret.g.cs, lines 212-225.
+// Source SHA256: 11d6abce8fdadbc7314ed054eef68189d2d6a0d859c891e8f48bf7f85a0ce37c
+namespace PolyType.SourceGenerator
+{
+    internal sealed partial class TypeShapeProvider_App
+    {
+        [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Method, Name = "Echo")]
+        private static extern ref int __MethodAccessor_Secret_0_Echo(global::Secret target, ref int value);
+
+        [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "_field")]
+        private static extern ref int __FieldAccessor_Secret__field(global::Secret obj);
+
+        [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Method, Name = "get_Init")]
+        private static extern int __GetAccessor_Secret_Init(global::Secret obj);
+
+        [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Method, Name = "set_Init")]
+        private static extern void __SetAccessor_Secret_Init(global::Secret obj, int value);
+
+        [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Constructor)]
+        private static extern global::Secret __CtorAccessor_Secret(int value);
+    }
+}
+
+// Generated source: PolyType.SourceGenerator.TypeShapeProvider.Generic_Int32.g.cs, lines 146-160.
+// Source SHA256: e13e0c819dce4c80327a5f40b50d54762be19e1811e5227d0042b16b6d231e74
+namespace PolyType.SourceGenerator
+{
+    internal sealed partial class TypeShapeProvider_App
+    {
+        private static class __GenericAccessors_Generic_Int32_0<T>
+            where T : struct
+        {
+            [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Method, Name = "Echo")]
+            public static extern T __MethodAccessor_Generic_Int32_0_Echo(global::Generic<T> target, ref T value);
+
+            [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Method, Name = "get_Value")]
+            public static extern T __GetAccessor_Generic_Int32_Value(global::Generic<T> obj);
+
+            [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Method, Name = "set_Value")]
+            public static extern void __SetAccessor_Generic_Int32_Value(global::Generic<T> obj, T value);
+
+            [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Constructor)]
+            public static extern global::Generic<T> __CtorAccessor_Generic_Int32(T value);
+        }
+    }
+}
+
+// Generated source: PolyType.SourceGenerator.TypeShapeProvider.Nested.g.cs, lines 96-103.
+// Source SHA256: 32acfc2b99701869522002c923e4cfd2261887706d4be0ca427c736d29b6d8e5
+namespace PolyType.SourceGenerator
+{
+    internal sealed partial class TypeShapeProvider_App
+    {
+        [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Method, Name = "get_Value")]
+        private static extern int __GetAccessor_Nested_Value(global::Container.Nested obj);
+
+        [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Method, Name = "set_Value")]
+        private static extern void __SetAccessor_Nested_Value(global::Container.Nested obj, int value);
+
+        [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Constructor)]
+        private static extern global::Container.Nested __CtorAccessor_Nested(int value);
+    }
+}
+
+// Generated source: PolyType.SourceGenerator.TypeShapeProvider.ValueSecret.g.cs, lines 169-176.
+// Source SHA256: db0a7db0850de8e170cd3a8a1eec6a1b07ebbd2ae5602638c678604ca4c65756
+namespace PolyType.SourceGenerator
+{
+    internal sealed partial class TypeShapeProvider_App
+    {
+        [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Method, Name = "Add")]
+        private static extern int __MethodAccessor_ValueSecret_0_Add(ref global::ValueSecret target, int value);
+
+        [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "_field")]
+        private static extern ref int __FieldAccessor_ValueSecret__field(ref global::ValueSecret obj);
+
+        [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Constructor)]
+        private static extern global::ValueSecret __CtorAccessor_ValueSecret(int value);
+    }
+}
+
+namespace PolyType.SourceGenerator
+{
+    internal sealed partial class TypeShapeProvider_App
+    {
+        internal static int Run()
+        {
+            var mask = 0;
+            var secret = __CtorAccessor_Secret(5);
+            if (__FieldAccessor_Secret__field(secret) == 5) mask |= 1;
+            __FieldAccessor_Secret__field(secret) = 11;
+            if (__FieldAccessor_Secret__field(secret) == 11) mask |= 2;
+            __SetAccessor_Secret_Init(secret, 7);
+            if (__GetAccessor_Secret_Init(secret) == 7) mask |= 4;
+            var input = 3;
+            ref int result = ref __MethodAccessor_Secret_0_Echo(secret, ref input);
+            if (result == 14 && input == 14) mask |= 8;
+            result = 17;
+            if (input == 17) mask |= 16;
+            var generic = __GenericAccessors_Generic_Int32_0<int>.__CtorAccessor_Generic_Int32(19);
+            var before = __GenericAccessors_Generic_Int32_0<int>.__GetAccessor_Generic_Int32_Value(generic) == 19;
+            __GenericAccessors_Generic_Int32_0<int>.__SetAccessor_Generic_Int32_Value(generic, 23);
+            if (before && __GenericAccessors_Generic_Int32_0<int>.__GetAccessor_Generic_Int32_Value(generic) == 23 &&
+                __GenericAccessors_Generic_Int32_0<int>.__MethodAccessor_Generic_Int32_0_Echo(generic, ref input) == 17) mask |= 32;
+            var nested = __CtorAccessor_Nested(31);
+            var nestedBefore = __GetAccessor_Nested_Value(nested) == 31;
+            __SetAccessor_Nested_Value(nested, 37);
+            if (nestedBefore && __GetAccessor_Nested_Value(nested) == 37) mask |= 64;
+            var structure = __CtorAccessor_ValueSecret(6);
+            var structBefore = __MethodAccessor_ValueSecret_0_Add(ref structure, 4) == 10;
+            __FieldAccessor_ValueSecret__field(ref structure) = 8;
+            if (structBefore && __MethodAccessor_ValueSecret_0_Add(ref structure, 4) == 12) mask |= 128;
+            return mask;
+        }
+    }
+}
+
+namespace PolyTypeGeneratedAccessors
+{
+    public static class EntryPoint
+    {
+        public static int Trace() => 0;
+        public static int Run(int input) => PolyType.SourceGenerator.TypeShapeProvider_App.Run();
+    }
+}

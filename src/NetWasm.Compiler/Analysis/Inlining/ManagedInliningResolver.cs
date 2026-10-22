@@ -17,7 +17,8 @@ internal sealed class ManagedInliningResolver(
     ManagedMethodInliningPolicy policy,
     IMethodInitializationTriggerClassifier initializationTriggers,
     IRuntimeIntrinsicRegistry intrinsics,
-    int smallBodyInstructionLimit) : IManagedInliningResolver
+    int smallBodyInstructionLimit,
+    int leafBodyInstructionLimit) : IManagedInliningResolver
 {
     private readonly IMethodBodyReader _methodBodies = methodBodies ??
         throw new ArgumentNullException(nameof(methodBodies));
@@ -40,6 +41,9 @@ internal sealed class ManagedInliningResolver(
     private readonly int _smallBodyInstructionLimit = smallBodyInstructionLimit >= 0
         ? smallBodyInstructionLimit
         : throw new ArgumentOutOfRangeException(nameof(smallBodyInstructionLimit));
+    private readonly int _leafBodyInstructionLimit = leafBodyInstructionLimit >= 0
+        ? leafBodyInstructionLimit
+        : throw new ArgumentOutOfRangeException(nameof(leafBodyInstructionLimit));
     // Whether a callee qualifies depends only on the callee, so each is examined once.
     private readonly ConcurrentDictionary<string, Candidate?> _candidates = new(StringComparer.Ordinal);
 
@@ -47,6 +51,15 @@ internal sealed class ManagedInliningResolver(
     // eight instructions. O3 trades size for speed, and sixteen measured faster
     // under Wasmtime than eight.
     internal const int SmallBodyInstructionLimit = 16;
+
+    // .NET's JIT also inlines larger callees when inlining pays. A straight-line
+    // leaf called inside a loop pays: it makes no calls, so inlining it removes the
+    // loop's call and lets the loop keep values in registers, and without branches
+    // it leaves the loop in the shape bounds-check elimination recognizes. Outside
+    // a loop the call runs once, and the extra code only raises the register
+    // pressure of the rest of its caller. A tuple swap of two array elements is
+    // seventeen instructions.
+    internal const int LeafBodyInstructionLimit = 32;
 
     public ManagedInliningPlan? Resolve(ManagedInliningRequest request)
     {
@@ -74,6 +87,7 @@ internal sealed class ManagedInliningResolver(
         // allocating initializer put that cold path into every caller.
         if (candidate is null ||
             !(candidate.Small && !(request.Nested && candidate.Allocates) ||
+              candidate.Leaf && request.InLoop ||
               (request.Nested ? method.Definition.IsAggressiveInlining : candidate.Priority)) ||
             // A callvirt checks its receiver for null before the callee runs.
             !method.Definition.IsStatic && request.Call.Operation == CilOperation.CallVirtual &&
@@ -98,13 +112,26 @@ internal sealed class ManagedInliningResolver(
             ? IsPriorityCandidate(method, body)
             : method.Definition.IsAggressiveInlining || IsReferenceFieldAccessor(body);
         var small = IsSmall(body);
-        return priority || small
-            ? new(new(method, body) { InstructionEntryStacks = _bodyValidator.Validate(body) }, priority, small,
+        var leaf = IsLeaf(body);
+        return priority || small || leaf
+            ? new(new(method, body) { InstructionEntryStacks = _bodyValidator.Validate(body) }, priority, small, leaf,
                 Enumerable.Range(0, body.Instructions.Length).Any(index => Allocates(body, index)))
             : null;
     }
 
-    private sealed record Candidate(ManagedInliningPlan Plan, bool Priority, bool Small, bool Allocates);
+    private sealed record Candidate(ManagedInliningPlan Plan, bool Priority, bool Small, bool Leaf, bool Allocates);
+
+    // A straight-line leaf makes no calls, not even to methods the compiler
+    // replaces, since some of those allocate. It does not branch, allocate or
+    // throw: without a branch a throw is unconditional, and inlining a throw
+    // helper puts its cold path into every caller, as .NET's JIT avoids.
+    private bool IsLeaf(CilMethodBody body) =>
+        body.Instructions.Count(static instruction => instruction.Operation != CilOperation.Nop) <= _leafBodyInstructionLimit &&
+        Enumerable.Range(0, body.Instructions.Length).All(index =>
+            body.Instructions[index].Operation is not (
+                CilOperation.Call or CilOperation.CallVirtual or CilOperation.NewObject or CilOperation.Throw) &&
+            !Allocates(body, index) &&
+            body.Instructions[index].Operand is not (CilOperand.BranchTarget or CilOperand.SwitchTargets));
 
     // A wrapper of a large explicit priority callee is as large as that callee
     // once the priority tier composes it, so it does not count as small. A

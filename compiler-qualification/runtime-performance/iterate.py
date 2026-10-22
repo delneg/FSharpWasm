@@ -51,7 +51,7 @@ FUNCTIONS = {
     'short-copies': 'Scenarios::ShortCopies',
     'integer-formatting': 'Scenarios::IntegerFormatting',
     'nbody': 'NBody::Advance',
-    'sort': 'Sorting::Run',
+    'sort': 'Sorting::Sort',
     'crc32': 'Crc32::Run',
 }
 

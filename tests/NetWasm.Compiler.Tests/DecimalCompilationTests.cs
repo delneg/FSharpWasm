@@ -351,11 +351,13 @@ public sealed class DecimalCompilationTests
         Assert.Equal(4, ssa.Lanes.Length);
         Assert.Equal(32, ssa.Definitions.Length);
         // The inlined decimal.Scale reads are lane accesses, not calls that
-        // need the aggregate materialized.
-        Assert.Equal(27, ssa.Accesses.Count);
+        // need the aggregate materialized. Inlined helpers read the caller's
+        // decimal argument in place rather than a spilled copy, which saves
+        // two accesses, nine edge copies and two materializations.
+        Assert.Equal(25, ssa.Accesses.Count);
         Assert.Equal(14, ssa.Phis.Length);
-        Assert.Equal(55, ssa.EdgeCopies.Length);
-        Assert.Equal(5, ssa.Materializations.Length);
+        Assert.Equal(46, ssa.EdgeCopies.Length);
+        Assert.Equal(3, ssa.Materializations.Length);
         Assert.Empty(ssa.RootDependencies);
         Assert.Contains(ssa.Accesses.Values, access => !access.Writes.IsEmpty);
         Assert.Equal(42, ExecuteWithNode(

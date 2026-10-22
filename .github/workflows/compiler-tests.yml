@@ -1,8 +1,9 @@
 name: Compiler tests
 
 # The compiler test shards that CI and the release workflow share. CI narrows the
-# corpus to the Fast profile; the release leaves the profile empty, so every
-# corpus fixture runs its declared matrix, as eng/test.sh does.
+# corpus to the Fast profile and the tests to the pull request tier; the release
+# leaves both empty, so every compiler test runs and every corpus fixture runs its
+# declared matrix, as eng/test.sh does.
 on:
   workflow_call:
     inputs:
@@ -22,6 +23,14 @@ on:
         description: Compiler test timing history that balances the shards.
         type: string
         required: true
+      classes:
+        description: File listing the test classes to run, one per line; empty runs every compiler test.
+        type: string
+        default: ''
+      coverage:
+        description: Collect each shard's Coverlet JSON report as an artifact.
+        type: boolean
+        default: false
       timeout-minutes:
         type: number
         required: true
@@ -152,6 +161,8 @@ jobs:
         shell: bash
         env:
           CORPUS_PROFILE: ${{ inputs.corpus-profile }}
+          TEST_CLASSES: ${{ inputs.classes }}
+          COVERAGE: ${{ inputs.coverage }}
           NETWASM_CORPUS_RECEIPTS: ${{ runner.temp }}/compiler-qualification/linked-receipts
           NETWASM_COMPATIBILITY_REFERENCE_ROOT: ${{ runner.temp }}/compiler-qualification/compatibility-references
           NETWASM_EMSDK_ROOT: ${{ runner.temp }}/emsdk
@@ -168,16 +179,37 @@ jobs:
           listing="$RUNNER_TEMP/compiler-tests.list"
           dotnet test "$project" -c Release --no-build --no-restore \
             --disable-build-servers --nologo --list-tests > "$listing"
+          selection=()
+          if [[ -n "$TEST_CLASSES" ]]; then
+            selection=(--classes "$TEST_CLASSES")
+          fi
           filter="$(
             python3 eng/create-compiler-test-shard-filter.py "$listing" \
               --shard-count '${{ strategy.job-total }}' \
               --shard-index '${{ strategy.job-index }}' \
-              --timings '${{ inputs.timings }}'
+              --timings '${{ inputs.timings }}' "${selection[@]}"
           )"
+          collection=()
+          if [[ "$COVERAGE" == true ]]; then
+            collection=(--collect "XPlat Code Coverage" --
+              DataCollectionRunSettings.DataCollectors.DataCollector.Configuration.Format=json)
+          fi
           dotnet test "$project" -c Release --no-build --no-restore \
             --disable-build-servers --nologo --filter "$filter" \
             --results-directory "$RUNNER_TEMP/compiler-test-results" \
-            --logger "trx;LogFileName=compiler-${{ strategy.job-index }}.trx"
+            --logger "trx;LogFileName=compiler-${{ strategy.job-index }}.trx" "${collection[@]}"
+          if [[ "$COVERAGE" == true && '${{ strategy.job-index }}' == 0 ]]; then
+            # The other compiler test projects complete the coverage baseline, as in eng/test.sh.
+            units="$RUNNER_TEMP/compiler-test-results/units/coverage.json"
+            for unit in Core Metadata Browser ControlFlow GarbageCollection Wasm ComponentModel Cli Tasks; do
+              arguments=(-c Release --disable-build-servers --nologo /p:CollectCoverage=true
+                /p:CoverletOutput="$units" /p:CoverletOutputFormat=json)
+              if [[ -f "$units" ]]; then
+                arguments+=(/p:MergeWith="$units")
+              fi
+              dotnet test "tests/NetWasm.Compiler.$unit.Tests/NetWasm.Compiler.$unit.Tests.csproj" "${arguments[@]}"
+            done
+          fi
       - name: Retain compiler test timings
         if: always()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
@@ -185,4 +217,12 @@ jobs:
           name: ${{ inputs.artifact-prefix }}-${{ strategy.job-index }}
           path: ${{ runner.temp }}/compiler-test-results/*.trx
           if-no-files-found: warn
+          retention-days: 14
+      - name: Retain compiler test coverage
+        if: inputs.coverage
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: ${{ inputs.artifact-prefix }}-coverage-${{ strategy.job-index }}
+          path: ${{ runner.temp }}/compiler-test-results/*/coverage.json
+          if-no-files-found: error
           retention-days: 14

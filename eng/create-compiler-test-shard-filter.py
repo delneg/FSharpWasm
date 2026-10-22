@@ -49,6 +49,45 @@ def parse_test_cases(
     return cases
 
 
+def load_class_list(path: Path) -> frozenset[str]:
+    """Reads one fully qualified test class per line; # starts a comment."""
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except (OSError, UnicodeError) as error:
+        raise ValueError(f"Cannot read the test class list: {error}") from error
+    classes = [line.strip() for line in lines if line.strip() and not line.lstrip().startswith("#")]
+    if not classes:
+        raise ValueError("The test class list names no classes.")
+    if len(set(classes)) != len(classes):
+        raise ValueError("The test class list names a class more than once.")
+    return frozenset(classes)
+
+
+def select_classes(
+    test_cases: dict[str, list[str]], classes: frozenset[str]
+) -> dict[str, list[str]]:
+    """Keeps the tests of the listed classes, including their nested classes.
+
+    A listed class without discovered tests is an error, so the list cannot
+    silently go stale when a class is renamed or removed.
+    """
+    selected: dict[str, list[str]] = {}
+    matched: set[str] = set()
+    for method_name, cases in test_cases.items():
+        declaring_class = method_name.rsplit(".", 1)[0].split("+", 1)[0]
+        if declaring_class in classes:
+            selected[method_name] = cases
+            matched.add(declaring_class)
+    missing = sorted(classes - matched)
+    if missing:
+        raise ValueError(
+            "The test class list names classes with no discovered tests: "
+            + ", ".join(missing[:5])
+            + (f" and {len(missing) - 5} more" if len(missing) > 5 else "")
+        )
+    return selected
+
+
 def parse_test_method_counts(lines: list[str]) -> Counter[str]:
     return Counter({
         method_name: len(display_names)
@@ -272,6 +311,8 @@ def main() -> int:
     parser.add_argument("--shard-count", type=int, required=True)
     parser.add_argument("--shard-index", type=int, required=True)
     parser.add_argument("--timings", type=Path)
+    # Pull request CI runs a listed tier of classes; the release runs every test.
+    parser.add_argument("--classes", type=Path)
     # Other test projects shard the same way by their own namespace.
     parser.add_argument("--namespace", default=TEST_NAMESPACE)
     parser.add_argument(
@@ -288,6 +329,8 @@ def main() -> int:
         test_cases = parse_test_cases(
             args.test_listing.read_text(encoding="utf-8").splitlines(), args.namespace
         )
+        if args.classes is not None:
+            test_cases = select_classes(test_cases, load_class_list(args.classes))
         method_counts = Counter({name: len(cases) for name, cases in test_cases.items()})
         weights = None
         case_weights: dict[str, float] = {}

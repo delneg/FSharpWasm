@@ -425,6 +425,87 @@ public sealed class ArrayMetadataCachingPlannerTests
     }
 
     [Fact]
+    public void LoopsInsideAnotherLoopUseItsEntrySnapshot()
+    {
+        var method = Create(false);
+        var inner = new StructuredLoop(new(new(0), StructuredBlockRole.Owner), true,
+            StructuredSequence.Empty, StructuredSequence.Empty, StructuredSequence.Empty);
+        method = method with
+        {
+            Body = new([new StructuredLoop(new(new(1), StructuredBlockRole.Owner), true,
+                new([inner]), StructuredSequence.Empty, StructuredSequence.Empty)]),
+        };
+
+        var plan = new ArrayMetadataCachingPlanner(new Arguments()).Plan(method, true, true);
+
+        // Neither slot is stored inside the outer loop, so its entry snapshot
+        // holds for the inner one, which still checks its condition's array.
+        Assert.Equal([new ArrayReferenceSlot(false, 0), new ArrayReferenceSlot(false, 1)], plan.Slots.ToArray());
+        Assert.Equal(plan.Slots.ToArray(), plan.LoopEntries[new(1)].ToArray());
+        Assert.False(plan.LoopEntries.ContainsKey(new(0)));
+        Assert.Equal([new ArrayReferenceSlot(false, 0)], plan.EntryNullChecks[new(0)].ToArray());
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void AnArgumentNeverStoredKeepsItsMethodEntrySnapshot(bool stored)
+    {
+        var method = WithOutsideInstructions(stored
+            ? [Step(CilOperation.LoadNull, new CilOperand.None()),
+                Step(CilOperation.StoreArgument, new CilOperand.Index(0), CliValueKind.ManagedReference)]
+            : [Step(CilOperation.Nop, new CilOperand.None())]);
+        var load = method.Header.Instructions[0] with { Operation = CilOperation.LoadArgument };
+        method = method with
+        {
+            Header = method.Header with
+            {
+                Method = method.Header.Method with
+                {
+                    Signature = MethodSignatureModel.Create(CliValueKind.I4) with
+                    {
+                        ParameterTypes = [CliValueKind.ManagedReference],
+                        ParameterSignatureTypes = [method.Header.LocalSignatureTypes[0]],
+                    },
+                },
+                Instructions = method.Header.Instructions.SetItem(0, load),
+            },
+            Blocks = method.Blocks.SetItem(new(0), method.Blocks[new(0)] with
+            {
+                Instructions = method.Blocks[new(0)].Instructions.SetItem(0, load),
+            }),
+        };
+
+        var plan = new ArrayMetadataCachingPlanner(new Arguments()).Plan(method, true);
+
+        Assert.Equal([new ArrayReferenceSlot(true, 0)], plan.Slots.ToArray());
+        Assert.Equal(stored ? plan.Slots.ToArray() : [], plan.LoopEntries[new(0)].ToArray());
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void AnEntryNullCheckAnEarlierAccessProvesIsNotEmitted(bool stale)
+    {
+        var method = Create(false);
+        var header = method.Header;
+        method = method with
+        {
+            Header = header with
+            {
+                ArrayBoundsProof = new(stale ? [.. header.Instructions] : header.Instructions, header.Locals,
+                    header.LocalSignatureTypes, [])
+                { NonNullOffsets = [1] },
+            },
+        };
+
+        var plan = new ArrayMetadataCachingPlanner(new Arguments()).Plan(method, true, true);
+
+        Assert.Equal(stale, plan.EntryNullChecks.ContainsKey(new(0)));
+        Assert.Equal([1], plan.CheckedAccesses.ToArray());
+    }
+
+    [Fact]
     public void DisabledPolicyHasNoEntryRefreshes() => Assert.Empty(
         new ArrayMetadataCachingPlanner(new Arguments()).Plan(Create(false), false).LoopEntries);
 

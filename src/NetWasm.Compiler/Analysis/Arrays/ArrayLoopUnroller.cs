@@ -21,8 +21,7 @@ internal sealed class ArrayLoopUnroller(
         ArgumentNullException.ThrowIfNull(body);
         if (!enabled) return body;
         var proof = body.ArrayBoundsProof;
-        if (proof is null || proof.Instructions != body.Instructions || proof.Locals != body.Locals ||
-            proof.LocalSignatureTypes != body.LocalSignatureTypes) return body;
+        if (proof is null || !proof.Describes(body.Instructions, body.Locals, body.LocalSignatureTypes)) return body;
         var plans = _planner.Plan(_stacks.Validate(_graphs.Build(body)));
         if (plans.IsEmpty) return body;
 

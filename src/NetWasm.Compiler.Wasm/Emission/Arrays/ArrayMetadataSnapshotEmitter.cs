@@ -17,8 +17,10 @@ internal sealed class ArrayMetadataSnapshotEmitter(
     {
         ArgumentNullException.ThrowIfNull(code);
         ArgumentNullException.ThrowIfNull(context);
-        if (!context.ArrayMetadata.Plan.LoopEntries.TryGetValue(loopCondition, out var slots)) return;
-        foreach (var slot in slots) Emit(code, context, slot);
+        if (context.ArrayMetadata.Plan.LoopEntries.TryGetValue(loopCondition, out var slots))
+        {
+            foreach (var slot in slots) Emit(code, context, slot);
+        }
         if (!context.ArrayMetadata.Plan.EntryNullChecks.TryGetValue(loopCondition, out var checks)) return;
         // The loop's condition would make these checks first on its first evaluation.
         foreach (var slot in checks)

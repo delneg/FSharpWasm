@@ -1,0 +1,523 @@
+using System;
+using System.Collections.Generic;
+using System.Threading;
+using System.Threading.Tasks;
+using System.Threading.Tasks.Sources;
+
+namespace TaskSchedulerAwaitContracts;
+
+public static class EntryPoint
+{
+    private static int _stage;
+    private static int _retentionCalls;
+    private static Task? _retainedSource;
+    private static object? _retainedDestination;
+    private static WeakReference? _capturedContextPayload;
+    private static WeakReference? _delegatePayload;
+
+    public static int Trace() => _stage;
+
+    public static int Main()
+    {
+        Console.WriteLine(RunReactor(42));
+        return 0;
+    }
+
+    public static int Run(int input) => RunReactor(input);
+
+    public static int RunReactor(int input)
+    {
+        var first = new ManualScheduler();
+        var second = new ManualScheduler();
+        var ambient = new AsyncLocal<int>();
+
+        _stage = 1;
+        var source = new TaskCompletionSource<int>();
+        var safeCalls = 0;
+        var register = new Task(() =>
+        {
+            ambient.Value = 17;
+            source.Task.GetAwaiter().OnCompleted(() =>
+            {
+                Check(TaskScheduler.Current == first);
+                Check(ambient.Value == 17);
+                safeCalls++;
+            });
+        });
+        register.RunSynchronously(first);
+        register.GetAwaiter().GetResult();
+        ambient.Value = 23;
+        var complete = new Task(() => source.SetResult(input));
+        complete.RunSynchronously(second);
+        complete.GetAwaiter().GetResult();
+        Check(safeCalls == 0 && first.Count == 1 && second.Count == 0);
+        first.Drain();
+        Check(safeCalls == 1 && ambient.Value == 23);
+
+        _stage = 2;
+        var unsafeSource = new TaskCompletionSource<int>();
+        var unsafeCalls = 0;
+        var unsafeRegister = new Task(() =>
+        {
+            ambient.Value = 31;
+            unsafeSource.Task.GetAwaiter().UnsafeOnCompleted(() =>
+            {
+                Check(TaskScheduler.Current == first);
+                Check(ambient.Value == 47);
+                unsafeCalls++;
+            });
+        });
+        unsafeRegister.RunSynchronously(first);
+        unsafeRegister.GetAwaiter().GetResult();
+        ambient.Value = 47;
+        unsafeSource.SetResult(input);
+        Check(unsafeCalls == 0 && first.Count == 1);
+        first.Drain();
+        Check(unsafeCalls == 1 && ambient.Value == 47);
+
+        _stage = 3;
+        var context = new ManualContext();
+        var contextSource = new TaskCompletionSource<int>();
+        var contextCalls = 0;
+        var contextRegister = new Task(() =>
+        {
+            var previous = SynchronizationContext.Current;
+            try
+            {
+                SynchronizationContext.SetSynchronizationContext(context);
+                contextSource.Task.GetAwaiter().OnCompleted(() =>
+                {
+                    Check(SynchronizationContext.Current == context);
+                    Check(TaskScheduler.Current == TaskScheduler.Default);
+                    Check(Task.CurrentId == null);
+                    contextCalls++;
+                });
+            }
+            finally
+            {
+                SynchronizationContext.SetSynchronizationContext(previous);
+            }
+        });
+        contextRegister.RunSynchronously(first);
+        contextRegister.GetAwaiter().GetResult();
+        contextSource.SetResult(input);
+        Check(context.Count == 1 && first.Count == 0 && contextCalls == 0);
+        context.Drain();
+        Check(contextCalls == 1);
+
+        _stage = 4;
+        var baseContextSource = new TaskCompletionSource<int>();
+        var baseContextCalls = 0;
+        var baseContextRegister = new Task(() =>
+        {
+            var previous = SynchronizationContext.Current;
+            try
+            {
+                SynchronizationContext.SetSynchronizationContext(new SynchronizationContext());
+                baseContextSource.Task.GetAwaiter().OnCompleted(() =>
+                {
+                    Check(TaskScheduler.Current == first);
+                    baseContextCalls++;
+                });
+            }
+            finally
+            {
+                SynchronizationContext.SetSynchronizationContext(previous);
+            }
+        });
+        baseContextRegister.RunSynchronously(first);
+        baseContextRegister.GetAwaiter().GetResult();
+        baseContextSource.SetResult(input);
+        Check(baseContextCalls == 0 && first.Count == 1);
+        first.Drain();
+        Check(baseContextCalls == 1);
+
+        _stage = 5;
+        var bypassSource = new TaskCompletionSource<int>();
+        var bypassCalls = 0;
+        var bypassRegister = new Task(() =>
+        {
+            var previous = SynchronizationContext.Current;
+            try
+            {
+                SynchronizationContext.SetSynchronizationContext(context);
+                bypassSource.Task.ConfigureAwait(false).GetAwaiter().OnCompleted(() =>
+                {
+                    Check(TaskScheduler.Current == TaskScheduler.Default);
+                    Check(Task.CurrentId == null);
+                    bypassCalls++;
+                });
+            }
+            finally
+            {
+                SynchronizationContext.SetSynchronizationContext(previous);
+            }
+        });
+        bypassRegister.RunSynchronously(first);
+        bypassRegister.GetAwaiter().GetResult();
+        bypassSource.SetResult(input);
+        Check(bypassCalls == 1 && context.Count == 0 && first.Count == 0);
+
+        _stage = 6;
+        var genericSource = new TaskCompletionSource<int>();
+        var genericCalls = 0;
+        var genericRegister = new Task(() =>
+            genericSource.Task.GetAwaiter().OnCompleted(() =>
+            {
+                Check(TaskScheduler.Current == first);
+                Check(genericSource.Task.Result == input);
+                genericCalls++;
+            }));
+        genericRegister.RunSynchronously(first);
+        genericRegister.GetAwaiter().GetResult();
+        genericSource.SetResult(input);
+        Check(genericCalls == 0 && first.Count == 1);
+        first.Drain();
+        Check(genericCalls == 1);
+
+        _stage = 7;
+        var yieldSafeCalls = 0;
+        var yieldUnsafeCalls = 0;
+        var yieldRegister = new Task(() =>
+        {
+            ambient.Value = 59;
+            Task.Yield().GetAwaiter().OnCompleted(() =>
+            {
+                Check(TaskScheduler.Current == first);
+                Check(ambient.Value == 59);
+                yieldSafeCalls++;
+            });
+            ambient.Value = 61;
+            Task.Yield().GetAwaiter().UnsafeOnCompleted(() =>
+            {
+                Check(TaskScheduler.Current == first);
+                // Desktop schedules Yield through an ordinary Task on a custom
+                // scheduler, and that Task captures the registration context.
+                Check(ambient.Value == 61);
+                yieldUnsafeCalls++;
+            });
+        });
+        yieldRegister.RunSynchronously(first);
+        yieldRegister.GetAwaiter().GetResult();
+        Check(first.Count == 2 && yieldSafeCalls == 0 && yieldUnsafeCalls == 0);
+        ambient.Value = 67;
+        first.Drain();
+        Check(yieldSafeCalls == 1 && yieldUnsafeCalls == 1 && ambient.Value == 67);
+
+        _stage = 8;
+        var yieldContextCalls = 0;
+        var previousContext = SynchronizationContext.Current;
+        try
+        {
+            SynchronizationContext.SetSynchronizationContext(context);
+            Task.Yield().GetAwaiter().OnCompleted(() =>
+            {
+                Check(SynchronizationContext.Current == context);
+                Check(TaskScheduler.Current == TaskScheduler.Default);
+                yieldContextCalls++;
+            });
+        }
+        finally
+        {
+            SynchronizationContext.SetSynchronizationContext(previousContext);
+        }
+        Check(context.Count == 1 && yieldContextCalls == 0);
+        context.Drain();
+        Check(yieldContextCalls == 1);
+
+        _stage = 9;
+        var forcedCalls = 0;
+        var forceRegister = new Task(() =>
+            Task.CompletedTask.ConfigureAwait(
+                ConfigureAwaitOptions.ContinueOnCapturedContext |
+                ConfigureAwaitOptions.ForceYielding).GetAwaiter().OnCompleted(() =>
+                {
+                    Check(TaskScheduler.Current == first);
+                    forcedCalls++;
+                }));
+        forceRegister.RunSynchronously(first);
+        forceRegister.GetAwaiter().GetResult();
+        Check(forcedCalls == 0 && first.Count == 1);
+        first.Drain();
+        Check(forcedCalls == 1);
+
+        _stage = 10;
+        var valueSource = new IntValueTaskSource();
+        var valueTask = valueSource.CreateValueTask();
+        var valueCalls = 0;
+        var valueRegister = new Task(() => valueTask.GetAwaiter().OnCompleted(() =>
+        {
+            Check(TaskScheduler.Current == first);
+            Check(valueTask.GetAwaiter().GetResult() == input);
+            valueCalls++;
+        }));
+        valueRegister.RunSynchronously(first);
+        valueRegister.GetAwaiter().GetResult();
+        var valueComplete = new Task(() => valueSource.SetResult(input));
+        valueComplete.RunSynchronously(second);
+        valueComplete.GetAwaiter().GetResult();
+        Check(valueCalls == 0 && first.Count == 1);
+        first.Drain();
+        Check(valueCalls == 1);
+
+        var voidSource = new VoidValueTaskSource();
+        var voidTask = voidSource.CreateValueTask();
+        var voidCalls = 0;
+        var voidRegister = new Task(() => voidTask.GetAwaiter().OnCompleted(() =>
+        {
+            Check(TaskScheduler.Current == first);
+            voidTask.GetAwaiter().GetResult();
+            voidCalls++;
+        }));
+        voidRegister.RunSynchronously(first);
+        voidRegister.GetAwaiter().GetResult();
+        voidSource.SetResult();
+        Check(voidCalls == 0 && first.Count == 1);
+        first.Drain();
+        Check(voidCalls == 1);
+
+        var valueContextSource = new IntValueTaskSource();
+        var valueContextTask = valueContextSource.CreateValueTask();
+        var valueContextCalls = 0;
+        var previousValueContext = SynchronizationContext.Current;
+        try
+        {
+            SynchronizationContext.SetSynchronizationContext(context);
+            valueContextTask.GetAwaiter().OnCompleted(() =>
+            {
+                Check(SynchronizationContext.Current == context);
+                valueContextCalls++;
+            });
+        }
+        finally
+        {
+            SynchronizationContext.SetSynchronizationContext(previousValueContext);
+        }
+        valueContextSource.SetResult(input);
+        Check(valueContextCalls == 0 && context.Count == 1);
+        context.Drain();
+        Check(valueContextCalls == 1);
+
+        var valueBypassSource = new IntValueTaskSource();
+        var valueBypassTask = valueBypassSource.CreateValueTask();
+        var valueBypassCalls = 0;
+        var valueBypassRegister = new Task(() =>
+        {
+            var previous = SynchronizationContext.Current;
+            try
+            {
+                SynchronizationContext.SetSynchronizationContext(context);
+                valueBypassTask.ConfigureAwait(false).GetAwaiter().OnCompleted(() =>
+                {
+                    Check(TaskScheduler.Current == TaskScheduler.Default);
+                    Check(Task.CurrentId == null);
+                    valueBypassCalls++;
+                });
+            }
+            finally
+            {
+                SynchronizationContext.SetSynchronizationContext(previous);
+            }
+        });
+        valueBypassRegister.RunSynchronously(first);
+        valueBypassRegister.GetAwaiter().GetResult();
+        valueBypassSource.SetResult(input);
+        Check(valueBypassCalls == 1 && first.Count == 0 && context.Count == 0);
+
+        _stage = 11;
+        for (var destination = 0; destination != 4; destination++)
+        {
+            CreateCompletedRetainedAwait(destination);
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+            GC.Collect();
+            _stage = 100 + destination * 10 + (_capturedContextPayload!.IsAlive ? 1 : 0) +
+                (_delegatePayload!.IsAlive ? 2 : 0);
+            Check(!_capturedContextPayload!.IsAlive && !_delegatePayload!.IsAlive);
+            Check(_retainedSource is null || _retainedSource.IsCompletedSuccessfully);
+            _retainedSource = null;
+            _retainedDestination = null;
+        }
+        Check(_retentionCalls == 4);
+        _capturedContextPayload = null;
+        _delegatePayload = null;
+
+        Throws<ArgumentNullException>(() => source.Task.GetAwaiter().OnCompleted(null!));
+        Throws<ArgumentNullException>(() => Task.Yield().GetAwaiter().UnsafeOnCompleted(null!));
+        _stage = 12;
+        return input;
+    }
+
+    [System.Runtime.CompilerServices.MethodImpl(
+        System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+    private static void CreateCompletedRetainedAwait(int destination)
+    {
+        var ambient = new AsyncLocal<object?>();
+        var contextPayload = new object();
+        var delegatePayload = new object();
+        _capturedContextPayload = new WeakReference(contextPayload);
+        _delegatePayload = new WeakReference(delegatePayload);
+
+        if (destination == 3)
+        {
+            var source = new IntValueTaskSource();
+            var valueTask = source.CreateValueTask();
+            var scheduler = new ManualScheduler();
+            _retainedDestination = source;
+            var register = new Task(() =>
+            {
+                ambient.Value = contextPayload;
+                valueTask.GetAwaiter().OnCompleted(() =>
+                {
+                    Check(valueTask.GetAwaiter().GetResult() == 42);
+                    GC.KeepAlive(delegatePayload);
+                    _retentionCalls++;
+                });
+            });
+            register.RunSynchronously(scheduler);
+            register.GetAwaiter().GetResult();
+            source.SetResult(42);
+            scheduler.Drain();
+            source.Reset();
+        }
+        else if (destination == 2)
+        {
+            var scheduler = new ManualScheduler();
+            _retainedDestination = scheduler;
+            var register = new Task(() =>
+            {
+                ambient.Value = contextPayload;
+                Task.Yield().GetAwaiter().OnCompleted(() =>
+                {
+                    GC.KeepAlive(delegatePayload);
+                    _retentionCalls++;
+                });
+            });
+            register.RunSynchronously(scheduler);
+            register.GetAwaiter().GetResult();
+            scheduler.Drain();
+        }
+        else
+        {
+            var source = new TaskCompletionSource<int>();
+            _retainedSource = source.Task;
+            if (destination == 0)
+            {
+                var scheduler = new ManualScheduler();
+                _retainedDestination = scheduler;
+                var register = new Task(() =>
+                {
+                    ambient.Value = contextPayload;
+                    source.Task.GetAwaiter().OnCompleted(() =>
+                    {
+                        GC.KeepAlive(delegatePayload);
+                        _retentionCalls++;
+                    });
+                });
+                register.RunSynchronously(scheduler);
+                register.GetAwaiter().GetResult();
+                source.SetResult(42);
+                scheduler.Drain();
+            }
+            else
+            {
+                var context = new ManualContext();
+                _retainedDestination = context;
+                var previous = SynchronizationContext.Current;
+                try
+                {
+                    SynchronizationContext.SetSynchronizationContext(context);
+                    ambient.Value = contextPayload;
+                    source.Task.GetAwaiter().OnCompleted(() =>
+                    {
+                        GC.KeepAlive(delegatePayload);
+                        _retentionCalls++;
+                    });
+                    ambient.Value = null;
+                }
+                finally
+                {
+                    SynchronizationContext.SetSynchronizationContext(previous);
+                }
+                source.SetResult(42);
+                context.Drain();
+            }
+        }
+
+        GC.KeepAlive(contextPayload);
+        GC.KeepAlive(delegatePayload);
+    }
+
+    private static void Check(bool condition)
+    {
+        if (!condition) throw new Exception("await scheduler contract");
+    }
+
+    private static void Throws<T>(Action action) where T : Exception
+    {
+        try { action(); }
+        catch (T) { return; }
+        throw new Exception("expected failure");
+    }
+
+    private sealed class ManualScheduler : TaskScheduler
+    {
+        private readonly Queue<Task> _tasks = new();
+        public int Count => _tasks.Count;
+        protected override void QueueTask(Task task) => _tasks.Enqueue(task);
+        protected override bool TryExecuteTaskInline(Task task, bool taskWasPreviouslyQueued) => TryExecuteTask(task);
+        protected override IEnumerable<Task> GetScheduledTasks() => _tasks.ToArray();
+        public void Drain()
+        {
+            while (_tasks.Count != 0) TryExecuteTask(_tasks.Dequeue());
+        }
+    }
+
+    private sealed class ManualContext : SynchronizationContext
+    {
+        private readonly Queue<Action> _callbacks = new();
+        public int Count => _callbacks.Count;
+        public override void Post(SendOrPostCallback callback, object? state) =>
+            _callbacks.Enqueue(() => callback(state));
+        public void Drain()
+        {
+            var previous = Current;
+            try
+            {
+                SetSynchronizationContext(this);
+                while (_callbacks.Count != 0) _callbacks.Dequeue()();
+            }
+            finally
+            {
+                SetSynchronizationContext(previous);
+            }
+        }
+    }
+
+    private sealed class IntValueTaskSource : IValueTaskSource<int>
+    {
+        private ManualResetValueTaskSourceCore<int> _core;
+
+        public ValueTask<int> CreateValueTask() => new(this, _core.Version);
+        public void Reset() => _core.Reset();
+        public void SetResult(int result) => _core.SetResult(result);
+        public ValueTaskSourceStatus GetStatus(short token) => _core.GetStatus(token);
+        public int GetResult(short token) => _core.GetResult(token);
+        public void OnCompleted(Action<object?> continuation, object? state, short token,
+            ValueTaskSourceOnCompletedFlags flags) =>
+            _core.OnCompleted(continuation, state, token, flags);
+    }
+
+    private sealed class VoidValueTaskSource : IValueTaskSource
+    {
+        private ManualResetValueTaskSourceCore<bool> _core;
+
+        public ValueTask CreateValueTask() => new(this, _core.Version);
+        public void SetResult() => _core.SetResult(true);
+        public ValueTaskSourceStatus GetStatus(short token) => _core.GetStatus(token);
+        public void GetResult(short token) => _core.GetResult(token);
+        public void OnCompleted(Action<object?> continuation, object? state, short token,
+            ValueTaskSourceOnCompletedFlags flags) =>
+            _core.OnCompleted(continuation, state, token, flags);
+    }
+}
