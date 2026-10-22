@@ -9,7 +9,7 @@ and .NET CIL directly to WebAssembly. It does not carry the desktop CLR, Mono,
 
 [![Star NetWasm on GitHub](https://img.shields.io/github/stars/zion-sati/NetWasm?style=for-the-badge&logo=github&label=Star%20NetWasm)](https://github.com/zion-sati/NetWasm)
 [![Publication](https://img.shields.io/github/actions/workflow/status/zion-sati/NetWasm/release.yml?label=publish&event=release)](https://github.com/zion-sati/NetWasm/actions/workflows/release.yml)
-[![Compiler coverage](https://img.shields.io/endpoint?url=https%3A%2F%2Fgithub.com%2Fzion-sati%2FNetWasm%2Freleases%2Flatest%2Fdownload%2Fcoverage-badge.json)](https://github.com/zion-sati/NetWasm/actions/workflows/release.yml)
+[![Compiler coverage](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fzion-sati%2FNetWasm%2Fbadges%2Fcoverage-badge.json)](https://github.com/zion-sati/NetWasm/actions/workflows/release.yml)
 [![License: Community + MIT](https://img.shields.io/badge/license-Community%20%2B%20MIT-blue)](docs/licensing.md)
 
 [Compile C# to WebAssembly](https://www.netwasm.com/compile-csharp-to-webassembly/) ·
