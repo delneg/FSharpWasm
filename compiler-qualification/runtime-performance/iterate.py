@@ -50,6 +50,9 @@ FUNCTIONS = {
     'activator-exact': 'Scenarios::ActivatorExact',
     'short-copies': 'Scenarios::ShortCopies',
     'integer-formatting': 'Scenarios::IntegerFormatting',
+    'nbody': 'NBody::Advance',
+    'sort': 'Sorting::Run',
+    'crc32': 'Crc32::Run',
 }
 
 
