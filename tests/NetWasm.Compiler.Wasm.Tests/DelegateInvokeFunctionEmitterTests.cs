@@ -420,9 +420,9 @@ public sealed class DelegateInvokeFunctionEmitterTests
             callbackType.CanonicalName,
             new WasmFunctionIndex(40)),
         [])
-    {
-        ManagedThrowFunctionIndex = OptionalFunctionIndex.At(EmitterTestSupport.ManagedThrowFunction),
-    };
+        {
+            ManagedThrowFunctionIndex = OptionalFunctionIndex.At(EmitterTestSupport.ManagedThrowFunction),
+        };
 
     private static ManagedDelegateBinding CreateBinding(
         MethodInstanceModel invoke,

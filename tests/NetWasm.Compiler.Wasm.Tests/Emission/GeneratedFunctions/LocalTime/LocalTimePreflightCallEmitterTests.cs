@@ -75,7 +75,7 @@ public sealed class LocalTimePreflightCallEmitterTests
     private sealed class RecordingFunctionIndexResolver(int index) :
         IFunctionIndexResolver
     {
-            public OptionalFunctionIndex ManagedThrowFunction => OptionalFunctionIndex.At(7);
+        public OptionalFunctionIndex ManagedThrowFunction => OptionalFunctionIndex.At(7);
 
         public int Resolve(InteropImportKey import) => Resolve(import.Method);
 
