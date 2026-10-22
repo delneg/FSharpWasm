@@ -50,7 +50,10 @@ internal sealed class StructuredControlFlowValidatorDraft : IStructuredControlFl
                     Visit(conditional.WhenFalse, occurrences, owners, visitedGroups);
                     break;
                 case StructuredLoopDraft loop:
-                    Record(loop.ConditionBlock.Index, loop.IsOriginal, occurrences, owners);
+                    if (loop.ConditionBlock is { } condition)
+                    {
+                        Record(condition.Index, loop.IsOriginal, occurrences, owners);
+                    }
                     Visit(loop.Body, occurrences, owners, visitedGroups);
                     Visit(loop.ContinueBody, occurrences, owners, visitedGroups);
                     Visit(loop.ExitBody, occurrences, owners, visitedGroups);

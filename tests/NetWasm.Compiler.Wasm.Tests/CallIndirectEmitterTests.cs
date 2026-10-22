@@ -125,7 +125,7 @@ public sealed class CallIndirectEmitterTests
         var layouts = new RecordingLayoutProvider(target);
         return new CallIndirectEmitter(
             layouts,
-            new ImplicitExceptionEmitter(layouts, layouts, 7));
+            new ImplicitExceptionEmitter(layouts, layouts));
     }
 
     private static MethodInstanceModel CreateCallable(FakeProgram program)

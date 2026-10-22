@@ -87,6 +87,7 @@ internal sealed class CompilationPreparationBuilder(
         var symbols = _symbols.Create(metadata);
 
         var baseTypeResolver = _baseTypes.Create(types, identities, baseTypeIdentities);
+        var componentContract = _contracts.Resolve(metadata, symbols, options);
         var asyncBindingResolver = _asyncBindings.Create(
             types,
             typeDefinitions,
@@ -94,8 +95,8 @@ internal sealed class CompilationPreparationBuilder(
             fields,
             methods,
             methodInstances,
-            symbols);
-        var componentContract = _contracts.Resolve(metadata, symbols, options);
+            symbols,
+            PlatformWorldCapabilities.From(componentContract));
         _interop.Validate(metadata, typeDefinitions, baseTypeResolver, methods, symbols);
         var entry = _entries.Resolve(metadata, methodFinder, symbols, options);
         var exports = _exports.Merge(

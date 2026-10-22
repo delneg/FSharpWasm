@@ -2,6 +2,7 @@ using System;
 using NetWasm.Compiler.Core;
 using NetWasm.Compiler.Wasm.Emission.Support;
 using NetWasm.Compiler.Wasm.Encoding;
+using NetWasm.Compiler.Wasm.Emission.Planning;
 
 namespace NetWasm.Compiler.Wasm.Emission.Instructions.Objects;
 
@@ -30,7 +31,7 @@ internal sealed class NullableBoxEmitter(
         code.Write(WasmInstruction.WithOperand(
             WasmOpcodes.LocalSet,
             WasmInstructionOperand.Unsigned((uint)request.Context.ObjectTemporary)));
-        Emit(code, underlyingType, request.Context.ObjectTemporary, targetLocal);
+        Emit(code, underlyingType, request.Context.ObjectTemporary, targetLocal, request.Context.ManagedThrowFunction);
         request.Stack[slot] = CliValueKind.ManagedReference;
     }
 
@@ -38,7 +39,8 @@ internal sealed class NullableBoxEmitter(
         IWasmInstructionWriter code,
         CliTypeIdentity underlyingType,
         int sourceAddressLocal,
-        int targetLocal)
+        int targetLocal,
+        OptionalFunctionIndex throwFunction)
     {
         if (sourceAddressLocal == targetLocal)
         {
@@ -81,7 +83,7 @@ internal sealed class NullableBoxEmitter(
         code.Write(WasmInstruction.WithOperand(
             WasmOpcodes.If,
             WasmInstructionOperand.BlockType(WasmOpcodes.EmptyBlockType)));
-        exceptions.Emit(code, ManagedExceptionKind.OutOfMemory);
+        exceptions.Emit(code, ManagedExceptionKind.OutOfMemory, throwFunction);
         code.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
 
         code.Write(WasmInstruction.WithOperand(

@@ -115,8 +115,6 @@ layouts,
         Assert.NotNull(context);
         Assert.True(context.IsFilterFunclet);
         Assert.Equal(new ManagedMethodIdentity("test-filter"), context.CallerIdentity);
-        Assert.False(context.LeaveFrameOnRethrow);
-        Assert.False(context.LeaveFrameOnExceptionalExit);
         Assert.Contains(WasmOpcodes.I64Constant, emission.Body);
         Assert.Contains(WasmOpcodes.I64Load, emission.Body);
         Assert.Contains(WasmOpcodes.TryTable, emission.Body);

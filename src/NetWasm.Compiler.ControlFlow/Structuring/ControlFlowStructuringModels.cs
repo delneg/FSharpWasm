@@ -4,9 +4,11 @@ using NetWasm.Compiler.Core;
 
 namespace NetWasm.Compiler.ControlFlow.Structuring;
 
+// A null Condition is an unconditional loop: its body leaves only through
+// nested exception regions, whose continuations break, continue or return.
 internal sealed record LoopRegion(
     int Header,
-    int Condition,
+    int? Condition,
     int Continue,
     int ConditionExit,
     int Exit,

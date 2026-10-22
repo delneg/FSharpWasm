@@ -12,7 +12,7 @@ internal interface IStructuredControlFlowEmitter
         StructuredSequence sequence,
         MethodEmissionContext context,
         Func<StructuredBlockOccurrence, bool, bool, ConditionValue> emitBlock,
-        Action<StructuredExceptionRegion, MethodEmissionContext, bool, int?, int?, int?>
+        Action<StructuredExceptionRegion, MethodEmissionContext, int?, int?, int?, int?>
             emitExceptionRegion,
         int? loopBreakDepth = null,
         int? loopContinueDepth = null,

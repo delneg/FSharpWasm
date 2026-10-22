@@ -25,7 +25,7 @@ internal sealed class EnumGetMetadataIntrinsicEmitter(
 
         var type = request.Local(0, CliValueKind.ManagedReference);
         var typeId = request.Instruction.Context.NumericTemporaryI4;
-        typeArguments.Validate(code, type, typeId);
+        typeArguments.Validate(code, type, typeId, request.Instruction.Context.ManagedThrowFunction);
         addresses.Emit(code, 0);
         SetResult(request, code);
         foreach (var entry in metadata.EnumMetadata)

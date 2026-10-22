@@ -82,7 +82,7 @@ public sealed class HostCallbackFunctionEmitterTests
                 layouts,
                 runtimeImports,
                 runtime,
-                new ImplicitExceptionEmitter(layouts, layouts, 7),
+                new ImplicitExceptionEmitter(layouts, layouts),
                 stringMarshaller,
                 byteMarshaller,
                 terminalBoundary,
@@ -95,7 +95,10 @@ public sealed class HostCallbackFunctionEmitterTests
             ImmutableDictionary<string, WasmFunctionIndex>.Empty.Add(
                 instance.DeclaringType.CanonicalName,
                 new WasmFunctionIndex(30)),
-            []);
+            [])
+        {
+            ManagedThrowFunctionIndex = OptionalFunctionIndex.At(EmitterTestSupport.ManagedThrowFunction),
+        };
 
         Assert.Equal(4, CreateFunctionTypes().Resolve(instance).Parameters.Length);
 
@@ -147,7 +150,7 @@ public sealed class HostCallbackFunctionEmitterTests
                 layouts,
                 runtimeImports,
                 new RecordingRuntimeInitializer(),
-                new ImplicitExceptionEmitter(layouts, layouts, 7),
+                new ImplicitExceptionEmitter(layouts, layouts),
                 new RecordingStringMarshaller(),
                 new RecordingByteArrayMarshaller(),
                 terminalBoundary,
@@ -160,7 +163,10 @@ public sealed class HostCallbackFunctionEmitterTests
             ImmutableDictionary<string, WasmFunctionIndex>.Empty.Add(
                 instance.DeclaringType.CanonicalName,
                 new WasmFunctionIndex(30)),
-            []);
+            [])
+        {
+            ManagedThrowFunctionIndex = OptionalFunctionIndex.At(EmitterTestSupport.ManagedThrowFunction),
+        };
 
         Assert.Single(CreateFunctionTypes().Resolve(instance).Parameters);
 
@@ -211,7 +217,8 @@ public sealed class HostCallbackFunctionEmitterTests
             int destination,
             int temporaryI4,
             int objectTemporary,
-            InteropMarshallingTarget target) => Called = true;
+            InteropMarshallingTarget target,
+            OptionalFunctionIndex throwFunction) => Called = true;
     }
 
     private sealed class RecordingByteArrayMarshaller :
@@ -226,7 +233,8 @@ public sealed class HostCallbackFunctionEmitterTests
             int destination,
             int temporaryI4,
             int objectTemporary,
-            InteropMarshallingTarget target) => Called = true;
+            InteropMarshallingTarget target,
+            OptionalFunctionIndex throwFunction) => Called = true;
     }
 
     private sealed class PassthroughTerminalBoundary :
@@ -247,8 +255,7 @@ public sealed class HostCallbackFunctionEmitterTests
             int resultLocal,
             int reportFunctionIndex,
             int? raiseFunctionIndex,
-            Action emitBody,
-            Action? emitCatchCleanup = null)
+            Action emitBody)
         {
             ReportFunctionIndex = reportFunctionIndex;
             emitBody();

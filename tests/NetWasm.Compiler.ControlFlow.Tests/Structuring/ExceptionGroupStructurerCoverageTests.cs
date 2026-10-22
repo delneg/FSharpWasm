@@ -124,6 +124,45 @@ public sealed class ExceptionGroupStructurerCoverageTests
         }
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void NestedContinuationsInsideTheParentDoNotUseEnclosingLoopLabels(bool targetInsideParent)
+    {
+        // A loop (header 7) encloses a parent try (1..4) whose protected code holds a child try
+        // (2). A child continuation that stays in the parent runs before the parent's finally,
+        // so it must not route through the enclosing loop's labels; one that leaves the parent
+        // too (offset 6) runs in the parent's continuation and still may.
+        var regions = ImmutableArray.Create(
+            new CilExceptionRegion(CilExceptionRegionKind.Finally, 1, 4, 5, 1, null, null),
+            new CilExceptionRegion(CilExceptionRegionKind.Finally, 2, 1, 3, 1, null, null));
+        var state = CreateState(regions);
+        var loop = new LoopRegion(7, 7, 7, 8, 9, [7], [1, 2, 3, 4, 5, 6, 7], [8]);
+        state.LoopsByHeader.Add(loop.Header, loop);
+        var childTarget = targetInsideParent ? 4 : 6;
+        var loopContinuations = new RecordingLoopContinuationBuilder();
+        var ranges = new EmptyBlockRangeStructurer();
+        var structurer = new ExceptionGroupStructurer(
+            new ExceptionScopeFinder(),
+            new RecordingContinuationDispatcherBuilder(),
+            loopContinuations,
+            new NonNestedFlowClassifier(),
+            ranges,
+            new LeaveTargetsByTry(new Dictionary<int, int[]> { [1] = [6], [2] = [childTarget] }));
+
+        structurer.Structure(state, regions);
+
+        if (targetInsideParent)
+        {
+            Assert.DoesNotContain(childTarget, loopContinuations.Targets);
+            Assert.Contains(childTarget, ranges.Starts);
+        }
+        else
+        {
+            Assert.Contains(childTarget, loopContinuations.Targets);
+        }
+    }
+
     private static ControlFlowStructuringState CreateState(
         ImmutableArray<CilExceptionRegion> regions,
         ImmutableHashSet<int>? reachable = null)
@@ -223,6 +262,16 @@ public sealed class ExceptionGroupStructurerCoverageTests
             Starts.Add(offset);
             return StructuredSequenceDraft.Empty;
         }
+    }
+
+    private sealed class LeaveTargetsByTry(Dictionary<int, int[]> targets) : INormalLeaveTargetFinder
+    {
+        public int[] Find(
+            ControlFlowStructuringState state,
+            IEnumerable<CilExceptionRegion> regions,
+            IReadOnlyCollection<ExceptionGroupSource> excluded,
+            IReadOnlyCollection<ExceptionGroupSource> handlerExcluded) =>
+            targets.GetValueOrDefault(regions.First().TryOffset, []);
     }
 
     private sealed class FixedNormalLeaveTargetFinder(int[] targets) :

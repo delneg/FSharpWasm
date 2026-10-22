@@ -22,4 +22,7 @@ internal sealed record ManagedModuleCompilation(
     public ImmutableArray<WasmNativeImport> NativeImports { get; init; } = [];
     public WasmNativeCallbackSupportArtifact? NativeCallbackSupport { get; init; }
     public ExceptionTypeMapArtifact? ExceptionTypeMap { get; init; }
+    // Whether the compiled entry export completes before it returns. A world without a
+    // host-driven reactor enters an asynchronous Main this way, through AsyncEntryPoint.Run.
+    public bool SynchronousEntry { get; init; } = true;
 }

@@ -27,7 +27,7 @@ internal sealed class ArrayMetadataSnapshotEmitter(
             addresses.Emit(code, AddressOperation.EqualZero);
             code.Write(WasmInstruction.WithOperand(WasmOpcodes.If,
                 WasmInstructionOperand.BlockType(WasmOpcodes.EmptyBlockType)));
-            exceptions.Emit(code, ManagedExceptionKind.NullReference);
+            exceptions.Emit(code, ManagedExceptionKind.NullReference, context.ManagedThrowFunction);
             code.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
         }
     }

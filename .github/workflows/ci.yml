@@ -118,6 +118,7 @@ jobs:
             eng/tests/test_verify_release_packages.py \
             eng/tests/test_verify_ci_results.py
           python3 -m json.tool eng/compiler-test-durations.json >/dev/null
+          python3 -m json.tool eng/compiler-test-full-durations.json >/dev/null
 
   test:
     name: Test / ${{ matrix.lane }}
@@ -130,44 +131,16 @@ jobs:
       matrix:
         include:
           - lane: remaining projects
-            compiler-shard: -1
             project-lane: remaining
           - lane: runtime pack 1 of 3
-            compiler-shard: -1
             project-lane: runtime-pack
             project-shard: 0
           - lane: runtime pack 2 of 3
-            compiler-shard: -1
             project-lane: runtime-pack
             project-shard: 1
           - lane: runtime pack 3 of 3
-            compiler-shard: -1
             project-lane: runtime-pack
             project-shard: 2
-          - lane: compiler 1 of 12
-            compiler-shard: 0
-          - lane: compiler 2 of 12
-            compiler-shard: 1
-          - lane: compiler 3 of 12
-            compiler-shard: 2
-          - lane: compiler 4 of 12
-            compiler-shard: 3
-          - lane: compiler 5 of 12
-            compiler-shard: 4
-          - lane: compiler 6 of 12
-            compiler-shard: 5
-          - lane: compiler 7 of 12
-            compiler-shard: 6
-          - lane: compiler 8 of 12
-            compiler-shard: 7
-          - lane: compiler 9 of 12
-            compiler-shard: 8
-          - lane: compiler 10 of 12
-            compiler-shard: 9
-          - lane: compiler 11 of 12
-            compiler-shard: 10
-          - lane: compiler 12 of 12
-            compiler-shard: 11
     steps:
       - name: Check out source
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -242,7 +215,6 @@ jobs:
         run: bash eng/prepare-compiler-qualification-inputs.sh "$RUNNER_TEMP/compiler-qualification"
 
       - name: Build and test remaining projects
-        if: matrix.compiler-shard == -1
         shell: bash
         env:
           NETWASM_CORPUS_PROFILE: Fast
@@ -292,75 +264,18 @@ jobs:
               --filter 'FullyQualifiedName!~NetWasm.Compiler.Tests.&FullyQualifiedName!~NetWasm.Runtime.Pack.Tests.'
           fi
 
-      - name: Build compiler test binaries
-        if: matrix.compiler-shard != -1
-        shell: bash
-        env:
-          NETWASM_CORPUS_PROFILE: Fast
-          NETWASM_CORPUS_RECEIPTS: ${{ runner.temp }}/compiler-qualification/linked-receipts
-          NETWASM_COMPATIBILITY_REFERENCE_ROOT: ${{ runner.temp }}/compiler-qualification/compatibility-references
-          NETWASM_EMSDK_ROOT: ${{ runner.temp }}/emsdk
-          NETWASM_WASM_TOOLS_PATH: ${{ runner.temp }}/wasm-tools/wasm-tools
-        run: |
-          source "$RUNNER_TEMP/emsdk/emsdk_env.sh"
-          export PATH="$RUNNER_TEMP/emsdk/upstream/bin:$PATH"
-          NETWASM_NODE_PATH="$(command -v node)"
-          export NETWASM_NODE_PATH
-          npm ci --ignore-scripts --no-audit --no-fund
-          bash eng/verify-toolchain.sh
-          bash src/NetWasm.Runtime.Pack/tools/regenerate-runtime-pack.sh --allow-emscripten
-          project=tests/NetWasm.Compiler.Tests/NetWasm.Compiler.Tests.csproj
-          corelib_project=src/NetWasm.CoreLib/NetWasm.CoreLib.csproj
-          timezone_project=tools/NetWasm.TimeZones/NetWasm.TimeZones.csproj
-          dotnet restore "$project" --disable-build-servers --nologo
-          dotnet restore "$corelib_project" --disable-build-servers --nologo
-          dotnet restore "$timezone_project" --disable-build-servers --nologo
-          dotnet build "$project" -c Release --no-restore \
-            --disable-build-servers --nologo
-          dotnet build "$corelib_project" -c Release --no-restore \
-            --disable-build-servers --nologo
-          dotnet build "$timezone_project" -c Release --no-restore \
-            --disable-build-servers --nologo
-          NETWASM_TIMEZONE_ASSET_PATH="$(
-            bash eng/prepare-timezone-test-asset.sh "$RUNNER_TEMP/timezone-assets"
-          )"
-          echo "NETWASM_TIMEZONE_ASSET_PATH=$NETWASM_TIMEZONE_ASSET_PATH" >> "$GITHUB_ENV"
-      - name: Execute compiler shard
-        if: matrix.compiler-shard != -1
-        shell: bash
-        env:
-          NETWASM_CORPUS_PROFILE: Fast
-          NETWASM_CORPUS_RECEIPTS: ${{ runner.temp }}/compiler-qualification/linked-receipts
-          NETWASM_COMPATIBILITY_REFERENCE_ROOT: ${{ runner.temp }}/compiler-qualification/compatibility-references
-          NETWASM_EMSDK_ROOT: ${{ runner.temp }}/emsdk
-          NETWASM_WASM_TOOLS_PATH: ${{ runner.temp }}/wasm-tools/wasm-tools
-        run: |
-          source "$RUNNER_TEMP/emsdk/emsdk_env.sh"
-          export PATH="$RUNNER_TEMP/emsdk/upstream/bin:$PATH"
-          NETWASM_NODE_PATH="$(command -v node)"
-          export NETWASM_NODE_PATH
-          project=tests/NetWasm.Compiler.Tests/NetWasm.Compiler.Tests.csproj
-          listing="$RUNNER_TEMP/compiler-tests.list"
-          dotnet test "$project" -c Release --no-build --no-restore \
-            --disable-build-servers --nologo --list-tests > "$listing"
-          filter="$(
-            python3 eng/create-compiler-test-shard-filter.py "$listing" \
-              --shard-count 12 \
-              --shard-index '${{ matrix.compiler-shard }}' \
-              --timings eng/compiler-test-durations.json
-          )"
-          dotnet test "$project" -c Release --no-build --no-restore \
-            --disable-build-servers --nologo --filter "$filter" \
-            --results-directory "$RUNNER_TEMP/compiler-test-results" \
-            --logger "trx;LogFileName=compiler-${{ matrix.compiler-shard }}.trx"
-      - name: Retain compiler test timings
-        if: ${{ always() && matrix.compiler-shard != -1 }}
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
-        with:
-          name: compiler-test-timings-${{ matrix.compiler-shard }}
-          path: ${{ runner.temp }}/compiler-test-results/*.trx
-          if-no-files-found: warn
-          retention-days: 14
+
+  compiler:
+    name: Test / compiler
+    needs: impact
+    if: needs.impact.outputs.scope == 'full'
+    uses: ./.github/workflows/compiler-tests.yml
+    with:
+      corpus-profile: Fast
+      shards: '[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]'
+      timings: eng/compiler-test-durations.json
+      timeout-minutes: 45
+      artifact-prefix: compiler-test-timings
 
   javascript-contracts:
     name: Test / JavaScript contracts
@@ -451,7 +366,7 @@ jobs:
 
   timings:
     name: Compiler test timings
-    needs: [impact, test]
+    needs: [impact, compiler]
     if: needs.impact.outputs.scope == 'full'
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -853,7 +768,7 @@ jobs:
   ci:
     name: CI
     if: always()
-    needs: [impact, docs, ci-infrastructure, test, javascript-contracts, timings, package, host-tools, verify-packages, runtime-pack-hosts, browser-hosts]
+    needs: [impact, docs, ci-infrastructure, test, compiler, javascript-contracts, timings, package, host-tools, verify-packages, runtime-pack-hosts, browser-hosts]
     runs-on: ubuntu-24.04
     steps:
       - name: Check out source
@@ -866,6 +781,7 @@ jobs:
           DOCS_RESULT: ${{ needs.docs.result }}
           CI_INFRASTRUCTURE_RESULT: ${{ needs.ci-infrastructure.result }}
           TEST_RESULT: ${{ needs.test.result }}
+          COMPILER_RESULT: ${{ needs.compiler.result }}
           JAVASCRIPT_CONTRACTS_RESULT: ${{ needs.javascript-contracts.result }}
           TIMINGS_RESULT: ${{ needs.timings.result }}
           PACKAGE_RESULT: ${{ needs.package.result }}
@@ -880,6 +796,7 @@ jobs:
             --docs "$DOCS_RESULT" \
             --ci-infrastructure "$CI_INFRASTRUCTURE_RESULT" \
             --test "$TEST_RESULT" \
+            --compiler "$COMPILER_RESULT" \
             --javascript-contracts "$JAVASCRIPT_CONTRACTS_RESULT" \
             --timings "$TIMINGS_RESULT" \
             --package "$PACKAGE_RESULT" \

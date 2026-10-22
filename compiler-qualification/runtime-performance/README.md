@@ -34,6 +34,10 @@ python3 compiler-qualification/runtime-performance/run.py \
   bounds, index-from-end access, an empty-span guard, implied branches, and
   generic virtual, default interface and `Activator.CreateInstance<T>()` calls,
   each in its own scenario.
+- `corelib`: one scenario per CoreLib hot path. `short-copies` concatenates
+  short strings and copies spans of every length from 0 to 16 chars;
+  `integer-formatting` formats integers of every digit count to strings and
+  into spans.
 
 `gc_statistics.py` reports NetWasmGC's allocator statistics for each
 scenario's timed region: allocations by path, run refills, bitmap search,
@@ -48,6 +52,17 @@ profiler over several runs. It profiles the timed product component and names
 its functions from a twin built with `NETWASM_KEEP_NAMES`, which keeps names
 through every Binaryen step, runtime included; the twin must strip to the
 product's exact code. Shares cover the whole process, not just the timed region.
+The guest profiler samples only where Wasmtime checks its epoch, at function
+entries and loop headers, so it charges straight-line code to the next call or
+loop: functions with loops and small callees look more expensive than they are.
+Confirm a hot function with a native profiler before acting on its share, for
+example `samply record` over `wasmtime run --profile=perfmap`, naming
+`wasm[0]::function[N]` from the twin's function N minus its imported functions.
+
+`iterate.py` rebuilds the compiler (and, with `--corelib`, CoreLib) from a
+source tree, overlays it on a released package set and times one workload
+against that base. Both sides use NetWasmGC unless `--collector` names another.
+Its timings guide iteration; report results from `run.py`.
 
 The first two workloads are regression guards. Each `net11`
 scenario must get faster with the optimization it exercises; `conversions`

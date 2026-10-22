@@ -82,7 +82,7 @@ internal sealed class StaticDataElementInstructionEmitter(
             data.ElementType,
             element.Size);
         code.Write(WasmInstruction.NoOperand(WasmOpcodes.Else));
-        exceptions.Emit(code, ManagedExceptionKind.IndexOutOfRange);
+        exceptions.Emit(code, ManagedExceptionKind.IndexOutOfRange, request.Context.ManagedThrowFunction);
         code.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
         code.Write(WasmInstruction.WithOperand(
             WasmOpcodes.LocalSet,

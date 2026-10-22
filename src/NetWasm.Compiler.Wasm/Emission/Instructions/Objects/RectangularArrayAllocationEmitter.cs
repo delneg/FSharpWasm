@@ -5,6 +5,7 @@ using NetWasm.Compiler.Wasm.Emission.Methods;
 using NetWasm.Compiler.Wasm.Emission.Instructions.Runtime;
 using NetWasm.Compiler.Wasm.Emission.Support;
 using NetWasm.Compiler.Wasm.Encoding;
+using NetWasm.Compiler.Wasm.Emission.Planning;
 
 namespace NetWasm.Compiler.Wasm.Emission.Instructions.Objects;
 
@@ -49,7 +50,7 @@ internal sealed class RectangularArrayAllocationEmitter(
             Get(code, lengthLocal);
             WriteI32(code, 0);
             code.Write(WasmInstruction.NoOperand(WasmOpcodes.I32LessThanSigned));
-            ThrowIf(code, ManagedExceptionKind.Overflow);
+            ThrowIf(code, ManagedExceptionKind.Overflow, request.Context.ManagedThrowFunction);
 
             if (bounded)
             {
@@ -63,7 +64,7 @@ internal sealed class RectangularArrayAllocationEmitter(
                 code.Write(WasmInstruction.WithOperand(
                     WasmOpcodes.I64Constant, WasmInstructionOperand.Signed64((long)int.MaxValue + 1)));
                 code.Write(WasmInstruction.NoOperand(WasmOpcodes.I64GreaterThanSigned));
-                ThrowIf(code, ManagedExceptionKind.ArgumentOutOfRange);
+                ThrowIf(code, ManagedExceptionKind.ArgumentOutOfRange, request.Context.ManagedThrowFunction);
 
                 Get(code, request.Context.ValueFrame);
                 addresses.Emit(code, checked(scratchOffset + (arrayType.ArrayRank + dimension) * sizeof(int)));
@@ -104,7 +105,7 @@ internal sealed class RectangularArrayAllocationEmitter(
         Set(code, arrayLocal);
         Get(code, arrayLocal);
         addresses.Emit(code, AddressOperation.EqualZero);
-        ThrowIf(code, ManagedExceptionKind.OutOfMemory);
+        ThrowIf(code, ManagedExceptionKind.OutOfMemory, request.Context.ManagedThrowFunction);
 
         request.Stack.RemoveRange(
             firstLengthSlot + 1,
@@ -112,12 +113,15 @@ internal sealed class RectangularArrayAllocationEmitter(
         request.Stack[firstLengthSlot] = CliValueKind.ManagedReference;
     }
 
-    private void ThrowIf(IWasmInstructionWriter code, ManagedExceptionKind kind)
+    private void ThrowIf(
+        IWasmInstructionWriter code,
+        ManagedExceptionKind kind,
+        OptionalFunctionIndex throwFunction)
     {
         code.Write(WasmInstruction.WithOperand(
             WasmOpcodes.If,
             WasmInstructionOperand.BlockType(WasmOpcodes.EmptyBlockType)));
-        exceptions.Emit(code, kind);
+        exceptions.Emit(code, kind, throwFunction);
         code.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
     }
 

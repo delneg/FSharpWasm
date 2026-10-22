@@ -139,7 +139,6 @@ internal sealed class WasmModulePlanner(
         var orderedConstructedMethodKeys = orderedConstructedMethods
             .Select(identity => identity.CanonicalName)
             .ToImmutableArray();
-        var hasManagedThrowFunction = RequiresManagedThrowFunction(methodEmissions);
         var stackTraceConstructedMethods = request.EmitStackTrace
             ? orderedConstructedMethodKeys
                 .Select(name => new StackTraceConstructedMethod(
@@ -180,19 +179,21 @@ internal sealed class WasmModulePlanner(
             .DistinctBy(method => method.DeclaringType.CanonicalName)
             .OrderBy(method => method.DeclaringType.CanonicalName, StringComparer.Ordinal)
             .ToImmutableArray();
+        // Every implicit and explicit throw calls the shared throw function, which follows
+        // the managed methods. ExceptionDispatchInfo's rethrow has its own when reachable.
+        var managedThrowFunction = importedFunctionCount + orderedMethods.Length +
+            orderedConstructedMethods.Length;
+        var hasManagedRethrowFunction = RequiresManagedRethrowFunction(methodEmissions);
+        var throwFunctionCount = hasManagedRethrowFunction ? 2 : 1;
         var delegateInvokeHelperIndices = delegateInvokes
             .Select((method, index) => (
                 method.DeclaringType.CanonicalName,
-                Index: new WasmFunctionIndex(importedFunctionCount + orderedMethods.Length +
-                    orderedConstructedMethods.Length +
-                    (hasManagedThrowFunction ? 1 : 0) + index)))
+                Index: new WasmFunctionIndex(managedThrowFunction + throwFunctionCount + index)))
             .ToImmutableDictionary(
                 item => item.CanonicalName,
                 item => item.Index,
                 StringComparer.Ordinal);
-        var helperBase = importedFunctionCount + orderedMethods.Length +
-            orderedConstructedMethods.Length +
-            (hasManagedThrowFunction ? 1 : 0) + delegateInvokes.Length;
+        var helperBase = managedThrowFunction + throwFunctionCount + delegateInvokes.Length;
         var plan = new WasmModulePlan(
             runtimeImportSelection,
             finalization,
@@ -207,10 +208,10 @@ internal sealed class WasmModulePlanner(
                 delegateInvokeHelperIndices,
                 importedMethodIndices)
             {
-                ManagedThrowFunctionIndex = Optional(
-                    hasManagedThrowFunction,
-                    importedFunctionCount + orderedMethods.Length +
-                    orderedConstructedMethods.Length),
+                ManagedThrowFunctionIndex = OptionalFunctionIndex.At(managedThrowFunction),
+                ManagedRethrowFunctionIndex = hasManagedRethrowFunction
+                    ? OptionalFunctionIndex.At(managedThrowFunction + 1)
+                    : OptionalFunctionIndex.Missing,
             },
             interopImports)
         {
@@ -222,8 +223,22 @@ internal sealed class WasmModulePlanner(
         return plan;
     }
 
-    private static OptionalFunctionIndex Optional(bool present, int index) =>
-        present ? OptionalFunctionIndex.At(index) : OptionalFunctionIndex.Missing;
+    private bool RequiresManagedRethrowFunction(
+        ImmutableArray<StructuredMethodEmission> methodEmissions) =>
+        methodEmissions
+            .SelectMany(static emission => emission.Method.Header.Instructions)
+            .Where(static instruction =>
+                instruction.Operation is CilOperation.Call or CilOperation.CallVirtual)
+            .Select(static instruction => instruction.Operand switch
+            {
+                CilOperand.Entity entity => entity.Key,
+                CilOperand.MethodInstance method => method.Value.Definition.Key,
+                _ => default,
+            })
+            .Any(method =>
+                method != default &&
+                intrinsics.TryGetIntrinsic(method, out var intrinsic) &&
+                intrinsic == RuntimeIntrinsic.ExceptionDispatchPreserved);
 
     private bool RequiresEphemeronHandles(
         ImmutableArray<StructuredMethodEmission> methodEmissions) =>
@@ -283,23 +298,6 @@ internal sealed class WasmModulePlanner(
                 method != default &&
                 intrinsics.TryGetIntrinsic(method, out var intrinsic) &&
                 intrinsic == RuntimeIntrinsic.RandomSeed);
-
-    private bool RequiresManagedThrowFunction(
-        ImmutableArray<StructuredMethodEmission> methodEmissions) =>
-        methodEmissions
-            .SelectMany(static emission => emission.Method.Header.Instructions)
-            .Where(static instruction =>
-                instruction.Operation is CilOperation.Call or CilOperation.CallVirtual)
-            .Select(static instruction => instruction.Operand switch
-            {
-                CilOperand.Entity entity => entity.Key,
-                CilOperand.MethodInstance method => method.Value.Definition.Key,
-                _ => default,
-            })
-            .Any(method =>
-                method != default &&
-                intrinsics.TryGetIntrinsic(method, out var intrinsic) &&
-                intrinsic == RuntimeIntrinsic.StringLength);
 
     private MethodInstanceModel GetMethodInstance(CilInstruction instruction) =>
         instruction.Operand switch

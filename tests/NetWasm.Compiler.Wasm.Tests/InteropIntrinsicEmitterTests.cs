@@ -15,7 +15,7 @@ public sealed class InteropIntrinsicEmitterTests
         var layouts = new RecordingLayoutProvider();
         var emitter = new JSObjectDisposeIntrinsicEmitter(
             layouts,
-            new ImplicitExceptionEmitter(layouts, layouts, 7),
+            new ImplicitExceptionEmitter(layouts, layouts),
             EmitterTestSupport.CreateAddressInstructions(layouts));
         var request = EmitterTestSupport.CreateRuntimeIntrinsicRequest(
             RuntimeIntrinsic.JSObjectDispose,
@@ -35,7 +35,7 @@ public sealed class InteropIntrinsicEmitterTests
         var layouts = new RecordingLayoutProvider();
         var emitter = new JSSubscriptionDisposeIntrinsicEmitter(
             layouts,
-            new ImplicitExceptionEmitter(layouts, layouts, 7),
+            new ImplicitExceptionEmitter(layouts, layouts),
             EmitterTestSupport.CreateAddressInstructions(layouts));
         var request = EmitterTestSupport.CreateRuntimeIntrinsicRequest(
             RuntimeIntrinsic.JSSubscriptionDispose,
@@ -55,7 +55,7 @@ public sealed class InteropIntrinsicEmitterTests
         var layouts = new RecordingLayoutProvider();
         var emitter = new JSObjectDisposeIntrinsicEmitter(
             layouts,
-            new ImplicitExceptionEmitter(layouts, layouts, 7),
+            new ImplicitExceptionEmitter(layouts, layouts),
             EmitterTestSupport.CreateAddressInstructions(layouts));
         var request = EmitterTestSupport.CreateRuntimeIntrinsicRequest(
             RuntimeIntrinsic.JSObjectDispose,
@@ -73,7 +73,7 @@ public sealed class InteropIntrinsicEmitterTests
         var layouts = new RecordingLayoutProvider();
         var emitter = new JSSubscriptionDisposeIntrinsicEmitter(
             layouts,
-            new ImplicitExceptionEmitter(layouts, layouts, 7),
+            new ImplicitExceptionEmitter(layouts, layouts),
             EmitterTestSupport.CreateAddressInstructions(layouts));
         var request = EmitterTestSupport.CreateRuntimeIntrinsicRequest(
             RuntimeIntrinsic.JSSubscriptionDispose,

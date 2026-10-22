@@ -19,7 +19,8 @@ internal sealed class HostCallbackStringArgumentMarshaller(
         int destination,
         int temporaryI4,
         int objectTemporary,
-        InteropMarshallingTarget target)
+        InteropMarshallingTarget target,
+        OptionalFunctionIndex throwFunction)
     {
         Require(target.Imports.StringLength, "string host result helpers were not emitted");
         Require(target.Imports.CopyStringUtf16, "string host result helpers were not emitted");
@@ -36,37 +37,40 @@ internal sealed class HostCallbackStringArgumentMarshaller(
         code.Write(WasmInstruction.WithOperand(WasmOpcodes.I32Constant, WasmInstructionOperand.Signed(0)));
         code.Write(WasmInstruction.NoOperand(WasmOpcodes.I32LessThanSigned));
         code.Write(WasmInstruction.WithOperand(WasmOpcodes.If, WasmInstructionOperand.BlockType(WasmOpcodes.EmptyBlockType)));
-        exceptions.Emit(code, ManagedExceptionKind.JSException);
+        exceptions.Emit(code, ManagedExceptionKind.JSException, throwFunction);
         code.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
         code.Write(WasmInstruction.WithOperand(WasmOpcodes.LocalGet, WasmInstructionOperand.Unsigned((uint)(temporaryI4))));
         code.Write(WasmInstruction.WithOperand(WasmOpcodes.I32Constant, WasmInstructionOperand.Signed((int)((uint.MaxValue - 2 * sizeof(int)) / sizeof(char)))));
         code.Write(WasmInstruction.NoOperand(WasmOpcodes.I32GreaterThanUnsigned));
         code.Write(WasmInstruction.WithOperand(WasmOpcodes.If, WasmInstructionOperand.BlockType(WasmOpcodes.EmptyBlockType)));
-        exceptions.Emit(code, ManagedExceptionKind.OutOfMemory);
+        exceptions.Emit(code, ManagedExceptionKind.OutOfMemory, throwFunction);
         code.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
         code.Write(WasmInstruction.WithOperand(WasmOpcodes.I32Constant, WasmInstructionOperand.Signed(0)));
         code.Write(WasmInstruction.WithOperand(WasmOpcodes.LocalGet, WasmInstructionOperand.Unsigned((uint)(temporaryI4))));
         code.Write(WasmInstruction.WithOperand(WasmOpcodes.I32Constant, WasmInstructionOperand.Signed(typeLayouts.StringTypeId)));
         code.Write(WasmInstruction.WithOperand(WasmOpcodes.Call, WasmInstructionOperand.Unsigned((uint)(runtimeImports.Resolve(RuntimeImportSymbol.AllocateString)))));
         code.Write(WasmInstruction.WithOperand(WasmOpcodes.LocalSet, WasmInstructionOperand.Unsigned((uint)(objectTemporary))));
-        EmitAllocationFailure(code, objectTemporary);
+        EmitAllocationFailure(code, objectTemporary, throwFunction);
         code.Write(WasmInstruction.WithOperand(WasmOpcodes.LocalGet, WasmInstructionOperand.Unsigned((uint)(handleParameter))));
         code.Write(WasmInstruction.WithOperand(WasmOpcodes.LocalGet, WasmInstructionOperand.Unsigned((uint)(objectTemporary))));
         code.Write(WasmInstruction.WithOperand(WasmOpcodes.Call, WasmInstructionOperand.Unsigned((uint)(target.Imports.CopyStringUtf16.Value))));
         code.Write(WasmInstruction.WithOperand(WasmOpcodes.If, WasmInstructionOperand.BlockType(WasmOpcodes.EmptyBlockType)));
-        exceptions.Emit(code, ManagedExceptionKind.JSException);
+        exceptions.Emit(code, ManagedExceptionKind.JSException, throwFunction);
         code.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
         code.Write(WasmInstruction.WithOperand(WasmOpcodes.LocalGet, WasmInstructionOperand.Unsigned((uint)(objectTemporary))));
         code.Write(WasmInstruction.WithOperand(WasmOpcodes.LocalSet, WasmInstructionOperand.Unsigned((uint)(destination))));
         code.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
     }
 
-    private void EmitAllocationFailure(IWasmInstructionWriter code, int objectLocal)
+    private void EmitAllocationFailure(
+        IWasmInstructionWriter code,
+        int objectLocal,
+        OptionalFunctionIndex throwFunction)
     {
         code.Write(WasmInstruction.WithOperand(WasmOpcodes.LocalGet, WasmInstructionOperand.Unsigned((uint)(objectLocal))));
         addresses.Emit(code, AddressOperation.EqualZero);
         code.Write(WasmInstruction.WithOperand(WasmOpcodes.If, WasmInstructionOperand.BlockType(WasmOpcodes.EmptyBlockType)));
-        exceptions.Emit(code, ManagedExceptionKind.OutOfMemory);
+        exceptions.Emit(code, ManagedExceptionKind.OutOfMemory, throwFunction);
         code.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
     }
 
@@ -93,7 +97,8 @@ internal sealed class HostCallbackByteArrayArgumentMarshaller(
         int destination,
         int temporaryI4,
         int objectTemporary,
-        InteropMarshallingTarget target)
+        InteropMarshallingTarget target,
+        OptionalFunctionIndex throwFunction)
     {
         Require(target.Imports.ByteLength, "byte host result helpers were not emitted");
         Require(target.Imports.CopyBytes, "byte host result helpers were not emitted");
@@ -110,7 +115,7 @@ internal sealed class HostCallbackByteArrayArgumentMarshaller(
         code.Write(WasmInstruction.WithOperand(WasmOpcodes.I32Constant, WasmInstructionOperand.Signed(0)));
         code.Write(WasmInstruction.NoOperand(WasmOpcodes.I32LessThanSigned));
         code.Write(WasmInstruction.WithOperand(WasmOpcodes.If, WasmInstructionOperand.BlockType(WasmOpcodes.EmptyBlockType)));
-        exceptions.Emit(code, ManagedExceptionKind.JSException);
+        exceptions.Emit(code, ManagedExceptionKind.JSException, throwFunction);
         code.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
         var elementType = arrayType.ElementType!;
         code.Write(WasmInstruction.WithOperand(WasmOpcodes.LocalGet, WasmInstructionOperand.Unsigned((uint)(temporaryI4))));
@@ -119,24 +124,27 @@ internal sealed class HostCallbackByteArrayArgumentMarshaller(
         code.Write(WasmInstruction.WithOperand(WasmOpcodes.I32Constant, WasmInstructionOperand.Signed(values.GetValueLayout(elementType).Size)));
         code.Write(WasmInstruction.WithOperand(WasmOpcodes.Call, WasmInstructionOperand.Unsigned((uint)(runtimeImports.Resolve(RuntimeImportSymbol.AllocateValueArray)))));
         code.Write(WasmInstruction.WithOperand(WasmOpcodes.LocalSet, WasmInstructionOperand.Unsigned((uint)(objectTemporary))));
-        EmitAllocationFailure(code, objectTemporary);
+        EmitAllocationFailure(code, objectTemporary, throwFunction);
         code.Write(WasmInstruction.WithOperand(WasmOpcodes.LocalGet, WasmInstructionOperand.Unsigned((uint)(handleParameter))));
         code.Write(WasmInstruction.WithOperand(WasmOpcodes.LocalGet, WasmInstructionOperand.Unsigned((uint)(objectTemporary))));
         code.Write(WasmInstruction.WithOperand(WasmOpcodes.Call, WasmInstructionOperand.Unsigned((uint)(target.Imports.CopyBytes.Value))));
         code.Write(WasmInstruction.WithOperand(WasmOpcodes.If, WasmInstructionOperand.BlockType(WasmOpcodes.EmptyBlockType)));
-        exceptions.Emit(code, ManagedExceptionKind.JSException);
+        exceptions.Emit(code, ManagedExceptionKind.JSException, throwFunction);
         code.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
         code.Write(WasmInstruction.WithOperand(WasmOpcodes.LocalGet, WasmInstructionOperand.Unsigned((uint)(objectTemporary))));
         code.Write(WasmInstruction.WithOperand(WasmOpcodes.LocalSet, WasmInstructionOperand.Unsigned((uint)(destination))));
         code.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
     }
 
-    private void EmitAllocationFailure(IWasmInstructionWriter code, int objectLocal)
+    private void EmitAllocationFailure(
+        IWasmInstructionWriter code,
+        int objectLocal,
+        OptionalFunctionIndex throwFunction)
     {
         code.Write(WasmInstruction.WithOperand(WasmOpcodes.LocalGet, WasmInstructionOperand.Unsigned((uint)(objectLocal))));
         addresses.Emit(code, AddressOperation.EqualZero);
         code.Write(WasmInstruction.WithOperand(WasmOpcodes.If, WasmInstructionOperand.BlockType(WasmOpcodes.EmptyBlockType)));
-        exceptions.Emit(code, ManagedExceptionKind.OutOfMemory);
+        exceptions.Emit(code, ManagedExceptionKind.OutOfMemory, throwFunction);
         code.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
     }
 
@@ -160,7 +168,8 @@ internal sealed class HostCallbackHostObjectArgumentMarshaller(
         IWasmInstructionWriter code,
         CliTypeIdentity objectType,
         int handleParameter,
-        int destination)
+        int destination,
+        OptionalFunctionIndex throwFunction)
     {
         var objectLayout = typeLayouts.GetObjectLayout(objectType);
         code.Write(WasmInstruction.WithOperand(WasmOpcodes.LocalGet, WasmInstructionOperand.Unsigned((uint)(handleParameter))));
@@ -176,7 +185,7 @@ internal sealed class HostCallbackHostObjectArgumentMarshaller(
         code.Write(WasmInstruction.WithOperand(WasmOpcodes.LocalGet, WasmInstructionOperand.Unsigned((uint)(destination))));
         addresses.Emit(code, AddressOperation.EqualZero);
         code.Write(WasmInstruction.WithOperand(WasmOpcodes.If, WasmInstructionOperand.BlockType(WasmOpcodes.EmptyBlockType)));
-        exceptions.Emit(code, ManagedExceptionKind.OutOfMemory);
+        exceptions.Emit(code, ManagedExceptionKind.OutOfMemory, throwFunction);
         code.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
         code.Write(WasmInstruction.WithOperand(WasmOpcodes.LocalGet, WasmInstructionOperand.Unsigned((uint)(destination))));
         addresses.Emit(code, layouts.Target.ObjectHeaderSize);

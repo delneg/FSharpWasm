@@ -2,6 +2,7 @@ using System.Linq;
 using NetWasm.Compiler.Core;
 using NetWasm.Compiler.Wasm.Emission.Instructions.Runtime;
 using NetWasm.Compiler.Wasm.Encoding;
+using NetWasm.Compiler.Wasm.Emission.Planning;
 
 namespace NetWasm.Compiler.Wasm.Emission.Instructions.Objects;
 
@@ -14,6 +15,7 @@ internal sealed class BoxedValueTypeValidator(
         IWasmInstructionWriter code,
         int objectLocal,
         CliTypeIdentity targetType,
+        OptionalFunctionIndex throwFunction,
         ManagedExceptionKind mismatchException = ManagedExceptionKind.InvalidCast)
     {
         var targetTypeId = typeLayouts.GetObjectLayout(targetType).TypeId;
@@ -52,7 +54,7 @@ internal sealed class BoxedValueTypeValidator(
                 WasmInstructionOperand.Unsigned(0)));
         }
 
-        exceptions.Emit(code, mismatchException);
+        exceptions.Emit(code, mismatchException, throwFunction);
         code.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
     }
 }

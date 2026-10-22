@@ -1,6 +1,7 @@
 namespace System.Runtime.InteropServices
 {
     using CommandLine;
+    using Threading.Tasks;
     using TimeZones;
 
     internal readonly struct PlatformTimestamp
@@ -206,6 +207,9 @@ namespace System.Runtime.InteropServices
             return reactor;
         }
 
+        internal static CommandWorldScheduler CreateCommandWorldScheduler() =>
+            new(new WasiPollableSubscription(), new WasiPoller(), new WasiPollableRelease());
+
         internal static IPlatformTimerFactory CreateTimerFactory(
             IPlatformScheduler scheduler) =>
             new PlatformTimerFactory(scheduler);
@@ -234,7 +238,8 @@ namespace System.Runtime.InteropServices
         private static IManagedEntryPointArgumentSource? _managedEntryPointArguments;
         private static IPlatformUtcClock? _utcClock;
         private static IPlatformMonotonicClock? _monotonicClock;
-        private static WasiPollableReactor? _pollableReactor;
+        private static IPlatformPollableScheduler? _pollableScheduler;
+        private static CommandWorldScheduler? _commandScheduler;
         private static IPlatformScheduler? _scheduler;
         private static IPlatformTimerFactory? _timerFactory;
         private static IPlatformStreams? _streams;
@@ -270,12 +275,29 @@ namespace System.Runtime.InteropServices
         internal static IPlatformMonotonicClock MonotonicClock =>
             _monotonicClock ??= WasiPlatformServicesComposition.CreateMonotonicClock();
 
-        internal static IPlatformPollableScheduler PollableScheduler =>
-            _pollableReactor ??= WasiPlatformServicesComposition.CreatePollableReactor();
+        internal static IPlatformPollableScheduler PollableScheduler
+        {
+            get
+            {
+                if (_pollableScheduler == null)
+                {
+                    ComposeSchedulers();
+                }
+                return _pollableScheduler!;
+            }
+        }
 
-        internal static IPlatformScheduler Scheduler =>
-            _scheduler ??= _pollableReactor ??=
-                WasiPlatformServicesComposition.CreatePollableReactor();
+        internal static IPlatformScheduler Scheduler
+        {
+            get
+            {
+                if (_scheduler == null)
+                {
+                    ComposeSchedulers();
+                }
+                return _scheduler!;
+            }
+        }
 
         internal static IPlatformTimerFactory TimerFactory =>
             _timerFactory ??=
@@ -307,6 +329,65 @@ namespace System.Runtime.InteropServices
         internal static void PreflightLocalTime() =>
             WasiPlatformServicesComposition.CreateLocalTimePreflightValidator()
                 .Validate();
+
+        // The selected WIT world decides which scheduler a program can bind: a world whose host
+        // drives netwasm:runtime/reactor-host gets the pollable reactor, a world with wasi:io/poll
+        // runs its own event loop, and any other world defers work it cannot wait for. A command
+        // program never imports the reactor interfaces.
+        private static void ComposeSchedulers()
+        {
+            if (PlatformWorld.ImportsReactorHost())
+            {
+                var reactor = WasiPlatformServicesComposition.CreatePollableReactor();
+                _scheduler = reactor;
+                _pollableScheduler = reactor;
+            }
+            else if (!PlatformWorld.ImportsEventLoop())
+            {
+                var scheduler = new UnpumpedScheduler();
+                _scheduler = scheduler;
+                _pollableScheduler = scheduler;
+            }
+            else
+            {
+                var scheduler = WasiPlatformServicesComposition.CreateCommandWorldScheduler();
+                _scheduler = scheduler;
+                _pollableScheduler = scheduler;
+                _commandScheduler = scheduler;
+            }
+        }
+
+        // AsyncEntryPoint calls this with Main's task: the program drives its own event loop until
+        // the task completes. Work only reaches the scheduler through an await, so a task that is
+        // still running has already composed it.
+        internal static void RunEntryPointToCompletion(Task task)
+        {
+            if (task == null)
+            {
+                throw new ArgumentNullException();
+            }
+
+            // A reactor world's host drives the loop; there the await-semantics observation that
+            // follows throws PlatformNotSupportedException for an incomplete task, as on Mono.
+            if (task.IsCompleted || PlatformWorld.ImportsReactorHost())
+            {
+                return;
+            }
+
+            if (!PlatformWorld.ImportsEventLoop())
+            {
+                throw new PlatformNotSupportedException(
+                    "The asynchronous entry point cannot complete: the selected world has no wasi:io/poll event loop.");
+            }
+
+            if (_commandScheduler == null)
+            {
+                throw new InvalidOperationException(
+                    "The asynchronous entry point cannot complete: no scheduled work or pending I/O remains.");
+            }
+
+            _commandScheduler.RunUntilCompleted(task);
+        }
 
         internal static void EnsureLocalTimeReady()
         {

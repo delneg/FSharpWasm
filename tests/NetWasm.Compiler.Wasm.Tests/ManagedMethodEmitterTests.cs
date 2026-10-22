@@ -231,7 +231,7 @@ public sealed class ManagedMethodEmitterTests
     }
 
     [Fact]
-    public void ExceptionPayloadRootsRequireAnExceptionalMethodExitBoundary()
+    public void ExceptionPayloadRootsShareTheMethodRootFrame()
     {
         var program = new FakeProgram();
         var method = program.GetMethod(EntryKey);
@@ -249,7 +249,6 @@ public sealed class ManagedMethodEmitterTests
                 calls++;
                 Assert.Equal(0, context.RootMap.SlotCount);
                 Assert.Equal(1, context.RootSlotCount);
-                Assert.False(context.LeaveFrameOnExceptionalExit);
                 code.Write(WasmInstruction.NoOperand(WasmOpcodes.Unreachable));
             });
         Assert.Equal(1, calls);
@@ -267,7 +266,6 @@ public sealed class ManagedMethodEmitterTests
         var imports = WasmRuntimeImports.CreateCatalog();
         var types = CreateArgumentSignatureTypes(program);
         var frameEntry = frames ?? CreateMethodFrameEntry(program, layouts, imports);
-        var frameExit = CreateMethodFrameExit(imports);
         return new ManagedMethodEmitter(
             layouts,
             new ManagedMethodFunctionTypeResolver(),
@@ -280,14 +278,11 @@ public sealed class ManagedMethodEmitterTests
                 new ExceptionGroupEnumerator()),
             new ExceptionGroupEnumerator(),
             frameEntry,
-            new MethodExceptionBoundaryEmitter(
-                new ExceptionPayloadBlockEmitter(layouts),
-                frameExit),
             new GeneratedFunctionWriterFactory(),
             new InstructionCountingWriterFactory(), branchFrames ?? new TerminalBranchValueFramePlanner(),
             new ArrayMetadataCachingPlanner(types),
             new ArrayMetadataSnapshotEmitter(layouts, layouts, CreateAddressInstructions(layouts),
-                new ImplicitExceptionEmitter(layouts, layouts, 7)),
+                new ImplicitExceptionEmitter(layouts, layouts)),
             new ArrayStoreCheckPlanner(types, new UnusedTypeDefinitionResolver()),
             new EmptyFloatingCallPlanner(), new AuthoritativeRootSourceSelector(), new AuthoritativeRootLayoutPlanner(),
             new RootClearElisionPlanner(), new RootValueElisionPlanner());

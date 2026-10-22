@@ -14,7 +14,7 @@ using static EmitterTestSupport;
 public sealed class ExceptionAndReturnEmitterTests
 {
     [Fact]
-    public void ThrowChecksNullBeginsDispatchAndClearsStack()
+    public void ThrowChecksNullAndCallsTheSharedThrowFunction()
     {
         var imports = WasmRuntimeImports.CreateCatalog();
         var emitter = CreateEmitter(imports);
@@ -24,11 +24,17 @@ public sealed class ExceptionAndReturnEmitterTests
 
         Emit(emitter, request);
 
+        // The null check and the throw itself both call the shared function, which begins
+        // dispatch, so the method holds no throw instruction.
+        var code = GetCodeBytes(request);
         Assert.Empty(request.Stack);
-        Assert.Contains(WasmOpcodes.Throw, GetCodeBytes(request));
-        Assert.Contains(
-            checked((byte)imports.Resolve(RuntimeImportSymbol.BeginThrow)),
-            GetCodeBytes(request));
+        Assert.Equal(
+            [WasmOpcodes.Call, ManagedThrowFunction, WasmOpcodes.Unreachable],
+            code[^3..]);
+        Assert.True(ContainsManagedThrow(code[..^3]));
+        ReadOnlySpan<byte> beginThrow =
+            [WasmOpcodes.Call, checked((byte)imports.Resolve(RuntimeImportSymbol.BeginThrow))];
+        Assert.True(code.AsSpan().IndexOf(beginThrow) < 0);
     }
 
     [Fact]
@@ -95,15 +101,13 @@ public sealed class ExceptionAndReturnEmitterTests
             instruction.Operand.UnsignedValue == (uint)actualLocal);
     }
 
-    [Theory]
-    [InlineData(true)]
-    [InlineData(false)]
-    public void RethrowHonorsFrameExitPolicyAndClearsStack(bool leaveFrame)
+    [Fact]
+    public void RethrowLeavesTheMethodFramesToItsCatcherAndClearsStack()
     {
         var request = CreateRequest(CilOperation.Rethrow, [CliValueKind.I4]);
         var actual = request with
         {
-            Context = request.Context with { LeaveFrameOnRethrow = leaveFrame, ActiveCatchRootSlot = 0 },
+            Context = request.Context with { ActiveCatchRootSlot = 0 },
         };
         RegisterInstructionWriter(actual,
             new EmitterTestSupport.RecordingInstructionWriter());
@@ -232,10 +236,7 @@ public sealed class ExceptionAndReturnEmitterTests
         var layouts = new RecordingLayoutProvider(target ?? WasmTargetLayout.Wasm32);
         var actualImports = imports ?? WasmRuntimeImports.CreateCatalog();
         var types = CreateArgumentSignatureTypes(program);
-        var exceptions = new ImplicitExceptionEmitter(
-            layouts,
-            layouts,
-            actualImports.Resolve(RuntimeImportSymbol.BeginThrow));
+        var exceptions = new ImplicitExceptionEmitter(layouts, layouts);
         var addresses = CreateAddressInstructions(layouts);
         return new[]
         {

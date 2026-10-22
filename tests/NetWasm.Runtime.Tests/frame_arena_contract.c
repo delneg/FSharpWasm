@@ -247,6 +247,94 @@ static void value_frames(void)
     release_arena(&value_frame_arena);
 }
 
+/* Methods leave their frames only on normal exit. An exception frame records
+   where the arenas stood when its region began, and its landing pad rewinds to
+   that point however many frames and chunks the exception left behind. */
+static void exception_frame_rewinds(void)
+{
+    netwasm_address_t outer = root_frame_enter(65);
+    assert(outer != 0);
+    netwasm_reference_t *slots = (void *)(uintptr_t)outer;
+    for (size_t i = 0; i < 65; i++) slots[i] = i + 1;
+    netwasm_address_t outer_value = value_frame_enter(32);
+    assert(outer_value != 0);
+    memset((void *)(uintptr_t)outer_value, 0x5a, 32);
+    stack_trace_frame_enter(7);
+    FrameArenaChunk *first = root_frame_arena.current;
+    FrameArenaChunk *first_value = value_frame_arena.current;
+    uintptr_t root_mark = root_frame_arena.cursor;
+    u32 token = exception_frame_enter(0, 0);
+    assert(token == exception_frame_top);
+
+    /* The exception passes through frames that cross into new chunks. */
+    u32 large_slots = (u32)(first->capacity / sizeof(netwasm_reference_t)) + 1;
+    netwasm_address_t large = root_frame_enter(large_slots);
+    assert(large != 0 && root_frame_arena.current != first);
+    for (u32 i = 0; i < large_slots; i++) ((netwasm_reference_t *)(uintptr_t)large)[i] = 1000;
+    for (size_t i = 0; i < 8; i++) {
+        netwasm_address_t frame = root_frame_enter(600);
+        assert(frame != 0);
+        for (size_t j = 0; j < 600; j++) ((netwasm_reference_t *)(uintptr_t)frame)[j] = 1000;
+    }
+    netwasm_address_t middle_value = value_frame_enter(8192);
+    assert(middle_value != 0 && value_frame->chunk != first_value);
+    for (size_t i = 0; i < 4; i++) assert(value_frame_enter(8192) != 0);
+    stack_trace_frame_enter(8);
+    stack_trace_frame_enter(9);
+
+    exception_frame_unwind(token);
+    assert(exception_frame_top == token - 1);
+    assert(root_frame_arena.current == first && root_frame_arena.cursor == root_mark &&
+        root_frame_arena.begin == (uintptr_t)frame_arena_bytes(first) &&
+        root_frame_arena.limit == root_frame_arena.begin + first->capacity);
+    verify_roots(65, 65 * 66 / 2);
+    assert(value_frame->bytes == (unsigned char *)(uintptr_t)outer_value &&
+        value_frame_arena.cursor == (uintptr_t)middle_value - sizeof(ValueFrame));
+    assert(stack_trace_frame_top == 1 && stack_trace_frames[0].method_id == 7);
+
+    /* The arenas carry on as if the skipped frames had left normally: their
+       cached chunks are reused and the outer frames leave in order. */
+    size_t allocations_before = metadata_allocations;
+    assert(value_frame_enter(8192) == middle_value);
+    netwasm_address_t again = root_frame_enter(large_slots);
+    assert(again == large && metadata_allocations == allocations_before);
+    memset((void *)(uintptr_t)again, 0, large_slots * sizeof(netwasm_reference_t));
+    root_frame_leave(again);
+    value_frame_leave(middle_value);
+    stack_trace_frame_leave(7);
+    value_frame_leave(outer_value);
+    root_frame_leave(outer);
+    assert(root_slot_count() == 0 && value_frame == NULL && stack_trace_frame_top == 0);
+
+    /* A normal exit leaves the exception frame without touching the arenas. */
+    netwasm_address_t kept = root_frame_enter(3);
+    token = exception_frame_enter(0, 0);
+    uintptr_t cursor = root_frame_arena.cursor;
+    exception_frame_leave(token);
+    assert(root_frame_arena.cursor == cursor && root_slot_count() == 3);
+    root_frame_leave(kept);
+    release_arena(&root_frame_arena);
+    release_arena(&value_frame_arena);
+
+    /* A region entered before the first frame rewinds to the empty arenas. */
+    token = exception_frame_enter(0, 0);
+    netwasm_address_t first_frame = root_frame_enter(5);
+    assert(first_frame != 0 && root_frame_enter(large_slots) != 0);
+    assert(value_frame_enter(64) != 0);
+    exception_frame_unwind(token);
+    assert(root_slot_count() == 0 && root_frame_arena.current->previous == NULL &&
+        root_frame_arena.cursor == root_frame_arena.begin && value_frame == NULL);
+    verify_roots(0, 0);
+    release_arena(&root_frame_arena);
+    release_arena(&value_frame_arena);
+    collector_release_metadata(exception_frames);
+    exception_frames = NULL;
+    exception_frame_capacity = 0;
+    collector_release_metadata(stack_trace_frames);
+    stack_trace_frames = NULL;
+    stack_trace_frame_capacity = 0;
+}
+
 int main(void)
 {
     root_frames();
@@ -258,6 +346,7 @@ int main(void)
     root_chunk_transitions();
     root_frame_capacity_boundary();
     value_frames();
+    exception_frame_rewinds();
     assert(metadata_allocations == metadata_releases);
     return 0;
 }

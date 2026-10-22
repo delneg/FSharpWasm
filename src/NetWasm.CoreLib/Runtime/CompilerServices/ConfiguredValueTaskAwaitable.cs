@@ -98,25 +98,3 @@ namespace System.Runtime.CompilerServices
             _source.DisposeAsync().ConfigureAwait(_continueOnCapturedContext);
     }
 }
-
-namespace System.Threading.Tasks
-{
-    public static class ValueTaskExtensions
-    {
-        public static Runtime.CompilerServices.ConfiguredValueTaskAwaitable ConfigureAwait(
-            this ValueTask value,
-            bool continueOnCapturedContext) =>
-            new(value.GetAwaiter(), continueOnCapturedContext);
-
-        public static Runtime.CompilerServices.ConfiguredValueTaskAwaitable<TResult> ConfigureAwait<TResult>(
-            this ValueTask<TResult> value,
-            bool continueOnCapturedContext) =>
-            new(value.GetAwaiter(), continueOnCapturedContext);
-
-        public static Runtime.CompilerServices.ConfiguredAsyncDisposable ConfigureAwait(
-            this IAsyncDisposable source,
-            bool continueOnCapturedContext) =>
-            new(source ?? throw new ArgumentNullException(nameof(source)), continueOnCapturedContext);
-
-    }
-}

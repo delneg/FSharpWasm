@@ -28,7 +28,7 @@ public sealed class NullableUnboxAnyEmitterTests
         Assert.Contains(WasmOpcodes.MemoryFill, GetCodeBytes(request));
         Assert.Contains(WasmOpcodes.MemoryCopy, GetCodeBytes(request));
         Assert.Contains(WasmOpcodes.I32Store8, GetCodeBytes(request));
-        Assert.Contains(WasmOpcodes.Throw, GetCodeBytes(request));
+        Assert.True(ContainsManagedThrow(GetCodeBytes(request)));
         var instructions = ((RecordingInstructionWriter)GetCodeWriter(request))
             .ToInstructions();
         Assert.Contains(instructions, instruction =>
@@ -55,7 +55,7 @@ public sealed class NullableUnboxAnyEmitterTests
                 new AddressInstructionEmitter(layouts),
                 layouts,
                 layouts,
-                new ImplicitExceptionEmitter(layouts, layouts, 7)),
+                new ImplicitExceptionEmitter(layouts, layouts)),
         }.Cast<INullableUnboxAnyEmitter>().Single();
         emitter.Emit(request, GetCodeWriter(request), nullableType, underlyingType);
     }

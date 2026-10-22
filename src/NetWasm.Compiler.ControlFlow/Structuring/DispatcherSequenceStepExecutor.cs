@@ -45,8 +45,22 @@ internal sealed class DispatcherSequenceStepExecutor(
             // structured domain; retain it in the clipped body set.
             var effectiveContinue = loop.Continue;
             loopAllowed = loopAllowed.Add(effectiveContinue);
-            var conditionBlock = state.Graph.GetBlock(loop.Condition);
             var clipsLoopBoundary = !loop.BodyComponent.IsSubsetOf(allowed);
+            if (loop.Condition is not int condition)
+            {
+                regions.Add(BuildUnconditionalLoop(
+                    structuredControlFlowBuilder,
+                    state,
+                    loop,
+                    loopAllowed,
+                    clipsLoopBoundary,
+                    path,
+                    retainedActiveBlocks));
+                return new StructuredSequenceStepResult(
+                    StructuredSequenceStepDisposition.Continue,
+                    loop.Exit);
+            }
+            var conditionBlock = state.Graph.GetBlock(condition);
             var conditionIsOriginal = state.ClaimedBlockBodies.Add(conditionBlock.Index);
             if (clipsLoopBoundary)
             {
@@ -57,7 +71,7 @@ internal sealed class DispatcherSequenceStepExecutor(
             var activeBlocks = clipsLoopBoundary
                 ? state.BoundaryClaimedBlockBodies
                 : path;
-            var target = state.Graph.Successors[loop.Condition][0];
+            var target = state.Graph.Successors[condition][0];
             var branchSelectsBody = loop.CoreComponent.Contains(target);
             // CreateLoop establishes that the condition has a conditional branch
             // and fallthrough successors, exactly one of which remains in the loop.
@@ -74,7 +88,7 @@ internal sealed class DispatcherSequenceStepExecutor(
                     CilOperation.BranchIfLessThanOrEqualUnsigned
                     ? branchSelectsBody
                     : !branchSelectsBody;
-            if (loop.Condition == loop.Header)
+            if (condition == loop.Header)
             {
                 var bodyStart = state.Graph.Successors[loop.Header]
                     .Single(loop.CoreComponent.Contains);
@@ -132,7 +146,7 @@ internal sealed class DispatcherSequenceStepExecutor(
                 {
                     loopBody = structuredControlFlowBuilder.Build(state,
                         loop.Header,
-                        loop.Condition,
+                        condition,
                 _allowedBlocks.Clip(
                     loopAllowed,
                     activeBlocks,
@@ -142,7 +156,7 @@ internal sealed class DispatcherSequenceStepExecutor(
                     // exits must retain this loop's break target and may run
                     // the condition-exit extension before reaching that target.
                     continueBody = structuredControlFlowBuilder.Build(state,
-                        state.Graph.Successors[loop.Condition]
+                        state.Graph.Successors[condition]
                             .Single(loop.CoreComponent.Contains),
                         loop.Header,
                         _allowedBlocks.Clip(
@@ -183,5 +197,47 @@ internal sealed class DispatcherSequenceStepExecutor(
         return new StructuredSequenceStepResult(
             StructuredSequenceStepDisposition.NotHandled,
             current);
+    }
+
+    private StructuredLoopDraft BuildUnconditionalLoop(
+        IStructuredControlFlowBuilder structuredControlFlowBuilder,
+        ControlFlowStructuringState state,
+        LoopRegion loop,
+        ImmutableHashSet<int> loopAllowed,
+        bool clipsLoopBoundary,
+        HashSet<int> path,
+        ImmutableHashSet<int> retainedActiveBlocks)
+    {
+        // The body runs from the header until a break, continue, return or an
+        // exception region's continuation leaves it; reaching its end repeats it.
+        if (clipsLoopBoundary)
+        {
+            state.BoundaryOwnedBlocks.UnionWith(loop.BodyComponent);
+        }
+        state.SuppressedLoopHeaders.Add(loop.Header);
+        state.LoopExitTargets.Push(loop.Exit);
+        state.LoopContinueTargets.Push(loop.Continue);
+        try
+        {
+            return new StructuredLoopDraft(
+                null,
+                true,
+                structuredControlFlowBuilder.Build(state,
+                    loop.Header,
+                    stop: null,
+                    _allowedBlocks.Clip(
+                        loopAllowed,
+                        clipsLoopBoundary ? state.BoundaryClaimedBlockBodies : path,
+                        retainedActiveBlocks),
+                    []),
+                StructuredSequenceDraft.Empty,
+                StructuredSequenceDraft.Empty);
+        }
+        finally
+        {
+            state.LoopContinueTargets.Pop();
+            state.LoopExitTargets.Pop();
+            state.SuppressedLoopHeaders.Remove(loop.Header);
+        }
     }
 }

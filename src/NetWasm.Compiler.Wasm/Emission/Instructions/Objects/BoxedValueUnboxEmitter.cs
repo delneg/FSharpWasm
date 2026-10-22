@@ -2,6 +2,7 @@ using NetWasm.Compiler.Core;
 using NetWasm.Compiler.Wasm.Emission.Methods;
 using NetWasm.Compiler.Wasm.Emission.Support;
 using NetWasm.Compiler.Wasm.Encoding;
+using NetWasm.Compiler.Wasm.Emission.Planning;
 
 namespace NetWasm.Compiler.Wasm.Emission.Instructions.Objects;
 
@@ -32,8 +33,8 @@ internal sealed class BoxedValueUnboxEmitter(
             request.Context,
             slot,
             CliValueKind.ManagedReference);
-        EmitNullCheck(code, objectLocal);
-        typeValidator.Validate(code, objectLocal, type);
+        EmitNullCheck(code, objectLocal, request.Context.ManagedThrowFunction);
+        typeValidator.Validate(code, objectLocal, type, request.Context.ManagedThrowFunction);
         var payloadOffset = WasmTargetLayout.Align(
             layouts.Target.ObjectHeaderSize,
             value.Alignment);
@@ -104,7 +105,10 @@ internal sealed class BoxedValueUnboxEmitter(
         request.Stack[slot] = CliValueKind.ValueType;
     }
 
-    private void EmitNullCheck(IWasmInstructionWriter code, int objectLocal)
+    private void EmitNullCheck(
+        IWasmInstructionWriter code,
+        int objectLocal,
+        OptionalFunctionIndex throwFunction)
     {
         code.Write(WasmInstruction.WithOperand(
             WasmOpcodes.LocalGet,
@@ -113,7 +117,7 @@ internal sealed class BoxedValueUnboxEmitter(
         code.Write(WasmInstruction.WithOperand(
             WasmOpcodes.If,
             WasmInstructionOperand.BlockType(WasmOpcodes.EmptyBlockType)));
-        exceptions.Emit(code, ManagedExceptionKind.NullReference);
+        exceptions.Emit(code, ManagedExceptionKind.NullReference, throwFunction);
         code.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
     }
 

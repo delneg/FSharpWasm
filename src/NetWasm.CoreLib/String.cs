@@ -969,16 +969,11 @@ namespace System
         private static void CopyStringContent(
             string destination,
             int destinationIndex,
-            string source)
-        {
-            ref var destinationData = ref destination.GetRawStringData();
-            ref var sourceData = ref source.GetRawStringData();
-            for (var index = 0; index < source.Length; index++)
-            {
-                Unsafe.Add(ref destinationData, destinationIndex + index) =
-                    Unsafe.Add(ref sourceData, index);
-            }
-        }
+            string source) =>
+            Buffer.Memmove(
+                ref Unsafe.Add(ref destination.GetRawStringData(), destinationIndex),
+                ref source.GetRawStringData(),
+                source.Length);
 
         private static void SetCharUnchecked(string value, int index, char character)
         {

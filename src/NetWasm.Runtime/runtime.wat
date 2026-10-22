@@ -328,6 +328,17 @@
     i32.load
     global.set $exception_frame_top)
 
+  ;; Root and value frames are never released here, so a handler's landing pad
+  ;; has nothing to rewind beyond the exception frame itself.
+  (func (export "exception_frame_unwind") (param $token i32)
+    local.get $token
+    global.get $exception_frame_top
+    i32.ne
+    if unreachable end
+    local.get $token
+    i32.load
+    global.set $exception_frame_top)
+
   (func (export "exception_frame_target_clause")
     (param $token i32) (result i32)
     local.get $token

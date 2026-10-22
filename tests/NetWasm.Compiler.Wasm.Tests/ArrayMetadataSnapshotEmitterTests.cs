@@ -18,7 +18,7 @@ public sealed class ArrayMetadataSnapshotEmitterTests
     {
         var layouts = new RecordingLayoutProvider(WasmTargetLayout.For(target));
         var emitter = new[] { new ArrayMetadataSnapshotEmitter(layouts, layouts, CreateAddressInstructions(layouts),
-                new ImplicitExceptionEmitter(layouts, layouts, 7)) }
+                new ImplicitExceptionEmitter(layouts, layouts)) }
             .Cast<IArrayMetadataSnapshotEmitter>().Single();
         var slot = new ArrayReferenceSlot(false, 0);
         var plan = new ArrayMetadataCachingPlan([slot], [])
@@ -54,7 +54,7 @@ public sealed class ArrayMetadataSnapshotEmitterTests
     {
         var layouts = new RecordingLayoutProvider(WasmTargetLayout.For(target));
         var emitter = new ArrayMetadataSnapshotEmitter(layouts, layouts, CreateAddressInstructions(layouts),
-            new ImplicitExceptionEmitter(layouts, layouts, 7));
+            new ImplicitExceptionEmitter(layouts, layouts));
         var slot = new ArrayReferenceSlot(argument, 0);
         var plan = new ArrayMetadataCachingPlan([slot], [])
         {
@@ -80,6 +80,6 @@ public sealed class ArrayMetadataSnapshotEmitterTests
         Assert.Equal((uint)(argument ? context.ParameterOffset : context.LocalBase), check[0].Operand.UnsignedValue);
         Assert.Equal(WasmOpcodes.If, check[2].Opcode);
         Assert.Equal(WasmOpcodes.End, check[^1].Opcode);
-        Assert.Contains(check, instruction => instruction.Opcode == WasmOpcodes.Throw);
+        Assert.True(ContainsManagedThrow(check));
     }
 }

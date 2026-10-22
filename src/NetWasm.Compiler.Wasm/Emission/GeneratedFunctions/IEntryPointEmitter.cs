@@ -11,5 +11,6 @@ internal interface IEntryPointEmitter
         bool hasFinalizers,
         IFunctionIndexResolver functionIndices,
         bool reportTerminalExceptions = true,
-        EntityKey? argumentFactory = null);
+        EntityKey? argumentFactory = null,
+        MethodInstanceModel? completion = null);
 }

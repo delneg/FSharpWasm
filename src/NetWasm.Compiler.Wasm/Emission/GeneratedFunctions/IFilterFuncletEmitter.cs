@@ -12,5 +12,6 @@ internal interface IFilterFuncletEmitter
         FilterEnvironmentLayout environment,
         MethodRootMap rootMap,
         IFilterSequenceEmitter emitSequence,
-        MemberExecutionPlan? memberExecution = null);
+        MemberExecutionPlan? memberExecution = null,
+        OptionalFunctionIndex managedThrowFunction = default);
 }

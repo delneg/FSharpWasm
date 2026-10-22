@@ -198,8 +198,7 @@ public sealed class NativeCallbackThunkEmitterTests
             int resultLocal,
             int reportFunctionIndex,
             int? raiseFunctionIndex,
-            Action emitBody,
-            Action? emitCatchCleanup = null)
+            Action emitBody)
         {
             Entered = true;
             EntryInstructionCount = ((EmitterTestSupport.RecordingInstructionWriter)code)
@@ -212,6 +211,8 @@ public sealed class NativeCallbackThunkEmitterTests
 
     private sealed class FixedFunctionIndexResolver : IFunctionIndexResolver
     {
+        public OptionalFunctionIndex ManagedThrowFunction => OptionalFunctionIndex.At(7);
+
         public int Resolve(InteropImportKey import) => Resolve(import.Method);
 
         public int Resolve(EntityKey method) => 44;

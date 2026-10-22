@@ -349,10 +349,7 @@ public sealed class ManagedMethodBodyEmitterTests
         var layouts = new RecordingLayoutProvider();
         var imports = WasmRuntimeImports.CreateCatalog();
         var types = CreateArgumentSignatureTypes(program);
-        var exceptions = new ImplicitExceptionEmitter(
-            layouts,
-            layouts,
-            imports.Resolve(RuntimeImportSymbol.BeginThrow));
+        var exceptions = new ImplicitExceptionEmitter(layouts, layouts);
         var exceptionPayloadBlocks = new ExceptionPayloadBlockEmitter(layouts);
         var frameEntry = CreateMethodFrameEntry(program, layouts, imports);
         var frameExit = CreateMethodFrameExit(imports);
@@ -382,11 +379,10 @@ public sealed class ManagedMethodBodyEmitterTests
                     new ExceptionGroupEnumerator()),
                 new ExceptionGroupEnumerator(),
                 frameEntry,
-                new MethodExceptionBoundaryEmitter(exceptionPayloadBlocks, frameExit),
                 new GeneratedFunctionWriterFactory(),
                 new InstructionCountingWriterFactory(), new TerminalBranchValueFramePlanner(),
                 new ArrayMetadataCachingPlanner(types),
-                new ArrayMetadataSnapshotEmitter(layouts, layouts, addresses, new ImplicitExceptionEmitter(layouts, layouts, 7)),
+                new ArrayMetadataSnapshotEmitter(layouts, layouts, addresses, new ImplicitExceptionEmitter(layouts, layouts)),
                 new ArrayStoreCheckPlanner(types, new UnusedTypeDefinitionResolver()),
                 new ScalarCallLifetimePlanner(new ControlFlowGraphBuilderFactory().Create(),
                     new ControlFlowNaturalLoopAnalyzer(new ControlFlowDominanceAnalyzer())),
@@ -397,13 +393,12 @@ public sealed class ManagedMethodBodyEmitterTests
                     layouts,
                     imports,
                     exceptionPayloadBlocks,
-                    frameExit,
                     new StructuredExceptionGroupKeyFactory()),
                 new StructuredControlFlowEmitter(
                     new StructuredConditionValueEmitter(layouts),
                     new ControlFlowDispatcherEmitter(
                         new DispatcherBranchTablePlanner()),
-                    new ArrayMetadataSnapshotEmitter(layouts, layouts, addresses, new ImplicitExceptionEmitter(layouts, layouts, 7))),
+                    new ArrayMetadataSnapshotEmitter(layouts, layouts, addresses, new ImplicitExceptionEmitter(layouts, layouts))),
                 new StructuredLeaveEmitter(),
                 new BranchComparisonEmitter(
                     layouts,
@@ -507,7 +502,8 @@ StructuredMethod structured,
             bool enableScalarCallPreservation = false,
             bool hoistArrayNullChecks = false,
             bool rotateLoops = false,
-            bool eliminateArrayStoreChecks = false)
+            bool eliminateArrayStoreChecks = false,
+OptionalFunctionIndex managedThrowFunction = default)
         {
             Method = method;
             HoistArrayNullChecks = hoistArrayNullChecks;

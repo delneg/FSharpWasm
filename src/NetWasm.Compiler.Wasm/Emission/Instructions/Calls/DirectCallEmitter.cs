@@ -46,7 +46,7 @@ internal sealed class DirectCallEmitter(
                     : GetStackLocal(
                         instruction.Context,
                         request.ArgumentBase,
-                        instruction.Stack[request.ArgumentBase]));
+                        instruction.Stack[request.ArgumentBase]), request.Instruction.Context.ManagedThrowFunction);
         }
         var returnsValue = signature.ReturnSignatureType.StackKind == CliValueKind.ValueType;
         var returnOffset = returnsValue
@@ -124,13 +124,16 @@ internal sealed class DirectCallEmitter(
         }
     }
 
-    private void EmitNullCheck(IWasmInstructionWriter code, int objectLocal)
+    private void EmitNullCheck(
+        IWasmInstructionWriter code,
+        int objectLocal,
+        OptionalFunctionIndex throwFunction)
     {
         code.Write(WasmInstruction.WithOperand(WasmOpcodes.LocalGet, WasmInstructionOperand.Unsigned((uint)(objectLocal))));
         if (layouts.Target.UsesMemory64) code.Write(WasmInstruction.NoOperand(WasmOpcodes.I64EqualZero));
         else code.Write(WasmInstruction.NoOperand(WasmOpcodes.I32EqualZero));
         code.Write(WasmInstruction.WithOperand(WasmOpcodes.If, WasmInstructionOperand.BlockType(WasmOpcodes.EmptyBlockType)));
-        exceptions.Emit(code, ManagedExceptionKind.NullReference);
+        exceptions.Emit(code, ManagedExceptionKind.NullReference, throwFunction);
         code.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
     }
 

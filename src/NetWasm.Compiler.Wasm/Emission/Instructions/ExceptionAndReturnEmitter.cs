@@ -44,14 +44,14 @@ internal sealed class ExceptionAndReturnEmitter(
             CliValueKind.ManagedReference);
         code.Write(WasmInstruction.WithOperand(WasmOpcodes.LocalGet, WasmInstructionOperand.Unsigned((uint)(exceptionLocal))));
         addresses.Emit(code, AddressOperation.EqualZero);
+        var throwFunction = request.Context.ManagedThrowFunction;
         code.Write(WasmInstruction.WithOperand(WasmOpcodes.If, WasmInstructionOperand.BlockType(WasmOpcodes.EmptyBlockType)));
-        exceptions.Emit(code, ManagedExceptionKind.NullReference);
+        exceptions.Emit(code, ManagedExceptionKind.NullReference, throwFunction);
         code.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
         filterEnvironmentRoots.Emit(code, request.Context);
         code.Write(WasmInstruction.WithOperand(WasmOpcodes.LocalGet, WasmInstructionOperand.Unsigned((uint)(exceptionLocal))));
-        code.Write(WasmInstruction.WithOperand(WasmOpcodes.Call, WasmInstructionOperand.Unsigned((uint)(runtimeImports.Resolve(RuntimeImportSymbol.BeginThrow)))));
-        code.Write(WasmInstruction.WithOperand(WasmOpcodes.LocalGet, WasmInstructionOperand.Unsigned((uint)(exceptionLocal))));
-        code.Write(WasmInstruction.WithOperand(WasmOpcodes.Throw, WasmInstructionOperand.Unsigned((uint)(0))));
+        code.Write(WasmInstruction.WithOperand(WasmOpcodes.Call, WasmInstructionOperand.Unsigned((uint)throwFunction.Value)));
+        code.Write(WasmInstruction.NoOperand(WasmOpcodes.Unreachable));
         request.Stack.Clear();
     }
 
@@ -71,10 +71,6 @@ internal sealed class ExceptionAndReturnEmitter(
             WasmInstructionOperand.Unsigned((uint)request.Context.RootFrame)));
         ManagedMemoryEmitter.EmitLoadBySize(code, layouts.Target,
             checked(slot * layouts.Target.ObjectReferenceSize), layouts.Target.ObjectReferenceSize);
-        if (request.Context.LeaveFrameOnRethrow)
-        {
-            methodFrameExits.Emit(code, request.Context);
-        }
         code.Write(WasmInstruction.WithOperand(WasmOpcodes.Throw, WasmInstructionOperand.Unsigned((uint)(0))));
         request.Stack.Clear();
     }

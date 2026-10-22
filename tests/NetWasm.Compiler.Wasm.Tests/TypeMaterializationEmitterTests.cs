@@ -169,10 +169,7 @@ public sealed class TypeMaterializationEmitterTests
             layouts,
             layouts,
             imports,
-            new ImplicitExceptionEmitter(
-                layouts,
-                layouts,
-                imports.Resolve(RuntimeImportSymbol.BeginThrow)),
+            new ImplicitExceptionEmitter(layouts, layouts),
             roots);
     }
 }

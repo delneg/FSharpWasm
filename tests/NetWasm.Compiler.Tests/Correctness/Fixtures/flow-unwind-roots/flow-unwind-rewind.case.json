@@ -1,0 +1,52 @@
+{
+  "schemaVersion": 1,
+  "caseId": "flow.unwind-rewind",
+  "featureIds": [
+    "S16",
+    "S19"
+  ],
+  "inputKind": "CSharp",
+  "sourceFiles": [
+    "flow-unwind-roots/Program.cs.txt"
+  ],
+  "name": "UnwindRewind",
+  "namespace": "NetWasm.Correctness.UnwindRoots",
+  "entryMethod": "Rewind",
+  "inputs": [
+    0,
+    1,
+    2,
+    3
+  ],
+  "expectations": [
+    {
+      "input": 0,
+      "returnValue": 42,
+      "exceptionType": null
+    },
+    {
+      "input": 1,
+      "returnValue": 42,
+      "exceptionType": null
+    },
+    {
+      "input": 2,
+      "returnValue": 42,
+      "exceptionType": null
+    },
+    {
+      "input": 3,
+      "returnValue": 42,
+      "exceptionType": null
+    }
+  ],
+  "referencePaths": [],
+  "oracleMode": "SameIl",
+  "matrixProfile": "Extended",
+  "executionBackend": "Linked",
+  "requiredRuntimeCapabilities": "GarbageCollection, WeakReferenceClearing",
+  "supportsBatchedOracle": false,
+  "reportAllMismatches": true,
+  "exposesLegacyTrace": false,
+  "testMethod": "NetWasm.Compiler.Tests.Correctness.ExceptionSequenceTests.RewoundFramesReleaseTheirReferencesAndKeepLaterFramesInOrder"
+}

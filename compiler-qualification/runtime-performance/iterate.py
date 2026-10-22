@@ -6,7 +6,8 @@ them on a disposable copy of a base package set's restored cache, republishes
 one workload, times selected scenarios against the base under Wasmtime, and
 disassembles each scenario's function as Wasmtime compiles it. A wasm-opt
 stand-in keeps a named copy of the final core module; the run fails unless
-that copy matches the product output once custom sections are removed.
+that copy matches the product output once custom sections are removed. Both
+sides use NetWasmGC, the throughput collector, unless --collector names another.
 
 Measurements here guide iteration. Report final results from run.py with real
 package feeds.
@@ -17,6 +18,7 @@ package feeds.
 """
 
 import argparse
+import hashlib
 import importlib.util
 import json
 import os
@@ -46,6 +48,8 @@ FUNCTIONS = {
     'generic-virtual': 'Scenarios::GenericVirtual',
     'default-interface': 'Scenarios::DefaultInterface',
     'activator-exact': 'Scenarios::ActivatorExact',
+    'short-copies': 'Scenarios::ShortCopies',
+    'integer-formatting': 'Scenarios::IntegerFormatting',
 }
 
 
@@ -88,15 +92,21 @@ def named_environment(packages, named):
             'NETWASM_REAL_WASM_MERGE': str(tools / 'wasm-merge')}
 
 
-def publish_pair(side, feed, version, workload, optimization, root, sdk, packages):
+def stamped(path, digest):
+    """Whether a cache stamp records this workload source digest."""
+    return path.exists() and path.read_text() == digest
+
+
+def publish_pair(side, feed, version, workload, optimization, root, sdk, packages, collector):
     """Publishes the timed product cell and a named twin; returns both cells."""
     product = root / side / f'{workload}-{optimization.lower()}'
     named = root / f'{side}-named' / f'{workload}-{optimization.lower()}'
     for cell in (product, named):
         shutil.rmtree(cell, ignore_errors=True)
-    run.publish(side, feed, version, workload, optimization, root, sdk, {'NUGET_PACKAGES': str(packages)})
+    run.publish(side, feed, version, workload, optimization, root, sdk, {'NUGET_PACKAGES': str(packages)},
+                collector=collector)
     run.publish(f'{side}-named', feed, version, workload, optimization, root, sdk,
-                named_environment(packages, named / 'named'))
+                named_environment(packages, named / 'named'), collector=collector)
     return product, named
 
 
@@ -188,6 +198,8 @@ def main():
     parser.add_argument('--scenarios', nargs='+', choices=FUNCTIONS, required=True)
     parser.add_argument('--optimization', default='O3')
     parser.add_argument('--samples', type=int, default=7)
+    parser.add_argument('--collector', choices=run.COLLECTORS, default='NetWasm',
+                        help='the collector both sides use; NetWasmGC by default, the throughput collector')
     parser.add_argument('--corelib', action='store_true', help='also overlay a CoreLib built from the source tree')
     args = parser.parse_args()
     if any(run.SCENARIOS[scenario][0] != args.workload for scenario in args.scenarios):
@@ -200,19 +212,29 @@ def main():
     name = run.NAMES[args.workload]
 
     base_packages = root / 'packages' / 'base'
-    base_cell, base_twin = root / 'base' / cell_name, root / 'base-named' / cell_name
-    if not (base_twin / 'named').exists():
+    # Cells are kept per collector so a cached base never stands in for another collector's.
+    cells = root / args.collector.lower()
+    base_cell, base_twin = cells / 'base' / cell_name, cells / 'base-named' / cell_name
+    # A changed workload source invalidates its cached base cells and desktop references.
+    workload_digest = hashlib.sha256((run.ROOT / 'workloads' / args.workload / 'Program.cs').read_bytes()).hexdigest()
+    base_stamp = cells / 'base' / f'{cell_name}.sha256'
+    if not (base_twin / 'named').exists() or not stamped(base_stamp, workload_digest):
         if not base_packages.exists():
             # Restore once so the cache holds the real Binaryen tools.
             run.publish('restore', feed, version, args.workload, args.optimization, root, sdk10,
-                        {'NUGET_PACKAGES': str(base_packages)})
-        publish_pair('base', feed, version, args.workload, args.optimization, root, sdk10, base_packages)
+                        {'NUGET_PACKAGES': str(base_packages)}, collector=args.collector)
+        publish_pair('base', feed, version, args.workload, args.optimization, cells, sdk10, base_packages,
+                     args.collector)
+        base_stamp.write_text(workload_digest)
     references_path = root / 'desktop' / f'{args.workload}.json'
-    if not references_path.exists():
+    references_stamp = root / 'desktop' / f'{args.workload}.sha256'
+    if not references_path.exists() or not stamped(references_stamp, workload_digest):
+        shutil.rmtree(root / 'desktop' / args.workload, ignore_errors=True)
         assembly = run.desktop_reference(args.workload, root, sdk11, 'net11.0')
         references = {scenario: run.execute(['dotnet', str(assembly), *arguments])[1]
                       for scenario, (workload, arguments) in run.SCENARIOS.items() if workload == args.workload}
         references_path.write_text(json.dumps(references))
+        references_stamp.write_text(workload_digest)
     references = json.loads(references_path.read_text())
 
     candidate_packages = root / 'packages' / 'candidate'
@@ -221,7 +243,7 @@ def main():
     overlay(candidate_packages, version, build_tasks(args.source.resolve()))
     overlay_corelib(candidate_packages, version, build_corelib(args.source.resolve()) if args.corelib else None)
     candidate_cell, candidate_twin = publish_pair('candidate', feed, version, args.workload, args.optimization,
-                                                  root, sdk10, candidate_packages)
+                                                  cells, sdk10, candidate_packages, args.collector)
 
     components = {'base': base_cell / 'out' / f'{name}.wasm', 'candidate': candidate_cell / 'out' / f'{name}.wasm'}
     timing = time(components, args.scenarios, args.samples)
@@ -230,6 +252,7 @@ def main():
     native = {side: disassemble(named_core(cell, twin, name), functions, iteration / side)
               for side, cell, twin in (('base', base_cell, base_twin), ('candidate', candidate_cell, candidate_twin))}
     report = {'label': args.label, 'workload': args.workload, 'optimization': args.optimization,
+              'collector': args.collector,
               'sizes': {side: component.stat().st_size for side, component in components.items()},
               'timing': timing, 'native': native}
     (iteration / 'report.json').write_text(json.dumps(report, indent=2))

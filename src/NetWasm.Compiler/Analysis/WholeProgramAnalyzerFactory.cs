@@ -63,7 +63,8 @@ internal sealed class WholeProgramAnalyzerFactory(
         ISymbolFormatter symbols,
         Func<MethodDefinitionModel, JavaScriptAsyncMethodBinding?> javaScriptAsyncBindings,
         IRuntimeIntrinsicRegistry intrinsics,
-        WasmOptimizationSettings optimizationSettings)
+        WasmOptimizationSettings optimizationSettings,
+        PlatformWorldCapabilities world)
     {
         ArgumentNullException.ThrowIfNull(metadata);
         ArgumentNullException.ThrowIfNull(typeRepository);
@@ -81,6 +82,7 @@ internal sealed class WholeProgramAnalyzerFactory(
         ArgumentNullException.ThrowIfNull(javaScriptAsyncBindings);
         ArgumentNullException.ThrowIfNull(intrinsics);
         ArgumentNullException.ThrowIfNull(optimizationSettings);
+        ArgumentNullException.ThrowIfNull(world);
         if (optimizationSettings.ConstantArgumentPropagation is not (ConstantArgumentPropagationPolicy.Disabled or
             ConstantArgumentPropagationPolicy.Conservative) ||
             optimizationSettings.StaticArrayPopulationElimination is not (StaticArrayPopulationEliminationPolicy.Disabled or
@@ -128,7 +130,8 @@ internal sealed class WholeProgramAnalyzerFactory(
             relationships,
             methodBodies,
             optimizationSettings,
-            intrinsics);
+            intrinsics,
+            world);
         specializer = attributeQueries.Create(specializer, metadata, typeRepository, fieldRepository,
             methodRepository, typeFinder, typeDefinitions, typeIdentities, methodInstances,
             relationships, baseTypes, calls, types, symbols);
@@ -265,7 +268,8 @@ internal sealed class WholeProgramAnalyzerFactory(
                 methodRepository,
                 baseTypes),
             nullableTypes,
-            new MethodInitializationTriggerClassifier(typeRepository));
+            new MethodInitializationTriggerClassifier(typeRepository),
+            new IntrinsicAddressBodyPlanner(intrinsics));
         var reducers = ImmutableArray.CreateBuilder<IReachableProgramReducer>();
         if (optimizationSettings.ConstantArgumentPropagation == ConstantArgumentPropagationPolicy.Conservative)
         {

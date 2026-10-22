@@ -74,17 +74,20 @@ namespace System
         private static ref byte GetTwoDigitsBytesRef(bool useChars) =>
             ref MemoryMarshal.GetArrayDataReference(useChars ? TwoDigitsCharsAsBytes : TwoDigitsBytes);
 #else
-        private static ReadOnlySpan<byte> TwoDigitsCharsAsBytes =>
-            MemoryMarshal.AsBytes<char>("00010203040506070809" +
-                                        "10111213141516171819" +
-                                        "20212223242526272829" +
-                                        "30313233343536373839" +
-                                        "40414243444546474849" +
-                                        "50515253545556575859" +
-                                        "60616263646566676869" +
-                                        "70717273747576777879" +
-                                        "80818283848586878889" +
-                                        "90919293949596979899");
+        // NetWasm keeps the char table as a constant string and refers to its
+        // characters directly: building ReadOnlySpan temporaries to reach them
+        // gives every lookup a frame-arena allocation and a zeroing call.
+        private const string TwoDigitsChars =
+            "00010203040506070809" +
+            "10111213141516171819" +
+            "20212223242526272829" +
+            "30313233343536373839" +
+            "40414243444546474849" +
+            "50515253545556575859" +
+            "60616263646566676869" +
+            "70717273747576777879" +
+            "80818283848586878889" +
+            "90919293949596979899";
         private static ReadOnlySpan<byte> TwoDigitsBytes =>
                                         "00010203040506070809"u8 +
                                         "10111213141516171819"u8 +
@@ -99,7 +102,9 @@ namespace System
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static ref byte GetTwoDigitsBytesRef(bool useChars) =>
-            ref MemoryMarshal.GetReference(useChars ? TwoDigitsCharsAsBytes : TwoDigitsBytes);
+            ref useChars
+                ? ref Unsafe.As<char, byte>(ref TwoDigitsChars.GetRawStringData())
+                : ref MemoryMarshal.GetReference(TwoDigitsBytes);
 #endif
 
         internal static char GetHexBase(char fmt)

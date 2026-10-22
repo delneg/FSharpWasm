@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using NetWasm.Compiler.Core.ManagedExecutables;
 using NetWasm.Compiler.Tasks.MsBuild;
 
 namespace NetWasm.Compiler.Tasks.Compilation;
@@ -21,7 +22,7 @@ internal sealed class ManagedModuleCompiler(
         var entryPoint = request.CompileAsLibrary
             ? null
             : _entryPoints.Read(request.InputAssemblyPath);
-        return _compiler.Compile(new CompilerOptions(
+        var compilation = _compiler.Compile(new CompilerOptions(
             request.InputAssemblyPath,
             request.ReferencePaths,
             entryPoint?.TypeName ?? string.Empty,
@@ -45,9 +46,14 @@ internal sealed class ManagedModuleCompiler(
             PathMap: request.PathMap,
             StructuredDiagnostics: request.StructuredDiagnostics,
             Optimization: FinalWasmOptimizationParser.Parse(request.Optimization),
-            OptimizationOverrides: request.OptimizationOverrides)) with
+            OptimizationOverrides: request.OptimizationOverrides));
+        // The recorded entry ABI describes the export the compiler produced, which hosts follow.
+        return compilation with
         {
-            EntryPoint = entryPoint?.Abi,
+            EntryPoint = entryPoint?.Abi is { CompletionShape: ManagedExecutableCompletionShape.Asynchronous } abi &&
+                compilation.SynchronousEntry
+                ? abi with { CompletionShape = ManagedExecutableCompletionShape.Synchronous }
+                : entryPoint?.Abi,
         };
     }
 }

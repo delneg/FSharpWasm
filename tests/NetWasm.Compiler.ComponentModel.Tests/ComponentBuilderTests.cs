@@ -1,5 +1,7 @@
+using System.Collections.Immutable;
 using NetWasm.Compiler.ComponentModel.Worlds;
 using NetWasm.Compiler.ComponentModel.Optimization;
+using NetWasm.Compiler.Core.ManagedExecutables;
 
 namespace NetWasm.Compiler.ComponentModel.Tests;
 
@@ -45,6 +47,69 @@ public sealed class ComponentBuilderTests
         Assert.Equal("wasi:cli/command@0.2.11", components.Request.World);
         Assert.Equal(request.OutputPath, components.Request.OutputPath);
         Assert.Same(request.OptimizationOverrides, components.Request.OptimizationOverrides);
+    }
+
+    // Only a world that exports netwasm:runtime/process lets a host observe an asynchronous Main;
+    // elsewhere the compiler enters it synchronously, so it links like a synchronous entry point.
+    [Theory]
+    [InlineData("run", "wasi:cli@0.2.11", ManagedExecutableCompletionShape.Asynchronous, ManagedExecutableCompletionShape.Synchronous)]
+    [InlineData("process", "netwasm:runtime@1.0.0", ManagedExecutableCompletionShape.Asynchronous, ManagedExecutableCompletionShape.Asynchronous)]
+    [InlineData("process", "netwasm:runtime", ManagedExecutableCompletionShape.Asynchronous, ManagedExecutableCompletionShape.Asynchronous)]
+    [InlineData("process", "example:other@1.0.0", ManagedExecutableCompletionShape.Asynchronous, ManagedExecutableCompletionShape.Synchronous)]
+    [InlineData("run", "wasi:cli@0.2.11", ManagedExecutableCompletionShape.Synchronous, ManagedExecutableCompletionShape.Synchronous)]
+    public void LinksAnAsynchronousMainAsTheWorldsExportsRequire(
+        string exportedInterface,
+        string package,
+        ManagedExecutableCompletionShape selected,
+        ManagedExecutableCompletionShape linked)
+    {
+        var exported = new WitInterface(0, exportedInterface, package, ImmutableDictionary<string, int>.Empty, []);
+        var world = new WitWorld(0, "command", "netwasm:component@1.0.0", [], [new(exportedInterface, 0, null)]);
+        var components = new RecordingPackager();
+        var builder = AsBuilder(new ComponentBuilder(
+            new RecordingDocumentReader(new WitDocument([], [exported], [world], [], "{}")),
+            new RecordingWorldValidator(),
+            new RecordingManifestBuilder(),
+            new WitWorldSpecifierFormatter(),
+            components));
+        var entryPoint = new ManagedExecutableEntryPointAbi(
+            ManagedExecutableParameterShape.StringArray,
+            ManagedExecutableReturnShape.ExitCode,
+            selected);
+
+        builder.Build(new ComponentBuildRequest(
+            "application.wasm",
+            "runtime.wasm",
+            "command.wit",
+            "command",
+            "application.component.wasm",
+            ComponentTarget.Wasm32Wasi02,
+            new(ComponentJavaScriptBoundary.Empty, ComponentAdapterVersions.None),
+            entryPoint));
+
+        Assert.Equal(entryPoint with { CompletionShape = linked }, components.Request!.ManagedExecutableEntryPoint);
+    }
+
+    [Fact]
+    public void LeavesALibraryWithoutAnEntryPoint()
+    {
+        var world = new WitWorld(0, "command", "wasi:cli@0.2.11", [], []);
+        var components = new RecordingPackager();
+        AsBuilder(new ComponentBuilder(
+            new RecordingDocumentReader(new WitDocument([], [], [world], [], "{}")),
+            new RecordingWorldValidator(),
+            new RecordingManifestBuilder(),
+            new WitWorldSpecifierFormatter(),
+            components)).Build(new ComponentBuildRequest(
+            "application.wasm",
+            "runtime.wasm",
+            "command.wit",
+            "command",
+            "application.component.wasm",
+            ComponentTarget.Wasm32Wasi02,
+            new(ComponentJavaScriptBoundary.Empty, ComponentAdapterVersions.None)));
+
+        Assert.Null(components.Request!.ManagedExecutableEntryPoint);
     }
 
     [Fact]

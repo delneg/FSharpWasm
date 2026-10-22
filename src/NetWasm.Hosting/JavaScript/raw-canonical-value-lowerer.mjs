@@ -228,10 +228,28 @@ function planAlias(type, value, target, transaction) {
   });
 }
 
+// JavaScript Component Model bindings carry numeric lists as typed arrays, as the
+// preview2 shim's wasi:io/poll returns its ready indexes in a Uint32Array.
+const numericListArrays = Object.freeze({
+  s8: Int8Array,
+  u16: Uint16Array,
+  s16: Int16Array,
+  u32: Uint32Array,
+  s32: Int32Array,
+  u64: BigUint64Array,
+  s64: BigInt64Array,
+  f32: Float32Array,
+  f64: Float64Array,
+});
+
 function planList(type, value, target, transaction) {
-  const values = underlyingKind(type.element) === "u8"
+  const elementKind = underlyingKind(type.element);
+  const numericArray = numericListArrays[elementKind];
+  const values = elementKind === "u8"
     ? snapshotByteList(value)
-    : snapshotArray(value, undefined, "list");
+    : numericArray !== undefined && value instanceof numericArray
+      ? Array.from(value)
+      : snapshotArray(value, undefined, "list");
   const elementLayout = planRawCanonicalTypeLayout({ target, type: type.element });
   if (elementLayout.size === 0 && values.length !== 0) {
     throw new TypeError("raw canonical zero-sized list elements are unsupported");

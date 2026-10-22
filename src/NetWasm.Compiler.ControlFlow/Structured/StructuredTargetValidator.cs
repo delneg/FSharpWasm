@@ -102,8 +102,15 @@ internal sealed class StructuredTargetValidator : IStructuredTargetValidator
                     Visit(conditional.WhenFalse, method, activeGroup, loopDepth, dispatcherDepth, visitedGroups);
                     break;
                 case StructuredLoop loop:
-                    ValidateOccurrence(loop.Condition, method, activeGroup, allowConditional: true);
-                    RequireConditional(loop.Condition.Block, method);
+                    if (loop.Condition is { } condition)
+                    {
+                        ValidateOccurrence(condition, method, activeGroup, allowConditional: true);
+                        RequireConditional(condition.Block, method);
+                    }
+                    else if (!loop.ContinueBody.Regions.IsEmpty || !loop.ExitBody.Regions.IsEmpty)
+                    {
+                        throw new InvalidOperationException("An unconditional structured loop has a continuation or exit body.");
+                    }
                     Visit(loop.Body, method, activeGroup, loopDepth + 1, dispatcherDepth, visitedGroups);
                     Visit(loop.ContinueBody, method, activeGroup, loopDepth + 1, dispatcherDepth, visitedGroups);
                     Visit(loop.ExitBody, method, activeGroup, loopDepth, dispatcherDepth, visitedGroups);

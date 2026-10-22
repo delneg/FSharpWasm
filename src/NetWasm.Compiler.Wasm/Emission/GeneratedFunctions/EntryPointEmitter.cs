@@ -18,9 +18,13 @@ internal sealed class EntryPointEmitter(
         bool hasFinalizers,
         IFunctionIndexResolver functionIndices,
         bool reportTerminalExceptions = true,
-        EntityKey? argumentFactory = null)
+        EntityKey? argumentFactory = null,
+        MethodInstanceModel? completion = null)
     {
-        var hasResult = entryPoint.Signature.ReturnType != CliValueKind.Void;
+        // A completion receives the entry point's result and returns the process result in its
+        // place, as AsyncEntryPoint.Run does for an asynchronous Main's task.
+        var resultKind = completion?.Signature.ReturnType ?? entryPoint.Signature.ReturnType;
+        var hasResult = resultKind != CliValueKind.Void;
         var wrapperParameterCount = argumentFactory is null
             ? entryPoint.WasmParameterTypes.Length
             : 0;
@@ -35,7 +39,7 @@ internal sealed class EntryPointEmitter(
         var locals = hasResult
             ? new[]
             {
-                entryPoint.Signature.ReturnType,
+                resultKind,
                 CliValueKind.ManagedReference,
                 CliValueKind.ManagedAddress,
                 CliValueKind.I4,
@@ -81,6 +85,11 @@ internal sealed class EntryPointEmitter(
             code.Instructions.Write(WasmInstruction.WithOperand(WasmOpcodes.Call,
                 WasmInstructionOperand.Unsigned((uint)functionIndices.Resolve(
                     entryPoint.Key))));
+            if (completion is not null)
+            {
+                code.Instructions.Write(WasmInstruction.WithOperand(WasmOpcodes.Call,
+                    WasmInstructionOperand.Unsigned((uint)functionIndices.Resolve(completion))));
+            }
             if (hasResult)
             {
                 code.Instructions.Write(WasmInstruction.WithOperand(WasmOpcodes.LocalSet,
@@ -118,7 +127,7 @@ internal sealed class EntryPointEmitter(
                     messageLengthLocal,
                     stackTraceLocal,
                     stackTraceLengthLocal,
-                    entryPoint.Signature.ReturnType,
+                    resultKind,
                     resultLocal,
                     runtimeImports.Resolve(
                         RuntimeImportSymbol.ManagedTerminalExceptionReport,
@@ -134,7 +143,7 @@ internal sealed class EntryPointEmitter(
             {
                 terminalTraps.Emit(
                     code.Instructions,
-                    entryPoint.Signature.ReturnType,
+                    resultKind,
                     resultLocal,
                     EmitBody);
             }

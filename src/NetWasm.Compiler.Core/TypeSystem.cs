@@ -601,12 +601,14 @@ public sealed record MethodDefinitionModel(
     public NativeImportDeclaration? NativeImport { get; init; }
     public NativeCallbackDeclaration? NativeCallback { get; init; }
     public UnsafeAccessors.UnsafeAccessorDeclaration? UnsafeAccessor { get; init; }
+    public bool IsDelegateAsynchronousCall { get; init; }
 
     public bool HasBody => RelativeVirtualAddress != 0;
 
     // Physical metadata readers still use HasBody. Managed analysis may also
-    // consume compiler-generated accessor wrappers with no physical RVA.
-    public bool HasManagedBody => HasBody || UnsafeAccessor is not null;
+    // consume compiler-generated accessor wrappers and the runtime-provided
+    // delegate BeginInvoke/EndInvoke bodies, which have no physical RVA.
+    public bool HasManagedBody => HasBody || UnsafeAccessor is not null || IsDelegateAsynchronousCall;
 
     public ImmutableArray<CliValueKind> WasmParameterTypes => IsStatic
         ? Signature.ParameterTypes

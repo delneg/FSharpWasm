@@ -58,9 +58,6 @@ internal static class MethodEmissionServiceCollectionExtensions
         services.AddSingleton<ITerminalBranchValueFramePlanner, TerminalBranchValueFramePlanner>();
         services.AddSingleton<ITerminalBranchValueFrameEmitter, TerminalBranchValueFrameEmitter>();
         services.AddSingleton<IMethodFrameExitEmitter, MethodFrameExitEmitter>();
-        services.AddSingleton<MethodExceptionBoundaryEmitter>();
-        services.AddSingleton<IMethodExceptionBoundaryEmitter>(provider =>
-            provider.GetRequiredService<MethodExceptionBoundaryEmitter>());
         services.AddSingleton<ManagedMethodEmitter>();
         services.AddSingleton<IAuthoritativeRootSourceSelector, AuthoritativeRootSourceSelector>();
         services.AddSingleton<IAuthoritativeRootLayoutPlanner, AuthoritativeRootLayoutPlanner>();

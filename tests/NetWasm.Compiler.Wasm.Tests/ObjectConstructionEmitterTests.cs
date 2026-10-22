@@ -466,7 +466,7 @@ public sealed class ObjectConstructionEmitterTests
     {
         var program = new FakeProgram();
         IAddressInstructionEmitter addresses = new AddressInstructionEmitter(layouts);
-        IImplicitExceptionEmitter exceptions = new ImplicitExceptionEmitter(layouts, layouts, 7);
+        IImplicitExceptionEmitter exceptions = new ImplicitExceptionEmitter(layouts, layouts);
         IRootPublicationEmitter roots = new RecordingRootPublicationEmitter(safepoint);
         strings ??= new StringConstructionEmitter(
             program,
@@ -553,6 +553,8 @@ public sealed class ObjectConstructionEmitterTests
 
     private sealed class RecordingFunctionIndexResolver : IFunctionIndexResolver
     {
+        public OptionalFunctionIndex ManagedThrowFunction => OptionalFunctionIndex.At(7);
+
         public int Resolve(InteropImportKey import) => Resolve(import.Method);
 
         public EntityKey? Definition { get; private set; }

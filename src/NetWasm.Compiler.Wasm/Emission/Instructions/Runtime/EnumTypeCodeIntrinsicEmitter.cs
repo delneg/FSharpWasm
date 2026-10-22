@@ -20,6 +20,7 @@ internal sealed class EnumTypeCodeIntrinsicEmitter(
             request.Local(0, receiverKind),
             result,
             context.NumericTemporaryI4,
+            context.ManagedThrowFunction,
             request.ConstrainedType,
             receiverKind);
         if (valueTypeResult)

@@ -486,6 +486,34 @@ public sealed class FrontendArtifactCodecTests
     }
 
     [Fact]
+    public void RoundTripPreservesAnUnconditionalLoop()
+    {
+        var snapshot = CreateStressSnapshot();
+        var loop = new StructuredLoop(
+            null,
+            true,
+            new StructuredSequence([new StructuredLoopBreak()]),
+            StructuredSequence.Empty,
+            StructuredSequence.Empty);
+        snapshot = snapshot with
+        {
+            StructuredMethod = snapshot.StructuredMethod with
+            {
+                Body = new StructuredSequence([.. snapshot.StructuredMethod.Body.Regions, loop]),
+            },
+        };
+        var encoder = new FrontendArtifactEncoder();
+
+        var payload = encoder.Encode(snapshot);
+        var decoded = new FrontendArtifactDecoder().Decode(payload);
+
+        var restored = Assert.IsType<StructuredLoop>(decoded.StructuredMethod.Body.Regions[^1]);
+        Assert.Null(restored.Condition);
+        Assert.IsType<StructuredLoopBreak>(Assert.Single(restored.Body.Regions));
+        Assert.Equal(payload.ToArray(), encoder.Encode(decoded).ToArray());
+    }
+
+    [Fact]
     public void IndependentEquivalentGraphsEncodeIdentically()
     {
         var encoder = new FrontendArtifactEncoder();

@@ -1,6 +1,7 @@
 using NetWasm.Compiler.Core;
 using NetWasm.Compiler.Wasm.Emission.Support;
 using NetWasm.Compiler.Wasm.Encoding;
+using NetWasm.Compiler.Wasm.Emission.Planning;
 
 namespace NetWasm.Compiler.Wasm.Emission.Instructions.Objects;
 
@@ -50,7 +51,7 @@ internal sealed class NullableUnboxAnyEmitter(
         code.Write(WasmInstruction.WithOperand(
             WasmOpcodes.If,
             WasmInstructionOperand.BlockType(WasmOpcodes.EmptyBlockType)));
-        EmitTypeCheck(code, sourceLocal, boxed.TypeId);
+        EmitTypeCheck(code, sourceLocal, boxed.TypeId, request.Context.ManagedThrowFunction);
 
         code.Write(WasmInstruction.WithOperand(
             WasmOpcodes.LocalGet,
@@ -92,7 +93,8 @@ internal sealed class NullableUnboxAnyEmitter(
     private void EmitTypeCheck(
         IWasmInstructionWriter code,
         int sourceLocal,
-        int expectedTypeId)
+        int expectedTypeId,
+        OptionalFunctionIndex throwFunction)
     {
         code.Write(WasmInstruction.WithOperand(
             WasmOpcodes.LocalGet,
@@ -108,7 +110,7 @@ internal sealed class NullableUnboxAnyEmitter(
         code.Write(WasmInstruction.WithOperand(
             WasmOpcodes.If,
             WasmInstructionOperand.BlockType(WasmOpcodes.EmptyBlockType)));
-        exceptions.Emit(code, ManagedExceptionKind.InvalidCast);
+        exceptions.Emit(code, ManagedExceptionKind.InvalidCast, throwFunction);
         code.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
     }
 

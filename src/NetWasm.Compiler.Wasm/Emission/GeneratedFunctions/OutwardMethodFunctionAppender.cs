@@ -99,6 +99,10 @@ internal sealed class OutwardMethodFunctionAppender(
             var type = isJSExport
                 ? RequireJSExportTypes().Resolve(request.Method)
                 : functionTypes.Resolve(request.Method);
+            if (request.EntryCompletion is { } completion)
+            {
+                type = new(type.Parameters, completion.Signature.ReturnType);
+            }
             request.Functions.Add(new WasmFunctionDefinition(
                 request.GeneratedFunctionName,
                 request.ArgumentFactory is null
@@ -117,7 +121,8 @@ internal sealed class OutwardMethodFunctionAppender(
                         request.HasFinalizers,
                         request.FunctionIndices,
                         request.ReportTerminalExceptions,
-                        request.ArgumentFactory)));
+                        request.ArgumentFactory,
+                        request.EntryCompletion)));
             kind = request.SynchronousKind;
         }
 

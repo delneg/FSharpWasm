@@ -37,10 +37,6 @@ public sealed class FloatingMathEdgeTests(CorrectnessTestRunner runner) : CSharp
     public void BinaryFunctionsRespectSpecialValuePrecedenceAndQuadrants(string caseId, string cell) =>
         Run(CorpusCaseTestData.Active(caseId, cell), cell);
 
-    [Fact(Skip = KnownNonBugSkipReasons.PowFiniteExactBits)]
-    public void PowFiniteDesktopExactBitsAreNotRequired() =>
-        throw new InvalidOperationException("The known non-bug partition must remain skipped.");
-
     [Theory]
     [MemberData(nameof(DomainCells))]
     public void DomainEdgesPreserveNaNInfinityAndSignedZeroContracts(string caseId, string cell) =>

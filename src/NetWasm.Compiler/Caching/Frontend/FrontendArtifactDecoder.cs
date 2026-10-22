@@ -18,7 +18,7 @@ namespace NetWasm.Compiler.Caching.Frontend;
 internal sealed class FrontendArtifactDecoder : IFrontendArtifactDecoder
 {
     private const uint Magic = 0x3146434E;
-    private const ushort SchemaVersion = 20;
+    private const ushort SchemaVersion = 21;
 
     public FrontendArtifactSnapshot Decode(ImmutableArray<byte> payload)
     {
@@ -713,7 +713,7 @@ internal sealed class FrontendArtifactDecoder : IFrontendArtifactDecoder
             5 => ReadDispatcher(),
             6 => new StructuredIf(ReadOccurrence(), ReadSequence(), ReadSequence()),
             7 => new StructuredLoop(
-                ReadOccurrence(),
+                ReadNullableClass(ReadOccurrence),
                 ReadBoolean(),
                 ReadSequence(),
                 ReadSequence(),

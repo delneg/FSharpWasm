@@ -11,7 +11,8 @@ internal sealed class ExceptionRegionSequenceStepExecutor(
     IReachableSetOverlapClassifier reachableSetOverlaps,
     IDispatcherBoundaryClipper dispatcherBoundaries,
     ICommonReachableBlockFinder joins,
-    IReachableBlockFinder reachableBlocks) : IStructuredSequenceStepExecutor
+    IReachableBlockFinder reachableBlocks,
+    IDispatcherFallthroughExitClassifier fallthroughExits) : IStructuredSequenceStepExecutor
 {
     private readonly IReachableSetOverlapClassifier _reachableSetOverlaps =
         reachableSetOverlaps ?? throw new ArgumentNullException(nameof(reachableSetOverlaps));
@@ -21,6 +22,8 @@ internal sealed class ExceptionRegionSequenceStepExecutor(
         joins ?? throw new ArgumentNullException(nameof(joins));
     private readonly IReachableBlockFinder _reachableBlocks =
         reachableBlocks ?? throw new ArgumentNullException(nameof(reachableBlocks));
+    private readonly IDispatcherFallthroughExitClassifier _fallthroughExits =
+        fallthroughExits ?? throw new ArgumentNullException(nameof(fallthroughExits));
 
     public StructuredSequenceStepResult Execute(
         IStructuredControlFlowBuilder structuredControlFlowBuilder,
@@ -101,10 +104,15 @@ internal sealed class ExceptionRegionSequenceStepExecutor(
             // beyond the protected region. Retain that target as an empty
             // dispatcher exit so emission leaves the dispatcher and allows
             // the exception-region cleanup to run.
-            var join = _joins.Find(state,
-                inRegionExits,
-                stop,
-                allowed);
+            // An exit that falls out of the allowed blocks ends this sequence,
+            // so the in-region exits continue to the sequence's stop rather
+            // than to a join that the falling exit would also reach.
+            var join = _fallthroughExits.Classify(state, dispatcher, allowed)
+                ? stop
+                : _joins.Find(state,
+                    inRegionExits,
+                    stop,
+                    allowed);
             var dispatcherComponent = _reachableSetOverlaps.Overlaps(
                 [.. inRegionExits.Select(exit =>
                     _reachableBlocks.Find(state, exit, join, allowed))])

@@ -11,7 +11,7 @@ internal sealed class ArrayGetLengthIntrinsicEmitter(
     public void Emit(RuntimeIntrinsicEmissionRequest request, IWasmInstructionWriter code)
     {
         var array = request.Local(0, CliValueKind.ManagedReference);
-        receivers.Validate(code, array);
+        receivers.Validate(code, array, request.Instruction.Context.ManagedThrowFunction);
         Get(code, array);
         Get(code, request.Local(1, CliValueKind.I4));
         code.Write(WasmInstruction.WithOperand(
@@ -28,7 +28,7 @@ internal sealed class ArrayGetLengthIntrinsicEmitter(
         code.Write(WasmInstruction.WithOperand(
             WasmOpcodes.If,
             WasmInstructionOperand.BlockType(WasmOpcodes.EmptyBlockType)));
-        exceptions.Emit(code, ManagedExceptionKind.IndexOutOfRange);
+        exceptions.Emit(code, ManagedExceptionKind.IndexOutOfRange, request.Instruction.Context.ManagedThrowFunction);
         code.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
         Get(code, request.Instruction.Context.NumericTemporaryI4);
         code.Write(WasmInstruction.WithOperand(

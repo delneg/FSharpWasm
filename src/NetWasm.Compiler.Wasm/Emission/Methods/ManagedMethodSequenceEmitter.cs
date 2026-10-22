@@ -108,9 +108,9 @@ internal sealed class ManagedMethodSequenceEmitter(
                 functionIndices,
                 blockEmissionCounts,
                 explicitlyOriginalBlocks),
-            (exception, exceptionContext, isOutermost,
+            (exception, exceptionContext,
                 exceptionLoopBreakDepth, exceptionLoopContinueDepth,
-                exceptionDispatcherContinueDepth) =>
+                exceptionDispatcherContinueDepth, enclosingLeaveDepth) =>
                 EmitExceptionGroup(
                     code,
                     method,
@@ -121,10 +121,10 @@ internal sealed class ManagedMethodSequenceEmitter(
                     functionIndices,
                     blockEmissionCounts,
                     explicitlyOriginalBlocks,
-                    isOutermost,
                     exceptionLoopBreakDepth,
                     exceptionLoopContinueDepth,
-                    exceptionDispatcherContinueDepth),
+                    exceptionDispatcherContinueDepth,
+                    enclosingLeaveDepth),
             loopBreakDepth,
             loopContinueDepth,
             exceptionLeaveDepth: exceptionLeaveDepth);
@@ -140,17 +140,16 @@ internal sealed class ManagedMethodSequenceEmitter(
         IFunctionIndexResolver functionIndices,
         Dictionary<int, int> blockEmissionCounts,
         HashSet<int> explicitlyOriginalBlocks,
-        bool isOutermost,
         int? loopBreakDepth,
         int? loopContinueDepth,
-        int? dispatcherContinueDepth)
+        int? dispatcherContinueDepth,
+        int? enclosingLeaveDepth)
     {
         exceptionRegions.Emit(
             code,
             method,
             exception,
             context,
-            isOutermost,
             target.ModuleData,
             (sequence, sequenceContext, sequenceLoopBreakDepth,
                 sequenceLoopContinueDepth, exceptionLeaveDepth) => EmitSequence(
@@ -168,7 +167,8 @@ internal sealed class ManagedMethodSequenceEmitter(
                 exceptionLeaveDepth),
             loopBreakDepth,
             loopContinueDepth,
-            dispatcherContinueDepth);
+            dispatcherContinueDepth,
+            enclosingLeaveDepth);
     }
 
     private ConditionValue EmitBlock(

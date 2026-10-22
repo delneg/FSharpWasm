@@ -42,7 +42,7 @@ internal sealed class EnumGetNamesEmitter(
         var result = request.Local(0, CliValueKind.ManagedReference);
         var typeId = request.Instruction.Context.NumericTemporaryI4Second;
         var temporary = request.Instruction.Context.NumericTemporaryI4;
-        typeArguments.Validate(code, type, typeId);
+        typeArguments.Validate(code, type, typeId, request.Instruction.Context.ManagedThrowFunction);
         addresses.Emit(code, 0);
         code.Write(WasmInstruction.WithOperand(
             WasmOpcodes.LocalSet,

@@ -47,7 +47,8 @@ internal sealed class ExpressionIntrinsicEmissionFixture : INullableTypeResolver
     public CliTypeIdentity? Resolve(CliTypeIdentity type) => NullableTypes.GetValueOrDefault(type);
 
     public void Emit(IWasmInstructionWriter code, CliTypeIdentity underlyingType,
-        int sourceAddressLocal, int targetLocal) =>
+        int sourceAddressLocal, int targetLocal,
+        OptionalFunctionIndex throwFunction) =>
         NullableBoxes.Add((underlyingType, sourceAddressLocal, targetLocal, Code.Length));
 
     public void Emit(InstructionEmissionRequest request, IWasmInstructionWriter code,
@@ -141,7 +142,7 @@ internal sealed class ExpressionIntrinsicEmissionFixture : INullableTypeResolver
     public sealed class RecordingExceptions : IImplicitExceptionEmitter
     {
         public List<ManagedExceptionKind> Kinds { get; } = [];
-        public void Emit(IWasmInstructionWriter code, ManagedExceptionKind kind)
+        public void Emit(IWasmInstructionWriter code, ManagedExceptionKind kind, OptionalFunctionIndex throwFunctionIndex)
         {
             Kinds.Add(kind);
             code.Write(WasmInstruction.WithOperand(WasmOpcodes.Throw,
@@ -151,6 +152,8 @@ internal sealed class ExpressionIntrinsicEmissionFixture : INullableTypeResolver
 
     public sealed class RecordingFunctions : IFunctionIndexResolver
     {
+        public OptionalFunctionIndex ManagedThrowFunction => OptionalFunctionIndex.At(7);
+
         public int Resolve(InteropImportKey import) => Resolve(import.Method);
 
         public List<MethodInstanceModel> Methods { get; } = [];
@@ -171,6 +174,7 @@ internal sealed class ExpressionIntrinsicEmissionFixture : INullableTypeResolver
             IWasmInstructionWriter code,
             int objectLocal,
             CliTypeIdentity targetType,
+            OptionalFunctionIndex throwFunction,
             ManagedExceptionKind mismatchException = ManagedExceptionKind.InvalidCast) =>
             Requests.Add((objectLocal, targetType));
     }

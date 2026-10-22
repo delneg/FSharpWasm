@@ -96,7 +96,10 @@ internal sealed class JSImportForwarderFunctionEmitter(
             numericTemporaryI4,
             numericTemporaryI8,
             dispatcherProgramCounter,
-            RuntimeImportSelection: target.RuntimeImportSelection);
+            RuntimeImportSelection: target.RuntimeImportSelection)
+        {
+            ManagedThrowFunction = target.FunctionIndices.ManagedThrowFunctionIndex,
+        };
 
         var output = writers.Create();
         var code = output.Instructions;

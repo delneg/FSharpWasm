@@ -21,7 +21,7 @@ public sealed class StringConstructionEmitterTests
         var span = new SpanLayout(layouts.Target, contract);
         var emitter = new StringConstructionEmitter(span, span, layouts,
             new AddressInstructionEmitter(layouts), span, span, layouts, layouts,
-            WasmRuntimeImports.CreateCatalog(), new ImplicitExceptionEmitter(layouts, layouts, 7),
+            WasmRuntimeImports.CreateCatalog(), new ImplicitExceptionEmitter(layouts, layouts),
             new StringConstructionPlanResolver());
         var signature = MethodSignatureModel.Create(CliTypeIdentity.FromStackKind(CliValueKind.Void), span.Type);
         var request = CreateInstructionRequest(CilOperation.NewObject, [CliValueKind.ValueType]);
@@ -283,10 +283,7 @@ public sealed class StringConstructionEmitterTests
         IStringConstructionPlanResolver? plans = null)
     {
         IAddressInstructionEmitter addresses = new AddressInstructionEmitter(layouts);
-        IImplicitExceptionEmitter exceptions = new ImplicitExceptionEmitter(
-            layouts,
-            layouts,
-            7);
+        IImplicitExceptionEmitter exceptions = new ImplicitExceptionEmitter(layouts, layouts);
         var program = new FakeProgram();
         return Assert.IsAssignableFrom<IStringConstructionEmitter>(new StringConstructionEmitter(
             program,

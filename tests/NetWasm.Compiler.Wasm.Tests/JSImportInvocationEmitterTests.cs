@@ -191,7 +191,7 @@ public sealed class JSImportInvocationEmitterTests
     {
         public List<ManagedExceptionKind> Kinds { get; } = [];
 
-        public void Emit(IWasmInstructionWriter code, ManagedExceptionKind kind) =>
+        public void Emit(IWasmInstructionWriter code, ManagedExceptionKind kind, OptionalFunctionIndex throwFunctionIndex) =>
             Kinds.Add(kind);
     }
 }

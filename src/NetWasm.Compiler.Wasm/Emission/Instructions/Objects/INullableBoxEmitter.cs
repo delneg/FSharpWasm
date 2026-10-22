@@ -1,5 +1,6 @@
 using NetWasm.Compiler.Core;
 using NetWasm.Compiler.Wasm.Encoding;
+using NetWasm.Compiler.Wasm.Emission.Planning;
 
 namespace NetWasm.Compiler.Wasm.Emission.Instructions.Objects;
 
@@ -16,5 +17,6 @@ internal interface INullableBoxEmitter
         IWasmInstructionWriter code,
         CliTypeIdentity underlyingType,
         int sourceAddressLocal,
-        int targetLocal);
+        int targetLocal,
+        OptionalFunctionIndex throwFunction);
 }

@@ -204,6 +204,21 @@ test("allocates stable UTF-8 and byte-list snapshots at both widths", () => {
   }
 });
 
+test("lowers numeric lists from the typed arrays bindings use at both widths", () => {
+  for (const target of ["wasm32", "wasm64"]) {
+    const harness = createHarness(target);
+    const indexes = { kind: "list", element: alias(primitive("u32")) };
+    const values = lower(harness, indexes, new Uint32Array([2, 0, 7]));
+    const address = Number(values[0]);
+    assert.equal(Number(values[1]), 3);
+    assert.deepEqual([...new Uint32Array(harness.memory.buffer, address, 3)], [2, 0, 7]);
+    assert.deepEqual(lower(harness, { kind: "list", element: primitive("s64") },
+      new BigInt64Array([-1n, 5n])).map(Number).slice(1), [2]);
+    assert.deepEqual(lower(harness, indexes, [4, 5]).map(Number).slice(1), [2]);
+    assert.throws(() => lower(harness, indexes, new Int32Array([1])), /list/);
+  }
+});
+
 test("materializes nested lists before publishing canonical memory headers", () => {
   const original = ["first", "second"];
   let observedHeader;
@@ -482,7 +497,7 @@ test("rejects unsupported borrowed results and malformed Jco-facing values", () 
     [primitive("unit"), null, /unit value/],
     [primitive("text"), 1, /text value/],
     [{ kind: "list", element: primitive("u8") }, [1], /byte list/],
-    [{ kind: "list", element: primitive("u16") }, new Uint16Array([1]), /list value/],
+    [{ kind: "list", element: primitive("u16") }, new Int16Array([1]), /list value/],
     [{ kind: "list", element: primitive("unit") }, [undefined], /zero-sized/],
     [{ kind: "record", fields: [field("value", primitive("u8"))] }, {}, /record value/],
     [{ kind: "tuple", fields: [tupleField("item", primitive("u8"))] }, [], /tuple value/],

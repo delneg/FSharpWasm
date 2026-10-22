@@ -26,9 +26,6 @@ internal static class KnownNonBugSkipReasons
     public const string TrigonometricNegativeZero =
         "Math/MathF Sin and Tan do not promise desktop negative-zero result bits; exact C-runtime results may vary by architecture.";
 
-    public const string PowFiniteExactBits =
-        "Math.Pow finite results are architecture-dependent; the API does not promise desktop exact bits for these values.";
-
     public const string EmittedOpenDelegate =
         "Directly emitted open-instance delegate construction violates ECMA-335 II.14.6 and III.4.21 preconditions; desktop acceptance is not required.";
 
@@ -72,8 +69,6 @@ internal static class KnownNonBugCorpusPartitioner
                     377, 378, 380, 381, 383, 384, 386, 387,
                     422, 423, 425, 426, 428, 429, 431, 432 }.ToImmutableHashSet()),
             [CorpusCaseTestData.FloatingMathDomains] = new([26, 42, 206, 222]),
-            [CorpusCaseTestData.BinaryMathEdges] = new(
-                [392, 394, 395, 408, 410, 411, 425, 426, 427, 441, 442, 443]),
             [CorpusCaseTestData.RankOne] = new([1, 2]),
             [CorpusCaseTestData.AsyncConversionTransport] = new(
                 Enumerable.Range(32, 4)

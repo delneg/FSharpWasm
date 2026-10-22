@@ -12,6 +12,7 @@ using NetWasm.Compiler.Wasm.Emission.Values;
 namespace NetWasm.Compiler.Wasm.Tests;
 
 using static EmitterTestSupport;
+using NetWasm.Compiler.Wasm.Emission.Planning;
 
 public sealed class LocalsArgumentsEmitterTests
 {
@@ -947,7 +948,7 @@ public sealed class LocalsArgumentsEmitterTests
             new SmallValueCopyEmitter(new BulkValueCopyEmitter(layouts)),
             new AddressTakenAggregateSynchronizationEmitter(layouts),
             new NetWasm.Compiler.Wasm.Emission.Arrays.ArrayMetadataSnapshotEmitter(
-                layouts, layouts, CreateAddressInstructions(layouts), new ImplicitExceptionEmitter(layouts, layouts, 7))));
+                layouts, layouts, CreateAddressInstructions(layouts), new ImplicitExceptionEmitter(layouts, layouts))));
     }
 
     private static IInstructionCommandProvider CreateEmitter(CliTypeIdentity argumentType)
@@ -971,7 +972,7 @@ public sealed class LocalsArgumentsEmitterTests
             new SmallValueCopyEmitter(new BulkValueCopyEmitter(layouts)),
             new AddressTakenAggregateSynchronizationEmitter(layouts),
             new NetWasm.Compiler.Wasm.Emission.Arrays.ArrayMetadataSnapshotEmitter(
-                layouts, layouts, CreateAddressInstructions(layouts), new ImplicitExceptionEmitter(layouts, layouts, 7))));
+                layouts, layouts, CreateAddressInstructions(layouts), new ImplicitExceptionEmitter(layouts, layouts))));
     }
 
     private static CliTypeIdentity CreateValueType() => CliTypeIdentity.Named(
@@ -1065,7 +1066,10 @@ public sealed class LocalsArgumentsEmitterTests
             15,
             16,
             17,
-            18);
+            18)
+        {
+            ManagedThrowFunction = OptionalFunctionIndex.At(7),
+        };
     }
 
     private sealed class FixedArgumentTypeResolver(CliTypeIdentity type) :

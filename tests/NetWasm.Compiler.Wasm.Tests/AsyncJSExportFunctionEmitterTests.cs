@@ -142,7 +142,10 @@ public sealed class AsyncJSExportFunctionEmitterTests
                 .Add(StringMethodKey, new(31)),
             [],
             [],
-            []);
+            [])
+        {
+            ManagedThrowFunctionIndex = OptionalFunctionIndex.At(EmitterTestSupport.ManagedThrowFunction),
+        };
         var emitter = CreateWrapperEmitter(layouts, imports);
 
         var body = emitter.Emit(
@@ -197,10 +200,14 @@ public sealed class AsyncJSExportFunctionEmitterTests
         Assert.Equal([(doubles, 2)], arrays.Parameters);
         Assert.Equal([(jsObject, 3)], objects.Parameters);
         var calls = Calls(body);
-        // One argument frame plus the existing task frame; the argument frame is
-        // left on both the normal and the rethrowing path.
+        // One argument frame plus the existing task frame. The normal path leaves
+        // the argument frame; the rethrowing path unwinds it with every frame the
+        // failed call left behind.
         Assert.Equal(2, calls.Count(call => call == Call(imports.Resolve(RuntimeImportSymbol.RootFrameEnter))));
-        Assert.Equal(3, calls.Count(call => call == Call(imports.Resolve(RuntimeImportSymbol.RootFrameLeave))));
+        Assert.Equal(2, calls.Count(call => call == Call(imports.Resolve(RuntimeImportSymbol.RootFrameLeave))));
+        Assert.Equal(1, calls.Count(call => call == Call(imports.Resolve(RuntimeImportSymbol.ExceptionFrameEnter))));
+        Assert.Equal(1, calls.Count(call => call == Call(imports.Resolve(RuntimeImportSymbol.ExceptionFrameLeave))));
+        Assert.Equal(1, calls.Count(call => call == Call(imports.Resolve(RuntimeImportSymbol.ExceptionFrameUnwind))));
         Assert.Contains(WasmOpcodes.ThrowRef, body);
     }
 
@@ -352,7 +359,7 @@ public sealed class AsyncJSExportFunctionEmitterTests
                 layouts,
                 imports,
                 CreateRuntimeStateInitializer(layouts, imports),
-                new ImplicitExceptionEmitter(layouts, layouts, 7),
+                new ImplicitExceptionEmitter(layouts, layouts),
                 CreateReferenceComparisons(layouts),
                 new GeneratedFunctionWriterFactory(),
                 strings ?? new RecordingStringArguments(),
@@ -368,7 +375,10 @@ public sealed class AsyncJSExportFunctionEmitterTests
                 new(30)),
             [],
             [],
-            []);
+            [])
+        {
+            ManagedThrowFunctionIndex = OptionalFunctionIndex.At(EmitterTestSupport.ManagedThrowFunction),
+        };
         return new FunctionIndexResolver(methods, methods, indices);
     }
 
@@ -389,7 +399,8 @@ public sealed class AsyncJSExportFunctionEmitterTests
             int destination,
             int temporaryI4,
             int objectTemporary,
-            InteropMarshallingTarget target) => Parameters.Add(handleParameter);
+            InteropMarshallingTarget target,
+            OptionalFunctionIndex throwFunction) => Parameters.Add(handleParameter);
     }
 
     private sealed class RecordingObjectArguments : IHostCallbackHostObjectArgumentMarshaller
@@ -400,7 +411,8 @@ public sealed class AsyncJSExportFunctionEmitterTests
             IWasmInstructionWriter code,
             CliTypeIdentity objectType,
             int handleParameter,
-            int destination) => Parameters.Add((objectType, handleParameter));
+            int destination,
+            OptionalFunctionIndex throwFunction) => Parameters.Add((objectType, handleParameter));
     }
 
     private sealed class RecordingArrayArguments : IHostCallbackByteArrayArgumentMarshaller
@@ -414,6 +426,7 @@ public sealed class AsyncJSExportFunctionEmitterTests
             int destination,
             int temporaryI4,
             int objectTemporary,
-            InteropMarshallingTarget target) => Parameters.Add((arrayType, handleParameter));
+            InteropMarshallingTarget target,
+            OptionalFunctionIndex throwFunction) => Parameters.Add((arrayType, handleParameter));
     }
 }

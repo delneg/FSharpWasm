@@ -72,6 +72,18 @@ typedef struct {
     size_t value_reference_count;
 } TypeDescriptor;
 
+/* The frame arenas as they stood at a point managed code may later catch an
+   exception. Methods do not release their frames when an exception passes
+   through them; whatever catches it restores these marks instead. */
+typedef struct {
+    uintptr_t root;
+    struct ValueFrame *value;
+    u32 stack_trace;
+} FrameMarks;
+
+static FrameMarks frame_marks_capture(void);
+static void frame_marks_restore(const FrameMarks *marks);
+
 typedef struct {
     netwasm_address_t metadata_address;
     u32 clause_count;
@@ -80,6 +92,7 @@ typedef struct {
     /* Search selects before unwind. Inner handled throws must not overwrite
        the clause already selected on an enclosing frame. */
     u32 target_clause;
+    FrameMarks marks;
 } ExceptionFrame;
 
 typedef struct {
@@ -205,7 +218,9 @@ static void managed_finalizer(void *raw_object, void *client_data)
         finalizer_root = 0;
         return;
     }
+    FrameMarks marks = frame_marks_capture();
     status = netwasm_managed_finalize(object, type_id);
+    frame_marks_restore(&marks);
     finalizer_count++;
     if (status != 0 && escaped_finalizer_status == 0) {
         escaped_finalizer_status = status;
@@ -839,6 +854,7 @@ u32 exception_frame_enter(netwasm_address_t metadata_address, u32 clause_count)
     frame->clause_count = clause_count & 0x7fffffffu;
     frame->environment = 0;
     frame->target_clause = 0;
+    frame->marks = frame_marks_capture();
     return exception_frame_top;
 }
 
@@ -864,6 +880,18 @@ void exception_frame_leave(u32 token)
     frame->clause_count = 0;
     frame->environment = 0;
     frame->has_filters = 0;
+}
+
+/* A handler's landing pad: the exception has left every frame entered since
+   this region began, so the arenas return to where they stood then. */
+NETWASM_EXPORT("exception_frame_unwind")
+void exception_frame_unwind(u32 token)
+{
+    if (token == 0 || token != exception_frame_top) {
+        __builtin_trap();
+    }
+    frame_marks_restore(&exception_frames[token - 1].marks);
+    exception_frame_leave(token);
 }
 
 NETWASM_EXPORT("exception_frame_target_clause")
@@ -902,11 +930,13 @@ static void dispatch_exception(netwasm_reference_t exception)
             } else {
                 netwasm_reference_t saved_root = dispatch_root;
                 u32 saved_floor = filter_search_floor;
+                FrameMarks marks = frame_marks_capture();
                 filter_search_floor = token;
                 u32 accepted = netwasm_evaluate_filter(
                     clauses[clause].value,
                     exception,
                     frame->environment);
+                frame_marks_restore(&marks);
                 filter_search_floor = saved_floor;
                 dispatch_root = saved_root;
                 frame = &exception_frames[token - 1];
@@ -1342,6 +1372,71 @@ void value_frame_leave(netwasm_address_t frame)
     }
     value_frame = target->previous;
     frame_arena_rewind(&value_frame_arena, target->chunk, target);
+}
+
+static void root_frame_rewind(uintptr_t mark)
+{
+    FrameArena *arena = &root_frame_arena;
+    if (arena->current == NULL) {
+        if (mark != 0) {
+            __builtin_trap();
+        }
+        return;
+    }
+    /* A zero mark predates the first root frame: rewind to the empty arena. */
+    int popped = 0;
+    while (mark == 0 || !(arena->begin < mark && mark <= arena->limit)) {
+        FrameArenaChunk *previous = arena->current->previous;
+        if (previous == NULL) {
+            if (mark != 0 && mark != arena->begin) {
+                __builtin_trap();
+            }
+            mark = arena->begin;
+            break;
+        }
+        arena->current = previous;
+        arena->begin = (uintptr_t)frame_arena_bytes(previous);
+        arena->limit = arena->begin + previous->capacity;
+        popped = 1;
+    }
+    if (!popped && mark > arena->cursor) {
+        __builtin_trap();
+    }
+    arena->cursor = mark;
+}
+
+static void value_frame_rewind(ValueFrame *mark)
+{
+    ValueFrame *oldest = NULL;
+    for (ValueFrame *frame = value_frame; frame != mark; frame = frame->previous) {
+        if (frame == NULL) {
+            __builtin_trap();
+        }
+        oldest = frame;
+    }
+    if (oldest != NULL) {
+        value_frame = mark;
+        frame_arena_rewind(&value_frame_arena, oldest->chunk, oldest);
+    }
+}
+
+static FrameMarks frame_marks_capture(void)
+{
+    return (FrameMarks){
+        root_frame_arena.current == NULL ? 0 : root_frame_arena.cursor,
+        value_frame,
+        stack_trace_frame_top,
+    };
+}
+
+static void frame_marks_restore(const FrameMarks *marks)
+{
+    if (marks->stack_trace > stack_trace_frame_top) {
+        __builtin_trap();
+    }
+    root_frame_rewind(marks->root);
+    value_frame_rewind(marks->value);
+    stack_trace_frame_top = marks->stack_trace;
 }
 
 static netwasm_reference_t allocate_registered(

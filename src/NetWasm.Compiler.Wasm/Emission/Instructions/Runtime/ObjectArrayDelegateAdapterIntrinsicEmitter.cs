@@ -3,6 +3,7 @@ using NetWasm.Compiler.Core;
 using NetWasm.Compiler.Core.IntermediateRepresentation.Delegates;
 using NetWasm.Compiler.Wasm.Emission.Support;
 using NetWasm.Compiler.Wasm.Encoding;
+using NetWasm.Compiler.Wasm.Emission.Planning;
 
 namespace NetWasm.Compiler.Wasm.Emission.Instructions.Runtime;
 
@@ -68,7 +69,7 @@ internal sealed class ObjectArrayDelegateAdapterIntrinsicEmitter(
                 (uint)request.Instruction.Context.ObjectTemporary)));
         EmitAllocationFailureCheck(
             code,
-            request.Instruction.Context.ObjectTemporary);
+            request.Instruction.Context.ObjectTemporary, request.Instruction.Context.ManagedThrowFunction);
 
         code.Write(WasmInstruction.WithOperand(
             WasmOpcodes.LocalGet,
@@ -129,7 +130,8 @@ internal sealed class ObjectArrayDelegateAdapterIntrinsicEmitter(
 
     private void EmitAllocationFailureCheck(
         IWasmInstructionWriter code,
-        int objectLocal)
+        int objectLocal,
+        OptionalFunctionIndex throwFunction)
     {
         code.Write(WasmInstruction.WithOperand(
             WasmOpcodes.LocalGet,
@@ -138,7 +140,7 @@ internal sealed class ObjectArrayDelegateAdapterIntrinsicEmitter(
         code.Write(WasmInstruction.WithOperand(
             WasmOpcodes.If,
             WasmInstructionOperand.BlockType(WasmOpcodes.EmptyBlockType)));
-        _exceptions.Emit(code, ManagedExceptionKind.OutOfMemory);
+        _exceptions.Emit(code, ManagedExceptionKind.OutOfMemory, throwFunction);
         code.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
     }
 

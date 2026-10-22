@@ -1,8 +1,13 @@
 using NetWasm.Compiler.Wasm.Encoding;
+using NetWasm.Compiler.Wasm.Emission.Planning;
 
 namespace NetWasm.Compiler.Wasm.Emission.Instructions.Runtime;
 
 internal interface IEnumTypeArgumentValidator
 {
-    void Validate(IWasmInstructionWriter code, int typeLocal, int typeIdLocal);
+    void Validate(
+        IWasmInstructionWriter code,
+        int typeLocal,
+        int typeIdLocal,
+        OptionalFunctionIndex throwFunction);
 }

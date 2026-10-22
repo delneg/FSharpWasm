@@ -30,7 +30,7 @@ public sealed class StringCharacterAtIntrinsicEmitterTests
         var emitter = ThroughContract(new StringCharacterAtIntrinsicEmitter(
             layouts,
             layouts,
-            new ImplicitExceptionEmitter(layouts, layouts, 7),
+            new ImplicitExceptionEmitter(layouts, layouts),
             CreateAddressInstructions(layouts)));
 
         emitter.Emit(request, code);
@@ -41,7 +41,7 @@ public sealed class StringCharacterAtIntrinsicEmitterTests
         Assert.Contains(multiplyOpcode, bytes);
         Assert.Contains(addOpcode, bytes);
         Assert.Contains(WasmOpcodes.I32Load16Unsigned, bytes);
-        Assert.Contains(WasmOpcodes.Throw, bytes);
+        Assert.True(ContainsManagedThrow(bytes));
     }
 
     private static IRuntimeIntrinsicEmitter ThroughContract(

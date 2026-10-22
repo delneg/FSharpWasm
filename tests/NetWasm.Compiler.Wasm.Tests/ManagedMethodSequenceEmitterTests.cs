@@ -339,6 +339,7 @@ public sealed class ManagedMethodSequenceEmitterTests
         Assert.Equal(1, exceptions.Calls);
         Assert.Equal(2, blocks.Calls);
         Assert.Equal(4, blocks.InitialExceptionLeaveDepth);
+        Assert.Equal(4, exceptions.EnclosingLeaveDepths[0]);
         Assert.Equal((1, 2, 3), exceptions.SequenceDepths.Single());
     }
 
@@ -580,7 +581,7 @@ public sealed class ManagedMethodSequenceEmitterTests
             StructuredSequence sequence,
             MethodEmissionContext context,
             Func<StructuredBlockOccurrence, bool, bool, ConditionValue> emitBlock,
-            Action<StructuredExceptionRegion, MethodEmissionContext, bool, int?, int?, int?> emitExceptionRegion,
+            Action<StructuredExceptionRegion, MethodEmissionContext, int?, int?, int?, int?> emitExceptionRegion,
             int? loopBreakDepth = null,
             int? loopContinueDepth = null,
             int? exceptionLeaveDepth = null,
@@ -599,10 +600,10 @@ public sealed class ManagedMethodSequenceEmitterTests
                 emitExceptionRegion(
                     new StructuredExceptionRegion(group, null),
                     context,
-                    true,
                     loopBreakDepth,
                     loopContinueDepth,
-                    dispatcherContinueDepth);
+                    dispatcherContinueDepth,
+                    exceptionLeaveDepth);
             }
         }
     }
@@ -613,20 +614,22 @@ public sealed class ManagedMethodSequenceEmitterTests
         public bool Replica { get; init; }
         public int Calls { get; private set; }
         public List<(int? BreakDepth, int? ContinueDepth, int? LeaveDepth)> SequenceDepths { get; } = [];
+        public List<int?> EnclosingLeaveDepths { get; } = [];
 
         public void Emit(
             IWasmInstructionWriter code,
             StructuredMethod method,
             StructuredExceptionRegion region,
             MethodEmissionContext context,
-            bool isOutermost,
             ModuleDataPlan moduleData,
             Action<StructuredSequence, MethodEmissionContext, int?, int?, int?> emitSequence,
             int? loopBreakDepth = null,
             int? loopContinueDepth = null,
-            int? dispatcherContinueDepth = null)
+            int? dispatcherContinueDepth = null,
+            int? enclosingLeaveDepth = null)
         {
             Calls++;
+            EnclosingLeaveDepths.Add(enclosingLeaveDepth);
             if (!EmitSequence)
             {
                 return;

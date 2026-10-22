@@ -7,6 +7,7 @@ using NetWasm.Compiler.Core.IntermediateRepresentation.Identity;
 using NetWasm.Compiler.Wasm.Emission.AddressTakenValues;
 using NetWasm.Compiler.Wasm.Emission.Values;
 using NetWasm.Compiler.Wasm.Emission.Arrays;
+using NetWasm.Compiler.Wasm.Emission.Planning;
 
 namespace NetWasm.Compiler.Wasm.Emission.Methods;
 
@@ -31,8 +32,6 @@ internal sealed record MethodEmissionContext(
     int NumericTemporaryI4,
     int NumericTemporaryI8,
     int DispatcherProgramCounter,
-    bool LeaveFrameOnRethrow = true,
-    bool LeaveFrameOnExceptionalExit = true,
     StructuredExceptionGroup? ActiveExceptionGroup = null,
     bool IsFilterFunclet = false,
     int StackTraceMethodId = 0,
@@ -70,6 +69,9 @@ internal sealed record MethodEmissionContext(
     public ManagedAggregateValueLayout ManagedAggregateValues { get; init; } =
         ManagedAggregateValueLayout.Empty;
 
+    // The module's shared function that begins and throws a managed exception.
+    public OptionalFunctionIndex ManagedThrowFunction { get; init; }
+
     public ImmutableDictionary<int, int> AnchorLocals { get; init; } = [];
     public ImmutableDictionary<RootSource, int> AuthoritativeRootSlots { get; init; } = [];
     public ImmutableDictionary<(int Offset, bool ConstructorCall), ImmutableHashSet<int>> RootClearElisions
@@ -85,4 +87,7 @@ internal sealed record MethodEmissionContext(
     public int NumericTemporaryI4Third => checked(DispatcherProgramCounter + 2);
     public int NumericTemporaryI4Fourth => checked(DispatcherProgramCounter + 3);
     public int NumericTemporaryI4Fifth => checked(DispatcherProgramCounter + 4);
+
+    // The exception-frame token of a catch the compiler adds inside a method body.
+    public int InlineCatchFrame => checked(DispatcherProgramCounter + 5);
 }

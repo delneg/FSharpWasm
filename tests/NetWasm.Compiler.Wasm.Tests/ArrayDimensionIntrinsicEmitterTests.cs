@@ -7,6 +7,7 @@ using NetWasm.Compiler.Wasm.Encoding;
 namespace NetWasm.Compiler.Wasm.Tests;
 
 using static EmitterTestSupport;
+using NetWasm.Compiler.Wasm.Emission.Planning;
 
 public sealed class ArrayDimensionIntrinsicEmitterTests
 {
@@ -40,7 +41,7 @@ public sealed class ArrayDimensionIntrinsicEmitterTests
             RuntimeIntrinsic.ArrayRank,
             [CliValueKind.ManagedReference]);
 
-        validator.Validate(GetCodeWriter(request.Instruction), 3);
+        validator.Validate(GetCodeWriter(request.Instruction), 3, OptionalFunctionIndex.At(7));
 
         Assert.Equal([AddressOperation.EqualZero], addresses.Operations);
         Assert.Equal([ManagedExceptionKind.NullReference], exceptions.Kinds);
@@ -93,7 +94,7 @@ public sealed class ArrayDimensionIntrinsicEmitterTests
     {
         public int? Local { get; private set; }
 
-        public void Validate(IWasmInstructionWriter code, int receiverLocal) =>
+        public void Validate(IWasmInstructionWriter code, int receiverLocal, OptionalFunctionIndex throwFunction) =>
             Local = receiverLocal;
     }
 
@@ -112,7 +113,7 @@ public sealed class ArrayDimensionIntrinsicEmitterTests
     {
         public List<ManagedExceptionKind> Kinds { get; } = [];
 
-        public void Emit(IWasmInstructionWriter code, ManagedExceptionKind kind) =>
+        public void Emit(IWasmInstructionWriter code, ManagedExceptionKind kind, OptionalFunctionIndex throwFunctionIndex) =>
             Kinds.Add(kind);
     }
 }

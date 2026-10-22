@@ -16,6 +16,7 @@ public sealed class CorpusCaseCatalogCompositionTests
     [InlineData(CorpusCaseTestData.ImplicitExceptionLifetime, 30, 1)]
     [InlineData(CorpusCaseTestData.AsyncEnumeration, 12, 1)]
     [InlineData(CorpusCaseTestData.UnwindRoots, 6, 1)]
+    [InlineData(CorpusCaseTestData.UnwindRewind, 4, 5)]
     public void RealRuntimeCasesDeclareOnlyLinkedCellsAndIndependentContracts(string caseId, int inputs, int capabilities)
     {
         var declaration = CorpusCaseTestData.Get(caseId);
@@ -58,9 +59,9 @@ public sealed class CorpusCaseCatalogCompositionTests
     {
         var catalog = CorpusCaseTestData.Catalog;
 
-        Assert.Equal(78, catalog.Cases.Count);
-        Assert.Equal(78, CorpusCaseTestData.Bindings.Length);
-        Assert.Equal(78, CorpusCaseTestData.Assets.Manifests.Length);
+        Assert.Equal(79, catalog.Cases.Count);
+        Assert.Equal(79, CorpusCaseTestData.Bindings.Length);
+        Assert.Equal(79, CorpusCaseTestData.Assets.Manifests.Length);
         Assert.Equal(73, CorpusCaseTestData.Assets.SourceFiles.Length);
         Assert.Equal(32, CorpusCaseTestData.Assets.Features.Ids.Count);
         foreach (var binding in CorpusCaseTestData.Bindings)
@@ -291,7 +292,7 @@ public sealed class CorpusCaseCatalogCompositionTests
         var fixture = Factory().Create(declaration, "Release-Wasm32-Direct");
         var source = new EmbeddedCorpusSourceReader().Read(Assert.Single(declaration.SourceFiles));
 
-        Assert.Equal("c8a03d8d48b646ff3f4157d2819fd8dcf91fb40c666df6e9e3c1614c52ca7f0c",
+        Assert.Equal("e762ea609dd87f4de8948f6d285027db8124cf5bf6fac449db44a6e6bc276b85",
             Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(source))));
         Assert.Equal(Enumerable.Range(1, 9), fixture.Inputs);
         Assert.Equal(9, fixture.ExpectedReturnValues.Count);

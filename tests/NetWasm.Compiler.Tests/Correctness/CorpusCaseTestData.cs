@@ -76,6 +76,7 @@ internal static class CorpusCaseTestData
     public const string ImplicitExceptionLifetime = "flow.implicit-exception-lifetime";
     public const string AsyncEnumeration = "flow.async-enumeration";
     public const string UnwindRoots = "flow.unwind-roots";
+    public const string UnwindRewind = "flow.unwind-rewind";
     public const string IteratorOrder = "flow.iterator-order";
     public const string ClosedDelegateReceiver = "rtti.delegate-closed-receiver";
     public const string OpenDelegateReceiver = "rtti.delegate-open-receiver";
@@ -103,6 +104,8 @@ internal static class CorpusCaseTestData
             nameof(IteratorSequenceTests.EnumerationFailuresEarlyExitsAndRepeatedUsePreserveExactCleanupAndIdentity), CorpusInputKind.CSharp),
         new(UnwindRoots, typeof(ExceptionSequenceTests).FullName + "." +
             nameof(ExceptionSequenceTests.RealCollectionPreservesExceptionLocalInteriorAndDisposalRootsDuringUnwind), CorpusInputKind.CSharp),
+        new(UnwindRewind, typeof(ExceptionSequenceTests).FullName + "." +
+            nameof(ExceptionSequenceTests.RewoundFramesReleaseTheirReferencesAndKeepLaterFramesInOrder), CorpusInputKind.CSharp),
         new(AsyncLifetime, typeof(AsyncLifetimeTests).FullName + "." +
             nameof(AsyncLifetimeTests.ExplicitSuspensionPreservesRealRootsResultsFailuresCancellationAndCleanup), CorpusInputKind.CSharp),
         new(ImplicitExceptionLifetime, typeof(AsyncLifetimeTests).FullName + "." +

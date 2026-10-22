@@ -210,7 +210,7 @@ public sealed class RuntimeSupportIntrinsicEmitterTests
         RecordingLayoutProvider layouts)
     {
         var imports = WasmRuntimeImports.CreateCatalog();
-        var exceptions = new ImplicitExceptionEmitter(layouts, layouts, 7);
+        var exceptions = new ImplicitExceptionEmitter(layouts, layouts);
         var addresses = EmitterTestSupport.CreateAddressInstructions(layouts);
         return intrinsic switch
         {

@@ -131,7 +131,8 @@ internal sealed class WasmModuleEmitter(
             functionIndices);
         _managedThrowFunctions.Append(
             functions,
-            plan.FunctionIndices.ManagedThrowFunctionIndex);
+            plan.FunctionIndices.ManagedThrowFunctionIndex,
+            plan.FunctionIndices.ManagedRethrowFunctionIndex);
         _delegateFunctions.Append(
             functions,
             delegateInvokes,

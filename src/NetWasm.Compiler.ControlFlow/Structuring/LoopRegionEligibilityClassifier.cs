@@ -32,7 +32,7 @@ internal sealed class LoopRegionEligibilityClassifier(
             return false;
         }
         if (!naturalLoop.Contains(region.Header) ||
-            !naturalLoop.Contains(region.Condition) ||
+            region.Condition is int condition && !naturalLoop.Contains(condition) ||
             !naturalLoop.Contains(region.Continue))
         {
             return false;

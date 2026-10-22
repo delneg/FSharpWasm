@@ -264,12 +264,29 @@ jobs:
           retention-days: 90
           overwrite: true
 
+  # The full suite: every compiler test with each corpus fixture at its declared
+  # matrix, which pull request CI narrows to the Fast profile. It starts with the
+  # package build for a preview tag, and the release train is retained only after
+  # it passes, so a stable promotion never needs it again.
+  full-suite:
+    name: Full suite
+    if: contains(github.event.release.tag_name || inputs.tag, '-preview.')
+    uses: ./.github/workflows/compiler-tests.yml
+    with:
+      ref: ${{ github.event.release.tag_name || inputs.tag }}
+      shards: '[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]'
+      timings: eng/compiler-test-full-durations.json
+      timeout-minutes: 120
+      artifact-prefix: full-suite-timings
+
   aggregate:
-    needs: [build, host-tools]
+    needs: [build, host-tools, full-suite]
     if: >-
       ${{ always() && needs.build.result == 'success' &&
-          ((needs.build.outputs.mode == 'build' && needs.host-tools.result == 'success') ||
-           (needs.build.outputs.mode != 'build' && needs.host-tools.result == 'skipped')) }}
+          ((needs.build.outputs.mode == 'build' && needs.host-tools.result == 'success' &&
+            needs.full-suite.result == 'success') ||
+           (needs.build.outputs.mode != 'build' && needs.host-tools.result == 'skipped' &&
+            contains(fromJSON('["success", "skipped"]'), needs.full-suite.result))) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:

@@ -66,13 +66,13 @@ public sealed class ValueFrameInitializationEmitterTests
         var emitter = CreateEmitter(layouts, addresses);
         var scalar = CliTypeIdentity.FromStackKind(CliValueKind.I4);
         var context = CreateContext(new ValueFrameLayout(
-            64,
+            128,
             ImmutableDictionary<int, int>.Empty
                 .Add(0, 4)
-                .Add(1, 8)
-                .Add(2, 12),
+                .Add(1, 40)
+                .Add(2, 72),
             [],
-            ImmutableDictionary<int, int>.Empty.Add(17, 32),
+            ImmutableDictionary<int, int>.Empty.Add(17, 96),
             []));
         var code = new RecordingInstructionWriter();
 
@@ -93,8 +93,57 @@ public sealed class ValueFrameInitializationEmitterTests
             instructions,
             instruction => instruction.Opcode == expectedLengthConstant &&
                 (target == WasmTarget.Wasm64
-                    ? instruction.Operand.Signed64Value == 12
-                    : instruction.Operand.SignedValue == 12));
+                    ? instruction.Operand.Signed64Value == 72
+                    : instruction.Operand.SignedValue == 72));
+    }
+
+    [Theory]
+    [InlineData(3, new[] { WasmOpcodes.I32Store16, WasmOpcodes.I32Store8 }, new uint[] { 0, 2 })]
+    [InlineData(12, new[] { WasmOpcodes.I64Store, WasmOpcodes.I32Store }, new uint[] { 0, 8 })]
+    [InlineData(15, new[] { WasmOpcodes.I64Store, WasmOpcodes.I32Store, WasmOpcodes.I32Store16, WasmOpcodes.I32Store8 },
+        new uint[] { 0, 8, 12, 14 })]
+    [InlineData(40, new[] { WasmOpcodes.I64Store, WasmOpcodes.I64Store, WasmOpcodes.I64Store, WasmOpcodes.I64Store,
+        WasmOpcodes.I64Store }, new uint[] { 0, 8, 16, 24, 32 })]
+    public void ZeroesRangesUpToSixtyFourBytesWithStores(
+        int size,
+        byte[] expectedStores,
+        uint[] expectedOffsets)
+    {
+        var layouts = new RecordingLayoutProvider();
+        var addresses = new RecordingValueFrameAddressEmitter();
+        var emitter = CreateEmitter(
+            layouts,
+            addresses,
+            new FixedValueLayoutProvider(size));
+        var type = CliTypeIdentity.Named(
+            Assembly,
+            "Fixture",
+            "Value",
+            isValueType: true,
+            CliValueKind.ValueType);
+        var context = CreateContext(
+            new ValueFrameLayout(
+                80,
+                ImmutableDictionary<int, int>.Empty.Add(0, 16),
+                [],
+                [],
+                []));
+        var code = new RecordingInstructionWriter();
+
+        emitter.Initialize(code, CreateHeader([type]), context);
+
+        var instructions = code.ToInstructions();
+        Assert.DoesNotContain(
+            instructions,
+            instruction => instruction.Opcode == WasmOpcodes.Prefixed);
+        var stores = instructions
+            .Where(instruction => instruction.Opcode is WasmOpcodes.I64Store or WasmOpcodes.I32Store or
+                WasmOpcodes.I32Store16 or WasmOpcodes.I32Store8)
+            .ToArray();
+        Assert.Equal(expectedStores, stores.Select(instruction => instruction.Opcode));
+        Assert.Equal(expectedOffsets, stores.Select(instruction => instruction.Operand.Offset));
+        Assert.All(addresses.Offsets, offset => Assert.Equal(16, offset));
+        Assert.Equal(expectedStores.Length, addresses.Offsets.Count);
     }
 
     [Fact]

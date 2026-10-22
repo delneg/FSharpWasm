@@ -17,7 +17,7 @@ internal sealed class EnumGetUnderlyingTypeEmitter(
         var input = request.Local(0, CliValueKind.ManagedReference);
         var result = request.Local(0, CliValueKind.ManagedReference);
         var typeId = request.Instruction.Context.NumericTemporaryI4;
-        typeArguments.Validate(code, input, typeId);
+        typeArguments.Validate(code, input, typeId, request.Instruction.Context.ManagedThrowFunction);
         addresses.Emit(code, 0);
         code.Write(WasmInstruction.WithOperand(WasmOpcodes.LocalSet, WasmInstructionOperand.Unsigned((uint)result)));
         foreach (var entry in metadata.EnumMetadata)

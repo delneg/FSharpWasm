@@ -116,8 +116,10 @@ public sealed record StructuredIf(
     StructuredSequence WhenTrue,
     StructuredSequence WhenFalse) : StructuredRegion;
 
+// A null Condition is an unconditional loop that leaves only through breaks,
+// returns or exception-region continuations; ContinueBody and ExitBody stay empty.
 public sealed record StructuredLoop(
-    StructuredBlockOccurrence Condition,
+    StructuredBlockOccurrence? Condition,
     bool ContinueWhenConditionTrue,
     StructuredSequence Body,
     StructuredSequence ContinueBody,

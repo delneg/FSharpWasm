@@ -458,7 +458,7 @@ public sealed class JavaScriptImportResultMarshallerTests
     {
         public int Count { get; private set; }
 
-        public void Validate(IWasmInstructionWriter code, int objectLocal) => Count++;
+        public void Validate(IWasmInstructionWriter code, int objectLocal, OptionalFunctionIndex throwFunction) => Count++;
     }
 
     private sealed class RecordingAddressInstructionEmitter : IAddressInstructionEmitter
@@ -485,7 +485,7 @@ public sealed class JavaScriptImportResultMarshallerTests
     {
         public List<ManagedExceptionKind> Kinds { get; } = [];
 
-        public void Emit(IWasmInstructionWriter code, ManagedExceptionKind kind) =>
+        public void Emit(IWasmInstructionWriter code, ManagedExceptionKind kind, OptionalFunctionIndex throwFunctionIndex) =>
             Kinds.Add(kind);
     }
 }

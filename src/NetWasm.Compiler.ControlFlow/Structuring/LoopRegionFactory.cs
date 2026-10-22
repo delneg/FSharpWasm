@@ -63,11 +63,15 @@ internal sealed class LoopRegionFactory(
         }
 
         var condition = _loopConditions.Choose(new(graph, component, header));
-        if (condition is null)
+        if (condition is not int conditionIndex ||
+            !EnclosesCondition(graph, header, conditionIndex))
         {
-            return new LoopRegionCreation(null, component);
+            // A branch inside a protected region the loop enters cannot be the
+            // loop's condition: testing it at the loop would split it from its
+            // region. Such loops leave only through those regions.
+            return CreateUnconditional(state, graph, component, header, domain, domains) ??
+                new LoopRegionCreation(null, component);
         }
-        var conditionIndex = condition.Value;
         if (conditionIndex != header)
         {
             var continuationStart = graph.Successors[conditionIndex]
@@ -148,4 +152,105 @@ internal sealed class LoopRegionFactory(
                 candidate.Blocks.Contains(predecessor));
     }
 
+    private LoopRegionCreation? CreateUnconditional(ControlFlowStructuringState state,
+        ControlFlowGraph graph,
+        ImmutableHashSet<int> component,
+        int header,
+        ControlFlowDomain domain,
+        ImmutableArray<ControlFlowDomain> domains)
+    {
+        // Protected regions entered inside the loop. Their blocks belong to the
+        // loop body, and their leaves reach the loop's continue and exit targets
+        // through the regions' continuations.
+        var headerOffset = graph.GetBlock(header).StartOffset;
+        var nested = graph.MethodBody.ExceptionRegions
+            .Where(region => component.Contains(graph.GetBlockAtOffset(region.TryOffset).Index) &&
+                !Contains(region.TryOffset, region.TryLength, headerOffset))
+            .ToArray();
+        if (nested.Length == 0)
+        {
+            return null;
+        }
+        var protectedBlocks = graph.ReachableBlocks
+            .Where(block => nested.Any(region => Contains(
+                region.TryOffset,
+                region.TryLength,
+                graph.GetBlock(block).StartOffset)))
+            .ToImmutableHashSet();
+        var body = component.Union(protectedBlocks);
+        var exits = ImmutableHashSet.CreateBuilder<int>();
+        foreach (var block in body)
+        {
+            // Catch continuations of the regions entered here are exits; those
+            // of a region enclosing the loop belong to that region's group.
+            var successors = protectedBlocks.Contains(block)
+                ? state.ContinuationGraph.Successors[block]
+                : graph.Successors[block];
+            foreach (var successor in successors)
+            {
+                if (body.Contains(successor))
+                {
+                    continue;
+                }
+                if (!protectedBlocks.Contains(block))
+                {
+                    // An ordinary exit needs a condition to test it.
+                    return null;
+                }
+                exits.Add(successor);
+            }
+        }
+        if (exits.Count == 0)
+        {
+            return null;
+        }
+        var exit = _joins.Find(state,
+            [.. exits.Order()],
+            stop: null,
+            domain.Blocks) ?? exits.Min();
+        // Every exit is an early exit, so the condition-exit extension is empty.
+        var exitPartition = _exitPartitions.Partition(
+            state.ContinuationGraph,
+            body,
+            exit,
+            exit,
+            exits.ToImmutable());
+        if (exitPartition.Overlaps)
+        {
+            return null;
+        }
+        var region = new LoopRegion(
+            header,
+            null,
+            header,
+            exit,
+            exit,
+            component,
+            exitPartition.BodyComponent,
+            []);
+        return _eligibility.Classify(new(
+                graph,
+                component,
+                region,
+                domain,
+                domains))
+            ? new LoopRegionCreation(region, ImmutableHashSet<int>.Empty)
+            : null;
+    }
+
+    // Every protected region or handler that holds the condition holds the
+    // header too, so testing the condition at the loop stays inside them.
+    private static bool EnclosesCondition(ControlFlowGraph graph, int header, int condition)
+    {
+        var headerOffset = graph.GetBlock(header).StartOffset;
+        var conditionOffset = graph.GetBlock(condition).StartOffset;
+        return graph.MethodBody.ExceptionRegions.All(region =>
+            (!Contains(region.TryOffset, region.TryLength, conditionOffset) ||
+                Contains(region.TryOffset, region.TryLength, headerOffset)) &&
+            (!Contains(region.HandlerOffset, region.HandlerLength, conditionOffset) ||
+                Contains(region.HandlerOffset, region.HandlerLength, headerOffset)));
+    }
+
+    private static bool Contains(int offset, int length, int candidate) =>
+        candidate >= offset && candidate < offset + length;
 }

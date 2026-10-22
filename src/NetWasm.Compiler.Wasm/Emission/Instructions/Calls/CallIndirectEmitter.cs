@@ -71,7 +71,7 @@ internal sealed class CallIndirectEmitter(
             }
             code.Write(WasmInstruction.NoOperand(WasmOpcodes.Else));
         }
-        exceptions.Emit(code, ManagedExceptionKind.InvalidCast);
+        exceptions.Emit(code, ManagedExceptionKind.InvalidCast, request.Context.ManagedThrowFunction);
         for (var index = 0; index < compatible.Length; index++)
         {
             code.Write(WasmInstruction.NoOperand(WasmOpcodes.End));

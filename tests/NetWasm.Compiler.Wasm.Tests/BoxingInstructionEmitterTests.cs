@@ -61,7 +61,7 @@ public sealed class BoxingInstructionEmitterTests
         Emit(AsProvider(CreateEmitter()), request);
 
         Assert.Equal([CliValueKind.ManagedAddress], request.Stack);
-        Assert.Contains(WasmOpcodes.Throw, GetCodeBytes(request));
+        Assert.True(ContainsManagedThrow(GetCodeBytes(request)));
     }
 
     [Theory]
@@ -197,7 +197,7 @@ public sealed class BoxingInstructionEmitterTests
         var layouts = new RecordingLayoutProvider(WasmTargetLayout.For(target));
         var addresses = new AddressInstructionEmitter(layouts);
         var runtimeImports = WasmRuntimeImports.CreateCatalog();
-        var exceptions = new ImplicitExceptionEmitter(layouts, layouts, 7);
+        var exceptions = new ImplicitExceptionEmitter(layouts, layouts);
         var types = CreateTypeOperands(new FakeProgram());
         var unboxes = new BoxedValueUnboxEmitter(
             layouts,
@@ -240,11 +240,11 @@ public sealed class BoxingInstructionEmitterTests
             new AddressInstructionEmitter(layouts),
             layouts,
             CreateTypeOperands(new FakeProgram()),
-            new ImplicitExceptionEmitter(layouts, layouts, 7),
+            new ImplicitExceptionEmitter(layouts, layouts),
             new BoxedValueTypeValidator(
                 layouts,
                 new EmptyEnumStorageResolver(),
-                new ImplicitExceptionEmitter(layouts, layouts, 7)),
+                new ImplicitExceptionEmitter(layouts, layouts)),
             new ValueFrameAddressEmitter(layouts));
     }
 

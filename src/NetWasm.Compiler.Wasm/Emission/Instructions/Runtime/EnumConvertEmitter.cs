@@ -4,6 +4,7 @@ using NetWasm.Compiler.Wasm;
 using NetWasm.Compiler.Wasm.Emission;
 using NetWasm.Compiler.Wasm.Emission.Instructions.Runtime;
 using NetWasm.Compiler.Wasm.Encoding;
+using NetWasm.Compiler.Wasm.Emission.Planning;
 
 namespace NetWasm.Compiler.Wasm.Emission.Instructions.Runtime;
 
@@ -19,7 +20,7 @@ internal sealed class EnumConvertEmitter(
         var name = NormalizeName(request.Method.Definition.Name);
         if (name == "InternalToDateTime")
         {
-            exceptions.Emit(code, ManagedExceptionKind.InvalidCast);
+            exceptions.Emit(code, ManagedExceptionKind.InvalidCast, request.Instruction.Context.ManagedThrowFunction);
             return;
         }
         if (name == "InternalToType")
@@ -160,7 +161,7 @@ internal sealed class EnumConvertEmitter(
         IWasmInstructionWriter code)
     {
         var conversionType = request.Local(1, CliValueKind.ManagedReference);
-        EmitNullCheck(code, conversionType, ManagedExceptionKind.ArgumentNull);
+        EmitNullCheck(code, conversionType, ManagedExceptionKind.ArgumentNull, request.Instruction.Context.ManagedThrowFunction);
 
         Get(code, conversionType);
         code.Write(WasmInstruction.WithOperand(
@@ -173,7 +174,7 @@ internal sealed class EnumConvertEmitter(
             WasmInstructionOperand.BlockType(WasmOpcodes.EmptyBlockType)));
         strings.EmitToString(request, code);
         code.Write(WasmInstruction.NoOperand(WasmOpcodes.Else));
-        exceptions.Emit(code, ManagedExceptionKind.InvalidCast);
+        exceptions.Emit(code, ManagedExceptionKind.InvalidCast, request.Instruction.Context.ManagedThrowFunction);
         code.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
     }
 
@@ -298,7 +299,8 @@ internal sealed class EnumConvertEmitter(
     private void EmitNullCheck(
         IWasmInstructionWriter code,
         int local,
-        ManagedExceptionKind exception)
+        ManagedExceptionKind exception,
+        OptionalFunctionIndex throwFunction)
     {
         Get(code, local);
         code.Write(WasmInstruction.NoOperand(
@@ -308,7 +310,7 @@ internal sealed class EnumConvertEmitter(
         code.Write(WasmInstruction.WithOperand(
             WasmOpcodes.If,
             WasmInstructionOperand.BlockType(WasmOpcodes.EmptyBlockType)));
-        exceptions.Emit(code, exception);
+        exceptions.Emit(code, exception, throwFunction);
         code.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
     }
 

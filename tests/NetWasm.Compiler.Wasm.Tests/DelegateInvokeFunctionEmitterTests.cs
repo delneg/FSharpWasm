@@ -98,7 +98,7 @@ public sealed class DelegateInvokeFunctionEmitterTests
         {
             WasmInstruction.WithOperand(WasmOpcodes.LocalGet,
                 WasmInstructionOperand.Unsigned((uint)(
-                    new ManagedMethodFunctionTypeResolver().Resolve(invoke).Parameters.Length + 6))),
+                    new ManagedMethodFunctionTypeResolver().Resolve(invoke).Parameters.Length + 5))),
             WasmInstruction.WithOperand(layouts.Target.UsesMemory64
                     ? WasmOpcodes.I64Load : WasmOpcodes.I32Load,
                 WasmInstructionOperand.Memory(layouts.Target.UsesMemory64 ? 3u : 2u,
@@ -159,10 +159,12 @@ public sealed class DelegateInvokeFunctionEmitterTests
             ImmutableDictionary<string, WasmFunctionIndex>.Empty.Add(
                 callbackType.CanonicalName,
                 new WasmFunctionIndex(40)),
-            []);
+            [])
+        {
+            ManagedThrowFunctionIndex = OptionalFunctionIndex.At(EmitterTestSupport.ManagedThrowFunction),
+        };
         var emitter = new DelegateInvokeFunctionEmitter(layouts, layouts, layouts, WasmRuntimeImports.CreateCatalog(),
-            new ImplicitExceptionEmitter(layouts, layouts, 7),
-            new ExceptionPayloadBlockEmitter(layouts),
+            new ImplicitExceptionEmitter(layouts, layouts),
             new ManagedMethodFunctionTypeResolver(),
             new DelegateInvocationTargetSelector(),
             new GeneratedFunctionWriterFactory(),
@@ -176,9 +178,8 @@ public sealed class DelegateInvokeFunctionEmitterTests
             new FunctionIndexResolver(program, program, indices));
 
         Assert.NotEmpty(function);
-        Assert.Contains(WasmOpcodes.TryTable, function);
         Assert.Contains(WasmOpcodes.Call, function);
-        Assert.Contains(WasmOpcodes.Throw, function);
+        Assert.True(ContainsManagedThrow(function));
     }
 
     [Fact]
@@ -274,8 +275,8 @@ public sealed class DelegateInvokeFunctionEmitterTests
             .Resolve(invoke)
             .Parameters
             .Length;
-        var invocationListLocal = checked((uint)(parameterCount + 3));
-        var currentDelegateLocal = checked((uint)(parameterCount + 6));
+        var invocationListLocal = checked((uint)(parameterCount + 2));
+        var currentDelegateLocal = checked((uint)(parameterCount + 5));
         var selectionIf = Assert.Single(Enumerable.Range(2, instructions.Length - 2), index =>
             instructions[index].Opcode == WasmOpcodes.If &&
             instructions[index - 1].Opcode == WasmOpcodes.I32EqualZero &&
@@ -315,8 +316,7 @@ public sealed class DelegateInvokeFunctionEmitterTests
             values ?? layouts,
             layouts,
             WasmRuntimeImports.CreateCatalog(),
-            new ImplicitExceptionEmitter(layouts, layouts, 7),
-            new ExceptionPayloadBlockEmitter(layouts),
+            new ImplicitExceptionEmitter(layouts, layouts),
             new ManagedMethodFunctionTypeResolver(),
             new DelegateInvocationTargetSelector(),
             writers ?? new GeneratedFunctionWriterFactory(),
@@ -419,7 +419,10 @@ public sealed class DelegateInvokeFunctionEmitterTests
         ImmutableDictionary<string, WasmFunctionIndex>.Empty.Add(
             callbackType.CanonicalName,
             new WasmFunctionIndex(40)),
-        []);
+        [])
+    {
+        ManagedThrowFunctionIndex = OptionalFunctionIndex.At(EmitterTestSupport.ManagedThrowFunction),
+    };
 
     private static ManagedDelegateBinding CreateBinding(
         MethodInstanceModel invoke,

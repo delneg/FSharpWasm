@@ -53,16 +53,16 @@ internal sealed class AsyncJSImportResolveEmitter(
             var target = new InteropMarshallingTarget(interopImports);
             if (InteropTypeClassifier.IsString(result!))
             {
-                stringResults.Emit(code.Instructions, 1, valueLocal, temporaryI4, objectTemporary, target);
+                stringResults.Emit(code.Instructions, 1, valueLocal, temporaryI4, objectTemporary, target, functionIndices.ManagedThrowFunction);
             }
             else if (InteropTypeClassifier.IsValueArray(result!))
             {
                 valueArrayResults.Emit(code.Instructions, result!, 1, valueLocal, temporaryI4,
-                    objectTemporary, target);
+                    objectTemporary, target, functionIndices.ManagedThrowFunction);
             }
             else
             {
-                hostObjectResults.Emit(code.Instructions, result!, 1, valueLocal);
+                hostObjectResults.Emit(code.Instructions, result!, 1, valueLocal, functionIndices.ManagedThrowFunction);
             }
         }
         code.Instructions.Write(WasmInstruction.WithOperand(

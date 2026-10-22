@@ -1,4 +1,5 @@
 using System;
+using NetWasm.Compiler.Analysis;
 using NetWasm.Compiler.Core;
 using NetWasm.Compiler.Metadata;
 
@@ -13,7 +14,8 @@ internal interface IJavaScriptAsyncBindingResolverFactory
         IFieldRepository fields,
         IMethodRepository methodRepository,
         IMethodInstanceResolver methodInstances,
-        ISymbolFormatter symbols);
+        ISymbolFormatter symbols,
+        PlatformWorldCapabilities world);
 }
 
 internal sealed class JavaScriptAsyncBindingResolverFactory :
@@ -26,7 +28,8 @@ internal sealed class JavaScriptAsyncBindingResolverFactory :
         IFieldRepository fields,
         IMethodRepository methodRepository,
         IMethodInstanceResolver methodInstances,
-        ISymbolFormatter symbols)
+        ISymbolFormatter symbols,
+        PlatformWorldCapabilities world)
     {
         ArgumentNullException.ThrowIfNull(types);
         ArgumentNullException.ThrowIfNull(typeDefinitions);
@@ -35,6 +38,7 @@ internal sealed class JavaScriptAsyncBindingResolverFactory :
         ArgumentNullException.ThrowIfNull(methodRepository);
         ArgumentNullException.ThrowIfNull(methodInstances);
         ArgumentNullException.ThrowIfNull(symbols);
+        ArgumentNullException.ThrowIfNull(world);
         return new JavaScriptAsyncBindingResolver(
             types,
             typeDefinitions,
@@ -42,6 +46,7 @@ internal sealed class JavaScriptAsyncBindingResolverFactory :
             fields,
             methodRepository,
             methodInstances,
-            symbols);
+            symbols,
+            world);
     }
 }

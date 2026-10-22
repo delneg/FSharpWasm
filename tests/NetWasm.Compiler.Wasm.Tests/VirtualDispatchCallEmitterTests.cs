@@ -140,7 +140,7 @@ public sealed class VirtualDispatchCallEmitterTests
 
         Assert.Equal([CliValueKind.I4], instruction.Stack);
         Assert.Contains(WasmOpcodes.If, code.ToArray());
-        Assert.Contains(WasmOpcodes.Throw, code.ToArray());
+        Assert.True(ContainsManagedThrow(code.ToArray()));
     }
 
     [Fact]
@@ -722,7 +722,7 @@ public sealed class VirtualDispatchCallEmitterTests
         layouts,
         new VirtualDispatchEmissionPlanBuilder(),
         intrinsics ?? new FakeIntrinsics(),
-        new ImplicitExceptionEmitter(layouts, layouts, 7),
+        new ImplicitExceptionEmitter(layouts, layouts),
         enumEquals ?? new RecordingEnumEqualsEmitter(),
         enumHashCode ?? new RecordingEnumHashCodeEmitter(),
         enumCompareTo ?? new RecordingEnumCompareToEmitter(),
@@ -837,7 +837,8 @@ public sealed class VirtualDispatchCallEmitterTests
             int right,
             int result,
             int temporaryReference,
-            int temporaryI4)
+            int temporaryI4,
+            OptionalFunctionIndex throwFunction)
         {
             Calls++;
         }
@@ -854,7 +855,8 @@ public sealed class VirtualDispatchCallEmitterTests
             int receiver,
             int result,
             int temporaryI4,
-            int temporaryI8)
+            int temporaryI8,
+            OptionalFunctionIndex throwFunction)
         {
             Calls++;
         }
@@ -872,7 +874,8 @@ public sealed class VirtualDispatchCallEmitterTests
             int right,
             int result,
             int temporaryReference,
-            int temporaryI4)
+            int temporaryI4,
+            OptionalFunctionIndex throwFunction)
         {
             Calls++;
         }
@@ -887,6 +890,7 @@ public sealed class VirtualDispatchCallEmitterTests
             int receiver,
             int result,
             int temporaryI4,
+            OptionalFunctionIndex throwFunction,
             CliTypeIdentity? constrainedType = null,
             CliValueKind receiverKind = CliValueKind.ManagedReference)
         {
@@ -914,6 +918,7 @@ public sealed class VirtualDispatchCallEmitterTests
             int flag,
             int result,
             int temporaryI4,
+            OptionalFunctionIndex throwFunction,
             CliValueKind receiverKind = CliValueKind.ManagedReference,
             CliTypeIdentity? constrainedType = null)
         {

@@ -4,6 +4,7 @@ using NetWasm.Compiler.Core;
 using NetWasm.Compiler.Wasm.Emission.Methods;
 using NetWasm.Compiler.Wasm.Emission.Support;
 using NetWasm.Compiler.Wasm.Encoding;
+using NetWasm.Compiler.Wasm.Emission.Planning;
 
 namespace NetWasm.Compiler.Wasm.Emission.Instructions.Objects;
 
@@ -53,12 +54,12 @@ internal sealed class MemberMaterializationEmitter(
         code.Write(WasmInstruction.WithOperand(
             WasmOpcodes.If,
             WasmInstructionOperand.BlockType(WasmOpcodes.EmptyBlockType)));
-        exceptions.Emit(code, ManagedExceptionKind.Argument);
+        exceptions.Emit(code, ManagedExceptionKind.Argument, request.Context.ManagedThrowFunction);
         code.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
 
         if (arity == 1)
         {
-            EmitOneArgumentValidation(code, source);
+            EmitOneArgumentValidation(code, source, request.Context.ManagedThrowFunction);
         }
         else
         {
@@ -74,9 +75,9 @@ internal sealed class MemberMaterializationEmitter(
             code.Write(WasmInstruction.WithOperand(
                 WasmOpcodes.If,
                 WasmInstructionOperand.BlockType(WasmOpcodes.EmptyBlockType)));
-            exceptions.Emit(code, ManagedExceptionKind.Argument);
+            exceptions.Emit(code, ManagedExceptionKind.Argument, request.Context.ManagedThrowFunction);
             code.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
-            EmitTwoArgumentValidation(code, source, declaringType);
+            EmitTwoArgumentValidation(code, source, declaringType, request.Context.ManagedThrowFunction);
             request.Stack.RemoveAt(slot + 1);
         }
 
@@ -96,7 +97,8 @@ internal sealed class MemberMaterializationEmitter(
 
     private void EmitOneArgumentValidation(
         IWasmInstructionWriter code,
-        int source)
+        int source,
+        OptionalFunctionIndex throwFunction)
     {
         code.Write(WasmInstruction.WithOperand(
             WasmOpcodes.LocalGet,
@@ -109,14 +111,15 @@ internal sealed class MemberMaterializationEmitter(
         code.Write(WasmInstruction.WithOperand(
             WasmOpcodes.If,
             WasmInstructionOperand.BlockType(WasmOpcodes.EmptyBlockType)));
-        exceptions.Emit(code, ManagedExceptionKind.Argument);
+        exceptions.Emit(code, ManagedExceptionKind.Argument, throwFunction);
         code.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
     }
 
     private void EmitTwoArgumentValidation(
         IWasmInstructionWriter code,
         int source,
-        int declaringType)
+        int declaringType,
+        OptionalFunctionIndex throwFunction)
     {
         EmitDescriptorDeclaringTypeId(code, source);
         code.Write(WasmInstruction.WithOperand(
@@ -128,7 +131,7 @@ internal sealed class MemberMaterializationEmitter(
         code.Write(WasmInstruction.WithOperand(
             WasmOpcodes.If,
             WasmInstructionOperand.BlockType(WasmOpcodes.EmptyBlockType)));
-        exceptions.Emit(code, ManagedExceptionKind.Argument);
+        exceptions.Emit(code, ManagedExceptionKind.Argument, throwFunction);
         code.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
     }
 

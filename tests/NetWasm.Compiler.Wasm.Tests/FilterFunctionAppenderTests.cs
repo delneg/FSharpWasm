@@ -160,7 +160,8 @@ public sealed class FilterFunctionAppenderTests
             FilterEnvironmentLayout environment,
             MethodRootMap rootMap,
             IFilterSequenceEmitter emitSequence,
-            MemberExecutionPlan? memberExecution = null)
+            MemberExecutionPlan? memberExecution = null,
+            OptionalFunctionIndex managedThrowFunction = default)
         {
             MemberExecution = memberExecution;
             RootMap = rootMap;
@@ -190,6 +191,8 @@ public sealed class FilterFunctionAppenderTests
 
     private sealed class FixedFunctionIndexResolver : IFunctionIndexResolver
     {
+        public OptionalFunctionIndex ManagedThrowFunction => OptionalFunctionIndex.At(7);
+
         public int Resolve(InteropImportKey import) => Resolve(import.Method);
 
         public int Resolve(EntityKey method) => 0;

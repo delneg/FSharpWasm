@@ -102,7 +102,7 @@ public sealed class AsyncJSImportCallEmitterTests
                 layouts,
                 WasmRuntimeImports.CreateCatalog(),
                 arguments,
-                new ImplicitExceptionEmitter(layouts, layouts, 7)),
+                new ImplicitExceptionEmitter(layouts, layouts)),
         }.Cast<ICallEmitter>().Single();
         var code = new RecordingInstructionWriter();
 

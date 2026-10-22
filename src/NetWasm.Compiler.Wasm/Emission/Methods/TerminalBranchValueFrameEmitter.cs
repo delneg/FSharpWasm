@@ -9,8 +9,7 @@ namespace NetWasm.Compiler.Wasm.Emission.Methods;
 internal sealed class TerminalBranchValueFrameEmitter(
     ITargetLayout layouts,
     IStructuredConditionValueEmitter conditions,
-    IValueFrameEntryEmitter valueFrames,
-    IMethodExceptionBoundaryEmitter exceptions) : ITerminalBranchValueFrameEmitter
+    IValueFrameEntryEmitter valueFrames) : ITerminalBranchValueFrameEmitter
 {
     public void Emit(
         IWasmInstructionWriter code,
@@ -50,8 +49,6 @@ internal sealed class TerminalBranchValueFrameEmitter(
                 return;
             }
             var framedContext = context with { ValueLayout = placement.FramedLayout };
-            // Allocation is outside the inner boundary: if it fails, only the
-            // method-wide root/trace boundary owns anything that needs cleanup.
             valueFrames.Emit(code, header, framedContext);
             foreach (var index in placement.Plan.IncomingScalarLocals.Order())
             {
@@ -63,15 +60,7 @@ internal sealed class TerminalBranchValueFrameEmitter(
                 ManagedMemoryEmitter.EmitStoreByType(code, layouts.Target, 0, type,
                     layouts.Target.GetStorageSize(type));
             }
-            var valueOnlyCleanup = framedContext with
-            {
-                RootMap = new(context.RootMap.Method, [], []),
-                StackTraceMethodId = 0,
-            };
-            exceptions.Emit(code, valueOnlyCleanup, _ => emitBody(sequence, framedContext with
-            {
-                LeaveFrameOnExceptionalExit = false,
-            }));
+            emitBody(sequence, framedContext);
         }
     }
 }

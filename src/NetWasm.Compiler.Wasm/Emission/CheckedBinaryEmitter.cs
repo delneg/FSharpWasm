@@ -1,6 +1,7 @@
 using System;
 using NetWasm.Compiler.Core;
 using NetWasm.Compiler.Wasm.Encoding;
+using NetWasm.Compiler.Wasm.Emission.Planning;
 
 namespace NetWasm.Compiler.Wasm.Emission;
 
@@ -14,13 +15,14 @@ internal sealed class CheckedBinaryEmitter(
         CliValueKind type,
         int leftLocal,
         int rightLocal,
-        int resultLocal)
+        int resultLocal,
+        OptionalFunctionIndex throwFunction)
     {
         var usesI64 = type == CliValueKind.I8 ||
                       type == CliValueKind.NativeInt && target.UsesMemory64;
         if (operation == CilOperation.MultiplyCheckedUnsigned)
         {
-            EmitUnsignedMultiply(code, usesI64, leftLocal, rightLocal, resultLocal);
+            EmitUnsignedMultiply(code, usesI64, leftLocal, rightLocal, resultLocal, throwFunction);
             return;
         }
         if (operation is CilOperation.AddCheckedUnsigned or
@@ -32,7 +34,7 @@ internal sealed class CheckedBinaryEmitter(
                 usesI64,
                 leftLocal,
                 rightLocal,
-                resultLocal);
+                resultLocal, throwFunction);
             return;
         }
 
@@ -56,7 +58,7 @@ internal sealed class CheckedBinaryEmitter(
         WriteLocalSet(code, resultLocal);
         if (operation == CilOperation.MultiplyChecked)
         {
-            EmitSignedMultiplyCheck(code, usesI64, leftLocal, rightLocal, resultLocal);
+            EmitSignedMultiplyCheck(code, usesI64, leftLocal, rightLocal, resultLocal, throwFunction);
             return;
         }
         EmitSignedAddOrSubtractCheck(
@@ -65,7 +67,7 @@ internal sealed class CheckedBinaryEmitter(
             usesI64,
             leftLocal,
             rightLocal,
-            resultLocal);
+            resultLocal, throwFunction);
     }
 
     private void EmitUnsignedAddOrSubtract(
@@ -74,7 +76,8 @@ internal sealed class CheckedBinaryEmitter(
         bool usesI64,
         int leftLocal,
         int rightLocal,
-        int resultLocal)
+        int resultLocal,
+        OptionalFunctionIndex throwFunction)
     {
         WriteLocalGet(code, leftLocal);
         WriteLocalGet(code, rightLocal);
@@ -97,7 +100,7 @@ internal sealed class CheckedBinaryEmitter(
             ? WasmOpcodes.I64LessThanUnsigned
             : WasmOpcodes.I32LessThanUnsigned);
         WriteBlockInstruction(code, WasmOpcodes.If);
-        exceptions.Emit(code, ManagedExceptionKind.Overflow);
+        exceptions.Emit(code, ManagedExceptionKind.Overflow, throwFunction);
         WriteOperation(code, WasmOpcodes.End);
     }
 
@@ -107,7 +110,8 @@ internal sealed class CheckedBinaryEmitter(
         bool usesI64,
         int leftLocal,
         int rightLocal,
-        int resultLocal)
+        int resultLocal,
+        OptionalFunctionIndex throwFunction)
     {
         WriteLocalGet(code, leftLocal);
         WriteLocalGet(code, operation == CilOperation.AddChecked ? resultLocal : rightLocal);
@@ -129,7 +133,7 @@ internal sealed class CheckedBinaryEmitter(
             WriteOperation(code, WasmOpcodes.I32LessThanSigned);
         }
         WriteBlockInstruction(code, WasmOpcodes.If);
-        exceptions.Emit(code, ManagedExceptionKind.Overflow);
+        exceptions.Emit(code, ManagedExceptionKind.Overflow, throwFunction);
         WriteOperation(code, WasmOpcodes.End);
     }
 
@@ -138,7 +142,8 @@ internal sealed class CheckedBinaryEmitter(
         bool usesI64,
         int leftLocal,
         int rightLocal,
-        int resultLocal)
+        int resultLocal,
+        OptionalFunctionIndex throwFunction)
     {
         WriteLocalGet(code, rightLocal);
         WriteOperation(code, usesI64 ? WasmOpcodes.I64EqualZero : WasmOpcodes.I32EqualZero);
@@ -168,7 +173,7 @@ internal sealed class CheckedBinaryEmitter(
         }
         WriteOperation(code, WasmOpcodes.I32And);
         WriteBlockInstruction(code, WasmOpcodes.If);
-        exceptions.Emit(code, ManagedExceptionKind.Overflow);
+        exceptions.Emit(code, ManagedExceptionKind.Overflow, throwFunction);
         WriteOperation(code, WasmOpcodes.End);
         WriteLocalGet(code, resultLocal);
         WriteLocalGet(code, rightLocal);
@@ -177,7 +182,7 @@ internal sealed class CheckedBinaryEmitter(
         WriteOperation(code, usesI64 ? WasmOpcodes.I64Equal : WasmOpcodes.I32Equal);
         WriteOperation(code, WasmOpcodes.I32EqualZero);
         WriteBlockInstruction(code, WasmOpcodes.If);
-        exceptions.Emit(code, ManagedExceptionKind.Overflow);
+        exceptions.Emit(code, ManagedExceptionKind.Overflow, throwFunction);
         WriteOperation(code, WasmOpcodes.End);
         WriteOperation(code, WasmOpcodes.End);
     }
@@ -187,7 +192,8 @@ internal sealed class CheckedBinaryEmitter(
         bool usesI64,
         int leftLocal,
         int rightLocal,
-        int resultLocal)
+        int resultLocal,
+        OptionalFunctionIndex throwFunction)
     {
         WriteLocalGet(code, leftLocal);
         WriteLocalGet(code, rightLocal);
@@ -204,7 +210,7 @@ internal sealed class CheckedBinaryEmitter(
         WriteOperation(code, usesI64 ? WasmOpcodes.I64Equal : WasmOpcodes.I32Equal);
         WriteOperation(code, WasmOpcodes.I32EqualZero);
         WriteBlockInstruction(code, WasmOpcodes.If);
-        exceptions.Emit(code, ManagedExceptionKind.Overflow);
+        exceptions.Emit(code, ManagedExceptionKind.Overflow, throwFunction);
         WriteOperation(code, WasmOpcodes.End);
         WriteOperation(code, WasmOpcodes.End);
     }

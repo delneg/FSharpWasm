@@ -42,9 +42,12 @@ internal sealed class NormalLeaveTargetFinder : INormalLeaveTargetFinder
                         (item.Block.StartOffset >= child.TryOffset,
                             item.Block.StartOffset < child.Extent),
                         (true, true)));
+                // A child's leave stays inside this region only when its target
+                // does; a backward leave to a loop header before the region
+                // leaves it too.
                 var target = ((CilOperand.BranchTarget)item.Instruction.Operand).Offset;
-                return !EqualityComparer<(bool InsideChild, bool BeforeTryEnd)>.Default.Equals(
-                    (insideChild, target < tryEnd),
+                return !EqualityComparer<(bool InsideChild, bool InsideTry)>.Default.Equals(
+                    (insideChild, target >= tryOffset && target < tryEnd),
                     (true, true));
             })
             .Select(item =>

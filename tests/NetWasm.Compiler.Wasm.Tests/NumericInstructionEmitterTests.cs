@@ -14,7 +14,7 @@ public sealed class NumericInstructionEmitterTests
     public void ComposesEveryNumericOperationWithoutDuplicateOwnership()
     {
         var layouts = new RecordingLayoutProvider();
-        var exceptions = new ImplicitExceptionEmitter(layouts, layouts, 7);
+        var exceptions = new ImplicitExceptionEmitter(layouts, layouts);
         var emitter = new NumericInstructionEmitter(
             new NumericOperatorEmitter(layouts),
             new NumericConversionInstructionEmitter(

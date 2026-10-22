@@ -14,6 +14,7 @@ using NetWasm.Compiler.Wasm.Emission.Arrays;
 namespace NetWasm.Compiler.Wasm.Tests;
 
 using static EmitterTestSupport;
+using NetWasm.Compiler.Wasm.Emission.Planning;
 
 public sealed class ArrayInstructionEmitterTests
 {
@@ -428,11 +429,11 @@ public sealed class ArrayInstructionEmitterTests
             out _), missing);
 
         Assert.Equal(
-            GetCodeBytes(readonlyRequest).Count(value => value == WasmOpcodes.Throw) + 1,
-            GetCodeBytes(mutable).Count(value => value == WasmOpcodes.Throw));
+            CountManagedThrows(GetCodeBytes(readonlyRequest)) + 1,
+            CountManagedThrows(GetCodeBytes(mutable)));
         Assert.Equal(
-            GetCodeBytes(mutable).Count(value => value == WasmOpcodes.Throw),
-            GetCodeBytes(missing).Count(value => value == WasmOpcodes.Throw));
+            CountManagedThrows(GetCodeBytes(mutable)),
+            CountManagedThrows(GetCodeBytes(missing)));
     }
 
     private static void Emit<TProvider>(
@@ -453,7 +454,7 @@ public sealed class ArrayInstructionEmitterTests
         safepoints = [];
         var observedSafepoints = safepoints;
         IImplicitExceptionEmitter exceptions = exceptionEmitter ??
-            new ImplicitExceptionEmitter(layouts, layouts, 7);
+            new ImplicitExceptionEmitter(layouts, layouts);
         IAddressInstructionEmitter addresses = new AddressInstructionEmitter(layouts);
         IRootPublicationEmitter roots = new RecordingRootPublicationEmitter(
             request => observedSafepoints.Add(request.Instruction.Offset));
@@ -476,7 +477,7 @@ public sealed class ArrayInstructionEmitterTests
     {
         public List<ManagedExceptionKind> Kinds { get; } = [];
 
-        public void Emit(IWasmInstructionWriter code, ManagedExceptionKind kind) =>
+        public void Emit(IWasmInstructionWriter code, ManagedExceptionKind kind, OptionalFunctionIndex throwFunctionIndex) =>
             Kinds.Add(kind);
     }
 

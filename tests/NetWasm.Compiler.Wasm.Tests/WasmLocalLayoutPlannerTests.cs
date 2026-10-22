@@ -62,7 +62,7 @@ public sealed class WasmLocalLayoutPlannerTests
             2,
             ImmutableHashSet.Create(0));
 
-        Assert.Equal(34, locals.Length);
+        Assert.Equal(35, locals.Length);
         Assert.Equal(
             [
                 CliValueKind.ManagedAddress,
@@ -89,6 +89,7 @@ public sealed class WasmLocalLayoutPlannerTests
                 CliValueKind.I4,
                 CliValueKind.I4,
                 CliValueKind.I8,
+                CliValueKind.I4,
                 CliValueKind.I4,
                 CliValueKind.I4,
                 CliValueKind.I4,

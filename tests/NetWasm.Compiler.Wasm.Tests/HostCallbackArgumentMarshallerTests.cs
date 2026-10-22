@@ -17,12 +17,12 @@ public sealed class HostCallbackArgumentMarshallerTests
             new HostCallbackStringArgumentMarshaller(
                 layouts,
                 WasmRuntimeImports.CreateCatalog(),
-                new ImplicitExceptionEmitter(layouts, layouts, 7),
+                new ImplicitExceptionEmitter(layouts, layouts),
                 new AddressInstructionEmitter(layouts)),
         }.Cast<IHostCallbackStringArgumentMarshaller>().Single();
         var code = new EmitterTestSupport.RecordingInstructionWriter();
 
-        marshaller.Emit(code, 0, 1, 2, 3, CompleteTarget());
+        marshaller.Emit(code, 0, 1, 2, 3, CompleteTarget(), OptionalFunctionIndex.At(7));
 
         Assert.Contains(WasmOpcodes.I32EqualZero, code.ToArray());
         Assert.Contains(WasmOpcodes.I32LessThanSigned, code.ToArray());
@@ -40,12 +40,12 @@ public sealed class HostCallbackArgumentMarshallerTests
                 layouts,
                 layouts,
                 WasmRuntimeImports.CreateCatalog(),
-                new ImplicitExceptionEmitter(layouts, layouts, 7),
+                new ImplicitExceptionEmitter(layouts, layouts),
                 new AddressInstructionEmitter(layouts)),
         }.Cast<IHostCallbackByteArrayArgumentMarshaller>().Single();
         var code = new EmitterTestSupport.RecordingInstructionWriter();
 
-        marshaller.Emit(code, ByteArrayType(), 0, 1, 2, 3, CompleteTarget());
+        marshaller.Emit(code, ByteArrayType(), 0, 1, 2, 3, CompleteTarget(), OptionalFunctionIndex.At(7));
 
         Assert.Contains(WasmOpcodes.I32EqualZero, code.ToArray());
         Assert.Contains(WasmOpcodes.I32LessThanSigned, code.ToArray());
@@ -62,14 +62,14 @@ public sealed class HostCallbackArgumentMarshallerTests
                 layouts,
                 layouts,
                 WasmRuntimeImports.CreateCatalog(),
-                new ImplicitExceptionEmitter(layouts, layouts, 7),
+                new ImplicitExceptionEmitter(layouts, layouts),
                 new AddressInstructionEmitter(layouts)),
         }.Cast<IHostCallbackHostObjectArgumentMarshaller>().Single();
         var code = new EmitterTestSupport.RecordingInstructionWriter();
 
         marshaller.Emit(code, CliTypeIdentity.Named(
             new AssemblyIdentity("System.Runtime.InteropServices.JavaScript"),
-            "System.Runtime.InteropServices.JavaScript", "JSObject", isValueType: false), 1, 2);
+            "System.Runtime.InteropServices.JavaScript", "JSObject", isValueType: false), 1, 2, OptionalFunctionIndex.At(7));
 
         var bytes = code.ToArray();
         Assert.Contains(WasmOpcodes.I32EqualZero, bytes);
@@ -84,7 +84,7 @@ public sealed class HostCallbackArgumentMarshallerTests
         var marshaller = new HostCallbackStringArgumentMarshaller(
             layouts,
             WasmRuntimeImports.CreateCatalog(),
-            new ImplicitExceptionEmitter(layouts, layouts, 7),
+            new ImplicitExceptionEmitter(layouts, layouts),
             new AddressInstructionEmitter(layouts));
         var target = new InteropMarshallingTarget(new InteropImportPlan(
             [],
@@ -102,7 +102,7 @@ public sealed class HostCallbackArgumentMarshallerTests
                 1,
                 2,
                 3,
-                target));
+                target, OptionalFunctionIndex.At(7)));
 
         Assert.Contains("string host result helpers", exception.Message);
     }
@@ -115,7 +115,7 @@ public sealed class HostCallbackArgumentMarshallerTests
                 layouts,
                 layouts,
                 WasmRuntimeImports.CreateCatalog(),
-                new ImplicitExceptionEmitter(layouts, layouts, 7),
+                new ImplicitExceptionEmitter(layouts, layouts),
                 new AddressInstructionEmitter(layouts));
         var target = new InteropMarshallingTarget(new InteropImportPlan(
             [],
@@ -136,7 +136,7 @@ public sealed class HostCallbackArgumentMarshallerTests
                 1,
                 2,
                 3,
-                target));
+                target, OptionalFunctionIndex.At(7)));
 
         Assert.Contains("byte host result helpers", exception.Message);
     }
@@ -150,7 +150,7 @@ public sealed class HostCallbackArgumentMarshallerTests
             new HostCallbackStringArgumentMarshaller(
                 layouts,
                 WasmRuntimeImports.CreateCatalog(),
-                new ImplicitExceptionEmitter(layouts, layouts, 7),
+                new ImplicitExceptionEmitter(layouts, layouts),
                 new AddressInstructionEmitter(layouts)),
         }.Cast<IHostCallbackStringArgumentMarshaller>().Single();
         var target = new InteropMarshallingTarget(new InteropImportPlan(
@@ -162,7 +162,7 @@ public sealed class HostCallbackArgumentMarshallerTests
             1,
             2,
             3,
-            target));
+            target, OptionalFunctionIndex.At(7)));
     }
 
     [Fact]
@@ -175,7 +175,7 @@ public sealed class HostCallbackArgumentMarshallerTests
                 layouts,
                 layouts,
                 WasmRuntimeImports.CreateCatalog(),
-                new ImplicitExceptionEmitter(layouts, layouts, 7),
+                new ImplicitExceptionEmitter(layouts, layouts),
                 new AddressInstructionEmitter(layouts)),
         }.Cast<IHostCallbackByteArrayArgumentMarshaller>().Single();
         var target = new InteropMarshallingTarget(new InteropImportPlan(
@@ -188,7 +188,7 @@ public sealed class HostCallbackArgumentMarshallerTests
             1,
             2,
             3,
-            target));
+            target, OptionalFunctionIndex.At(7)));
     }
 
     private static CliTypeIdentity ByteArrayType() => CliTypeIdentity.SzArray(

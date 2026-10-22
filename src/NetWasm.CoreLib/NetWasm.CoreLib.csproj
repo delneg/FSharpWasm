@@ -251,6 +251,7 @@
     <Compile Include="ComponentInterop.cs" />
     <Compile Include="CanonicalAbi.cs" />
     <Compile Include="PlatformServices.cs" />
+    <Compile Include="PlatformWorld.cs" />
     <Compile Include="PlatformTimer.cs" />
     <Compile Include="WasiClockBackend.cs" />
     <Compile Include="WasiUtcClock.cs" />
@@ -262,6 +263,8 @@
     <Compile Include="Runtime/InteropServices/WasiStreamImports.cs" />
     <Compile Include="Runtime/InteropServices/ConsoleServices/ConsoleTextWriter.cs" />
     <Compile Include="Runtime/InteropServices/ConsoleServices/ConsoleCompositionRoot.cs" />
+    <Compile Include="CommandWorldScheduler.cs" />
+    <Compile Include="AsyncEntryPoint.cs" />
     <Compile Include="WasiPollableScheduler.cs" />
     <Compile Include="Tasks.cs" />
     <Compile Include="TaskCanceledException.cs" />
@@ -449,6 +452,7 @@
     <Compile Include="Math.FdLog1P.cs" />
     <Compile Include="Math.FdRemPio2.cs" />
     <Compile Include="Math.Log.cs" />
+    <Compile Include="Math.Pow.cs" />
     <Compile Include="Math.Sin.cs" />
     <Compile Include="Math.Sinh.cs" />
     <Compile Include="Math.Tan.cs" />

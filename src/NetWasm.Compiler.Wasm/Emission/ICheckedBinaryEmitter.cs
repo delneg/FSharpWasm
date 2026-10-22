@@ -1,5 +1,6 @@
 using NetWasm.Compiler.Core;
 using NetWasm.Compiler.Wasm.Encoding;
+using NetWasm.Compiler.Wasm.Emission.Planning;
 
 namespace NetWasm.Compiler.Wasm.Emission;
 
@@ -11,5 +12,6 @@ internal interface ICheckedBinaryEmitter
         CliValueKind type,
         int leftLocal,
         int rightLocal,
-        int resultLocal);
+        int resultLocal,
+        OptionalFunctionIndex throwFunction);
 }

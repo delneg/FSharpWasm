@@ -76,7 +76,9 @@ internal sealed class StructuredControlFlowProjector : IStructuredControlFlowPro
                 ProjectSequence(conditional.WhenTrue, method, definitions, groupIds, activeGroup),
                 ProjectSequence(conditional.WhenFalse, method, definitions, groupIds, activeGroup)),
             Draft.StructuredLoopDraft loop => new StructuredLoop(
-                Occurrence(loop.ConditionBlock, loop.IsOriginal, method, definitions, activeGroup),
+                loop.ConditionBlock is { } condition
+                    ? Occurrence(condition, loop.IsOriginal, method, definitions, activeGroup)
+                    : null,
                 loop.ContinueWhenConditionTrue,
                 ProjectSequence(loop.Body, method, definitions, groupIds, activeGroup),
                 ProjectSequence(loop.ContinueBody, method, definitions, groupIds, activeGroup),

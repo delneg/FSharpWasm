@@ -4,13 +4,6 @@ namespace NetWasm.Correctness.MathBoundary;
 
 public static class EntryPoint
 {
-    // Math.Pow does not promise bit-identical results across runtimes:
-    // https://learn.microsoft.com/dotnet/api/system.math.pow#remarks
-    // For this small finite power, allow eight representable steps toward
-    // zero from -8. This is a case-specific accuracy budget, not a blanket
-    // tolerance for all powers, classifications, or numeric conversions.
-    private const double PowerTolerance = 8 * 8.881784197001252E-16;
-
     public static int Run(int input) => input switch
     {
         1 => DoubleBoundaryContract(),
@@ -51,9 +44,6 @@ public static class EntryPoint
         if (FiniteNear(1.5, 1, 0.25) ||
             !FiniteNear(1.25, 1, 0.25) || !FiniteNear(1, 1, 0)) return 3;
         if (SameBits(-0.0, 0.0) || SameBits(-0.0f, 0.0f)) return 4;
-        if (!FiniteNear(-8 + PowerTolerance, -8, PowerTolerance) ||
-            FiniteNear(-8 + 9 * 8.881784197001252E-16, -8, PowerTolerance) ||
-            FiniteNear(8, -8, PowerTolerance)) return 5;
         return 100;
     }
 
@@ -93,7 +83,7 @@ public static class EntryPoint
             !FiniteNear(Math.Log2(8.0), 3.0, tolerance)) return 3;
         var largeRoot = Math.Cbrt(double.MaxValue);
         var smallRoot = Math.Cbrt(double.Epsilon);
-        if (!FiniteNear(Math.Pow(-2.0, 3.0), -8.0, PowerTolerance)) return 41;
+        if (!SameBits(Math.Pow(-2.0, 3.0), -8.0)) return 41;
         if (!FiniteNear(Math.Cbrt(-27.0), -3.0, tolerance)) return 42;
         if (!FiniteNear(Math.Asinh(double.MaxValue), 710.4758600739439, tolerance)) return 43;
         if (!double.IsFinite(Math.Acosh(double.MaxValue))) return 44;

@@ -35,5 +35,6 @@ internal interface IManagedMethodEmitter
         bool enableScalarCallPreservation = false,
         bool hoistArrayNullChecks = false,
         bool rotateLoops = false,
-        bool eliminateArrayStoreChecks = false);
+        bool eliminateArrayStoreChecks = false,
+        OptionalFunctionIndex managedThrowFunction = default);
 }

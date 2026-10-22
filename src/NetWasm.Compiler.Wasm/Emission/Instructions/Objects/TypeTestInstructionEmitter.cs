@@ -6,6 +6,7 @@ using NetWasm.Compiler.Core;
 using NetWasm.Compiler.Core.Types;
 using NetWasm.Compiler.Wasm.Emission.Methods;
 using NetWasm.Compiler.Wasm.Emission.Support;
+using NetWasm.Compiler.Wasm.Emission.Planning;
 
 namespace NetWasm.Compiler.Wasm.Emission.Instructions.Objects;
 
@@ -53,7 +54,7 @@ internal sealed class TypeTestInstructionEmitter(
                 request.Instruction,
                 request.Header.MethodInstance,
                 valueLocal,
-                returnNullOnFailure);
+                returnNullOnFailure, request.Context.ManagedThrowFunction);
             return;
         }
         code.Write(WasmInstruction.WithOperand(WasmOpcodes.LocalGet, WasmInstructionOperand.Unsigned((uint)(valueLocal))));
@@ -80,7 +81,7 @@ internal sealed class TypeTestInstructionEmitter(
         }
         code.Write(WasmInstruction.NoOperand(WasmOpcodes.I32EqualZero));
         code.Write(WasmInstruction.WithOperand(WasmOpcodes.If, WasmInstructionOperand.BlockType(WasmOpcodes.EmptyBlockType)));
-        EmitFailedTest(code, valueLocal, returnNullOnFailure);
+        EmitFailedTest(code, valueLocal, returnNullOnFailure, request.Context.ManagedThrowFunction);
         code.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
         code.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
     }
@@ -90,7 +91,8 @@ internal sealed class TypeTestInstructionEmitter(
         CilInstruction instruction,
         MethodInstanceModel? method,
         int valueLocal,
-        bool returnNullOnFailure)
+        bool returnNullOnFailure,
+        OptionalFunctionIndex throwFunction)
     {
         code.Write(WasmInstruction.WithOperand(WasmOpcodes.LocalGet, WasmInstructionOperand.Unsigned((uint)(valueLocal))));
         EmitReferenceEqualZero(code);
@@ -104,7 +106,7 @@ internal sealed class TypeTestInstructionEmitter(
         code.Write(WasmInstruction.WithOperand(WasmOpcodes.Call, WasmInstructionOperand.Unsigned((uint)(runtimeImports.Resolve(RuntimeImportSymbol.IsAssignable)))));
         code.Write(WasmInstruction.NoOperand(WasmOpcodes.I32EqualZero));
         code.Write(WasmInstruction.WithOperand(WasmOpcodes.If, WasmInstructionOperand.BlockType(WasmOpcodes.EmptyBlockType)));
-        EmitFailedTest(code, valueLocal, returnNullOnFailure);
+        EmitFailedTest(code, valueLocal, returnNullOnFailure, throwFunction);
         code.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
         code.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
     }
@@ -112,7 +114,8 @@ internal sealed class TypeTestInstructionEmitter(
     private void EmitFailedTest(
         IWasmInstructionWriter code,
         int valueLocal,
-        bool returnNullOnFailure)
+        bool returnNullOnFailure,
+        OptionalFunctionIndex throwFunction)
     {
         if (returnNullOnFailure)
         {
@@ -121,7 +124,7 @@ internal sealed class TypeTestInstructionEmitter(
         }
         else
         {
-            exceptions.Emit(code, ManagedExceptionKind.InvalidCast);
+            exceptions.Emit(code, ManagedExceptionKind.InvalidCast, throwFunction);
         }
     }
 

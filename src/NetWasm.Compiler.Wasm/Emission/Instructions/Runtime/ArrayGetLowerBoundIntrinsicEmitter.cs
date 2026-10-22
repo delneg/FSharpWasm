@@ -12,14 +12,14 @@ internal sealed class ArrayGetLowerBoundIntrinsicEmitter(
     {
         var array = request.Local(0, CliValueKind.ManagedReference);
         var dimension = request.Local(1, CliValueKind.I4);
-        receivers.Validate(code, array);
+        receivers.Validate(code, array, request.Instruction.Context.ManagedThrowFunction);
         Get(code, dimension);
         Get(code, array);
         Call(code, RuntimeImportSymbol.ArrayRank);
         code.Write(WasmInstruction.NoOperand(WasmOpcodes.I32GreaterThanOrEqualUnsigned));
         code.Write(WasmInstruction.WithOperand(
             WasmOpcodes.If, WasmInstructionOperand.BlockType(WasmOpcodes.EmptyBlockType)));
-        exceptions.Emit(code, ManagedExceptionKind.IndexOutOfRange);
+        exceptions.Emit(code, ManagedExceptionKind.IndexOutOfRange, request.Instruction.Context.ManagedThrowFunction);
         code.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
         Get(code, array);
         Get(code, dimension);

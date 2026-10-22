@@ -159,8 +159,8 @@ public sealed class ExtendedLoopOwnershipTests
                 case StructuredIf conditional:
                     yield return conditional.Condition;
                     break;
-                case StructuredLoop loop:
-                    yield return loop.Condition;
+                case StructuredLoop { Condition: { } condition }:
+                    yield return condition;
                     break;
                 case StructuredPostTestLoop loop:
                     yield return loop.Condition;

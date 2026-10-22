@@ -113,6 +113,8 @@ public sealed class StaticInitializationEmitterTests
 
     private sealed class RecordingIndices : IFunctionIndexResolver
     {
+        public OptionalFunctionIndex ManagedThrowFunction => OptionalFunctionIndex.At(7);
+
         public int Resolve(InteropImportKey import) => Resolve(import.Method);
 
         public EntityKey? Direct { get; private set; }

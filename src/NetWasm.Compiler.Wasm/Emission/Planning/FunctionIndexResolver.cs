@@ -23,6 +23,8 @@ internal sealed class FunctionIndexResolver(
     ISymbolFormatter symbols,
     FunctionIndexMap indices) : IFunctionIndexResolver
 {
+    public OptionalFunctionIndex ManagedThrowFunction => indices.ManagedThrowFunctionIndex;
+
     public int Resolve(EntityKey method)
     {
         if (indices.TryGetMethod(method, out var index))

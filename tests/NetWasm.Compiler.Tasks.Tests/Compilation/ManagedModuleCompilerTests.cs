@@ -146,6 +146,32 @@ public sealed class ManagedModuleCompilerTests
             invoker.Options.Optimization);
     }
 
+    // The recorded ABI follows the compiled export: a world without a host-driven reactor
+    // enters an asynchronous Main synchronously, so hosts must treat it as synchronous.
+    [Theory]
+    [InlineData(true, ManagedExecutableCompletionShape.Synchronous)]
+    [InlineData(false, ManagedExecutableCompletionShape.Asynchronous)]
+    public void RecordsTheCompletionShapeTheCompiledEntryHas(
+        bool synchronousEntry,
+        ManagedExecutableCompletionShape recorded)
+    {
+        var selected = new ManagedExecutableEntryPointAbi(
+            ManagedExecutableParameterShape.None,
+            ManagedExecutableReturnShape.ExitCode,
+            ManagedExecutableCompletionShape.Asynchronous);
+        var compiler = new ManagedModuleCompiler(
+            new RecordingEntryPointReader(new("Program", "Main", 1, selected)),
+            new RecordingTargetResolver(WasmTarget.Wasm32),
+            new RecordingCompilationInvoker(
+                CompilerTaskTestData.CreateCompilation("wasm32") with { SynchronousEntry = synchronousEntry }));
+
+        var result = compiler.Compile(new ManagedModuleCompileRequest(
+            "application.dll", [], [], "wasm32", null, null, false, "None", "obj/netwasm", "wit",
+            "netwasm:platform@1.0.0/platform"));
+
+        Assert.Equal(selected with { CompletionShape = recorded }, result.EntryPoint);
+    }
+
     [Fact]
     public void CompileRejectsANullRequest()
     {

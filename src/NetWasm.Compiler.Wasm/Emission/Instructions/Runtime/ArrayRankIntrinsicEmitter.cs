@@ -10,7 +10,7 @@ internal sealed class ArrayRankIntrinsicEmitter(
     public void Emit(RuntimeIntrinsicEmissionRequest request, IWasmInstructionWriter code)
     {
         var array = request.Local(0, CliValueKind.ManagedReference);
-        receivers.Validate(code, array);
+        receivers.Validate(code, array, request.Instruction.Context.ManagedThrowFunction);
         Get(code, array);
         code.Write(WasmInstruction.WithOperand(
             WasmOpcodes.Call,

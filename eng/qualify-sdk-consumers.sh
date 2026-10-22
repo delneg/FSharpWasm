@@ -744,6 +744,102 @@ EOF
   done
 fi
 
+# A command program has no host-driven reactor, so an asynchronous Main runs its
+# own wasi:io/poll event loop to completion on both targets.
+cat > "$app_root/Program.cs" <<'EOF'
+using System;
+using System.Collections.Generic;
+using System.Threading;
+using System.Threading.Tasks;
+
+// A command program runs an asynchronous Main on its own wasi:io/poll event loop.
+internal static class Program
+{
+    public static async Task<int> Main()
+    {
+        if (CompletedAsync().Result != 7)
+        {
+            return 1;
+        }
+
+        var order = new List<int>();
+        await Task.Yield();
+        order.Add(1);
+        await Task.Delay(5);
+        order.Add(2);
+        var results = await Task.WhenAll(Step(order, 3, 10), Step(order, 0, 20), Step(order, 1, 30));
+        if (results[0] + results[1] + results[2] != 60)
+        {
+            return 2;
+        }
+
+        await Task.Delay(1).ConfigureAwait(false);
+        using (var timeout = new CancellationTokenSource())
+        {
+            timeout.CancelAfter(1);
+            try
+            {
+                await Task.Delay(Timeout.Infinite, timeout.Token);
+                return 3;
+            }
+            catch (TaskCanceledException)
+            {
+                order.Add(9);
+            }
+        }
+
+        try
+        {
+            await FailAsync();
+            return 4;
+        }
+        catch (InvalidOperationException exception) when (exception.Message == "expected")
+        {
+        }
+
+        if (order.Count != 6 || order[0] != 1 || order[1] != 2 || order[5] != 9)
+        {
+            return 5;
+        }
+
+        Console.WriteLine(42);
+        return 0;
+    }
+
+    private static async Task<int> CompletedAsync()
+    {
+        await Task.CompletedTask;
+        return await new ValueTask<int>(7);
+    }
+
+    private static async Task<int> Step(List<int> order, int delay, int value)
+    {
+        await Task.Delay(delay);
+        order.Add(value);
+        return value;
+    }
+
+    private static async Task FailAsync()
+    {
+        await Task.Yield();
+        throw new InvalidOperationException("expected");
+    }
+}
+EOF
+for target in wasm32 wasm64; do
+  target_arguments=(-p:NetWasmTarget="$target")
+  if [[ "$target" = wasm64 ]]; then
+    target_arguments+=(-p:NetWasmRawWasm=true)
+  fi
+  rm -rf "$app_root/obj" "$app_root/bin"
+  run_log "$work_root/async-command-restore-$target.log" \
+    dotnet restore "$app_project" --configfile "$work_root/NuGet.Config" \
+      --disable-build-servers --nologo "${target_arguments[@]}"
+  assert_run_42 "$work_root/async-command-run-$target.log" \
+    --project "$app_project" -c Release --no-restore --disable-build-servers \
+    "${target_arguments[@]}"
+done
+
 library_root="$consumer_root/library"
 library_project="$library_root/RuntimeLibrary.csproj"
 library_packages="$consumer_root/library-packages"

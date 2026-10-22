@@ -22,7 +22,6 @@ internal sealed class DelegateInvokeFunctionEmitter(
     IRuntimeObjectLayout objects,
     IRuntimeImportResolver runtimeImports,
     IImplicitExceptionEmitter exceptions,
-    IExceptionPayloadBlockEmitter exceptionPayloadBlocks,
     IManagedMethodFunctionTypeResolver functionTypes,
     IDelegateInvocationTargetSelector targets,
     IGeneratedFunctionWriterFactory writers,
@@ -38,8 +37,7 @@ internal sealed class DelegateInvokeFunctionEmitter(
         var parameterCount = functionType.Parameters.Length;
         var resultLocal = parameterCount;
         var rootFrameLocal = resultLocal + 1;
-        var exceptionLocal = rootFrameLocal + 1;
-        var invocationListLocal = exceptionLocal + 1;
+        var invocationListLocal = rootFrameLocal + 1;
         var invocationCountLocal = invocationListLocal + 1;
         var invocationIndexLocal = invocationCountLocal + 1;
         var currentDelegateLocal = invocationIndexLocal + 1;
@@ -75,7 +73,6 @@ internal sealed class DelegateInvokeFunctionEmitter(
                 resultType,
                 CliValueKind.ManagedAddress,
                 CliValueKind.ManagedReference,
-                CliValueKind.ManagedReference,
                 CliValueKind.I4,
                 CliValueKind.I4,
                 CliValueKind.ManagedReference,
@@ -103,11 +100,6 @@ internal sealed class DelegateInvokeFunctionEmitter(
             EmitReferenceStore(code, 0);
         }
 
-        code.Write(WasmInstruction.WithOperand(
-            WasmOpcodes.Block,
-            WasmInstructionOperand.BlockType(WasmOpcodes.EmptyBlockType)));
-        exceptionPayloadBlocks.Emit(code);
-        WriteTryTableCatch(code, 0, 0);
         EmitDelegateInvokeHelperCore(
             code,
             invoke,
@@ -119,17 +111,9 @@ internal sealed class DelegateInvokeFunctionEmitter(
             invocationIndexLocal,
             currentDelegateLocal,
             targetProgram,
-            functionIndices);
-        code.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
-        WriteBranch(code, 1);
-        code.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
-        WriteLocalSet(code, exceptionLocal);
-        WriteLocalGet(code, rootFrameLocal);
-        WriteCall(code, runtimeImports.Resolve(RuntimeImportSymbol.RootFrameLeave));
-        WriteLocalGet(code, exceptionLocal);
-        WriteThrow(code, 0);
-        code.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
+            functionIndices, functionIndices.ManagedThrowFunction);
 
+        // An exception leaves the root frame in place for its catcher to rewind.
         WriteLocalGet(code, rootFrameLocal);
         WriteCall(code, runtimeImports.Resolve(RuntimeImportSymbol.RootFrameLeave));
         if (!returnsValue && invoke.Signature.ReturnType != CliValueKind.Void)
@@ -153,7 +137,8 @@ internal sealed class DelegateInvokeFunctionEmitter(
         int invocationIndexLocal,
         int currentDelegateLocal,
         DelegateInvokeTarget targetProgram,
-        IFunctionIndexResolver functionIndices)
+        IFunctionIndexResolver functionIndices,
+        OptionalFunctionIndex throwFunction)
     {
         WriteLocalGet(code, receiverParameter);
         EmitReferenceLoad(code, objects.DelegateInvocationListOffset);
@@ -212,7 +197,7 @@ internal sealed class DelegateInvokeFunctionEmitter(
             resultLocal,
             returnsValue,
             targetProgram,
-            functionIndices);
+            functionIndices, throwFunction);
         WriteLocalGet(code, invocationIndexLocal);
         WriteI32Constant(code, 1);
         code.Write(WasmInstruction.NoOperand(WasmOpcodes.I32Add));
@@ -229,7 +214,8 @@ internal sealed class DelegateInvokeFunctionEmitter(
         int resultLocal,
         bool returnsValue,
         DelegateInvokeTarget targetProgram,
-        IFunctionIndexResolver functionIndices)
+        IFunctionIndexResolver functionIndices,
+        OptionalFunctionIndex throwFunction)
     {
         var compatible = targets.Select(invoke, targetProgram.Bindings);
         foreach (var binding in compatible)
@@ -276,7 +262,7 @@ internal sealed class DelegateInvokeFunctionEmitter(
             }
             code.Write(WasmInstruction.NoOperand(WasmOpcodes.Else));
         }
-        exceptions.Emit(code, ManagedExceptionKind.InvalidCast);
+        exceptions.Emit(code, ManagedExceptionKind.InvalidCast, throwFunction);
         for (var index = 0; index < compatible.Length; index++)
         {
             code.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
@@ -370,20 +356,4 @@ internal sealed class DelegateInvokeFunctionEmitter(
         code.Write(WasmInstruction.WithOperand(
             WasmOpcodes.Branch,
             WasmInstructionOperand.Unsigned(checked((uint)depth))));
-
-    private static void WriteThrow(IWasmInstructionWriter code, int tagIndex) =>
-        code.Write(WasmInstruction.WithOperand(
-            WasmOpcodes.Throw,
-            WasmInstructionOperand.Unsigned(checked((uint)tagIndex))));
-
-    private static void WriteTryTableCatch(
-        IWasmInstructionWriter code,
-        int tagIndex,
-        int labelDepth) =>
-        code.Write(WasmInstruction.WithOperand(
-            WasmOpcodes.TryTable,
-            WasmInstructionOperand.TryTableCatch(
-                WasmOpcodes.EmptyBlockType,
-                checked((uint)tagIndex),
-                checked((uint)labelDepth))));
 }

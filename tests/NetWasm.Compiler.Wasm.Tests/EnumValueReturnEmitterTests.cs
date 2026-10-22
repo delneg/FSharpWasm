@@ -5,6 +5,7 @@ using NetWasm.Compiler.Wasm.Emission.Instructions.Calls;
 using NetWasm.Compiler.Wasm.Emission.Instructions.Runtime;
 using NetWasm.Compiler.Wasm.Emission.Methods;
 using NetWasm.Compiler.Wasm.Encoding;
+using NetWasm.Compiler.Wasm.Emission.Planning;
 
 namespace NetWasm.Compiler.Wasm.Tests;
 
@@ -107,6 +108,7 @@ public sealed class EnumValueReturnEmitterTests
             int receiver,
             int result,
             int temporaryI4,
+            OptionalFunctionIndex throwFunction,
             CliTypeIdentity? constrainedType = null,
             CliValueKind receiverKind = CliValueKind.ManagedReference) => Called = true;
     }

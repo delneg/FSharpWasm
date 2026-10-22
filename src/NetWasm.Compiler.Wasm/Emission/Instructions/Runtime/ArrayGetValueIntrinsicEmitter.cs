@@ -21,7 +21,7 @@ internal sealed class ArrayGetValueIntrinsicEmitter(
     {
         var array = request.Local(0, CliValueKind.ManagedReference);
         var result = request.Local(0, CliValueKind.ManagedReference);
-        receivers.Validate(code, array);
+        receivers.Validate(code, array, request.Instruction.Context.ManagedThrowFunction);
         roots.Emit(request.Instruction, code);
         var elementId = request.Instruction.Context.NumericTemporaryI4;
         var underlying = request.Instruction.Context.NumericTemporaryI4Second;
@@ -34,13 +34,15 @@ internal sealed class ArrayGetValueIntrinsicEmitter(
         addresses.Emit(code, 0); Set(code, payloadOffset);
         foreach (var descriptor in descriptors.ConstructedTypeDescriptors)
         {
+            // T is boxed only for Nullable<T> array elements; a Nullable<T> that no array holds
+            // has no boxed layout and cannot be an element here.
             var type = nullableTypes.Resolve(descriptor.Type);
-            if (type is null) continue;
+            if (type is null || !types.GetObjectLayout(type, out var boxed)) continue;
             Get(code, elementId); I32(code, descriptor.TypeId);
             code.Write(WasmInstruction.NoOperand(WasmOpcodes.I32Equal));
             code.Write(WasmInstruction.WithOperand(WasmOpcodes.If,
                 WasmInstructionOperand.BlockType(WasmOpcodes.EmptyBlockType)));
-            I32(code, types.GetObjectLayout(type).TypeId); Set(code, underlying);
+            I32(code, boxed.TypeId); Set(code, underlying);
             addresses.Emit(code, WasmTargetLayout.Align(sizeof(byte), values.GetValueLayout(type).Alignment));
             Set(code, payloadOffset);
             code.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
@@ -61,7 +63,7 @@ internal sealed class ArrayGetValueIntrinsicEmitter(
         code.Write(WasmInstruction.WithOperand(
             WasmOpcodes.If,
             WasmInstructionOperand.BlockType(WasmOpcodes.EmptyBlockType)));
-        exceptions.Emit(code, ManagedExceptionKind.OutOfMemory);
+        exceptions.Emit(code, ManagedExceptionKind.OutOfMemory, request.Instruction.Context.ManagedThrowFunction);
         code.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
     }
 

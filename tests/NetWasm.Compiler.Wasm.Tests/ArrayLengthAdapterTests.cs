@@ -20,10 +20,7 @@ public sealed class ArrayLengthAdapterTests
         CliValueKind lengthType)
     {
         var layouts = new RecordingLayoutProvider(WasmTargetLayout.For(target));
-        IImplicitExceptionEmitter exceptions = new ImplicitExceptionEmitter(
-            layouts,
-            layouts,
-            7);
+        IImplicitExceptionEmitter exceptions = new ImplicitExceptionEmitter(layouts, layouts);
         var adapter = CreateAdapter(layouts, exceptions);
         var request = CreateInstructionRequest(
             CilOperation.NewArray,
@@ -40,17 +37,14 @@ public sealed class ArrayLengthAdapterTests
         Assert.Equal(expected, local);
         Assert.Contains(WasmOpcodes.I32LessThanSigned, code);
         Assert.DoesNotContain(WasmOpcodes.I32WrapI64, code);
-        Assert.Contains(WasmOpcodes.Throw, code);
+        Assert.True(ContainsManagedThrow(code));
     }
 
     [Fact]
     public void AdaptRangeChecksAndNarrowsWasm64NativeLength()
     {
         var layouts = new RecordingLayoutProvider(WasmTargetLayout.Wasm64);
-        IImplicitExceptionEmitter exceptions = new ImplicitExceptionEmitter(
-            layouts,
-            layouts,
-            7);
+        IImplicitExceptionEmitter exceptions = new ImplicitExceptionEmitter(layouts, layouts);
         var adapter = CreateAdapter(layouts, exceptions);
         var request = CreateInstructionRequest(
             CilOperation.NewArray,
@@ -62,17 +56,14 @@ public sealed class ArrayLengthAdapterTests
         Assert.Equal(request.Context.NumericTemporaryI4, local);
         Assert.Contains(WasmOpcodes.I64GreaterThanUnsigned, code);
         Assert.Contains(WasmOpcodes.I32WrapI64, code);
-        Assert.Contains(WasmOpcodes.Throw, code);
+        Assert.True(ContainsManagedThrow(code));
     }
 
     [Fact]
     public void AdaptRejectsATypeOutsideItsValidatedContract()
     {
         var layouts = new RecordingLayoutProvider();
-        IImplicitExceptionEmitter exceptions = new ImplicitExceptionEmitter(
-            layouts,
-            layouts,
-            7);
+        IImplicitExceptionEmitter exceptions = new ImplicitExceptionEmitter(layouts, layouts);
         var adapter = CreateAdapter(layouts, exceptions);
         var request = CreateInstructionRequest(
             CilOperation.NewArray,

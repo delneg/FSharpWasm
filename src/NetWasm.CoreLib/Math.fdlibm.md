@@ -16,6 +16,15 @@ eligible for ordinary compiler reachability and final Wasm dead-code removal.
 The twenty-element reduction buffers and sixty-six base-2^24 digits of 2/pi
 are the upstream bounds for the supported binary64 domain.
 
+`Math.Pow.cs` ports FreeBSD msun `e_pow.c`, the fdlibm pow that Emscripten
+6.0.7 carries as `system/lib/libc/musl/src/math/pow_small.c` for size-optimized
+links. It keeps that file's 2004 Sun notice and evaluation order, and calls
+`Sqrt` and `ScaleB` for the upstream `sqrt` and `scalbn`. Its two-entry `bp`,
+`dp_h` and `dp_l` tables are read as `k == 0` conditionals: as method-local spans
+they made each call about five times slower. It is nearly rounded: exact
+integral powers that fit in a double are exact, and other finite results can be
+one ulp from the correctly rounded value.
+
 The algorithms assume the binary64 round-to-nearest arithmetic provided by
 WebAssembly. Floating-point status flags are not exposed by the .NET profile;
 the returned NaN, infinity, subnormal and signed-zero values are still tested.

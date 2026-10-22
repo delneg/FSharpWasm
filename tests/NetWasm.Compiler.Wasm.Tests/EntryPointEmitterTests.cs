@@ -98,6 +98,48 @@ public sealed class EntryPointEmitterTests
     }
 
     [Fact]
+    public void CompletionReceivesTheEntryResultAndSuppliesTheProcessResult()
+    {
+        var layouts = new RecordingLayoutProvider(WasmTargetLayout.Wasm64);
+        var imports = WasmRuntimeImports.CreateCatalog();
+        var entry = new FakeProgram().GetMethod(EntryKey) with
+        {
+            Signature = MethodSignatureModel.Create(CliValueKind.ManagedReference),
+        };
+        var completion = new MethodInstanceModel(
+            entry with { Key = new(Assembly, 0x06000099), Name = "Run" },
+            CliTypeIdentity.Named(Assembly, "System.Runtime.InteropServices", "AsyncEntryPoint", isValueType: false),
+            [],
+            MethodSignatureModel.Create(CliValueKind.I4, CliValueKind.ManagedReference));
+
+        var body = CreateEmitter(layouts, imports).Emit(
+            entry,
+            initialization: TestRuntimeInitialization.Create(512),
+            hasFinalizers: false,
+            new CompletionIndices(completion),
+            reportTerminalExceptions: false,
+            completion: completion);
+
+        // The result local is the completion's i32, not the entry's wasm64 reference.
+        Assert.Equal((byte)0x7f, body[2]);
+        Assert.Contains(
+            Enumerable.Range(0, body.Length - 3),
+            index => body[index] == WasmOpcodes.Call && body[index + 1] == 30 &&
+                body[index + 2] == WasmOpcodes.Call && body[index + 3] == 31);
+    }
+
+    private sealed class CompletionIndices(MethodInstanceModel completion) : IFunctionIndexResolver
+    {
+        public OptionalFunctionIndex ManagedThrowFunction => OptionalFunctionIndex.At(7);
+
+        public int Resolve(EntityKey method) => method == EntryKey ? 30 : throw new InvalidOperationException();
+        public int Resolve(string method) => throw new InvalidOperationException();
+        public int Resolve(MethodInstanceModel method) =>
+            method == completion ? 31 : throw new InvalidOperationException();
+        public int Resolve(InteropImportKey import) => throw new InvalidOperationException();
+    }
+
+    [Fact]
     public void ComponentEntryRestoresResultWithoutCallingTerminalReporter()
     {
         var layouts = new RecordingLayoutProvider();

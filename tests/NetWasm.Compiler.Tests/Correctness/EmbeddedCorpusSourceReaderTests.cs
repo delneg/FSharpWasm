@@ -14,7 +14,7 @@ public sealed class EmbeddedCorpusSourceReaderTests
         var source = _reader.Read("math-boundary/Program.cs.txt");
 
         Assert.Equal(
-            "c8a03d8d48b646ff3f4157d2819fd8dcf91fb40c666df6e9e3c1614c52ca7f0c",
+            "e762ea609dd87f4de8948f6d285027db8124cf5bf6fac449db44a6e6bc276b85",
             Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(source))));
         Assert.Equal(source, _reader.Read("math-boundary/Program.cs.txt"));
     }

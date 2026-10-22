@@ -17,6 +17,6 @@ internal sealed class EnumGetHashCodeIntrinsicEmitter(
             request.Local(0, receiverKind),
             request.Local(0, CliValueKind.I4),
             context.NumericTemporaryI4,
-            context.NumericTemporaryI8);
+            context.NumericTemporaryI8, request.Instruction.Context.ManagedThrowFunction);
     }
 }

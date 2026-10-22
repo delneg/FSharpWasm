@@ -57,7 +57,7 @@ internal sealed class StaticInitializerFunctionEmitter(
         End();
         Local(WasmOpcodes.LocalSet, exception);
         Local(WasmOpcodes.LocalGet, frame);
-        Call(RuntimeImportSymbol.ExceptionFrameLeave);
+        Call(RuntimeImportSymbol.ExceptionFrameUnwind);
         code.Write(WasmInstruction.NoOperand(WasmOpcodes.Else));
         Local(WasmOpcodes.LocalGet, state);
         Constant(2);

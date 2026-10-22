@@ -8,6 +8,7 @@ using NetWasm.Compiler.Wasm.Emission.Methods;
 using NetWasm.Compiler.Wasm.Emission.Instructions.Objects;
 using NetWasm.Compiler.Wasm.Emission.Support;
 using NetWasm.Compiler.Wasm.Encoding;
+using NetWasm.Compiler.Wasm.Emission.Planning;
 
 namespace NetWasm.Compiler.Wasm.Emission.Instructions.Runtime;
 
@@ -143,10 +144,10 @@ internal sealed class MemberExecutionIntrinsicEmitter(
             EmitArgumentArityCheck(
                 code,
                 argumentsLocal,
-                method.Signature.ParameterSignatureTypes.Length);
+                method.Signature.ParameterSignatureTypes.Length, request.Instruction.Context.ManagedThrowFunction);
             if (!method.Definition.IsStatic)
             {
-                EmitNullCheck(code, receiverLocal);
+                EmitNullCheck(code, receiverLocal, request.Instruction.Context.ManagedThrowFunction);
             }
             if (!execution.RequiresDispatch)
             {
@@ -189,7 +190,7 @@ internal sealed class MemberExecutionIntrinsicEmitter(
                 code,
                 descriptorLocal,
                 _descriptors.GetDescriptorAddress(field));
-            EmitNullCheck(code, receiverLocal);
+            EmitNullCheck(code, receiverLocal, request.Instruction.Context.ManagedThrowFunction);
             var layout = _fields.GetFieldLayout(field);
             code.Write(WasmInstruction.WithOperand(
                 WasmOpcodes.LocalGet,
@@ -253,7 +254,7 @@ internal sealed class MemberExecutionIntrinsicEmitter(
                 target.ReceiverType);
             code.Write(WasmInstruction.NoOperand(WasmOpcodes.Else));
         }
-        _exceptions.Emit(code, ManagedExceptionKind.InvalidCast);
+        _exceptions.Emit(code, ManagedExceptionKind.InvalidCast, request.Instruction.Context.ManagedThrowFunction);
         for (var index = 0; index < execution.Targets.Length; index++)
         {
             code.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
@@ -328,7 +329,7 @@ internal sealed class MemberExecutionIntrinsicEmitter(
         code.Write(WasmInstruction.WithOperand(WasmOpcodes.LocalSet,
             WasmInstructionOperand.Unsigned((uint)source)));
         _nullableBoxes.Emit(code, underlying, source,
-            request.Local(0, CliValueKind.ManagedReference));
+            request.Local(0, CliValueKind.ManagedReference), request.Instruction.Context.ManagedThrowFunction);
     }
 
     private void EmitArguments(
@@ -350,8 +351,8 @@ internal sealed class MemberExecutionIntrinsicEmitter(
             code.Write(WasmInstruction.WithOperand(
                 WasmOpcodes.LocalSet,
                 WasmInstructionOperand.Unsigned((uint)argumentLocal)));
-            EmitNullCheck(code, argumentLocal);
-            _typeValidator.Validate(code, argumentLocal, parameter);
+            EmitNullCheck(code, argumentLocal, request.Instruction.Context.ManagedThrowFunction);
+            _typeValidator.Validate(code, argumentLocal, parameter, request.Instruction.Context.ManagedThrowFunction);
             code.Write(WasmInstruction.WithOperand(
                 WasmOpcodes.LocalGet,
                 WasmInstructionOperand.Unsigned((uint)argumentLocal)));
@@ -393,7 +394,8 @@ internal sealed class MemberExecutionIntrinsicEmitter(
     private void EmitArgumentArityCheck(
         IWasmInstructionWriter code,
         int argumentsLocal,
-        int expectedCount)
+        int expectedCount,
+        OptionalFunctionIndex throwFunction)
     {
         if (expectedCount == 0)
         {
@@ -408,7 +410,7 @@ internal sealed class MemberExecutionIntrinsicEmitter(
             EmitArgumentCountMismatch(
                 code,
                 argumentsLocal,
-                expectedCount);
+                expectedCount, throwFunction);
             code.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
             return;
         }
@@ -420,18 +422,19 @@ internal sealed class MemberExecutionIntrinsicEmitter(
         code.Write(WasmInstruction.WithOperand(
             WasmOpcodes.If,
             WasmInstructionOperand.BlockType(WasmOpcodes.EmptyBlockType)));
-        EmitInvalidOperationAndUnreachable(code);
+        EmitInvalidOperationAndUnreachable(code, throwFunction);
         code.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
         EmitArgumentCountMismatch(
             code,
             argumentsLocal,
-            expectedCount);
+            expectedCount, throwFunction);
     }
 
     private void EmitArgumentCountMismatch(
         IWasmInstructionWriter code,
         int argumentsLocal,
-        int expectedCount)
+        int expectedCount,
+        OptionalFunctionIndex throwFunction)
     {
         code.Write(WasmInstruction.WithOperand(
             WasmOpcodes.LocalGet,
@@ -447,14 +450,15 @@ internal sealed class MemberExecutionIntrinsicEmitter(
         code.Write(WasmInstruction.WithOperand(
             WasmOpcodes.If,
             WasmInstructionOperand.BlockType(WasmOpcodes.EmptyBlockType)));
-        EmitInvalidOperationAndUnreachable(code);
+        EmitInvalidOperationAndUnreachable(code, throwFunction);
         code.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
     }
 
     private void EmitInvalidOperationAndUnreachable(
-        IWasmInstructionWriter code)
+        IWasmInstructionWriter code,
+        OptionalFunctionIndex throwFunction)
     {
-        _exceptions.Emit(code, ManagedExceptionKind.InvalidOperation);
+        _exceptions.Emit(code, ManagedExceptionKind.InvalidOperation, throwFunction);
         code.Write(WasmInstruction.NoOperand(WasmOpcodes.Unreachable));
     }
 
@@ -492,7 +496,7 @@ internal sealed class MemberExecutionIntrinsicEmitter(
         code.Write(WasmInstruction.WithOperand(
             WasmOpcodes.LocalSet,
             WasmInstructionOperand.Unsigned((uint)resultLocal)));
-        EmitAllocationFailureCheck(code, resultLocal);
+        EmitAllocationFailureCheck(code, resultLocal, request.Instruction.Context.ManagedThrowFunction);
         code.Write(WasmInstruction.WithOperand(
             WasmOpcodes.LocalGet,
             WasmInstructionOperand.Unsigned((uint)resultLocal)));
@@ -571,7 +575,10 @@ internal sealed class MemberExecutionIntrinsicEmitter(
             WasmInstructionOperand.BlockType(WasmOpcodes.EmptyBlockType)));
     }
 
-    private void EmitNullCheck(IWasmInstructionWriter code, int receiverLocal)
+    private void EmitNullCheck(
+        IWasmInstructionWriter code,
+        int receiverLocal,
+        OptionalFunctionIndex throwFunction)
     {
         code.Write(WasmInstruction.WithOperand(
             WasmOpcodes.LocalGet,
@@ -580,13 +587,14 @@ internal sealed class MemberExecutionIntrinsicEmitter(
         code.Write(WasmInstruction.WithOperand(
             WasmOpcodes.If,
             WasmInstructionOperand.BlockType(WasmOpcodes.EmptyBlockType)));
-        _exceptions.Emit(code, ManagedExceptionKind.NullReference);
+        _exceptions.Emit(code, ManagedExceptionKind.NullReference, throwFunction);
         code.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
     }
 
     private void EmitAllocationFailureCheck(
         IWasmInstructionWriter code,
-        int resultLocal)
+        int resultLocal,
+        OptionalFunctionIndex throwFunction)
     {
         code.Write(WasmInstruction.WithOperand(
             WasmOpcodes.LocalGet,
@@ -595,7 +603,7 @@ internal sealed class MemberExecutionIntrinsicEmitter(
         code.Write(WasmInstruction.WithOperand(
             WasmOpcodes.If,
             WasmInstructionOperand.BlockType(WasmOpcodes.EmptyBlockType)));
-        _exceptions.Emit(code, ManagedExceptionKind.OutOfMemory);
+        _exceptions.Emit(code, ManagedExceptionKind.OutOfMemory, throwFunction);
         code.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
     }
 

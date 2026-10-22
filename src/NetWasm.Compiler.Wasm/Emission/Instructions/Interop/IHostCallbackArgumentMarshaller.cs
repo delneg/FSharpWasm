@@ -1,5 +1,6 @@
 using NetWasm.Compiler.Wasm.Encoding;
 using NetWasm.Compiler.Core;
+using NetWasm.Compiler.Wasm.Emission.Planning;
 
 namespace NetWasm.Compiler.Wasm.Emission.Instructions.Interop;
 
@@ -11,7 +12,8 @@ internal interface IHostCallbackStringArgumentMarshaller
         int destination,
         int temporaryI4,
         int objectTemporary,
-        InteropMarshallingTarget target);
+        InteropMarshallingTarget target,
+        OptionalFunctionIndex throwFunction);
 }
 
 /// <summary>Wraps a host object handle in its managed <c>JSObject</c>, which then owns it.</summary>
@@ -21,7 +23,8 @@ internal interface IHostCallbackHostObjectArgumentMarshaller
         IWasmInstructionWriter code,
         CliTypeIdentity objectType,
         int handleParameter,
-        int destination);
+        int destination,
+        OptionalFunctionIndex throwFunction);
 }
 
 internal interface IHostCallbackByteArrayArgumentMarshaller
@@ -33,5 +36,6 @@ internal interface IHostCallbackByteArrayArgumentMarshaller
         int destination,
         int temporaryI4,
         int objectTemporary,
-        InteropMarshallingTarget target);
+        InteropMarshallingTarget target,
+        OptionalFunctionIndex throwFunction);
 }

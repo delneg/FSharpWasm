@@ -46,6 +46,8 @@ class CiImpactTests(unittest.TestCase):
             IMPACT.Change(".github/workflows/ci.yml", b"old", b"new"),
             IMPACT.Change("eng/classify-ci-impact.py", b"old", b"new"),
             IMPACT.Change("eng/compiler-test-durations.json", b"{}", b'{"schemaVersion": 1}'),
+            IMPACT.Change(".github/workflows/compiler-tests.yml", b"old", b"new"),
+            IMPACT.Change("eng/compiler-test-full-durations.json", b"{}", b'{"schemaVersion": 1}'),
             IMPACT.Change("docs/maintenance.md", b"old", b"new"),
         ]
 

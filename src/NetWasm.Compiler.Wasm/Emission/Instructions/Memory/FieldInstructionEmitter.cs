@@ -5,6 +5,7 @@ using NetWasm.Compiler.Wasm.Emission.Methods;
 using NetWasm.Compiler.Wasm.Emission.Support;
 using NetWasm.Compiler.Wasm.Encoding;
 using NetWasm.Compiler.Wasm.Emission.AddressTakenValues;
+using NetWasm.Compiler.Wasm.Emission.Planning;
 
 namespace NetWasm.Compiler.Wasm.Emission.Instructions.Memory;
 
@@ -62,7 +63,7 @@ internal sealed class FieldInstructionEmitter(
             return;
         }
         var objectLocal = GetStackLocal(request.Context, slot, request.Stack[slot]);
-        EmitNullCheckIfRequired(code, objectLocal, receiverType);
+        EmitNullCheckIfRequired(code, objectLocal, receiverType, request.Context.ManagedThrowFunction);
         if (fieldType.StackKind == CliValueKind.ValueType)
         {
             var targetOffset = request.Context.ValueLayout.TemporaryOffsets[
@@ -106,7 +107,7 @@ internal sealed class FieldInstructionEmitter(
         var (layout, _, receiverType) = Resolve(request.Instruction);
         var slot = request.Stack.Count - 1;
         var objectLocal = GetStackLocal(request.Context, slot, request.Stack[slot]);
-        EmitNullCheckIfRequired(code, objectLocal, receiverType);
+        EmitNullCheckIfRequired(code, objectLocal, receiverType, request.Context.ManagedThrowFunction);
         code.Write(WasmInstruction.WithOperand(WasmOpcodes.LocalGet, WasmInstructionOperand.Unsigned((uint)(objectLocal))));
         if (layout.Offset != 0)
         {
@@ -136,7 +137,7 @@ internal sealed class FieldInstructionEmitter(
             request.Context,
             objectSlot + 1,
             request.Stack[objectSlot + 1]);
-        EmitNullCheckIfRequired(code, objectLocal, receiverType);
+        EmitNullCheckIfRequired(code, objectLocal, receiverType, request.Context.ManagedThrowFunction);
         if (fieldType.StackKind == CliValueKind.ValueType)
         {
             code.Write(WasmInstruction.WithOperand(WasmOpcodes.LocalGet, WasmInstructionOperand.Unsigned((uint)(objectLocal))));
@@ -187,7 +188,8 @@ internal sealed class FieldInstructionEmitter(
     private void EmitNullCheckIfRequired(
         IWasmInstructionWriter code,
         int objectLocal,
-        CliValueKind receiverType)
+        CliValueKind receiverType,
+        OptionalFunctionIndex throwFunction)
     {
         if (receiverType != CliValueKind.ManagedReference)
         {
@@ -196,7 +198,7 @@ internal sealed class FieldInstructionEmitter(
         code.Write(WasmInstruction.WithOperand(WasmOpcodes.LocalGet, WasmInstructionOperand.Unsigned((uint)(objectLocal))));
         addresses.Emit(code, AddressOperation.EqualZero);
         code.Write(WasmInstruction.WithOperand(WasmOpcodes.If, WasmInstructionOperand.BlockType(WasmOpcodes.EmptyBlockType)));
-        exceptions.Emit(code, ManagedExceptionKind.NullReference);
+        exceptions.Emit(code, ManagedExceptionKind.NullReference, throwFunction);
         code.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
     }
 

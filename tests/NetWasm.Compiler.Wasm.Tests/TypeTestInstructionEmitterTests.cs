@@ -23,7 +23,7 @@ public sealed class TypeTestInstructionEmitterTests
 
         Assert.Equal([CliValueKind.ManagedReference], request.Stack);
         Assert.Contains(WasmOpcodes.Call, GetCodeBytes(request));
-        Assert.Contains(WasmOpcodes.Throw, GetCodeBytes(request));
+        Assert.True(ContainsManagedThrow(GetCodeBytes(request)));
     }
 
     [Fact]
@@ -34,7 +34,7 @@ public sealed class TypeTestInstructionEmitterTests
         Emit(AsProvider(CreateEmitter()), request);
 
         Assert.Equal([CliValueKind.ManagedReference], request.Stack);
-        Assert.DoesNotContain(WasmOpcodes.Throw, GetCodeBytes(request));
+        Assert.False(ContainsManagedThrow(GetCodeBytes(request)));
     }
 
     [Fact]
@@ -68,7 +68,7 @@ public sealed class TypeTestInstructionEmitterTests
             returnNullOnFailure: false);
 
         Assert.Contains(WasmOpcodes.Call, GetCodeBytes(request));
-        Assert.Contains(WasmOpcodes.Throw, GetCodeBytes(request));
+        Assert.True(ContainsManagedThrow(GetCodeBytes(request)));
     }
 
     [Fact]
@@ -81,7 +81,7 @@ public sealed class TypeTestInstructionEmitterTests
             layouts,
             CreateTypeOperands(new FakeProgram()),
             WasmRuntimeImports.CreateCatalog(),
-            new ImplicitExceptionEmitter(layouts, layouts, 7),
+            new ImplicitExceptionEmitter(layouts, layouts),
             new NullableTypeResolver());
         var underlying = ValueType();
         var nullable = CliTypeIdentity.GenericInstantiation(
@@ -115,7 +115,7 @@ public sealed class TypeTestInstructionEmitterTests
             GetCodeWriter(request),
             returnNullOnFailure: false);
 
-        Assert.Contains(WasmOpcodes.Throw, GetCodeBytes(request));
+        Assert.True(ContainsManagedThrow(GetCodeBytes(request)));
     }
 
     [Fact]
@@ -133,7 +133,7 @@ public sealed class TypeTestInstructionEmitterTests
             returnNullOnFailure: true);
 
         Assert.Contains(WasmOpcodes.I32Constant, GetCodeBytes(request));
-        Assert.DoesNotContain(WasmOpcodes.Throw, GetCodeBytes(request));
+        Assert.False(ContainsManagedThrow(GetCodeBytes(request)));
     }
 
     [Fact]
@@ -151,7 +151,7 @@ public sealed class TypeTestInstructionEmitterTests
             returnNullOnFailure: false);
 
         Assert.Contains(WasmOpcodes.I32Or, GetCodeBytes(request));
-        Assert.Contains(WasmOpcodes.Throw, GetCodeBytes(request));
+        Assert.True(ContainsManagedThrow(GetCodeBytes(request)));
     }
 
     private static TypeTestInstructionEmitter CreateEmitter()
@@ -159,7 +159,7 @@ public sealed class TypeTestInstructionEmitterTests
         var layouts = new RecordingLayoutProvider();
         return new TypeTestInstructionEmitter(layouts, new AddressInstructionEmitter(layouts), layouts, CreateTypeOperands(new FakeProgram()),
             WasmRuntimeImports.CreateCatalog(),
-            new ImplicitExceptionEmitter(layouts, layouts, 7),
+            new ImplicitExceptionEmitter(layouts, layouts),
             new NullableTypeResolver());
     }
 

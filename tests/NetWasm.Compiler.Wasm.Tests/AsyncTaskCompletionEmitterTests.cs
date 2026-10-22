@@ -26,13 +26,13 @@ public sealed class AsyncTaskCompletionEmitterTests
         emitter.Emit(binding, plan);
 
         var instructions = writers.Instructions.ToInstructions().ToList();
-        // Captured from the previously qualified process emitter before sharing
-        // its lifecycle with exported-task capture. All encoded instructions,
+        // Captured from the qualified process emitter once observation gained the
+        // exception frame that rewinds a fault's frames. All encoded instructions,
         // including operands and exception handlers, must remain unchanged.
         var snapshot = System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(instructions);
         Assert.Equal(target == WasmTarget.Wasm32
-                ? "ef1d1ef1a4b9cd64d09a1f5b47a546adbf6221ab275d50c4e13f6d534f5b4a7d"
-                : "e40e4031fc30d6d3a1fce73520eaed450716c3c20c32699926680140ca0dcc6b",
+                ? "343e497f6f25d3c61e6e8f9d628dd7ee175c16499014c3fa4555cf244d95c4e9"
+                : "c2e5acfb41ed0c8be1d1201b612f301338aa901ceb008dcef479354044b5d05a",
             Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(snapshot)));
         int CallIndex(int index) => instructions.FindIndex(i =>
             i.Opcode == WasmOpcodes.Call && i.Operand.UnsignedValue == index);
@@ -54,6 +54,15 @@ public sealed class AsyncTaskCompletionEmitterTests
         Assert.Equal(WasmOpcodes.If, instructions[statusLoad + 3].Opcode);
         Assert.True(statusLoad < observe && observe < root && root < releaseHandle && releaseHandle < report);
         Assert.True(root < endCatch && endCatch < releaseHandle);
+        // Observation runs inside an exception frame whose landing pad rewinds the
+        // frames the fault left before the catch allocates its own root frame.
+        var enter = CallIndex(imports.Resolve(RuntimeImportSymbol.ExceptionFrameEnter));
+        var unwind = CallIndex(imports.Resolve(RuntimeImportSymbol.ExceptionFrameUnwind));
+        Assert.True(statusLoad < enter && enter < observe && observe < unwind && unwind < root);
+        Assert.Equal(WasmInstruction.WithOperand(WasmOpcodes.LocalSet, WasmInstructionOperand.Unsigned(4)),
+            instructions[enter + 1]);
+        Assert.Equal(WasmInstruction.WithOperand(WasmOpcodes.LocalGet, WasmInstructionOperand.Unsigned(4)),
+            instructions[unwind - 1]);
         Assert.Equal((2, 4, 5, 6, 7, 8), state.Locals);
         Assert.Same(writers.Instructions, state.Writer);
         var catches = instructions.Where(i => i.Opcode == WasmOpcodes.TryTable).ToArray();

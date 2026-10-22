@@ -287,8 +287,7 @@ internal static class EmitterTestSupport
     public static ITerminalBranchValueFrameEmitter CreateTerminalBranchValueFrames(
         FakeProgram program, RecordingLayoutProvider layouts, IRuntimeImportResolver imports) =>
         new TerminalBranchValueFrameEmitter(layouts, new StructuredConditionValueEmitter(layouts),
-            CreateValueFrameEntry(program, layouts, imports),
-            new MethodExceptionBoundaryEmitter(new ExceptionPayloadBlockEmitter(layouts), CreateMethodFrameExit(imports)));
+            CreateValueFrameEntry(program, layouts, imports));
 
     public static IMethodFrameExitEmitter CreateMethodFrameExit(
         IRuntimeImportResolver runtimeImports) =>
@@ -472,6 +471,28 @@ internal static class EmitterTestSupport
 
     internal static EntityKey Key(int token) => new(Assembly, token);
 
+    // Emitter tests plan the module's shared throw function at index 7.
+    internal const int ManagedThrowFunction = 7;
+
+    // A managed throw calls the shared throw function and never returns.
+    internal static bool ContainsManagedThrow(IEnumerable<byte> code) =>
+        CountManagedThrows(code) > 0;
+
+    internal static int CountManagedThrows(IEnumerable<byte> code)
+    {
+        ReadOnlySpan<byte> call = [WasmOpcodes.Call, ManagedThrowFunction, WasmOpcodes.Unreachable];
+        return code.ToArray().AsSpan().Count(call);
+    }
+
+    internal static int CountManagedThrows(IReadOnlyList<WasmInstruction> instructions) =>
+        Enumerable.Range(0, Math.Max(0, instructions.Count - 1)).Count(index =>
+            instructions[index].Opcode == WasmOpcodes.Call &&
+            instructions[index].Operand.UnsignedValue == ManagedThrowFunction &&
+            instructions[index + 1].Opcode == WasmOpcodes.Unreachable);
+
+    internal static bool ContainsManagedThrow(IReadOnlyList<WasmInstruction> instructions) =>
+        CountManagedThrows(instructions) > 0;
+
     internal static MethodEmissionContext CreateMethodEmissionContext(
         int maxStack = 3)
     {
@@ -504,7 +525,10 @@ internal static class EmitterTestSupport
             25,
             26,
             27,
-            28);
+            28)
+        {
+            ManagedThrowFunction = OptionalFunctionIndex.At(7),
+        };
     }
 
     internal static InstructionEmissionRequest CreateInstructionRequest(
@@ -652,7 +676,7 @@ internal static class EmitterTestSupport
         RecordingLayoutProvider layouts)
     {
         var runtimeImports = WasmRuntimeImports.CreateCatalog();
-        var exceptions = new ImplicitExceptionEmitter(layouts, layouts, 7);
+        var exceptions = new ImplicitExceptionEmitter(layouts, layouts);
         var addresses = CreateAddressInstructions(layouts);
         var functionIndices = new OptionalFunctionIndexValidator();
         var resultHandles = new JavaScriptResultHandleCapturer(runtimeImports);

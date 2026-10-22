@@ -12,6 +12,10 @@ internal sealed class ValueFrameInitializationEmitter(
     IValueLayoutProvider values,
     IValueFrameAddressEmitter addresses) : IValueFrameInitializationEmitter
 {
+    // Wasmtime runs memory.fill out of line, which costs more than a few
+    // stores, so ranges up to this size are zeroed with stores instead.
+    private const int MaximumStoredZeroBytes = 64;
+
     public void Initialize(
         IWasmInstructionWriter code,
         StructuredMethodHeader header,
@@ -75,24 +79,13 @@ internal sealed class ValueFrameInitializationEmitter(
             return;
         }
 
-        addresses.Emit(code, context, storage.Offset);
-        if (storage.Size is 1 or 2 or 4 or 8)
+        if (storage.Size <= MaximumStoredZeroBytes)
         {
-            code.Write(WasmInstruction.WithOperand(
-                storage.Size == 8
-                    ? WasmOpcodes.I64Constant
-                    : WasmOpcodes.I32Constant,
-                storage.Size == 8
-                    ? WasmInstructionOperand.Signed64(0)
-                    : WasmInstructionOperand.Signed(0)));
-            ManagedMemoryEmitter.EmitStoreBySize(
-                code,
-                layouts.Target,
-                0,
-                storage.Size);
+            EmitZeroStores(code, context, storage);
             return;
         }
 
+        addresses.Emit(code, context, storage.Offset);
         code.Write(WasmInstruction.WithOperand(
             WasmOpcodes.I32Constant,
             WasmInstructionOperand.Signed(0)));
@@ -103,6 +96,31 @@ internal sealed class ValueFrameInitializationEmitter(
         code.Write(WasmInstruction.WithOperand(
             WasmOpcodes.Prefixed,
             WasmInstructionOperand.PrefixedPair(WasmOpcodes.MemoryFill, 0)));
+    }
+
+    // Zeroes the range with 8-byte stores and a narrower tail, each addressed
+    // from the range start through its memarg offset.
+    private void EmitZeroStores(
+        IWasmInstructionWriter code,
+        MethodEmissionContext context,
+        StorageRange storage)
+    {
+        for (var written = 0; written < storage.Size;)
+        {
+            var size = (storage.Size - written) switch
+            {
+                >= 8 => 8,
+                >= 4 => 4,
+                >= 2 => 2,
+                _ => 1,
+            };
+            addresses.Emit(code, context, storage.Offset);
+            code.Write(size == 8
+                ? WasmInstruction.WithOperand(WasmOpcodes.I64Constant, WasmInstructionOperand.Signed64(0))
+                : WasmInstruction.WithOperand(WasmOpcodes.I32Constant, WasmInstructionOperand.Signed(0)));
+            ManagedMemoryEmitter.EmitStoreBySize(code, layouts.Target, written, size);
+            written += size;
+        }
     }
 
     private readonly record struct StorageRange(int Offset, int Size);

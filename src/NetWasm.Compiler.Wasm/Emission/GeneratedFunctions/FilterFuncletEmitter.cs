@@ -20,7 +20,8 @@ ITargetLayout layouts,
         FilterEnvironmentLayout environment,
         MethodRootMap rootMap,
         IFilterSequenceEmitter emitSequence,
-        MemberExecutionPlan? memberExecution = null)
+        MemberExecutionPlan? memberExecution = null,
+        OptionalFunctionIndex managedThrowFunction = default)
     {
         ArgumentNullException.ThrowIfNull(filter);
         ArgumentNullException.ThrowIfNull(environment);
@@ -76,12 +77,11 @@ ITargetLayout layouts,
             numericTemporaryI4,
             numericTemporaryI8,
             numericTemporaryI4,
-            LeaveFrameOnRethrow: false,
-            LeaveFrameOnExceptionalExit: false,
             IsFilterFunclet: true,
             CallerIdentity: filter.CallerIdentity)
         {
             AnchorLocals = anchorLocals.ToImmutable(),
+            ManagedThrowFunction = managedThrowFunction,
         };
         var output = writers.Create();
         var code = output.Instructions;

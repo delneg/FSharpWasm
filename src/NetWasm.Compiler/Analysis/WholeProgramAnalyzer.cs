@@ -43,8 +43,11 @@ internal sealed class ReachabilityClosureBuilder(
     IBaseTypeResolver baseTypes,
     IFinalizerResolver finalizerResolver,
     INullableTypeResolver nullableTypes,
-    IMethodInitializationTriggerClassifier initializationTriggers) : IReachabilityClosureBuilder
+    IMethodInitializationTriggerClassifier initializationTriggers,
+    IIntrinsicAddressBodyPlanner intrinsicAddressBodies) : IReachabilityClosureBuilder
 {
+    private readonly IIntrinsicAddressBodyPlanner _intrinsicAddressBodies =
+        intrinsicAddressBodies ?? throw new ArgumentNullException(nameof(intrinsicAddressBodies));
     private readonly IReachabilityClosureObserver _closureObserver =
         closureObserver ?? throw new ArgumentNullException(nameof(closureObserver));
     private readonly IDispatchCandidateIndexFactory _dispatchCandidateIndexes =
@@ -122,6 +125,7 @@ internal sealed class ReachabilityClosureBuilder(
         var dispatchDeclarations = state.DispatchDeclarations;
         var dispatchTargets = state.DispatchTargets;
         var callableMethods = state.CallableMethods;
+        var intrinsicAddressBodies = new Queue<ReachableMethodRequest>();
         var dispatchCandidates = _dispatchCandidateIndexes.Create();
 
         if (entryPoint is not null)
@@ -229,7 +233,7 @@ internal sealed class ReachabilityClosureBuilder(
 
         void DrainReachabilityQueues()
         {
-            while (pending.Count != 0 || pendingDispatches.Count != 0)
+            while (pending.Count != 0 || pendingDispatches.Count != 0 || intrinsicAddressBodies.Count != 0)
             {
                 var iterationStarted = Stopwatch.GetTimestamp();
                 var methodPublicationTicks = 0L;
@@ -255,6 +259,10 @@ internal sealed class ReachabilityClosureBuilder(
                     {
                         RewrittenBody = rewrittenBodies?.GetValueOrDefault(methodInstance.CanonicalName),
                     });
+                }
+                while (intrinsicAddressBodies.TryDequeue(out var addressBody))
+                {
+                    methodRequests.Add(addressBody);
                 }
                 foreach (var analysis in _methodBatchAnalyzer.Analyze(
                              methodRequests.ToImmutable()))
@@ -290,7 +298,7 @@ internal sealed class ReachabilityClosureBuilder(
                     VisitMethod(CilOperation.CallVirtual, target.Method);
                     if (work.Declaration.Operation == CilOperation.LoadVirtualFunction)
                     {
-                        callableMethods.TryAdd(target.Method.CanonicalName, target.Method);
+                        AddCallable(target.Method);
                     }
                 }
                 var dispatchPublicationTicks = Stopwatch.GetTimestamp() - dispatchStarted;
@@ -338,7 +346,7 @@ internal sealed class ReachabilityClosureBuilder(
                     state.RequiresDelegateInvoke = true;
                     AddAllocatedType(plan.DelegateType);
                     AddConstructedType(plan.DelegateType);
-                    callableMethods.TryAdd(plan.Target.CanonicalName, plan.Target);
+                    AddCallable(plan.Target);
                 }
             }
             if (state.RequiresDelegateInvoke)
@@ -595,11 +603,20 @@ internal sealed class ReachabilityClosureBuilder(
             }
             foreach (var callable in analysis.CallableMethods)
             {
-                state.CallableMethods.TryAdd(callable.CanonicalName, callable);
+                AddCallable(callable);
             }
             foreach (var callback in analysis.NativeCallbacks)
             {
                 state.NativeCallbacks.TryAdd(callback.CanonicalName, callback);
+            }
+        }
+
+        void AddCallable(MethodInstanceModel method)
+        {
+            if (callableMethods.TryAdd(method.CanonicalName, method) &&
+                _intrinsicAddressBodies.Plan(method) is { } request)
+            {
+                intrinsicAddressBodies.Enqueue(request);
             }
         }
 

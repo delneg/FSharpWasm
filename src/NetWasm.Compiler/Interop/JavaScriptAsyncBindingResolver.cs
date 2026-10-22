@@ -2,6 +2,7 @@ using System;
 using System.Collections.Immutable;
 using System.Linq;
 using NetWasm.Compiler;
+using NetWasm.Compiler.Analysis;
 using NetWasm.Compiler.Core;
 using NetWasm.Compiler.Metadata;
 
@@ -19,8 +20,11 @@ internal sealed class JavaScriptAsyncBindingResolver(
     IFieldRepository fields,
     IMethodRepository methodRepository,
     IMethodInstanceResolver methodInstances,
-    ISymbolFormatter symbols) : IJavaScriptAsyncBindingResolver
+    ISymbolFormatter symbols,
+    PlatformWorldCapabilities world) : IJavaScriptAsyncBindingResolver
 {
+    private const string AsyncEntryPointType = "System.Runtime.InteropServices.AsyncEntryPoint";
+
     private readonly ITypeFinder _types = types ??
         throw new ArgumentNullException(nameof(types));
     private readonly ITypeDefinitionResolver _typeDefinitions = typeDefinitions ??
@@ -35,6 +39,8 @@ internal sealed class JavaScriptAsyncBindingResolver(
         throw new ArgumentNullException(nameof(methodInstances));
     private readonly ISymbolFormatter _symbols = symbols ??
         throw new ArgumentNullException(nameof(symbols));
+    private readonly PlatformWorldCapabilities _world = world ??
+        throw new ArgumentNullException(nameof(world));
 
     public JavaScriptAsyncMethodBinding? Resolve(MethodDefinitionModel method)
     {
@@ -99,7 +105,7 @@ internal sealed class JavaScriptAsyncBindingResolver(
         };
         if (asyncReturn.Kind != JavaScriptAsyncReturnKind.ValueTask)
         {
-            return binding;
+            return binding with { CommandEntryPoint = ResolveCommandEntryPoint(asyncReturn) };
         }
 
         var valueTaskDefinition = _typeDefinitions.ResolveTypeIdentity(
@@ -120,6 +126,25 @@ internal sealed class JavaScriptAsyncBindingResolver(
                 "_task"),
             ValueTaskAsTask = Resolve(asTask, valueTaskArguments),
         };
+    }
+
+    // An entry point returns Task or Task<int>; a world with a host-driven reactor keeps the
+    // asynchronous process boundary instead.
+    private MethodInstanceModel? ResolveCommandEntryPoint(JavaScriptAsyncReturn asyncReturn)
+    {
+        if (_world.ReactorHost ||
+            asyncReturn.ResultType is { } result &&
+            result.CanonicalName != CliTypeIdentity.FromStackKind(CliValueKind.I4).CanonicalName)
+        {
+            return null;
+        }
+
+        // The type holds only the Run overloads for Task and Task<int>.
+        var run = _types.FindType(AsyncEntryPointType).Methods
+            .Select(_methodRepository.GetMethod)
+            .Single(candidate =>
+                (candidate.Signature.ReturnType != CliValueKind.Void) == asyncReturn.HasResult);
+        return Resolve(run, ImmutableArray<CliTypeIdentity>.Empty);
     }
 
     private MethodInstanceModel Resolve(

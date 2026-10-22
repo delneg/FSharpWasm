@@ -23,5 +23,6 @@ public interface IWholeProgramAnalyzerFactory
         ISymbolFormatter symbols,
         Func<MethodDefinitionModel, JavaScriptAsyncMethodBinding?> javaScriptAsyncBindings,
         IRuntimeIntrinsicRegistry intrinsics,
-        WasmOptimizationSettings optimizationSettings);
+        WasmOptimizationSettings optimizationSettings,
+        PlatformWorldCapabilities world);
 }

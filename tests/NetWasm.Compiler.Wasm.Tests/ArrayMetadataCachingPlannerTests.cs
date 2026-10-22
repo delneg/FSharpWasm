@@ -314,6 +314,24 @@ public sealed class ArrayMetadataCachingPlannerTests
     }
 
     [Fact]
+    public void UnconditionalLoopBodiesRepeatWithoutALoopEntry()
+    {
+        var method = Create(false);
+        method = method with
+        {
+            Body = new([new StructuredLoop(null, true,
+                new([new StructuredCode(new(new(0), StructuredBlockRole.Owner))]),
+                StructuredSequence.Empty, StructuredSequence.Empty)]),
+        };
+
+        var plan = new ArrayMetadataCachingPlanner(new Arguments()).Plan(method, true);
+
+        // Like a dispatcher, the loop has no entry condition to snapshot before.
+        Assert.Equal([new ArrayReferenceSlot(false, 0)], plan.Slots.ToArray());
+        Assert.Empty(plan.LoopEntries);
+    }
+
+    [Fact]
     public void RejectsMissingResolverAndMethod()
     {
         Assert.Throws<ArgumentNullException>(() => new ArrayMetadataCachingPlanner(null!));
