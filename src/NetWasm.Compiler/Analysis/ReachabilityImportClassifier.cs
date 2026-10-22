@@ -62,7 +62,11 @@ internal sealed class ReachabilityImportClassifier(
             constructedTypes.Add(asyncBinding.TaskType);
             allocatedTypes.Add(asyncBinding.TaskType);
             fields.Add(asyncBinding.StatusField);
-            if (request.IsProcessEntryPoint || isAsyncExportBoundary)
+            if (request.IsProcessEntryPoint && asyncBinding.CommandEntryPoint is { } commandEntryPoint)
+            {
+                enqueuedMethods.Add(commandEntryPoint);
+            }
+            else if (request.IsProcessEntryPoint || isAsyncExportBoundary)
             {
                 enqueuedMethods.Add(asyncBinding.GetVoidResult ??
                     throw new InvalidOperationException("An asynchronous boundary requires task fault observation."));

@@ -1,6 +1,7 @@
 using NetWasm.Compiler.Core;
 using NetWasm.Compiler.Wasm.Emission.GeneratedFunctions;
 using NetWasm.Compiler.Wasm.Encoding;
+using NetWasm.Compiler.Wasm.Emission.Planning;
 
 namespace NetWasm.Compiler.Wasm.Emission.Instructions.Runtime;
 
@@ -9,9 +10,13 @@ internal sealed class EnumTypeArgumentValidator(
     ITypeObjectIdReader typeIds,
     IImplicitExceptionEmitter exceptions) : IEnumTypeArgumentValidator
 {
-    public void Validate(IWasmInstructionWriter code, int typeLocal, int typeIdLocal)
+    public void Validate(
+        IWasmInstructionWriter code,
+        int typeLocal,
+        int typeIdLocal,
+        OptionalFunctionIndex throwFunction)
     {
-        typeIds.Read(code, typeLocal, typeIdLocal);
+        typeIds.Read(code, typeLocal, typeIdLocal, throwFunction);
 
         WriteI32(code, 0);
         foreach (var entry in metadata.EnumMetadata)
@@ -25,7 +30,7 @@ internal sealed class EnumTypeArgumentValidator(
         code.Write(WasmInstruction.WithOperand(
             WasmOpcodes.If,
             WasmInstructionOperand.BlockType(WasmOpcodes.EmptyBlockType)));
-        exceptions.Emit(code, ManagedExceptionKind.Argument);
+        exceptions.Emit(code, ManagedExceptionKind.Argument, throwFunction);
         code.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
     }
 

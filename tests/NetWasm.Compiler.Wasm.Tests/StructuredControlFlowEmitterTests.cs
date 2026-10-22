@@ -9,6 +9,7 @@ using NetWasm.Compiler.Wasm.Emission.Arrays;
 namespace NetWasm.Compiler.Wasm.Tests;
 
 using static EmitterTestSupport;
+using NetWasm.Compiler.Wasm.Emission.Planning;
 
 public sealed class StructuredControlFlowEmitterTests
 {
@@ -44,7 +45,7 @@ public sealed class StructuredControlFlowEmitterTests
         var context = CreateContext();
         Func<StructuredBlockOccurrence, bool, bool, ConditionValue> emitBlock =
             (_, _, _) => new ConditionValue(0, CliValueKind.I4);
-        Action<StructuredExceptionRegion, MethodEmissionContext, bool, int?, int?, int?>
+        Action<StructuredExceptionRegion, MethodEmissionContext, int?, int?, int?, int?>
             emitExceptionRegion = (_, _, _, _, _, _) => { };
 
         Assert.Throws<ArgumentNullException>(() => emitter.Emit(
@@ -157,7 +158,7 @@ public sealed class StructuredControlFlowEmitterTests
     }
 
     [Fact]
-    public void ExceptionRegionEmbeddedInParentIsNotEmittedAsOutermost()
+    public void ExceptionRegionEmbeddedInParentKeepsItsFallthrough()
     {
         var parent = Group();
         var child = Group();
@@ -167,7 +168,6 @@ public sealed class StructuredControlFlowEmitterTests
                     new StructuredContinuationId(0))]);
         var context = CreateContext() with { ActiveExceptionGroup = parent };
         var code = new WasmInstructionWriter(new WasmBinaryWriter(new WasmBinaryBuffer()));
-        bool? isOutermost = null;
         int? fallthrough = null;
 
         CreateEmitter().Emit(
@@ -175,13 +175,11 @@ public sealed class StructuredControlFlowEmitterTests
             sequence,
             context,
             (_, _, _) => new ConditionValue(0, CliValueKind.I4),
-            (exception, _, outermost, _, _, _) =>
+            (exception, _, _, _, _, _) =>
             {
-                isOutermost = outermost;
                 fallthrough = exception.FallthroughContinuation?.Value;
             });
 
-        Assert.False(isOutermost);
         Assert.Equal(0, fallthrough);
     }
 
@@ -201,7 +199,7 @@ public sealed class StructuredControlFlowEmitterTests
             sequence,
             CreateContext(),
             (_, _, _) => new ConditionValue(0, CliValueKind.I4),
-            (_, _, _, loopBreakDepth, loopContinueDepth, _) =>
+            (_, _, loopBreakDepth, loopContinueDepth, _, _) =>
             {
                 capturedBreakDepth = loopBreakDepth;
                 capturedContinueDepth = loopContinueDepth;
@@ -211,6 +209,35 @@ public sealed class StructuredControlFlowEmitterTests
 
         Assert.Equal(2, capturedBreakDepth);
         Assert.Equal(3, capturedContinueDepth);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData(6)]
+    public void ExceptionRegionReceivesTheSurroundingLeaveDepth(int? leaveDepth)
+    {
+        var group = Group();
+        var sequence = new StructuredSequence(
+            [new StructuredExceptionRegion(
+                group.Id,
+                new StructuredContinuationId(0))]);
+        var captured = false;
+        int? capturedLeaveDepth = -1;
+
+        CreateEmitter().Emit(
+            new WasmInstructionWriter(new WasmBinaryWriter(new WasmBinaryBuffer())),
+            sequence,
+            CreateContext(),
+            (_, _, _) => new ConditionValue(0, CliValueKind.I4),
+            (_, _, _, _, _, enclosingLeaveDepth) =>
+            {
+                captured = true;
+                capturedLeaveDepth = enclosingLeaveDepth;
+            },
+            exceptionLeaveDepth: leaveDepth);
+
+        Assert.True(captured);
+        Assert.Equal(leaveDepth, capturedLeaveDepth);
     }
 
     [Fact]
@@ -525,7 +552,7 @@ public sealed class StructuredControlFlowEmitterTests
             new StructuredSequence([dispatcher]),
             CreateContext(),
             (_, _, _) => new ConditionValue(0, CliValueKind.I4),
-            (region, _, _, _, _, dispatcherDepth) =>
+            (region, _, _, _, dispatcherDepth, _) =>
             {
                 Assert.Same(exception, region);
                 capturedDispatcherDepth = dispatcherDepth;
@@ -559,7 +586,7 @@ public sealed class StructuredControlFlowEmitterTests
             new StructuredSequence([dispatcher]),
             CreateContext(Group()),
             (_, _, _) => new ConditionValue(0, CliValueKind.I4),
-            (region, _, _, breakDepth, continueDepth, dispatcherDepth) =>
+            (region, _, breakDepth, continueDepth, dispatcherDepth, _) =>
             {
                 Assert.Same(exception, region);
                 capturedBreakDepth = breakDepth;
@@ -1038,7 +1065,10 @@ public sealed class StructuredControlFlowEmitterTests
             15,
             16,
             17,
-            ActiveExceptionGroup: activeGroup);
+            ActiveExceptionGroup: activeGroup)
+        {
+            ManagedThrowFunction = OptionalFunctionIndex.At(7),
+        };
     }
 
     private static StructuredExceptionGroup Group() => new(
@@ -1091,7 +1121,7 @@ internal static class StructuredControlFlowEmitterTestExtensions
         StructuredSequence? sequence,
         MethodEmissionContext context,
         Func<StructuredBlockOccurrence, bool, bool, ConditionValue> emitBlock,
-        Action<StructuredExceptionRegion, MethodEmissionContext, bool, int?, int?, int?>
+        Action<StructuredExceptionRegion, MethodEmissionContext, int?, int?, int?, int?>
             emitExceptionRegion,
         int? loopBreakDepth = null,
         int? loopContinueDepth = null,
@@ -1171,7 +1201,10 @@ internal static class StructuredControlFlowEmitterTestExtensions
                     }
                     break;
                 case StructuredLoop loop:
-                    yield return loop.Condition;
+                    if (loop.Condition is { } condition)
+                    {
+                        yield return condition;
+                    }
                     foreach (var occurrence in EnumerateOccurrences(loop.Body))
                     {
                         yield return occurrence;

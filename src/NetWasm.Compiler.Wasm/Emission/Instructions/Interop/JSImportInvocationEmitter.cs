@@ -60,7 +60,7 @@ internal sealed class JSImportInvocationEmitter(
         }
         code.Write(WasmInstruction.WithOperand(WasmOpcodes.LocalGet, WasmInstructionOperand.Unsigned((uint)(context.InteropDescriptor))));
         code.Write(WasmInstruction.WithOperand(WasmOpcodes.Call, WasmInstructionOperand.Unsigned((uint)(runtimeImports.Resolve(RuntimeImportSymbol.ValueFrameLeave)))));
-        exceptions.Emit(code, ManagedExceptionKind.JSException);
+        exceptions.Emit(code, ManagedExceptionKind.JSException, invocation.Context.ManagedThrowFunction);
         code.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
         results.Emit(new(
             signature,

@@ -9,6 +9,7 @@ using NetWasm.Compiler.Wasm.Encoding;
 namespace NetWasm.Compiler.Wasm.Tests;
 
 using static EmitterTestSupport;
+using NetWasm.Compiler.Wasm.Emission.Planning;
 
 public sealed class BoxedValueTypeValidatorTests
 {
@@ -28,8 +29,7 @@ public sealed class BoxedValueTypeValidatorTests
         Assert.Equal([21], AcceptedTypeIds(instructions));
         Assert.Single(instructions.Where(instruction =>
             instruction.Opcode == WasmOpcodes.BranchIf));
-        Assert.Contains(instructions, instruction =>
-            instruction.Opcode == WasmOpcodes.Throw);
+        Assert.True(ContainsManagedThrow(instructions));
     }
 
     [Fact]
@@ -67,10 +67,10 @@ public sealed class BoxedValueTypeValidatorTests
         var validator = new BoxedValueTypeValidator(
             layouts,
             new StorageResolver(storages),
-            new ImplicitExceptionEmitter(exceptionLayouts, exceptionLayouts, 7));
+            new ImplicitExceptionEmitter(exceptionLayouts, exceptionLayouts));
         var writer = new RecordingInstructionWriter();
 
-        ((IBoxedValueTypeValidator)validator).Validate(writer, 3, targetType);
+        ((IBoxedValueTypeValidator)validator).Validate(writer, 3, targetType, OptionalFunctionIndex.At(7));
 
         return writer.ToInstructions();
     }

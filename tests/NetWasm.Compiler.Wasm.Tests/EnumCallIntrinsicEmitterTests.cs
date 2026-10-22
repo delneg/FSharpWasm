@@ -1,6 +1,7 @@
 using NetWasm.Compiler.Core;
 using NetWasm.Compiler.Wasm.Emission.Instructions.Runtime;
 using NetWasm.Compiler.Wasm.Encoding;
+using NetWasm.Compiler.Wasm.Emission.Planning;
 
 namespace NetWasm.Compiler.Wasm.Tests;
 
@@ -133,7 +134,8 @@ public sealed class EnumCallIntrinsicEmitterTests
             int right,
             int result,
             int temporaryReference,
-            int temporaryI4) =>
+            int temporaryI4,
+            OptionalFunctionIndex throwFunction) =>
             Called = true;
     }
 
@@ -154,7 +156,8 @@ public sealed class EnumCallIntrinsicEmitterTests
             int receiver,
             int result,
             int temporaryI4,
-            int temporaryI8) => Called = true;
+            int temporaryI8,
+            OptionalFunctionIndex throwFunction) => Called = true;
     }
 
     private sealed class RecordingCompareToEmitter : IEnumCompareToEmitter
@@ -169,7 +172,8 @@ public sealed class EnumCallIntrinsicEmitterTests
             int right,
             int result,
             int temporaryReference,
-            int temporaryI4) =>
+            int temporaryI4,
+            OptionalFunctionIndex throwFunction) =>
             Called = true;
     }
 
@@ -215,6 +219,7 @@ public sealed class EnumCallIntrinsicEmitterTests
             int flag,
             int result,
             int temporaryI4,
+            OptionalFunctionIndex throwFunction,
             CliValueKind receiverKind = CliValueKind.ManagedReference,
             CliTypeIdentity? constrainedType = null)
         {
@@ -240,6 +245,7 @@ public sealed class EnumCallIntrinsicEmitterTests
             int receiver,
             int result,
             int temporaryI4,
+            OptionalFunctionIndex throwFunction,
             CliTypeIdentity? constrainedType = null,
             CliValueKind receiverKind = CliValueKind.ManagedReference)
         {

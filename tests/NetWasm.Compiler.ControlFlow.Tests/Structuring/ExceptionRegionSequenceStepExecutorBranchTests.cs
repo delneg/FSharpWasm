@@ -16,12 +16,14 @@ public sealed class ExceptionRegionSequenceStepExecutorBranchTests
         var boundaries = new RecordingDispatcherBoundaryClipper();
         var joins = new FixedCommonReachableBlockFinder(null);
         var reachableBlocks = new RecordingReachableBlockFinder();
+        var fallthroughExits = new FixedDispatcherFallthroughExitClassifier(false);
         var factories = new (string Parameter, Func<ExceptionRegionSequenceStepExecutor> Create)[]
         {
-            ("reachableSetOverlaps", () => new(null!, boundaries, joins, reachableBlocks)),
-            ("dispatcherBoundaries", () => new(overlaps, null!, joins, reachableBlocks)),
-            ("joins", () => new(overlaps, boundaries, null!, reachableBlocks)),
-            ("reachableBlocks", () => new(overlaps, boundaries, joins, null!)),
+            ("reachableSetOverlaps", () => new(null!, boundaries, joins, reachableBlocks, fallthroughExits)),
+            ("dispatcherBoundaries", () => new(overlaps, null!, joins, reachableBlocks, fallthroughExits)),
+            ("joins", () => new(overlaps, boundaries, null!, reachableBlocks, fallthroughExits)),
+            ("reachableBlocks", () => new(overlaps, boundaries, joins, null!, fallthroughExits)),
+            ("fallthroughExits", () => new(overlaps, boundaries, joins, reachableBlocks, null!)),
         };
 
         foreach (var (parameter, create) in factories)
@@ -256,7 +258,8 @@ public sealed class ExceptionRegionSequenceStepExecutorBranchTests
                 overlaps,
                 boundaries,
                 joins,
-                reachableBlocks));
+                reachableBlocks,
+                new FixedDispatcherFallthroughExitClassifier(false)));
         var builder = new StructuredControlFlowBuilderProbe();
         var regions = ImmutableArray.CreateBuilder<StructuredRegionDraft>();
         var path = new HashSet<int> { -1 };
@@ -287,6 +290,47 @@ public sealed class ExceptionRegionSequenceStepExecutorBranchTests
     }
 
     [Fact]
+    public void ExecuteEndsADispatcherThatFallsOutOfItsBlocksAtTheSequenceStop()
+    {
+        var state = CreateUnconditionalBranchState();
+        var entry = state.Graph.Entry;
+        var component = ImmutableHashSet.Create(entry.Index);
+        state.DispatchersByNode[entry.StartOffset] = component;
+        var joins = new FixedCommonReachableBlockFinder(entry.Index);
+        var fallthroughExits = new FixedDispatcherFallthroughExitClassifier(true);
+        var actor = Assert.IsAssignableFrom<IStructuredSequenceStepExecutor>(
+            new ExceptionRegionSequenceStepExecutor(
+                new FixedReachableSetOverlapClassifier(false),
+                new RecordingDispatcherBoundaryClipper(),
+                joins,
+                new RecordingReachableBlockFinder(),
+                fallthroughExits));
+        var builder = new StructuredControlFlowBuilderProbe();
+        var regions = ImmutableArray.CreateBuilder<StructuredRegionDraft>();
+        const int stop = 1;
+
+        var result = actor.Execute(
+            builder,
+            state,
+            entry.StartOffset,
+            stop,
+            state.Graph.ReachableBlocks,
+            [],
+            regions);
+
+        // A dispatcher exit that falls out of the allowed blocks ends the sequence, so
+        // no join inside them is sought and the in-region exits run to the stop.
+        Assert.Equal(StructuredSequenceStepDisposition.Continue, result.Disposition);
+        Assert.Equal(stop, result.NextBlockOffset);
+        Assert.Equal(stop, Assert.Single(builder.DispatcherCalls).ExitStop);
+        Assert.Equal(0, joins.CallCount);
+        var classification = Assert.Single(fallthroughExits.Calls);
+        Assert.Same(state, classification.State);
+        Assert.True(classification.Dispatcher.SetEquals(component));
+        Assert.Same(state.Graph.ReachableBlocks, classification.Allowed);
+    }
+
+    [Fact]
     public void ExecuteDelegatesAClosedDispatcherWithoutDiscoveringExitBodies()
     {
         var state = CreateSelfLoopState();
@@ -300,7 +344,8 @@ public sealed class ExceptionRegionSequenceStepExecutorBranchTests
                 new FixedReachableSetOverlapClassifier(false),
                 new RecordingDispatcherBoundaryClipper(),
                 new FixedCommonReachableBlockFinder(null),
-                reachableBlocks));
+                reachableBlocks,
+                new FixedDispatcherFallthroughExitClassifier(false)));
 
         var result = actor.Execute(
             builder,
@@ -344,7 +389,8 @@ public sealed class ExceptionRegionSequenceStepExecutorBranchTests
                     new FixedReachableSetOverlapClassifier(false),
                     new RecordingDispatcherBoundaryClipper(),
                     new FixedCommonReachableBlockFinder(null),
-                    new RecordingReachableBlockFinder()));
+                    new RecordingReachableBlockFinder(),
+                new FixedDispatcherFallthroughExitClassifier(false)));
 
             var result = actor.Execute(
                 builder,
@@ -379,7 +425,8 @@ public sealed class ExceptionRegionSequenceStepExecutorBranchTests
                 new FixedReachableSetOverlapClassifier(false),
                 new RecordingDispatcherBoundaryClipper(),
                 joins,
-                reachableBlocks));
+                reachableBlocks,
+                new FixedDispatcherFallthroughExitClassifier(false)));
 
         var result = actor.Execute(
             builder,
@@ -419,7 +466,8 @@ public sealed class ExceptionRegionSequenceStepExecutorBranchTests
                 new FixedReachableSetOverlapClassifier(false),
                 new RecordingDispatcherBoundaryClipper(),
                 joins,
-                new RecordingReachableBlockFinder()));
+                new RecordingReachableBlockFinder(),
+                new FixedDispatcherFallthroughExitClassifier(false)));
 
         var result = actor.Execute(
             builder,
@@ -457,7 +505,8 @@ public sealed class ExceptionRegionSequenceStepExecutorBranchTests
                 overlaps,
                 new RecordingDispatcherBoundaryClipper(),
                 new FixedCommonReachableBlockFinder(null),
-                reachableBlocks));
+                reachableBlocks,
+                new FixedDispatcherFallthroughExitClassifier(false)));
 
         var result = actor.Execute(
             builder,
@@ -486,7 +535,8 @@ public sealed class ExceptionRegionSequenceStepExecutorBranchTests
             new CommonReachableBlockFinder(
                 new ControlFlowPostDominatorFinder(new ControlFlowPostDominanceAnalyzer()),
                 distances),
-            new ReachableBlockFinder(distances));
+            new ReachableBlockFinder(distances),
+            new DispatcherFallthroughExitClassifier());
     }
 
     private static ControlFlowStructuringState CreateUnconditionalBranchState()
@@ -521,6 +571,20 @@ public sealed class ExceptionRegionSequenceStepExecutorBranchTests
             [],
             I(0, CilOperation.Branch, new CilOperand.BranchTarget(0)));
         return new ControlFlowStructuringState(Validate(body));
+    }
+
+    private sealed class FixedDispatcherFallthroughExitClassifier(bool result) : IDispatcherFallthroughExitClassifier
+    {
+        public List<(ControlFlowStructuringState State, ImmutableHashSet<int> Dispatcher, ImmutableHashSet<int> Allowed)> Calls { get; } = [];
+
+        public bool Classify(
+            ControlFlowStructuringState state,
+            ImmutableHashSet<int> dispatcher,
+            ImmutableHashSet<int> allowed)
+        {
+            Calls.Add((state, dispatcher, allowed));
+            return result;
+        }
     }
 
     private sealed class FixedReachableSetOverlapClassifier(bool result) : IReachableSetOverlapClassifier

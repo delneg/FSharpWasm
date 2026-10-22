@@ -33,7 +33,7 @@ public sealed class UnboxAnyInstructionEmitterTests
         CreateEmitter().Emit(request);
 
         Assert.Equal([CliValueKind.ManagedReference], request.Stack);
-        Assert.Contains(WasmOpcodes.Throw, GetCodeBytes(request));
+        Assert.True(ContainsManagedThrow(GetCodeBytes(request)));
     }
 
     [Fact]
@@ -53,7 +53,7 @@ public sealed class UnboxAnyInstructionEmitterTests
     {
         var layouts = new RecordingLayoutProvider();
         var types = CreateTypeOperands(new FakeProgram());
-        var exceptions = new ImplicitExceptionEmitter(layouts, layouts, 7);
+        var exceptions = new ImplicitExceptionEmitter(layouts, layouts);
         var addresses = new AddressInstructionEmitter(layouts);
         var unboxes = new BoxedValueUnboxEmitter(
             layouts,

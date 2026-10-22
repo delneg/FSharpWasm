@@ -2,6 +2,7 @@ using NetWasm.Compiler.Wasm.Encoding;
 using System;
 using NetWasm.Compiler.Core;
 using NetWasm.Compiler.Wasm.Emission.Support;
+using NetWasm.Compiler.Wasm.Emission.Planning;
 
 namespace NetWasm.Compiler.Wasm.Emission.Instructions.Runtime;
 
@@ -23,7 +24,7 @@ internal sealed class JSSubscriptionDisposeIntrinsicEmitter(
     private void EmitDispose(RuntimeIntrinsicEmissionRequest request, IWasmInstructionWriter code, int release)
     {
         var objectLocal = request.Local(0, CliValueKind.ManagedReference);
-        EmitNullCheck(code, objectLocal);
+        EmitNullCheck(code, objectLocal, request.Instruction.Context.ManagedThrowFunction);
         code.Write(WasmInstruction.WithOperand(WasmOpcodes.LocalGet, WasmInstructionOperand.Unsigned((uint)(objectLocal))));
         addresses.Emit(code, layouts.Target.ObjectHeaderSize);
         addresses.Emit(code, AddressOperation.Add);
@@ -43,12 +44,15 @@ internal sealed class JSSubscriptionDisposeIntrinsicEmitter(
         code.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
     }
 
-    private void EmitNullCheck(IWasmInstructionWriter code, int objectLocal)
+    private void EmitNullCheck(
+        IWasmInstructionWriter code,
+        int objectLocal,
+        OptionalFunctionIndex throwFunction)
     {
         code.Write(WasmInstruction.WithOperand(WasmOpcodes.LocalGet, WasmInstructionOperand.Unsigned((uint)(objectLocal))));
         addresses.Emit(code, AddressOperation.EqualZero);
         code.Write(WasmInstruction.WithOperand(WasmOpcodes.If, WasmInstructionOperand.BlockType(WasmOpcodes.EmptyBlockType)));
-        exceptions.Emit(code, ManagedExceptionKind.NullReference);
+        exceptions.Emit(code, ManagedExceptionKind.NullReference, throwFunction);
         code.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
     }
 }

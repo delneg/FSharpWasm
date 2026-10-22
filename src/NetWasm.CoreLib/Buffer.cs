@@ -9,31 +9,51 @@ namespace System
 {
     public static partial class Buffer
     {
-        internal static void Memmove<T>(
+        // memory.copy has memmove semantics. The collectors neither move objects nor use
+        // write barriers, so copying references as bytes is safe. Wasmtime runs memory.copy
+        // out of line, so copies of up to 16 bytes load every byte before storing any,
+        // which also keeps overlapping copies correct.
+        internal static unsafe void Memmove<T>(
             ref T destination,
             ref T source,
             int elementCount)
         {
-            if (elementCount == 0 || Unsafe.AreSame(ref destination, ref source))
+            var byteCount = (nuint)(uint)elementCount * (nuint)Unsafe.SizeOf<T>();
+            if (byteCount > 16)
             {
+                NativeMemory.Copy(
+                    Unsafe.AsPointer(ref source),
+                    Unsafe.AsPointer(ref destination),
+                    byteCount);
                 return;
             }
 
-            if (Unsafe.IsAddressLessThan(ref destination, ref source))
+            ref var to = ref Unsafe.As<T, byte>(ref destination);
+            ref var from = ref Unsafe.As<T, byte>(ref source);
+            if (byteCount >= 8)
             {
-                for (var index = 0; index < elementCount; index++)
-                {
-                    Unsafe.Add(ref destination, index) =
-                        Unsafe.Add(ref source, index);
-                }
-                return;
+                var head = Unsafe.ReadUnaligned<ulong>(ref from);
+                var tail = Unsafe.ReadUnaligned<ulong>(ref Unsafe.Add(ref from, byteCount - 8));
+                Unsafe.WriteUnaligned(ref to, head);
+                Unsafe.WriteUnaligned(ref Unsafe.Add(ref to, byteCount - 8), tail);
             }
-
-            while (elementCount != 0)
+            else if (byteCount >= 4)
             {
-                elementCount--;
-                Unsafe.Add(ref destination, elementCount) =
-                    Unsafe.Add(ref source, elementCount);
+                var head = Unsafe.ReadUnaligned<uint>(ref from);
+                var tail = Unsafe.ReadUnaligned<uint>(ref Unsafe.Add(ref from, byteCount - 4));
+                Unsafe.WriteUnaligned(ref to, head);
+                Unsafe.WriteUnaligned(ref Unsafe.Add(ref to, byteCount - 4), tail);
+            }
+            else if (byteCount >= 2)
+            {
+                var head = Unsafe.ReadUnaligned<ushort>(ref from);
+                var tail = Unsafe.ReadUnaligned<ushort>(ref Unsafe.Add(ref from, byteCount - 2));
+                Unsafe.WriteUnaligned(ref to, head);
+                Unsafe.WriteUnaligned(ref Unsafe.Add(ref to, byteCount - 2), tail);
+            }
+            else if (byteCount == 1)
+            {
+                to = from;
             }
         }
 

@@ -13,20 +13,6 @@ namespace System;
 
 internal static class PrimitiveGenericMathSmall
 {
-    // The reduced CoreLib String surface does not expose the runtime's
-    // UTF-8/string constructors. Numeric UTF-8 parsers only need the
-    // invariant ASCII projection used by these contracts.
-    internal static string CreateStringFromUtf8(ReadOnlySpan<byte> value)
-    {
-        var characters = new char[value.Length];
-        for (var index = 0; index < value.Length; index++)
-        {
-            characters[index] = (char)value[index];
-        }
-
-        return string.Create(characters);
-    }
-
     internal static char ParseUtf8(ReadOnlySpan<byte> value)
     {
         if (Text.Rune.DecodeFromUtf8(value, out var rune, out var consumed) != Buffers.OperationStatus.Done ||

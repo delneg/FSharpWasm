@@ -52,9 +52,13 @@ internal sealed class CompilerStructuredMethodFormatter : ICompilerStructuredMet
                     WriteSequence(
                         text, method, conditional.WhenFalse, indent + "  false ", writtenGroups);
                     break;
-                case Structured.StructuredLoop loop:
+                case Structured.StructuredLoop { Condition: null } loop:
+                    text.Append(indent).AppendLine("loop unconditional");
+                    WriteSequence(text, method, loop.Body, indent + "  ", writtenGroups);
+                    break;
+                case Structured.StructuredLoop { Condition: { } condition } loop:
                     text.Append(indent).Append("loop IL_")
-                        .Append(Hex(method.Blocks[loop.Condition.Block].StartOffset)).AppendLine();
+                        .Append(Hex(method.Blocks[condition.Block].StartOffset)).AppendLine();
                     WriteSequence(text, method, loop.Body, indent + "  ", writtenGroups);
                     WriteSequence(
                         text, method, loop.ContinueBody, indent + "  continue ", writtenGroups);

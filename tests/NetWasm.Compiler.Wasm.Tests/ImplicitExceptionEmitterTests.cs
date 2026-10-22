@@ -19,10 +19,7 @@ public sealed class ImplicitExceptionEmitterTests
         var layouts = new RecordingLayoutProvider(
             memory64 ? WasmTargetLayout.Wasm64 : WasmTargetLayout.Wasm32);
         var writer = new RecordingInstructionWriter();
-        IImplicitExceptionEmitter emitter = new ImplicitExceptionEmitter(
-            layouts,
-            layouts,
-            7);
+        var emitter = new ImplicitExceptionEmitter(layouts, layouts);
 
         emitter.Emit(
             writer,
@@ -48,10 +45,7 @@ public sealed class ImplicitExceptionEmitterTests
     {
         var layouts = new RecordingLayoutProvider();
         var writer = new RecordingInstructionWriter();
-        IImplicitExceptionEmitter emitter = new ImplicitExceptionEmitter(
-            layouts,
-            layouts,
-            7);
+        var emitter = new ImplicitExceptionEmitter(layouts, layouts);
 
         Assert.Throws<ArgumentNullException>(() => emitter.Emit(
             null!,
@@ -62,19 +56,6 @@ public sealed class ImplicitExceptionEmitterTests
             ManagedExceptionKind.NullReference,
             OptionalFunctionIndex.Missing));
         Assert.Empty(writer.ToInstructions());
-    }
-
-    [Fact]
-    public void InlineOnlyStrategyRejectsSharedThrowInsteadOfSilentlyInlining()
-    {
-        IImplicitExceptionEmitter emitter = new InlineOnlyExceptionEmitter();
-
-        var exception = Assert.Throws<NotSupportedException>(() => emitter.Emit(
-            new RecordingInstructionWriter(),
-            ManagedExceptionKind.NullReference,
-            OptionalFunctionIndex.At(27)));
-
-        Assert.Contains("shared throw function", exception.Message);
     }
 
     [Fact]
@@ -97,15 +78,6 @@ public sealed class ImplicitExceptionEmitterTests
         Assert.Equal(
             [WasmOpcodes.Block, (byte)WasmValueType.I64],
             new WasmBinarySnapshotReader(wasm64Buffer).Read());
-    }
-
-    private sealed class InlineOnlyExceptionEmitter : IImplicitExceptionEmitter
-    {
-        public void Emit(
-            IWasmInstructionWriter code,
-            ManagedExceptionKind kind)
-        {
-        }
     }
 
     [Fact]

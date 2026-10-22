@@ -30,7 +30,7 @@ public sealed class StaticInitializerFunctionEmitterTests
         {
             (uint)imports.Resolve(RuntimeImportSymbol.ExceptionFrameEnter), 71,
             (uint)imports.Resolve(RuntimeImportSymbol.ExceptionFrameLeave),
-            (uint)imports.Resolve(RuntimeImportSymbol.ExceptionFrameLeave),
+            (uint)imports.Resolve(RuntimeImportSymbol.ExceptionFrameUnwind),
             (uint)imports.Resolve(RuntimeImportSymbol.HandleGet), 102,
         }, calls);
         var stores = Enumerable.Range(0, code.Length).Where(i => code[i].Opcode == WasmOpcodes.I32Store).ToArray();

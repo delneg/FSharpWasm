@@ -19,6 +19,7 @@ class CiResultTests(unittest.TestCase):
             "docs": "success",
             "ci-infrastructure": "skipped",
             "test": "skipped",
+            "compiler": "skipped",
             "javascript-contracts": "skipped",
             "timings": "skipped",
             "package": "skipped",
@@ -34,6 +35,7 @@ class CiResultTests(unittest.TestCase):
             "docs": "skipped",
             "ci-infrastructure": "success",
             "test": "skipped",
+            "compiler": "skipped",
             "javascript-contracts": "skipped",
             "timings": "skipped",
             "package": "skipped",
@@ -49,6 +51,7 @@ class CiResultTests(unittest.TestCase):
             "docs": "skipped",
             "ci-infrastructure": "skipped",
             "test": "success",
+            "compiler": "success",
             "javascript-contracts": "success",
             "timings": "success",
             "package": "success",
@@ -64,6 +67,7 @@ class CiResultTests(unittest.TestCase):
             "docs": "skipped",
             "ci-infrastructure": "skipped",
             "test": "skipped",
+            "compiler": "skipped",
             "javascript-contracts": "skipped",
             "timings": "skipped",
             "package": "skipped",
@@ -84,6 +88,7 @@ class CiResultTests(unittest.TestCase):
                 "docs": "skipped",
                 "ci-infrastructure": "skipped",
                 "test": "success",
+                "compiler": "success",
                 "javascript-contracts": "success",
                 "timings": "success",
                 "package": "success",
@@ -91,6 +96,23 @@ class CiResultTests(unittest.TestCase):
                 "verify-packages": "success",
                 "runtime-pack-hosts": "failure",
                 "browser-hosts": "skipped",
+            })
+
+    def test_failed_compiler_shards_fail_a_full_run(self):
+        with self.assertRaisesRegex(ValueError, "compiler"):
+            RESULTS.verify("full", {
+                "impact": "success",
+                "docs": "skipped",
+                "ci-infrastructure": "skipped",
+                "test": "success",
+                "compiler": "failure",
+                "javascript-contracts": "success",
+                "timings": "success",
+                "package": "success",
+                "host-tools": "success",
+                "verify-packages": "success",
+                "runtime-pack-hosts": "success",
+                "browser-hosts": "success",
             })
 
 

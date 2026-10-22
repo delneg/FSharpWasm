@@ -8,6 +8,7 @@ using NetWasm.Compiler.Wasm.Emission.Methods;
 namespace NetWasm.Compiler.Wasm.Tests;
 
 using static EmitterTestSupport;
+using NetWasm.Compiler.Wasm.Emission.Planning;
 
 public sealed class StructuredControlFlowInstructionHandlerTests
 {
@@ -57,7 +58,10 @@ public sealed class StructuredControlFlowInstructionHandlerTests
             7,
             8,
             9,
-            10);
+            10)
+        {
+            ManagedThrowFunction = OptionalFunctionIndex.At(7),
+        };
         var method = new FakeProgram().GetMethod(EntryKey);
         return new InstructionEmissionRequest(
             Header(new CilMethodBody(method, 0, [], [])),

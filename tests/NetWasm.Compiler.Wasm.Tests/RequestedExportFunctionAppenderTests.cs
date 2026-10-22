@@ -271,7 +271,8 @@ public sealed class RequestedExportFunctionAppenderTests
             bool hasFinalizers,
             IFunctionIndexResolver functionIndices,
             bool reportTerminalExceptions,
-            EntityKey? argumentFactory)
+            EntityKey? argumentFactory,
+            MethodInstanceModel? completion)
         {
             Count++;
             ReportTerminalExceptions = reportTerminalExceptions;
@@ -290,6 +291,8 @@ public sealed class RequestedExportFunctionAppenderTests
 
     private sealed class FixedFunctionIndexResolver : IFunctionIndexResolver
     {
+        public OptionalFunctionIndex ManagedThrowFunction => OptionalFunctionIndex.At(7);
+
         public int Resolve(InteropImportKey import) => Resolve(import.Method);
 
         public int Resolve(EntityKey method) => 0;

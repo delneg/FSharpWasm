@@ -41,7 +41,10 @@ internal sealed class StructuredBlockOwnershipValidator : IStructuredBlockOwners
                     Visit(conditional.WhenFalse, method, owners, visitedGroups);
                     break;
                 case StructuredLoop loop:
-                    Record(loop.Condition, owners);
+                    if (loop.Condition is { } condition)
+                    {
+                        Record(condition, owners);
+                    }
                     Visit(loop.Body, method, owners, visitedGroups);
                     Visit(loop.ContinueBody, method, owners, visitedGroups);
                     Visit(loop.ExitBody, method, owners, visitedGroups);

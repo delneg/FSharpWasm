@@ -16,7 +16,7 @@ namespace NetWasm.Compiler.Caching.Frontend;
 internal sealed class FrontendArtifactEncoder : IFrontendArtifactEncoder
 {
     private const uint Magic = 0x3146434E;
-    private const ushort SchemaVersion = 20;
+    private const ushort SchemaVersion = 21;
 
     public ImmutableArray<byte> Encode(FrontendArtifactSnapshot snapshot)
     {
@@ -667,7 +667,7 @@ internal sealed class FrontendArtifactEncoder : IFrontendArtifactEncoder
                     break;
                 case StructuredLoop item:
                     writer.Write((byte)7);
-                    WriteOccurrence(item.Condition);
+                    WriteNullable(item.Condition, WriteOccurrence);
                     writer.Write(item.ContinueWhenConditionTrue);
                     WriteSequence(item.Body);
                     WriteSequence(item.ContinueBody);

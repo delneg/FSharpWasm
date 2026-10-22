@@ -1,6 +1,7 @@
 using NetWasm.Compiler.Wasm.Encoding;
 using NetWasm.Compiler.Core;
 using NetWasm.Compiler.Wasm;
+using NetWasm.Compiler.Wasm.Emission.Planning;
 
 namespace NetWasm.Compiler.Wasm.Emission.Instructions.Runtime;
 
@@ -13,5 +14,6 @@ internal interface IEnumHashCodeEmitter
         int receiver,
         int result,
         int temporaryI4,
-        int temporaryI8);
+        int temporaryI8,
+        OptionalFunctionIndex throwFunction);
 }

@@ -532,40 +532,6 @@ namespace System
             return right;
         }
 
-        public static double Pow(double x, double y)
-        {
-            if (y == 0) return 1;
-            if (x == 1) return 1;
-            if (IsNaN(y)) return y;
-            if (IsNaN(x)) return x;
-            if (IsInfinity(y))
-            {
-                var absolute = Abs(x);
-                if (absolute == 1) return 1;
-                var grows = absolute > 1;
-                return y > 0
-                    ? grows ? double.PositiveInfinity : 0
-                    : grows ? 0 : double.PositiveInfinity;
-            }
-            if (x == 0)
-            {
-                if (y < 0) return IsNegative(x) && Abs(y % 2) == 1 ? double.NegativeInfinity : double.PositiveInfinity;
-                return IsNegative(x) && Abs(y % 2) == 1 ? x : 0;
-            }
-            if (IsInfinity(x))
-            {
-                if (y < 0) return IsNegative(x) && Abs(y % 2) == 1 ? -0.0 : 0.0;
-                return IsNegative(x) && Abs(y % 2) == 1 ? double.NegativeInfinity : double.PositiveInfinity;
-            }
-            if (x < 0)
-            {
-                if (y != TruncateCore(y)) return double.NaN;
-                var magnitude = Exp(y * Log(-x));
-                return y % 2 == 0 ? magnitude : -magnitude;
-            }
-            return Exp(y * Log(x));
-        }
-
         public static double ReciprocalEstimate(double value) => 1 / value;
         public static double ReciprocalSqrtEstimate(double value) => 1 / Sqrt(value);
 

@@ -37,6 +37,7 @@ internal sealed class AsyncJSExportWrapperEmitter(
         var rootFrameLocal = handleLocal + 1;
         var valueFrameLocal = rootFrameLocal + 1;
         var finalizerExceptionLocal = valueFrameLocal + 1;
+        var exceptionFrameLocal = finalizerExceptionLocal + 1;
         // String, array, and JSObject parameters arrive as host handles. They become
         // managed objects in an argument root frame that lives until the method returns.
         var referenceParameters = argumentFactory is null && interopImports is not null
@@ -48,7 +49,7 @@ internal sealed class AsyncJSExportWrapperEmitter(
         var rootSlots = referenceParameters
             .Select((parameter, slot) => (parameter.Index, Slot: slot))
             .ToDictionary(parameter => parameter.Index, parameter => parameter.Slot);
-        var argumentFrameLocal = finalizerExceptionLocal + 1;
+        var argumentFrameLocal = exceptionFrameLocal + 1;
         var temporaryI4 = argumentFrameLocal + 1;
         var objectTemporary = temporaryI4 + 1;
         var argumentLocal = objectTemporary + 1;
@@ -61,6 +62,7 @@ internal sealed class AsyncJSExportWrapperEmitter(
                 CliValueKind.ManagedAddress,
                 CliValueKind.ManagedAddress,
                 CliValueKind.ManagedReference,
+                CliValueKind.I4,
                 .. (referenceParameters.Length == 0
                     ? Array.Empty<CliValueKind>()
                     : [CliValueKind.ManagedAddress, CliValueKind.I4, CliValueKind.ManagedReference,
@@ -68,6 +70,25 @@ internal sealed class AsyncJSExportWrapperEmitter(
             ],
             layouts.Target);
         runtimeInitialization.Initialize(code, initialization);
+        // The exception frame marks the arenas as the host call found them. A
+        // failure rewinds every frame the call left behind and propagates unchanged.
+        ManagedMemoryEmitter.EmitAddressConstant(code.Instructions, layouts.Target, 0);
+        code.Instructions.Write(WasmInstruction.WithOperand(
+            WasmOpcodes.I32Constant,
+            WasmInstructionOperand.Signed(0)));
+        CallRuntime(code, RuntimeImportSymbol.ExceptionFrameEnter, initialization);
+        code.Instructions.Write(WasmInstruction.WithOperand(
+            WasmOpcodes.LocalSet,
+            WasmInstructionOperand.Unsigned((uint)exceptionFrameLocal)));
+        code.Instructions.Write(WasmInstruction.WithOperand(
+            WasmOpcodes.Block,
+            WasmInstructionOperand.BlockType(WasmOpcodes.EmptyBlockType)));
+        code.Instructions.Write(WasmInstruction.WithOperand(
+            WasmOpcodes.Block,
+            WasmInstructionOperand.BlockType((byte)WasmValueType.ExnRef)));
+        code.Instructions.Write(WasmInstruction.WithOperand(
+            WasmOpcodes.TryTable,
+            WasmInstructionOperand.TryTableCatchAllRef(WasmOpcodes.EmptyBlockType, 0)));
         if (referenceParameters.Length != 0)
         {
             code.Instructions.Write(WasmInstruction.WithOperand(
@@ -80,32 +101,23 @@ internal sealed class AsyncJSExportWrapperEmitter(
             code.Instructions.Write(WasmInstruction.WithOperand(
                 WasmOpcodes.LocalSet,
                 WasmInstructionOperand.Unsigned((uint)argumentFrameLocal)));
-            code.Instructions.Write(WasmInstruction.WithOperand(
-                WasmOpcodes.Block,
-                WasmInstructionOperand.BlockType(WasmOpcodes.EmptyBlockType)));
-            code.Instructions.Write(WasmInstruction.WithOperand(
-                WasmOpcodes.Block,
-                WasmInstructionOperand.BlockType((byte)WasmValueType.ExnRef)));
-            code.Instructions.Write(WasmInstruction.WithOperand(
-                WasmOpcodes.TryTable,
-                WasmInstructionOperand.TryTableCatchAllRef(WasmOpcodes.EmptyBlockType, 0)));
             var target = new InteropMarshallingTarget(interopImports!);
             foreach (var parameter in referenceParameters)
             {
                 if (InteropTypeClassifier.IsString(parameter.Type))
                 {
                     stringArguments.Emit(code.Instructions, parameter.Index, argumentLocal,
-                        temporaryI4, objectTemporary, target);
+                        temporaryI4, objectTemporary, target, functionIndices.ManagedThrowFunction);
                 }
                 else if (InteropTypeClassifier.IsJSObject(parameter.Type))
                 {
                     hostObjectArguments.Emit(code.Instructions, parameter.Type, parameter.Index,
-                        argumentLocal);
+                        argumentLocal, functionIndices.ManagedThrowFunction);
                 }
                 else
                 {
                     valueArrayArguments.Emit(code.Instructions, parameter.Type, parameter.Index,
-                        argumentLocal, temporaryI4, objectTemporary, target);
+                        argumentLocal, temporaryI4, objectTemporary, target, functionIndices.ManagedThrowFunction);
                 }
                 ManagedMemoryEmitter.EmitRootSlotStore(code.Instructions, layouts.Target,
                     argumentFrameLocal, rootSlots[parameter.Index], argumentLocal);
@@ -175,22 +187,26 @@ internal sealed class AsyncJSExportWrapperEmitter(
                 WasmOpcodes.LocalSet,
                 WasmInstructionOperand.Unsigned((uint)taskLocal)));
         }
+        // Normal completion leaves the argument frame and skips the handler.
+        code.Instructions.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
         if (referenceParameters.Length != 0)
-        {
-            // Normal completion leaves the argument frame and skips the handler;
-            // a failure leaves it and rethrows the original exception.
-            code.Instructions.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
             LeaveFrame(code, argumentFrameLocal, initialization);
-            code.Instructions.Write(WasmInstruction.WithOperand(
-                WasmOpcodes.Branch,
-                WasmInstructionOperand.Unsigned(1)));
-            code.Instructions.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
-            LeaveFrame(code, argumentFrameLocal, initialization);
-            code.Instructions.Write(WasmInstruction.NoOperand(WasmOpcodes.ThrowRef));
-            code.Instructions.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
-        }
+        code.Instructions.Write(WasmInstruction.WithOperand(
+            WasmOpcodes.LocalGet,
+            WasmInstructionOperand.Unsigned((uint)exceptionFrameLocal)));
+        CallRuntime(code, RuntimeImportSymbol.ExceptionFrameLeave, initialization);
+        code.Instructions.Write(WasmInstruction.WithOperand(
+            WasmOpcodes.Branch,
+            WasmInstructionOperand.Unsigned(1)));
+        code.Instructions.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
+        code.Instructions.Write(WasmInstruction.WithOperand(
+            WasmOpcodes.LocalGet,
+            WasmInstructionOperand.Unsigned((uint)exceptionFrameLocal)));
+        CallRuntime(code, RuntimeImportSymbol.ExceptionFrameUnwind, initialization);
+        code.Instructions.Write(WasmInstruction.NoOperand(WasmOpcodes.ThrowRef));
+        code.Instructions.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
 
-        EmitReferenceNullCheck(code, taskLocal);
+        EmitReferenceNullCheck(code, taskLocal, functionIndices.ManagedThrowFunction);
         code.Instructions.Write(WasmInstruction.WithOperand(
             WasmOpcodes.I32Constant,
             WasmInstructionOperand.Signed(1)));
@@ -237,7 +253,7 @@ internal sealed class AsyncJSExportWrapperEmitter(
             ReferenceComparison.EqualZero,
             CliValueKind.I4);
         code.Instructions.Write(WasmInstruction.WithOperand(WasmOpcodes.If, WasmInstructionOperand.BlockType(WasmOpcodes.EmptyBlockType)));
-        exceptions.Emit(code.Instructions, ManagedExceptionKind.OutOfMemory);
+        exceptions.Emit(code.Instructions, ManagedExceptionKind.OutOfMemory, functionIndices.ManagedThrowFunction);
         code.Instructions.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
         if (hasFinalizers)
         {
@@ -265,6 +281,15 @@ internal sealed class AsyncJSExportWrapperEmitter(
         code.Instructions.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
         return code.Snapshots.Read();
     }
+
+    private void CallRuntime(
+        GeneratedFunctionWriterLease code,
+        RuntimeImportSymbol symbol,
+        RuntimeInitializationPlan initialization) =>
+        code.Instructions.Write(WasmInstruction.WithOperand(
+            WasmOpcodes.Call,
+            WasmInstructionOperand.Unsigned((uint)runtimeImports.Resolve(
+                symbol, initialization.RuntimeImportSelection))));
 
     private void LeaveFrame(
         GeneratedFunctionWriterLease code,
@@ -316,14 +341,17 @@ internal sealed class AsyncJSExportWrapperEmitter(
         }
     }
 
-    private void EmitReferenceNullCheck(GeneratedFunctionWriterLease code, int local)
+    private void EmitReferenceNullCheck(
+        GeneratedFunctionWriterLease code,
+        int local,
+        OptionalFunctionIndex throwFunction)
     {
         code.Instructions.Write(WasmInstruction.WithOperand(
             WasmOpcodes.LocalGet,
             WasmInstructionOperand.Unsigned((uint)local)));
         references.Emit(code.Instructions, ReferenceComparison.EqualZero);
         code.Instructions.Write(WasmInstruction.WithOperand(WasmOpcodes.If, WasmInstructionOperand.BlockType(WasmOpcodes.EmptyBlockType)));
-        exceptions.Emit(code.Instructions, ManagedExceptionKind.NullReference);
+        exceptions.Emit(code.Instructions, ManagedExceptionKind.NullReference, throwFunction);
         code.Instructions.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
     }
 

@@ -18,7 +18,7 @@ internal sealed class JavaScriptResultLengthValidator(
         code.Write(WasmInstruction.NoOperand(WasmOpcodes.I32LessThanSigned));
         code.Write(WasmInstruction.WithOperand(WasmOpcodes.If, WasmInstructionOperand.BlockType(WasmOpcodes.EmptyBlockType)));
         handles.Release(code, context, target);
-        exceptions.Emit(code, ManagedExceptionKind.JSException);
+        exceptions.Emit(code, ManagedExceptionKind.JSException, context.ManagedThrowFunction);
         code.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
     }
 }

@@ -84,6 +84,7 @@ internal sealed class CompilationAnalysisBuilder(
         var methodInstances = _methodInstances.Create(metadata);
         var methodImplementations = _methodImplementations.Create(metadata);
         var symbols = _symbols.Create(metadata);
+        var world = PlatformWorldCapabilities.From(preparation.ComponentContract);
         var asyncBindingResolver = _asyncBindings.Create(
             typeFinder,
             typeDefinitions,
@@ -91,7 +92,8 @@ internal sealed class CompilationAnalysisBuilder(
             fields,
             methods,
             methodInstances,
-            symbols);
+            symbols,
+            world);
 
         var runtimeIntrinsics = _intrinsics.Create(symbols, metadata.Methods);
         var program = _analyzers.Create(
@@ -110,7 +112,8 @@ internal sealed class CompilationAnalysisBuilder(
             symbols,
             asyncBindingResolver.Resolve,
             runtimeIntrinsics,
-            preparation.OptimizationSettings).Analyze(
+            preparation.OptimizationSettings,
+            world).Analyze(
             preparation.Entry.EntryPoint,
             preparation.Exports,
             preparation.ReachabilityRoots);

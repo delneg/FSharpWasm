@@ -11,6 +11,7 @@ using NetWasm.Compiler.Wasm.Encoding;
 namespace NetWasm.Compiler.Wasm.Tests;
 
 using static EmitterTestSupport;
+using NetWasm.Compiler.Wasm.Emission.Planning;
 
 public sealed class NullableBoxEmitterTests
 {
@@ -30,7 +31,7 @@ public sealed class NullableBoxEmitterTests
             ? CliTypeIdentity.Named(Assembly, "Test", "Value", true)
             : CliTypeIdentity.Primitive("i4", CliValueKind.I4);
 
-        emitter.Emit(writer, underlyingType, sourceAddressLocal: 2, targetLocal: 3);
+        emitter.Emit(writer, underlyingType, sourceAddressLocal: 2, targetLocal: 3, OptionalFunctionIndex.At(7));
 
         var instructions = writer.ToInstructions();
         Assert.Equal(
@@ -89,7 +90,7 @@ public sealed class NullableBoxEmitterTests
             writer,
             CliTypeIdentity.Primitive("i4", CliValueKind.I4),
             sourceAddressLocal: 2,
-            targetLocal: 2));
+            targetLocal: 2, OptionalFunctionIndex.At(7)));
 
         Assert.Equal("targetLocal", error.ParamName);
         Assert.Empty(writer.ToInstructions());
@@ -110,7 +111,7 @@ public sealed class NullableBoxEmitterTests
         var targetLocal = WasmLocalLayoutPlanner.GetEvaluationStackLocal(
             request.Context.StackLocals, 0, CliValueKind.ManagedReference, layouts.Target);
 
-        emitter.Emit(directWriter, underlyingType, request.Context.ObjectTemporary, targetLocal);
+        emitter.Emit(directWriter, underlyingType, request.Context.ObjectTemporary, targetLocal, OptionalFunctionIndex.At(7));
         Assert.Equal(originalStack, request.Stack);
         emitter.Emit(request, GetCodeWriter(request), underlyingType);
 
@@ -191,7 +192,7 @@ public sealed class NullableBoxEmitterTests
             layouts,
             layouts,
             WasmRuntimeImports.CreateCatalog(),
-            new ImplicitExceptionEmitter(layouts, layouts, 7));
+            new ImplicitExceptionEmitter(layouts, layouts));
 
     private static InstructionEmissionRequest Request() =>
         CreateInstructionRequest(

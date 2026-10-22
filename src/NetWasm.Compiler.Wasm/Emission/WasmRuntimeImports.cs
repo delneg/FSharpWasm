@@ -271,6 +271,10 @@ internal static class WasmRuntimeImports
             RuntimeAbi.RuntimeModule,
             RuntimeAbi.RuntimeExceptionFrameLeave,
             WasmFunctionType.Create(CliValueKind.Void, CliValueKind.I4))),
+        new(RuntimeImportSymbol.ExceptionFrameUnwind, new WasmFunctionImport(
+            RuntimeAbi.RuntimeModule,
+            RuntimeAbi.RuntimeExceptionFrameUnwind,
+            WasmFunctionType.Create(CliValueKind.Void, CliValueKind.I4))),
         new(RuntimeImportSymbol.ExceptionFrameTargetClause, new WasmFunctionImport(
             RuntimeAbi.RuntimeModule,
             RuntimeAbi.RuntimeExceptionFrameTargetClause,

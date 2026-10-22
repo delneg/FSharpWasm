@@ -79,6 +79,47 @@ public sealed class DispatcherSequenceStepExecutorTests
         Assert.Empty(state.SuppressedLoopHeaders);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void UnconditionalLoopBreaksToItsExitAndOwnsABodyThatCrossesTheBoundary(bool crossesBoundary)
+    {
+        var state = ControlFlowStructuringStateTestFactory.Create();
+        state.LoopsByHeader.Add(0, new LoopRegion(0, null, 0, 3, 3, [0, 1, 2], [0, 1, 2], []));
+        state.LoopExitTargets.Push(99);
+        state.LoopContinueTargets.Push(101);
+        state.BoundaryClaimedBlockBodies.Add(1);
+        var builder = new RecordingLoopBuilder();
+        var command = new DispatcherSequenceStepExecutor(
+            new ActiveControlFlowBlockClipper(), new EmptyLoopActiveBlockRetentionSelector());
+        var regions = ImmutableArray.CreateBuilder<StructuredRegionDraft>();
+        ImmutableHashSet<int> allowed = crossesBoundary ? [0, 1] : [0, 1, 2, 3, 4, 5];
+
+        var result = ((IStructuredSequenceStepExecutor)command).Execute(builder, state, 0, null,
+            allowed, [], regions);
+
+        // The loop has no condition; its body runs from the header and breaks to the exit.
+        Assert.Equal(StructuredSequenceStepDisposition.Continue, result.Disposition);
+        Assert.Equal(3, result.NextBlockOffset);
+        var loop = Assert.IsType<StructuredLoopDraft>(Assert.Single(regions));
+        Assert.Null(loop.ConditionBlock);
+        Assert.Empty(loop.ContinueBody.Regions);
+        Assert.Empty(loop.ExitBody.Regions);
+        var body = Assert.Single(builder.Calls);
+        Assert.Equal(0, body.Start);
+        Assert.Null(body.Stop);
+        Assert.Equal(3, body.BreakTarget);
+        Assert.Equal(0, body.ContinueTarget);
+        // A body that crosses the caller's boundary is owned at that boundary, and blocks the
+        // boundary already claimed leave the body's allowed set.
+        int[] owned = crossesBoundary ? [0, 1, 2] : [];
+        Assert.Equal(owned, state.BoundaryOwnedBlocks.Order());
+        Assert.Equal(!crossesBoundary, body.Allowed.Contains(1));
+        Assert.Equal(99, Assert.Single(state.LoopExitTargets));
+        Assert.Equal(101, Assert.Single(state.LoopContinueTargets));
+        Assert.Empty(state.SuppressedLoopHeaders);
+    }
+
     private sealed class RecordingLoopBuilder : IStructuredControlFlowBuilder
     {
         internal List<Call> Calls { get; } = [];

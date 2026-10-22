@@ -5,6 +5,7 @@ using NetWasm.Compiler.Core;
 using NetWasm.Compiler.Wasm;
 using NetWasm.Compiler.Wasm.Emission;
 using NetWasm.Compiler.Wasm.Emission.GeneratedFunctions;
+using NetWasm.Compiler.Wasm.Emission.Planning;
 
 namespace NetWasm.Compiler.Wasm.Emission.Instructions.Runtime;
 
@@ -23,7 +24,8 @@ internal sealed class EnumEqualsEmitter(
         int right,
         int result,
         int temporaryReference,
-        int temporaryI4)
+        int temporaryI4,
+        OptionalFunctionIndex throwFunction)
     {
         if (leftKind == CliValueKind.ManagedAddress)
         {
@@ -38,7 +40,7 @@ internal sealed class EnumEqualsEmitter(
                 temporaryI4);
             return;
         }
-        nullChecks.Emit(code, left);
+        nullChecks.Emit(code, left, throwFunction);
         code.Write(WasmInstruction.WithOperand(WasmOpcodes.I32Constant, WasmInstructionOperand.Signed(0)));
         code.Write(WasmInstruction.WithOperand(WasmOpcodes.LocalSet, WasmInstructionOperand.Unsigned((uint)(temporaryI4))));
         code.Write(WasmInstruction.WithOperand(WasmOpcodes.LocalGet, WasmInstructionOperand.Unsigned((uint)(right))));

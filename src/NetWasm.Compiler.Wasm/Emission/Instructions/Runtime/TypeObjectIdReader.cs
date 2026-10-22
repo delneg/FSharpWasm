@@ -1,6 +1,7 @@
 using NetWasm.Compiler.Core;
 using NetWasm.Compiler.Wasm.Emission.GeneratedFunctions;
 using NetWasm.Compiler.Wasm.Encoding;
+using NetWasm.Compiler.Wasm.Emission.Planning;
 
 namespace NetWasm.Compiler.Wasm.Emission.Instructions.Runtime;
 
@@ -9,14 +10,18 @@ internal sealed class TypeObjectIdReader(
     IImplicitExceptionEmitter exceptions,
     ITargetLayout layouts) : ITypeObjectIdReader
 {
-    public void Read(IWasmInstructionWriter code, int typeLocal, int typeIdLocal)
+    public void Read(
+        IWasmInstructionWriter code,
+        int typeLocal,
+        int typeIdLocal,
+        OptionalFunctionIndex throwFunction)
     {
         Get(code, typeLocal);
         references.Emit(code, ReferenceComparison.EqualZero);
         code.Write(WasmInstruction.WithOperand(
             WasmOpcodes.If,
             WasmInstructionOperand.BlockType(WasmOpcodes.EmptyBlockType)));
-        exceptions.Emit(code, ManagedExceptionKind.ArgumentNull);
+        exceptions.Emit(code, ManagedExceptionKind.ArgumentNull, throwFunction);
         code.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
 
         Get(code, typeLocal);

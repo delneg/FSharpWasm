@@ -90,7 +90,7 @@ internal sealed class EnumGetValuesEmitter(
         // while later enum cases compare it, including enums sharing a definition.
         var typeId = request.Instruction.Context.NumericTemporaryI4Second;
         var temporary = request.Instruction.Context.NumericTemporaryI4;
-        typeArguments.Validate(code, type, typeId);
+        typeArguments.Validate(code, type, typeId, request.Instruction.Context.ManagedThrowFunction);
         addresses.Emit(code, 0);
         code.Write(WasmInstruction.WithOperand(
             WasmOpcodes.LocalSet,
@@ -126,7 +126,7 @@ internal sealed class EnumGetValuesEmitter(
             code.Write(WasmInstruction.NoOperand(WasmOpcodes.Else));
             if (entry.IsOpenDefinition)
             {
-                exceptions.Emit(code, ManagedExceptionKind.NotSupported);
+                exceptions.Emit(code, ManagedExceptionKind.NotSupported, request.Instruction.Context.ManagedThrowFunction);
             }
             else
             {

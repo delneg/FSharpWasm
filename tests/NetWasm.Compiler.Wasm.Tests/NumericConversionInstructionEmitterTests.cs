@@ -160,7 +160,7 @@ public sealed class NumericConversionInstructionEmitterTests
         CreateEmitter(layouts).Emit(request);
 
         Assert.Equal([CliValueKind.I4], request.Stack);
-        Assert.Contains(WasmOpcodes.Throw, GetCodeBytes(request));
+        Assert.True(ContainsManagedThrow(GetCodeBytes(request)));
         Assert.Contains(WasmOpcodes.I32Extend8Signed, GetCodeBytes(request));
     }
 
@@ -224,7 +224,7 @@ public sealed class NumericConversionInstructionEmitterTests
         CreateEmitter(layouts).Emit(request);
 
         Assert.Equal([source], request.Stack);
-        Assert.Contains(WasmOpcodes.Throw, GetCodeBytes(request));
+        Assert.True(ContainsManagedThrow(GetCodeBytes(request)));
     }
 
     [Theory]
@@ -304,7 +304,7 @@ public sealed class NumericConversionInstructionEmitterTests
             new NumericConversionInstructionEmitter(
                 layouts,
                 null!,
-                new ImplicitExceptionEmitter(layouts, layouts, 7)));
+                new ImplicitExceptionEmitter(layouts, layouts)));
     }
 
     [Theory]
@@ -353,7 +353,7 @@ public sealed class NumericConversionInstructionEmitterTests
         RecordingLayoutProvider layouts) => new(
         layouts,
         new NativeIntegerConversionEmitter(layouts),
-        new ImplicitExceptionEmitter(layouts, layouts, 7));
+        new ImplicitExceptionEmitter(layouts, layouts));
 
     private static InstructionEmissionRequest CreateRequest(
         CilOperation operation,

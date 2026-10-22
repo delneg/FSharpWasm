@@ -4,6 +4,7 @@ using System.Collections.Immutable;
 using NetWasm.Compiler.Core;
 using NetWasm.Compiler.Wasm.Emission.Instructions.NativeIntegers;
 using NetWasm.Compiler.Wasm.Emission.Methods;
+using NetWasm.Compiler.Wasm.Emission.Planning;
 
 namespace NetWasm.Compiler.Wasm.Emission.Instructions;
 
@@ -100,7 +101,7 @@ internal sealed class NumericConversionInstructionEmitter(
         }
         code.Write(WasmInstruction.NoOperand(WasmOpcodes.I32EqualZero));
         code.Write(WasmInstruction.WithOperand(WasmOpcodes.If, WasmInstructionOperand.BlockType(WasmOpcodes.EmptyBlockType)));
-        exceptions.Emit(code, ManagedExceptionKind.Arithmetic);
+        exceptions.Emit(code, ManagedExceptionKind.Arithmetic, request.Context.ManagedThrowFunction);
         code.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
     }
 
@@ -363,7 +364,7 @@ internal sealed class NumericConversionInstructionEmitter(
             else if (unsigned) code.Write(WasmInstruction.NoOperand(WasmOpcodes.I32GreaterThanUnsigned));
             else code.Write(WasmInstruction.NoOperand(WasmOpcodes.I32GreaterThanSigned));
         }
-        EmitOverflowIfTrue(code);
+        EmitOverflowIfTrue(code, request.Context.ManagedThrowFunction);
     }
 
     private void EmitFloatingBoundsCheck(
@@ -379,13 +380,13 @@ internal sealed class NumericConversionInstructionEmitter(
         if (source == CliValueKind.F4) code.Write(WasmInstruction.NoOperand(WasmOpcodes.F32Equal));
         else code.Write(WasmInstruction.NoOperand(WasmOpcodes.F64Equal));
         code.Write(WasmInstruction.NoOperand(WasmOpcodes.I32EqualZero));
-        EmitOverflowIfTrue(code);
+        EmitOverflowIfTrue(code, request.Context.ManagedThrowFunction);
         var lower = destinationUnsigned ? 0d : -Math.Pow(2d, destinationBits - 1);
         var upper = Math.Pow(
             2d,
             destinationUnsigned ? destinationBits : destinationBits - 1);
-        EmitFloatingBoundCheck(code, local, source, lower, true);
-        EmitFloatingBoundCheck(code, local, source, upper, false);
+        EmitFloatingBoundCheck(code, local, source, lower, true, request.Context.ManagedThrowFunction);
+        EmitFloatingBoundCheck(code, local, source, upper, false, request.Context.ManagedThrowFunction);
     }
 
     private void EmitFloatingBoundCheck(
@@ -393,7 +394,8 @@ internal sealed class NumericConversionInstructionEmitter(
         int local,
         CliValueKind source,
         double bound,
-        bool lower)
+        bool lower,
+        OptionalFunctionIndex throwFunction)
     {
         code.Write(WasmInstruction.WithOperand(WasmOpcodes.LocalGet, WasmInstructionOperand.Unsigned((uint)(local))));
         // Checked CIL conversion tests the integer obtained by truncating toward
@@ -410,13 +412,13 @@ internal sealed class NumericConversionInstructionEmitter(
         }
         else if (lower) code.Write(WasmInstruction.NoOperand(WasmOpcodes.F64LessThan));
         else code.Write(WasmInstruction.NoOperand(WasmOpcodes.F64GreaterThanOrEqual));
-        EmitOverflowIfTrue(code);
+        EmitOverflowIfTrue(code, throwFunction);
     }
 
-    private void EmitOverflowIfTrue(IWasmInstructionWriter code)
+    private void EmitOverflowIfTrue(IWasmInstructionWriter code, OptionalFunctionIndex throwFunction)
     {
         code.Write(WasmInstruction.WithOperand(WasmOpcodes.If, WasmInstructionOperand.BlockType(WasmOpcodes.EmptyBlockType)));
-        exceptions.Emit(code, ManagedExceptionKind.Overflow);
+        exceptions.Emit(code, ManagedExceptionKind.Overflow, throwFunction);
         code.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
     }
 

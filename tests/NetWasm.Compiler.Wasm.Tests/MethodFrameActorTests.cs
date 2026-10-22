@@ -8,6 +8,7 @@ using NetWasm.Compiler.Wasm.Emission.Methods;
 namespace NetWasm.Compiler.Wasm.Tests;
 
 using static EmitterTestSupport;
+using NetWasm.Compiler.Wasm.Emission.Planning;
 
 public sealed class MethodFrameActorTests
 {
@@ -108,7 +109,10 @@ public sealed class MethodFrameActorTests
             14,
             15,
             16,
-            17);
+            17)
+        {
+            ManagedThrowFunction = OptionalFunctionIndex.At(7),
+        };
     }
 
     private static int[] Calls(byte[] code) => [.. code

@@ -11,7 +11,6 @@ internal sealed class ExceptionRegionEmitter(
     ITargetLayout layouts,
     IRuntimeImportResolver runtimeImports,
     IExceptionPayloadBlockEmitter exceptions,
-    IMethodFrameExitEmitter methodFrameExits,
     IStructuredExceptionGroupKeyFactory exceptionGroupKeys) : IExceptionRegionEmitter
 {
     public void Emit(
@@ -19,12 +18,12 @@ internal sealed class ExceptionRegionEmitter(
         StructuredMethod method,
         StructuredExceptionRegion region,
         MethodEmissionContext context,
-        bool isOutermost,
         ModuleDataPlan moduleData,
         Action<StructuredSequence, MethodEmissionContext, int?, int?, int?> emitSequence,
         int? loopBreakDepth = null,
         int? loopContinueDepth = null,
-        int? dispatcherContinueDepth = null)
+        int? dispatcherContinueDepth = null,
+        int? enclosingLeaveDepth = null)
     {
         ArgumentNullException.ThrowIfNull(code);
         ArgumentNullException.ThrowIfNull(method);
@@ -58,13 +57,13 @@ internal sealed class ExceptionRegionEmitter(
                 method,
                 group,
                 context,
-                isOutermost,
                 moduleData,
                 emitSequence,
                 region,
                 loopBreakDepth,
                 loopContinueDepth,
-                dispatcherContinueDepth);
+                dispatcherContinueDepth,
+                enclosingLeaveDepth);
             return;
         }
         if (group.Clauses.Length == 1)
@@ -74,13 +73,13 @@ internal sealed class ExceptionRegionEmitter(
                 method,
                 group,
                 context,
-                isOutermost,
                 moduleData,
                 emitSequence,
                 region,
                 loopBreakDepth,
                 loopContinueDepth,
-                dispatcherContinueDepth);
+                dispatcherContinueDepth,
+                enclosingLeaveDepth);
             return;
         }
         throw UnsupportedExceptionShape(
@@ -117,9 +116,9 @@ internal sealed class ExceptionRegionEmitter(
                         method,
                         new StructuredExceptionRegion(nested.Group, null),
                         context with { ActiveExceptionGroup = group },
-                        false,
                         moduleData,
-                        emitSequence);
+                        emitSequence,
+                        enclosingLeaveDepth: 0);
                     code.Write(WasmInstruction.WithOperand(
                         WasmOpcodes.LocalGet,
                         WasmInstructionOperand.Unsigned((uint)context.ExceptionContinuationLocals[group.Id])));
@@ -140,13 +139,13 @@ internal sealed class ExceptionRegionEmitter(
         StructuredMethod method,
         StructuredExceptionGroup group,
         MethodEmissionContext context,
-        bool isOutermost,
         ModuleDataPlan moduleData,
         Action<StructuredSequence, MethodEmissionContext, int?, int?, int?> emitSequence,
         StructuredExceptionRegion region,
         int? loopBreakDepth,
         int? loopContinueDepth,
-        int? dispatcherContinueDepth)
+        int? dispatcherContinueDepth,
+        int? enclosingLeaveDepth)
     {
         EnterExceptionFrame(code, method, group, context, moduleData);
         code.Write(WasmInstruction.WithOperand(
@@ -170,7 +169,7 @@ internal sealed class ExceptionRegionEmitter(
             WasmOpcodes.LocalSet,
             WasmInstructionOperand.Unsigned((uint)context.ExceptionTemporary)));
         StoreExceptionRoot(code, group, context);
-        LeaveExceptionFrame(code, group, context);
+        UnwindExceptionFrame(code, group, context);
         code.Write(WasmInstruction.WithOperand(
             WasmOpcodes.LocalGet,
             WasmInstructionOperand.Unsigned((uint)context.ExceptionFrameLocals[group.Id])));
@@ -216,8 +215,6 @@ internal sealed class ExceptionRegionEmitter(
                 clause.HandlerBody,
                 context with
                 {
-                    LeaveFrameOnRethrow =
-                        isOutermost && context.LeaveFrameOnExceptionalExit,
                     ActiveExceptionGroup = group,
                     ActiveCatchRootSlot = context.ExceptionRootSlots[group.Id],
                 },
@@ -232,10 +229,6 @@ internal sealed class ExceptionRegionEmitter(
             code.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
         }
         LoadExceptionRoot(code, group, context);
-        if (isOutermost && context.LeaveFrameOnExceptionalExit)
-        {
-            methodFrameExits.Emit(code, context);
-        }
         code.Write(WasmInstruction.WithOperand(
             WasmOpcodes.Throw,
             WasmInstructionOperand.Unsigned(0)));
@@ -248,7 +241,8 @@ internal sealed class ExceptionRegionEmitter(
             region,
             loopBreakDepth,
             loopContinueDepth,
-            dispatcherContinueDepth);
+            dispatcherContinueDepth,
+            enclosingLeaveDepth);
     }
 
     private void EmitCleanupGroup(
@@ -256,13 +250,13 @@ internal sealed class ExceptionRegionEmitter(
         StructuredMethod method,
         StructuredExceptionGroup group,
         MethodEmissionContext context,
-        bool isOutermost,
         ModuleDataPlan moduleData,
         Action<StructuredSequence, MethodEmissionContext, int?, int?, int?> emitSequence,
         StructuredExceptionRegion region,
         int? loopBreakDepth,
         int? loopContinueDepth,
-        int? dispatcherContinueDepth)
+        int? dispatcherContinueDepth,
+        int? enclosingLeaveDepth)
     {
         var clause = group.Clauses[0];
         if (clause.Kind == CilExceptionRegionKind.Finally)
@@ -272,13 +266,13 @@ internal sealed class ExceptionRegionEmitter(
                 method,
                 group,
                 context,
-                isOutermost,
                 moduleData,
                 emitSequence,
                 region,
                 loopBreakDepth,
                 loopContinueDepth,
-                dispatcherContinueDepth);
+                dispatcherContinueDepth,
+                enclosingLeaveDepth);
             return;
         }
         EnterExceptionFrame(code, method, group, context, moduleData);
@@ -303,7 +297,7 @@ internal sealed class ExceptionRegionEmitter(
             WasmOpcodes.LocalSet,
             WasmInstructionOperand.Unsigned((uint)context.ExceptionTemporary)));
         StoreExceptionRoot(code, group, context);
-        LeaveExceptionFrame(code, group, context);
+        UnwindExceptionFrame(code, group, context);
         code.Write(WasmInstruction.WithOperand(
             WasmOpcodes.Block,
             WasmInstructionOperand.BlockType(WasmOpcodes.EmptyBlockType)));
@@ -315,10 +309,6 @@ internal sealed class ExceptionRegionEmitter(
             0);
         code.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
         LoadExceptionRoot(code, group, context);
-        if (isOutermost && context.LeaveFrameOnExceptionalExit)
-        {
-            methodFrameExits.Emit(code, context);
-        }
         code.Write(WasmInstruction.WithOperand(
             WasmOpcodes.Throw,
             WasmInstructionOperand.Unsigned(0)));
@@ -331,7 +321,8 @@ internal sealed class ExceptionRegionEmitter(
             region,
             loopBreakDepth,
             loopContinueDepth,
-            dispatcherContinueDepth);
+            dispatcherContinueDepth,
+            enclosingLeaveDepth);
     }
 
     private void EmitFinallyGroup(
@@ -339,13 +330,13 @@ internal sealed class ExceptionRegionEmitter(
         StructuredMethod method,
         StructuredExceptionGroup group,
         MethodEmissionContext context,
-        bool isOutermost,
         ModuleDataPlan moduleData,
         Action<StructuredSequence, MethodEmissionContext, int?, int?, int?> emitSequence,
         StructuredExceptionRegion region,
         int? loopBreakDepth,
         int? loopContinueDepth,
-        int? dispatcherContinueDepth)
+        int? dispatcherContinueDepth,
+        int? enclosingLeaveDepth)
     {
         var clause = group.Clauses[0];
         ClearExceptionRoot(code, group, context);
@@ -371,7 +362,7 @@ internal sealed class ExceptionRegionEmitter(
             WasmOpcodes.LocalSet,
             WasmInstructionOperand.Unsigned((uint)context.ExceptionTemporary)));
         StoreExceptionRoot(code, group, context);
-        LeaveExceptionFrame(code, group, context);
+        UnwindExceptionFrame(code, group, context);
         code.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
 
         code.Write(WasmInstruction.WithOperand(
@@ -398,10 +389,6 @@ internal sealed class ExceptionRegionEmitter(
             WasmOpcodes.If,
             WasmInstructionOperand.BlockType(WasmOpcodes.EmptyBlockType)));
         LoadExceptionRoot(code, group, context);
-        if (isOutermost && context.LeaveFrameOnExceptionalExit)
-        {
-            methodFrameExits.Emit(code, context);
-        }
         code.Write(WasmInstruction.WithOperand(
             WasmOpcodes.Throw,
             WasmInstructionOperand.Unsigned(0)));
@@ -415,7 +402,8 @@ internal sealed class ExceptionRegionEmitter(
             region,
             loopBreakDepth,
             loopContinueDepth,
-            dispatcherContinueDepth);
+            dispatcherContinueDepth,
+            enclosingLeaveDepth);
     }
 
     private static void EmitNormalContinuations(
@@ -426,7 +414,8 @@ internal sealed class ExceptionRegionEmitter(
         StructuredExceptionRegion region,
         int? loopBreakDepth,
         int? loopContinueDepth,
-        int? dispatcherContinueDepth)
+        int? dispatcherContinueDepth,
+        int? enclosingLeaveDepth)
     {
         var selector = context.ExceptionContinuationLocals[group.Id];
         if (group.ContinuationDispatcher is { } dispatcher)
@@ -505,12 +494,14 @@ internal sealed class ExceptionRegionEmitter(
             }
             else
             {
+                // A leave to an enclosing group's continuation ends this body as it
+                // would end the enclosing protected code.
                 emitSequence(
                     continuation.Body,
                     context,
                     loopBreakDepth is int breakDepth ? breakDepth + 1 : null,
                     loopContinueDepth is int continueDepth ? continueDepth + 1 : null,
-                    null);
+                    enclosingLeaveDepth is int leaveDepth ? leaveDepth + 1 : null);
             }
             code.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
         }
@@ -599,6 +590,21 @@ internal sealed class ExceptionRegionEmitter(
         code.Write(WasmInstruction.WithOperand(
             WasmOpcodes.Call,
             WasmInstructionOperand.Unsigned((uint)runtimeImports.Resolve(RuntimeImportSymbol.ExceptionFrameLeave))));
+    }
+
+    // The landing pad: the exception has left every frame entered since this
+    // region began, so the runtime rewinds the frame arenas before the handler.
+    private void UnwindExceptionFrame(
+        IWasmInstructionWriter code,
+        StructuredExceptionGroup group,
+        MethodEmissionContext context)
+    {
+        code.Write(WasmInstruction.WithOperand(
+            WasmOpcodes.LocalGet,
+            WasmInstructionOperand.Unsigned((uint)context.ExceptionFrameLocals[group.Id])));
+        code.Write(WasmInstruction.WithOperand(
+            WasmOpcodes.Call,
+            WasmInstructionOperand.Unsigned((uint)runtimeImports.Resolve(RuntimeImportSymbol.ExceptionFrameUnwind))));
     }
 
     private void EmitAddressConstant(IWasmInstructionWriter code, int value)

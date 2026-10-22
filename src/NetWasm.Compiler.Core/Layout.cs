@@ -221,6 +221,7 @@ public static class RuntimeAbi
     public const string RuntimeStackTraceRegisterSymbol = "stack_trace_register_symbol";
     public const string RuntimeExceptionFrameEnter = "exception_frame_enter";
     public const string RuntimeExceptionFrameLeave = "exception_frame_leave";
+    public const string RuntimeExceptionFrameUnwind = "exception_frame_unwind";
     public const string RuntimeExceptionFrameTargetClause = "exception_frame_target_clause";
     public const string RuntimeExceptionFrameSetEnvironment =
         "exception_frame_set_environment";

@@ -92,7 +92,7 @@ internal sealed class HostCallbackFunctionEmitter(
                     WasmInstructionOperand.Unsigned((uint)delegateLocal)));
                 addresses.Emit(code.Instructions, AddressOperation.EqualZero);
                 code.Instructions.Write(WasmInstruction.WithOperand(WasmOpcodes.If, WasmInstructionOperand.BlockType(WasmOpcodes.EmptyBlockType)));
-                exceptions.Emit(code.Instructions, ManagedExceptionKind.JSException);
+                exceptions.Emit(code.Instructions, ManagedExceptionKind.JSException, functionIndices.ManagedThrowFunctionIndex);
                 code.Instructions.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
                 code.Instructions.Write(WasmInstruction.WithOperand(WasmOpcodes.LocalGet,
                     WasmInstructionOperand.Unsigned((uint)delegateLocal)));
@@ -107,7 +107,7 @@ internal sealed class HostCallbackFunctionEmitter(
                             referenceLocals[index],
                             temporaryI4,
                             objectTemporary,
-                            new InteropMarshallingTarget(interopImports));
+                            new InteropMarshallingTarget(interopImports), functionIndices.ManagedThrowFunctionIndex);
                         code.Instructions.Write(WasmInstruction.WithOperand(WasmOpcodes.LocalGet,
                             WasmInstructionOperand.Unsigned((uint)referenceLocals[index])));
                     }
@@ -120,7 +120,7 @@ internal sealed class HostCallbackFunctionEmitter(
                             referenceLocals[index],
                             temporaryI4,
                             objectTemporary,
-                            new InteropMarshallingTarget(interopImports));
+                            new InteropMarshallingTarget(interopImports), functionIndices.ManagedThrowFunctionIndex);
                         code.Instructions.Write(WasmInstruction.WithOperand(WasmOpcodes.LocalGet,
                             WasmInstructionOperand.Unsigned((uint)referenceLocals[index])));
                     }

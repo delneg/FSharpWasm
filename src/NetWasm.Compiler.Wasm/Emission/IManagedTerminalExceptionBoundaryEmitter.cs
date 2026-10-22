@@ -19,6 +19,5 @@ internal interface IManagedTerminalExceptionBoundaryEmitter
         int resultLocal,
         int reportFunctionIndex,
         int? raiseFunctionIndex,
-        Action emitBody,
-        Action? emitCatchCleanup = null);
+        Action emitBody);
 }

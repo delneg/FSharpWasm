@@ -7,6 +7,7 @@ using NetWasm.Compiler.Wasm.Emission.Instructions.Objects;
 using NetWasm.Compiler.Wasm.Emission.Methods;
 using NetWasm.Compiler.Wasm.Emission.Support;
 using NetWasm.Compiler.Wasm.Encoding;
+using NetWasm.Compiler.Wasm.Emission.Planning;
 
 namespace NetWasm.Compiler.Wasm.Emission.Instructions.Runtime;
 
@@ -119,6 +120,7 @@ internal sealed class DelegateDynamicInvokeIntrinsicEmitter(
                     code,
                     request.Instruction.Context.ObjectTemporary,
                     parameter,
+                    request.Instruction.Context.ManagedThrowFunction,
                     ManagedExceptionKind.Argument);
             }
         }
@@ -137,7 +139,7 @@ internal sealed class DelegateDynamicInvokeIntrinsicEmitter(
         AllocateBox(
             code,
             resultType,
-            request.Local(0, CliValueKind.ManagedReference));
+            request.Local(0, CliValueKind.ManagedReference), request.Instruction.Context.ManagedThrowFunction);
     }
 
     private void EmitWrappedInvocation(
@@ -148,6 +150,17 @@ internal sealed class DelegateDynamicInvokeIntrinsicEmitter(
         MethodInstanceModel method,
         MethodInstanceModel invocationTarget)
     {
+        // The exception frame lets the catch rewind the frames the failed target
+        // left before TargetInvocationException captures its stack trace.
+        var catchFrame = request.Instruction.Context.InlineCatchFrame;
+        ManagedMemoryEmitter.EmitAddressConstant(code, layouts.Target, 0);
+        code.Write(WasmInstruction.WithOperand(
+            WasmOpcodes.I32Constant,
+            WasmInstructionOperand.Signed(0)));
+        CallRuntime(code, RuntimeImportSymbol.ExceptionFrameEnter);
+        code.Write(WasmInstruction.WithOperand(
+            WasmOpcodes.LocalSet,
+            WasmInstructionOperand.Unsigned((uint)catchFrame)));
         code.Write(WasmInstruction.WithOperand(
             WasmOpcodes.Block,
             WasmInstructionOperand.BlockType(WasmOpcodes.EmptyBlockType)));
@@ -161,9 +174,17 @@ internal sealed class DelegateDynamicInvokeIntrinsicEmitter(
         EmitTypedInvocation(request, code, receiverLocal, argumentsLocal, method);
         code.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
         code.Write(WasmInstruction.WithOperand(
+            WasmOpcodes.LocalGet,
+            WasmInstructionOperand.Unsigned((uint)catchFrame)));
+        CallRuntime(code, RuntimeImportSymbol.ExceptionFrameLeave);
+        code.Write(WasmInstruction.WithOperand(
             WasmOpcodes.Branch,
             WasmInstructionOperand.Unsigned(1)));
         code.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
+        code.Write(WasmInstruction.WithOperand(
+            WasmOpcodes.LocalGet,
+            WasmInstructionOperand.Unsigned((uint)catchFrame)));
+        CallRuntime(code, RuntimeImportSymbol.ExceptionFrameUnwind);
         code.Write(WasmInstruction.WithOperand(
             WasmOpcodes.Call,
             WasmInstructionOperand.Unsigned(
@@ -327,7 +348,7 @@ internal sealed class DelegateDynamicInvokeIntrinsicEmitter(
             code,
             underlying,
             request.Instruction.Context.ObjectTemporary,
-            resultLocal);
+            resultLocal, request.Instruction.Context.ManagedThrowFunction);
     }
 
     private void EmitReferenceValidation(
@@ -404,7 +425,7 @@ internal sealed class DelegateDynamicInvokeIntrinsicEmitter(
         code.Write(WasmInstruction.WithOperand(
             WasmOpcodes.If,
             WasmInstructionOperand.BlockType(WasmOpcodes.EmptyBlockType)));
-        AllocateBox(code, parameter, objectLocal);
+        AllocateBox(code, parameter, objectLocal, request.Instruction.Context.ManagedThrowFunction);
         EmitArgumentSlotAddress(code, argumentsLocal, index);
         code.Write(WasmInstruction.WithOperand(
             WasmOpcodes.LocalGet,
@@ -420,7 +441,8 @@ internal sealed class DelegateDynamicInvokeIntrinsicEmitter(
     private void AllocateBox(
         IWasmInstructionWriter code,
         CliTypeIdentity type,
-        int destinationLocal)
+        int destinationLocal,
+        OptionalFunctionIndex throwFunction)
     {
         var layout = types.GetObjectLayout(type);
         addresses.Emit(code, layout.Size);
@@ -441,7 +463,7 @@ internal sealed class DelegateDynamicInvokeIntrinsicEmitter(
         code.Write(WasmInstruction.WithOperand(
             WasmOpcodes.If,
             WasmInstructionOperand.BlockType(WasmOpcodes.EmptyBlockType)));
-        exceptions.Emit(code, ManagedExceptionKind.OutOfMemory);
+        exceptions.Emit(code, ManagedExceptionKind.OutOfMemory, throwFunction);
         code.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
     }
 
@@ -715,6 +737,11 @@ internal sealed class DelegateDynamicInvokeIntrinsicEmitter(
             throw RuntimeContract("DynamicInvoke support target has an invalid signature");
         }
     }
+
+    private void CallRuntime(IWasmInstructionWriter code, RuntimeImportSymbol symbol) =>
+        code.Write(WasmInstruction.WithOperand(
+            WasmOpcodes.Call,
+            WasmInstructionOperand.Unsigned((uint)runtimeImports.Resolve(symbol))));
 
     private static CompilerException RuntimeContract(string message) => new(
         new CompilerDiagnostic(DiagnosticCode.RuntimeContract, message));

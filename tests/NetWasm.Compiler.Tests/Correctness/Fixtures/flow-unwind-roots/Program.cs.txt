@@ -1,4 +1,5 @@
 using System;
+using System.Reflection;
 using System.Runtime.CompilerServices;
 
 namespace NetWasm.Correctness.UnwindRoots;
@@ -28,11 +29,65 @@ public sealed class Resource : IDisposable
     }
 }
 
+public struct Block
+{
+    public long A, B, C, D, E, F, G, H;
+}
+
 public static class EntryPoint
 {
     private static int[] _events = [];
     private static int _count;
     public static Payload? LastDisposed;
+    private static WeakReference<Payload>? _held;
+    private static int _sink;
+
+    // An exception leaves every frame between its throw and its catch. Whatever the
+    // frames held must become unreachable, and the frames entered afterwards must
+    // behave as if the skipped ones had returned.
+    public static int Rewind(int input)
+    {
+        _held = null;
+        switch (input)
+        {
+            case 0:
+                try { Hold(12); return -1; }
+                catch (Marker) { Collect(); }
+                return _held!.TryGetTarget(out _) ? -2 : 42;
+            case 1:
+            {
+                var outer = new Block { A = 40, H = 2 };
+                Touch(ref outer);
+                for (var round = 0; round < 3; round++)
+                {
+                    try { Fill(100); return -3; }
+                    catch (Marker) { Collect(); }
+                }
+                var total = Sum(100);
+                return outer.A + outer.H == 42 && outer.B == 41 && total == 15150 ? 42 : -4;
+            }
+            case 2:
+            {
+                Func<int, int> hold = HoldAndThrow;
+                try { hold(6); return -5; }
+                catch (Marker) { }
+                try { hold.DynamicInvoke(6); return -6; }
+                catch (TargetInvocationException wrapped) when (wrapped.InnerException is Marker) { }
+                Collect();
+                return _held!.TryGetTarget(out _) ? -7 : 42;
+            }
+            case 3:
+                try { HoldThenThrowPayload(8); return -8; }
+                catch (PayloadException observed) when (FilterThrowsInternally(observed))
+                {
+                    Collect();
+                    if (observed.Value.Number != 42) return -9;
+                }
+                return _held!.TryGetTarget(out _) ? -10 : 42;
+            default:
+                throw new ArgumentOutOfRangeException(nameof(input));
+        }
+    }
 
     public static int Run(int input)
     {
@@ -155,6 +210,75 @@ public static class EntryPoint
         Mark(2);
         GC.Collect();
         return value.Value.Number == 42;
+    }
+
+    private static void Collect()
+    {
+        GC.Collect();
+        GC.Collect();
+    }
+
+    // Each frame keeps its payload live across the call that throws, so only the
+    // frames the exception skipped still refer to the payload the weak reference names.
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static void Hold(int depth)
+    {
+        var value = new Payload(depth);
+        if (depth == 0) throw new Marker();
+        if (depth == 1) _held = new WeakReference<Payload>(value);
+        Hold(depth - 1);
+        Sink(value);
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static void Sink(Payload value) => _sink += value.Number;
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static int HoldAndThrow(int depth)
+    {
+        Hold(depth);
+        return 0;
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static void HoldThenThrowPayload(int depth)
+    {
+        var value = new Payload(depth);
+        if (depth == 0) ThrowPayload();
+        if (depth == 1) _held = new WeakReference<Payload>(value);
+        HoldThenThrowPayload(depth - 1);
+        Sink(value);
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static bool FilterThrowsInternally(PayloadException value)
+    {
+        var held = _held;
+        try { Hold(10); }
+        catch (Marker) { Collect(); }
+        _held = held;
+        return value.Value.Number == 42;
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static void Touch(ref Block block) => block.B = block.A + 1;
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static long Fill(int depth)
+    {
+        var block = new Block { A = depth, H = depth * 2 };
+        Touch(ref block);
+        if (depth == 0) throw new Marker();
+        return Fill(depth - 1) + block.A + block.H + block.B - block.A - 1;
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static long Sum(int depth)
+    {
+        var block = new Block { A = depth, H = depth * 2 };
+        Touch(ref block);
+        var inner = depth == 0 ? 0 : Sum(depth - 1);
+        return inner + block.A + block.H + block.B - block.A - 1;
     }
 
     [MethodImpl(MethodImplOptions.NoInlining)]

@@ -4,6 +4,7 @@ using NetWasm.Compiler.Wasm;
 using NetWasm.Compiler.Wasm.Emission;
 using NetWasm.Compiler.Wasm.Emission.Support;
 using NetWasm.Compiler.Wasm.Encoding;
+using NetWasm.Compiler.Wasm.Emission.Planning;
 
 namespace NetWasm.Compiler.Wasm.Emission.Instructions.Runtime;
 
@@ -26,7 +27,7 @@ internal sealed class EnumToObjectEmitter(
         var argumentType = request.Method.Signature.ParameterTypes[1];
         var input = request.Local(1, argumentType);
         var typeId = request.Instruction.Context.NumericTemporaryI4;
-        typeArguments.Validate(code, type, typeId);
+        typeArguments.Validate(code, type, typeId, request.Instruction.Context.ManagedThrowFunction);
         if (argumentType == CliValueKind.ManagedReference)
         {
             code.Write(WasmInstruction.WithOperand(WasmOpcodes.LocalGet,
@@ -34,7 +35,7 @@ internal sealed class EnumToObjectEmitter(
             addresses.Emit(code, AddressOperation.EqualZero);
             code.Write(WasmInstruction.WithOperand(WasmOpcodes.If,
                 WasmInstructionOperand.BlockType(WasmOpcodes.EmptyBlockType)));
-            exceptions.Emit(code, ManagedExceptionKind.ArgumentNull);
+            exceptions.Emit(code, ManagedExceptionKind.ArgumentNull, request.Instruction.Context.ManagedThrowFunction);
             code.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
         }
         addresses.Emit(code, 0);
@@ -54,7 +55,7 @@ internal sealed class EnumToObjectEmitter(
             {
                 // An open generic enum has type metadata but no boxed value
                 // representation. Match Enum.ToObject's desktop rejection.
-                exceptions.Emit(code, ManagedExceptionKind.Argument);
+                exceptions.Emit(code, ManagedExceptionKind.Argument, request.Instruction.Context.ManagedThrowFunction);
                 code.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
                 continue;
             }
@@ -62,7 +63,7 @@ internal sealed class EnumToObjectEmitter(
             var boxedValue = request.Local(1, underlying.StackKind);
             if (argumentType == CliValueKind.ManagedReference)
             {
-                EmitBoxedValue(code, input, underlying, boxedValue);
+                EmitBoxedValue(code, input, underlying, boxedValue, request.Instruction.Context.ManagedThrowFunction);
             }
             addresses.Emit(code, objectLayout.Size);
             WriteI32(code, entry.TypeId);
@@ -91,7 +92,8 @@ internal sealed class EnumToObjectEmitter(
         IWasmInstructionWriter code,
         int input,
         CliTypeIdentity targetType,
-        int valueLocal)
+        int valueLocal,
+        OptionalFunctionIndex throwFunction)
     {
         var sources = GetBoxedNumericSources();
         foreach (var source in sources)
@@ -116,7 +118,7 @@ internal sealed class EnumToObjectEmitter(
             Set(code, valueLocal);
             code.Write(WasmInstruction.NoOperand(WasmOpcodes.Else));
         }
-        exceptions.Emit(code, ManagedExceptionKind.Argument);
+        exceptions.Emit(code, ManagedExceptionKind.Argument, throwFunction);
         for (var index = 0; index < sources.Count; index++)
         {
             code.Write(WasmInstruction.NoOperand(WasmOpcodes.End));

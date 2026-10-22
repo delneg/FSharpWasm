@@ -2,6 +2,7 @@ using System;
 using NetWasm.Compiler.Core;
 using NetWasm.Compiler.Wasm.Emission.Methods;
 using NetWasm.Compiler.Wasm.Encoding;
+using NetWasm.Compiler.Wasm.Emission.Planning;
 
 namespace NetWasm.Compiler.Wasm.Emission.Instructions.Objects;
 
@@ -24,7 +25,7 @@ internal sealed class ArrayLengthAdapter(
                 WasmOpcodes.I64Constant,
                 WasmInstructionOperand.Signed64(int.MaxValue)));
             code.Write(WasmInstruction.NoOperand(WasmOpcodes.I64GreaterThanUnsigned));
-            ThrowIf(code, ManagedExceptionKind.Overflow);
+            ThrowIf(code, ManagedExceptionKind.Overflow, request.Context.ManagedThrowFunction);
 
             Get(code, sourceLocal);
             code.Write(WasmInstruction.NoOperand(WasmOpcodes.I32WrapI64));
@@ -42,18 +43,19 @@ internal sealed class ArrayLengthAdapter(
             WasmOpcodes.I32Constant,
             WasmInstructionOperand.Signed(0)));
         code.Write(WasmInstruction.NoOperand(WasmOpcodes.I32LessThanSigned));
-        ThrowIf(code, ManagedExceptionKind.Overflow);
+        ThrowIf(code, ManagedExceptionKind.Overflow, request.Context.ManagedThrowFunction);
         return sourceLocal;
     }
 
     private void ThrowIf(
         IWasmInstructionWriter code,
-        ManagedExceptionKind kind)
+        ManagedExceptionKind kind,
+        OptionalFunctionIndex throwFunction)
     {
         code.Write(WasmInstruction.WithOperand(
             WasmOpcodes.If,
             WasmInstructionOperand.BlockType(WasmOpcodes.EmptyBlockType)));
-        exceptions.Emit(code, kind);
+        exceptions.Emit(code, kind, throwFunction);
         code.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
     }
 

@@ -59,7 +59,8 @@ public sealed class MethodEmissionContextFactoryTests
         Assert.Equal(36, context.NumericTemporaryI4Third);
         Assert.Equal(37, context.NumericTemporaryI4Fourth);
         Assert.Equal(38, context.NumericTemporaryI4Fifth);
-        Assert.Equal(37, result.LocalTypes.Length);
+        Assert.Equal(39, context.InlineCatchFrame);
+        Assert.Equal(38, result.LocalTypes.Length);
         Assert.Equal(0, context.ExceptionRootSlots[group]);
         Assert.Equal(1, context.RootSlotCount);
     }

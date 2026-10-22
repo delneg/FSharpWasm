@@ -322,6 +322,22 @@ public sealed class StructuredMethodValidatorTests
         {
             Body = new([new New.StructuredExceptionRegion(new(9), null)]),
         }));
+        // An unconditional loop leaves only through a break, so it has no continuation
+        // or exit body.
+        var code = new New.StructuredSequence([new New.StructuredCode(occurrence)]);
+        foreach (var (continueBody, exitBody) in new[]
+                 {
+                     (code, New.StructuredSequence.Empty),
+                     (New.StructuredSequence.Empty, code),
+                 })
+        {
+            var exception = Assert.Throws<InvalidOperationException>(() => ValidateTargets(method with
+            {
+                Body = new([new New.StructuredLoop(
+                    null, true, New.StructuredSequence.Empty, continueBody, exitBody)]),
+            }));
+            Assert.Contains("continuation or exit body", exception.Message);
+        }
     }
 
     [Fact]

@@ -29,7 +29,6 @@ internal sealed class ManagedMethodEmitter(
     IFilterEnvironmentLayoutPlanner filterEnvironments,
     IExceptionGroupEnumerator exceptionGroups,
     IMethodFrameEntryEmitter frames,
-    IMethodExceptionBoundaryEmitter exceptionBoundary,
     IGeneratedFunctionWriterFactory writers,
     IInstructionCountingWriterFactory instructionWriters,
     ITerminalBranchValueFramePlanner branchValueFrames,
@@ -63,7 +62,8 @@ internal sealed class ManagedMethodEmitter(
         bool enableScalarCallPreservation = false,
         bool hoistArrayNullChecks = false,
         bool rotateLoops = false,
-        bool eliminateArrayStoreChecks = false)
+        bool eliminateArrayStoreChecks = false,
+        OptionalFunctionIndex managedThrowFunction = default)
     {
         ArgumentNullException.ThrowIfNull(method);
         ArgumentNullException.ThrowIfNull(structured);
@@ -129,6 +129,7 @@ internal sealed class ManagedMethodEmitter(
         {
             StackTraceMethodId = stackTraceMethodId,
             RuntimeImportSelection = runtimeImportSelection,
+            ManagedThrowFunction = managedThrowFunction,
             AuthoritativeRootSlots = authoritative.Slots,
             RotateLoops = rotateLoops,
             ExactArrayStores = arrayStoreChecks.Plan(emissionStructure, eliminateArrayStoreChecks),
@@ -151,19 +152,9 @@ internal sealed class ManagedMethodEmitter(
             layouts.Target);
         frames.Emit(code, emissionStructure.Header, context);
         arraySnapshots.Emit(code, context);
-        if (context.RootSlotCount != 0 || context.ValueLayout.Size != 0 ||
-            stackTraceMethodId != 0 ||
-            filterEnvironment.RootSlotCount != 0)
-        {
-            exceptionBoundary.Emit(
-                code,
-                context,
-                protectedContext => emitBody(code, emissionStructure, protectedContext));
-        }
-        else
-        {
-            emitBody(code, emissionStructure, context);
-        }
+        // An exception leaves this method's frames in place; whatever catches it
+        // rewinds the frame arenas to where they stood when its region began.
+        emitBody(code, emissionStructure, context);
         code.Write(WasmInstruction.NoOperand(WasmOpcodes.Unreachable));
         code.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
         return new ManagedMethodEmission(

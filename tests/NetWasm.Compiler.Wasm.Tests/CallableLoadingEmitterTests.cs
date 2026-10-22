@@ -71,7 +71,7 @@ public sealed class CallableLoadingEmitterTests
 
         Assert.Equal([CliValueKind.NativeInt], request.Stack);
         Assert.Contains(WasmOpcodes.If, code.ToArray());
-        Assert.Contains(WasmOpcodes.Throw, code.ToArray());
+        Assert.True(ContainsManagedThrow(code.ToArray()));
     }
 
     [Fact]
@@ -234,7 +234,7 @@ public sealed class CallableLoadingEmitterTests
         var emitter = new VirtualFunctionLoadEmitter(
             layouts,
             layouts,
-            new ImplicitExceptionEmitter(layouts, layouts, 7),
+            new ImplicitExceptionEmitter(layouts, layouts),
             new InstructionCommandFactory());
         return (
             new[] { emitter }.Cast<IVirtualFunctionLoader>().Single(),

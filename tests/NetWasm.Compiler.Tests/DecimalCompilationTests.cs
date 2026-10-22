@@ -149,7 +149,10 @@ public sealed class DecimalCompilationTests
                     children = [branch.WhenTrue, branch.WhenFalse];
                     break;
                 case StructuredLoop loop:
-                    yield return loop.Condition.Block;
+                    if (loop.Condition is { } condition)
+                    {
+                        yield return condition.Block;
+                    }
                     children = [loop.Body, loop.ContinueBody, loop.ExitBody];
                     break;
                 case StructuredPostTestLoop loop:

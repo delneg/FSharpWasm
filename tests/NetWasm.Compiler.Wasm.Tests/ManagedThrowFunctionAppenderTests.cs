@@ -12,38 +12,35 @@ public sealed class ManagedThrowFunctionAppenderTests
     {
         var functions = new List<WasmFunctionDefinition>();
 
-        CreateAppender().Append(functions, OptionalFunctionIndex.Missing);
+        CreateAppender().Append(
+            functions,
+            OptionalFunctionIndex.Missing,
+            OptionalFunctionIndex.Missing);
 
         Assert.Empty(functions);
     }
 
-    [Fact]
-    public void PresentPlanAppendsOneNonInlineableThrowFunction()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void PresentPlansAppendNonInlineableThrowFunctionsInIndexOrder(bool rethrow)
     {
         var functions = new List<WasmFunctionDefinition>();
         var imports = WasmRuntimeImports.CreateCatalog();
 
-        CreateAppender(imports).Append(functions, OptionalFunctionIndex.At(37));
+        CreateAppender(imports).Append(
+            functions,
+            OptionalFunctionIndex.At(37),
+            rethrow ? OptionalFunctionIndex.At(38) : OptionalFunctionIndex.Missing);
 
-        var function = Assert.Single(functions);
-        Assert.Equal("managed.throw", function.Name);
-        Assert.Equal(CliValueKind.Void, function.Type.Result);
         Assert.Equal(
-            [CliValueKind.ManagedReference],
-            function.Type.Parameters.ToArray());
-        Assert.True(function.IsNoInlining);
-        Assert.False(function.IsAggressiveInlining);
-        Assert.Equal(
-            [
-                0,
-                WasmOpcodes.LocalGet, 0,
-                WasmOpcodes.Call,
-                (byte)imports.Resolve(RuntimeImportSymbol.BeginThrow),
-                WasmOpcodes.LocalGet, 0,
-                WasmOpcodes.Throw, 0,
-                WasmOpcodes.End,
-            ],
-            function.Body);
+            rethrow ? ["managed.throw", "managed.rethrow"] : ["managed.throw"],
+            functions.Select(static function => function.Name));
+        AssertThrowFunction(functions[0], imports.Resolve(RuntimeImportSymbol.BeginThrow));
+        if (rethrow)
+        {
+            AssertThrowFunction(functions[1], imports.Resolve(RuntimeImportSymbol.BeginRethrow));
+        }
     }
 
     [Fact]
@@ -58,7 +55,30 @@ public sealed class ManagedThrowFunctionAppenderTests
                 new GeneratedFunctionWriterFactory(),
                 null!));
         Assert.Throws<ArgumentNullException>(() =>
-            CreateAppender(imports).Append(null!, OptionalFunctionIndex.At(0)));
+            CreateAppender(imports).Append(
+                null!,
+                OptionalFunctionIndex.At(0),
+                OptionalFunctionIndex.Missing));
+    }
+
+    private static void AssertThrowFunction(WasmFunctionDefinition function, int beginImport)
+    {
+        Assert.Equal(CliValueKind.Void, function.Type.Result);
+        Assert.Equal(
+            [CliValueKind.ManagedReference],
+            function.Type.Parameters.ToArray());
+        Assert.True(function.IsNoInlining);
+        Assert.False(function.IsAggressiveInlining);
+        Assert.Equal(
+            [
+                0,
+                WasmOpcodes.LocalGet, 0,
+                WasmOpcodes.Call, (byte)beginImport,
+                WasmOpcodes.LocalGet, 0,
+                WasmOpcodes.Throw, 0,
+                WasmOpcodes.End,
+            ],
+            function.Body);
     }
 
     private static ManagedThrowFunctionAppender CreateAppender(

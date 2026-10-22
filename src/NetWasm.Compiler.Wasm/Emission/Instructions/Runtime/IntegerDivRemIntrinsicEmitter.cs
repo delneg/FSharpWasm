@@ -2,6 +2,7 @@ using System;
 using NetWasm.Compiler.Core;
 using NetWasm.Compiler.Wasm.Emission.Methods;
 using NetWasm.Compiler.Wasm.Encoding;
+using NetWasm.Compiler.Wasm.Emission.Planning;
 
 namespace NetWasm.Compiler.Wasm.Emission.Instructions.Runtime;
 
@@ -58,10 +59,10 @@ internal sealed class IntegerDivRemIntrinsicEmitter(
                 request.Instruction.Instruction.Offset]);
         Set(code, result);
 
-        EmitZeroGuard(code, right, usesI64);
+        EmitZeroGuard(code, right, usesI64, request.Instruction.Context.ManagedThrowFunction);
         if (!unsigned && RequiresOverflowGuard(element))
         {
-            EmitOverflowGuard(code, savedLeft, right, usesI64);
+            EmitOverflowGuard(code, savedLeft, right, usesI64, request.Instruction.Context.ManagedThrowFunction);
         }
 
         Get(code, result);
@@ -111,10 +112,10 @@ internal sealed class IntegerDivRemIntrinsicEmitter(
         Get(code, left);
         Set(code, savedLeft);
 
-        EmitZeroGuard(code, right, usesI64);
+        EmitZeroGuard(code, right, usesI64, request.Instruction.Context.ManagedThrowFunction);
         if (!unsigned && RequiresOverflowGuard(element))
         {
-            EmitOverflowGuard(code, savedLeft, right, usesI64);
+            EmitOverflowGuard(code, savedLeft, right, usesI64, request.Instruction.Context.ManagedThrowFunction);
         }
 
         Get(code, savedLeft);
@@ -160,7 +161,8 @@ internal sealed class IntegerDivRemIntrinsicEmitter(
     private void EmitZeroGuard(
         IWasmInstructionWriter code,
         int right,
-        bool usesI64)
+        bool usesI64,
+        OptionalFunctionIndex throwFunction)
     {
         Get(code, right);
         code.Write(WasmInstruction.NoOperand(
@@ -168,7 +170,7 @@ internal sealed class IntegerDivRemIntrinsicEmitter(
         code.Write(WasmInstruction.WithOperand(
             WasmOpcodes.If,
             WasmInstructionOperand.BlockType(WasmOpcodes.EmptyBlockType)));
-        exceptions.Emit(code, ManagedExceptionKind.DivideByZero);
+        exceptions.Emit(code, ManagedExceptionKind.DivideByZero, throwFunction);
         code.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
     }
 
@@ -176,7 +178,8 @@ internal sealed class IntegerDivRemIntrinsicEmitter(
         IWasmInstructionWriter code,
         int left,
         int right,
-        bool usesI64)
+        bool usesI64,
+        OptionalFunctionIndex throwFunction)
     {
         Get(code, left);
         code.Write(WasmInstruction.WithOperand(
@@ -198,7 +201,7 @@ internal sealed class IntegerDivRemIntrinsicEmitter(
         code.Write(WasmInstruction.WithOperand(
             WasmOpcodes.If,
             WasmInstructionOperand.BlockType(WasmOpcodes.EmptyBlockType)));
-        exceptions.Emit(code, ManagedExceptionKind.Overflow);
+        exceptions.Emit(code, ManagedExceptionKind.Overflow, throwFunction);
         code.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
     }
 

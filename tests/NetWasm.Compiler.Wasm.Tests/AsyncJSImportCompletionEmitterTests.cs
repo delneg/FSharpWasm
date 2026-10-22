@@ -263,7 +263,8 @@ public sealed class AsyncJSImportCompletionEmitterTests
         public List<(int Handle, int Destination)> Calls { get; } = [];
 
         public void Emit(IWasmInstructionWriter code, int handleParameter, int destination,
-            int temporaryI4, int objectTemporary, InteropMarshallingTarget target) =>
+            int temporaryI4, int objectTemporary, InteropMarshallingTarget target,
+            OptionalFunctionIndex throwFunction) =>
             Calls.Add((handleParameter, destination));
     }
 
@@ -272,7 +273,8 @@ public sealed class AsyncJSImportCompletionEmitterTests
         public List<(CliTypeIdentity Type, int Handle, int Destination)> Calls { get; } = [];
 
         public void Emit(IWasmInstructionWriter code, CliTypeIdentity arrayType, int handleParameter,
-            int destination, int temporaryI4, int objectTemporary, InteropMarshallingTarget target) =>
+            int destination, int temporaryI4, int objectTemporary, InteropMarshallingTarget target,
+            OptionalFunctionIndex throwFunction) =>
             Calls.Add((arrayType, handleParameter, destination));
     }
 
@@ -281,7 +283,8 @@ public sealed class AsyncJSImportCompletionEmitterTests
         public List<(CliTypeIdentity Type, int Handle, int Destination)> Calls { get; } = [];
 
         public void Emit(IWasmInstructionWriter code, CliTypeIdentity objectType, int handleParameter,
-            int destination) => Calls.Add((objectType, handleParameter, destination));
+            int destination,
+            OptionalFunctionIndex throwFunction) => Calls.Add((objectType, handleParameter, destination));
     }
 
     private static FunctionIndexResolver CreateFunctionIndices()

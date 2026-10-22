@@ -9,6 +9,7 @@ using NetWasm.Compiler.Wasm.Encoding;
 namespace NetWasm.Compiler.Wasm.Tests;
 
 using static EmitterTestSupport;
+using NetWasm.Compiler.Wasm.Emission.Planning;
 
 public sealed class ArrayLengthIntrinsicEmitterTests
 {
@@ -20,7 +21,7 @@ public sealed class ArrayLengthIntrinsicEmitterTests
             new ArrayLengthEmitter(
                 layouts,
                 new ArrayReceiverValidator(
-                    new ImplicitExceptionEmitter(layouts, layouts, 7),
+                    new ImplicitExceptionEmitter(layouts, layouts),
                     CreateAddressInstructions(layouts))));
         var request = CreateRuntimeIntrinsicRequest(
             RuntimeIntrinsic.ArrayLength,
@@ -106,7 +107,7 @@ public sealed class ArrayLengthIntrinsicEmitterTests
     {
         public List<ManagedExceptionKind> Kinds { get; } = [];
 
-        public void Emit(IWasmInstructionWriter code, ManagedExceptionKind kind) =>
+        public void Emit(IWasmInstructionWriter code, ManagedExceptionKind kind, OptionalFunctionIndex throwFunctionIndex) =>
             Kinds.Add(kind);
     }
 }

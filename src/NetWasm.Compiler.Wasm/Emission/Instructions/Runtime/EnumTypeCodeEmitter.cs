@@ -4,6 +4,7 @@ using NetWasm.Compiler.Core;
 using NetWasm.Compiler.Wasm;
 using NetWasm.Compiler.Wasm.Emission;
 using NetWasm.Compiler.Wasm.Encoding;
+using NetWasm.Compiler.Wasm.Emission.Planning;
 
 namespace NetWasm.Compiler.Wasm.Emission.Instructions.Runtime;
 
@@ -16,6 +17,7 @@ internal sealed class EnumTypeCodeEmitter(
         int receiver,
         int result,
         int temporaryI4,
+        OptionalFunctionIndex throwFunction,
         CliTypeIdentity? constrainedType = null,
         CliValueKind receiverKind = CliValueKind.ManagedReference)
     {
@@ -43,7 +45,7 @@ internal sealed class EnumTypeCodeEmitter(
                 WasmInstructionOperand.Unsigned((uint)result)));
             return;
         }
-        nullChecks.Emit(code, receiver);
+        nullChecks.Emit(code, receiver, throwFunction);
         code.Write(WasmInstruction.WithOperand(
             WasmOpcodes.I32Constant,
             WasmInstructionOperand.Signed(0)));

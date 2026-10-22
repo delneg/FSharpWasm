@@ -52,7 +52,7 @@ internal sealed class VirtualDispatchCallEmitter(
                 instruction.Context,
                 request.ArgumentBase,
                 CliValueKind.ManagedReference);
-        EmitNullCheck(code, receiverLocal);
+        EmitNullCheck(code, receiverLocal, request.Instruction.Context.ManagedThrowFunction);
         var returnsValue = signature.ReturnSignatureType.StackKind == CliValueKind.ValueType;
         var returnOffset = returnsValue
             ? instruction.Context.ValueLayout.TemporaryOffsets[
@@ -320,7 +320,7 @@ internal sealed class VirtualDispatchCallEmitter(
     {
         if (fallback is null)
         {
-            exceptions.Emit(code, ManagedExceptionKind.InvalidCast);
+            exceptions.Emit(code, ManagedExceptionKind.InvalidCast, request.Instruction.Context.ManagedThrowFunction);
             return;
         }
 
@@ -536,7 +536,7 @@ internal sealed class VirtualDispatchCallEmitter(
             right,
             result,
             instruction.Context.ObjectTemporary,
-            instruction.Context.NumericTemporaryI4);
+            instruction.Context.NumericTemporaryI4, instruction.Context.ManagedThrowFunction);
     }
 
     private void EmitEnumHashCode(
@@ -556,7 +556,7 @@ internal sealed class VirtualDispatchCallEmitter(
             value,
             result,
             instruction.Context.NumericTemporaryI4,
-            instruction.Context.NumericTemporaryI8);
+            instruction.Context.NumericTemporaryI8, instruction.Context.ManagedThrowFunction);
     }
 
     private void EmitEnumCompareTo(
@@ -581,7 +581,7 @@ internal sealed class VirtualDispatchCallEmitter(
             right,
             result,
             instruction.Context.ObjectTemporary,
-            instruction.Context.NumericTemporaryI4);
+            instruction.Context.NumericTemporaryI4, instruction.Context.ManagedThrowFunction);
     }
 
     private void EmitEnumTypeCode(
@@ -611,7 +611,7 @@ internal sealed class VirtualDispatchCallEmitter(
             ? instruction.Context.NumericTemporaryI4
             : GetStackLocal(instruction.Context, argumentBase, CliValueKind.I4);
         emitter.EmitTypeCode(
-            code, receiver, result, instruction.Context.NumericTemporaryI4);
+            code, receiver, result, instruction.Context.NumericTemporaryI4, instruction.Context.ManagedThrowFunction);
         if (valueTypeResult)
             valueReturns.Emit(code, request, result);
     }
@@ -627,7 +627,7 @@ internal sealed class VirtualDispatchCallEmitter(
         var result = GetStackLocal(
             instruction.Context, argumentBase, CliValueKind.I4);
         emitter.EmitHasFlag(
-            code, receiver, flag, result, instruction.Context.NumericTemporaryI4);
+            code, receiver, flag, result, instruction.Context.NumericTemporaryI4, instruction.Context.ManagedThrowFunction);
     }
 
     private void EmitEnumToString(
@@ -676,13 +676,16 @@ internal sealed class VirtualDispatchCallEmitter(
             code);
     }
 
-    private void EmitNullCheck(IWasmInstructionWriter code, int objectLocal)
+    private void EmitNullCheck(
+        IWasmInstructionWriter code,
+        int objectLocal,
+        OptionalFunctionIndex throwFunction)
     {
         code.Write(WasmInstruction.WithOperand(WasmOpcodes.LocalGet, WasmInstructionOperand.Unsigned((uint)(objectLocal))));
         if (layouts.Target.UsesMemory64) code.Write(WasmInstruction.NoOperand(WasmOpcodes.I64EqualZero));
         else code.Write(WasmInstruction.NoOperand(WasmOpcodes.I32EqualZero));
         code.Write(WasmInstruction.WithOperand(WasmOpcodes.If, WasmInstructionOperand.BlockType(WasmOpcodes.EmptyBlockType)));
-        exceptions.Emit(code, ManagedExceptionKind.NullReference);
+        exceptions.Emit(code, ManagedExceptionKind.NullReference, throwFunction);
         code.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
     }
 

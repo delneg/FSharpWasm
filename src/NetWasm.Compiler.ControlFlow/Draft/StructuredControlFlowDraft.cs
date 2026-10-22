@@ -88,8 +88,11 @@ internal sealed record StructuredIfDraft(
     public bool IsOriginal { get; init; } = true;
 }
 
+// A null ConditionBlock is an unconditional loop that leaves only through
+// breaks, returns or exception-region continuations; ContinueBody and ExitBody
+// stay empty.
 internal sealed record StructuredLoopDraft(
-    BasicBlock ConditionBlock,
+    BasicBlock? ConditionBlock,
     bool ContinueWhenConditionTrue,
     StructuredSequenceDraft Body,
     StructuredSequenceDraft ContinueBody,

@@ -19,7 +19,7 @@ and .NET CIL directly to WebAssembly. It does not carry the desktop CLR, Mono,
 
 ## C# now beats Rust on Wasm size
 
-**NetWasm + precise GC: 47,895 bytes**<br>
+**NetWasm + precise GC: 43,109 bytes**<br>
 **Rust 1.95.0 size-oriented profile: 53,635 bytes**
 
 For the same print-`42` workload, NetWasm's result includes the runtime and
@@ -27,13 +27,13 @@ precise Compact garbage collector. Both artifacts are standalone WASI Preview 2
 Components, built the way a developer gets them out of the box: each
 toolchain's standard library and ordinary build, with no hand-added tools.
 
-**10.7% smaller raw. 19.5% smaller with Brotli-11.**
+**19.6% smaller raw. 20.6% smaller with Brotli-11.**
 
-![Wasm footprint landscape with raw and Brotli-11 sizes. NetWasm with precise GC is 47,895 raw and 13,660 compressed bytes; Rust is 53,635 and 16,963; Kotlin/Wasm is 79,293 and 22,655; TinyGo is 93,043 and 26,931. NetWasm and Rust are the matched WASI Preview 2 comparison; Kotlin and TinyGo are contextual Preview 1 references.](docs/images/wasm-footprint-landscape-brotli11.svg)
+![Wasm footprint landscape with raw and Brotli-11 sizes. NetWasm with precise GC is 43,109 raw and 13,477 compressed bytes; Rust is 53,635 and 16,963; Kotlin/Wasm is 79,293 and 22,655; TinyGo is 93,043 and 26,931. NetWasm and Rust are the matched WASI Preview 2 comparison; Kotlin and TinyGo are contextual Preview 1 references.](docs/images/wasm-footprint-landscape-brotli11.svg)
 
 | Toolchain | Raw Wasm | Brotli 11 | Comparison role |
 | --- | ---: | ---: | --- |
-| **NetWasm, Compact GC** | **47,895 B** | **13,660 B** | WASI P2 Component; precise GC included |
+| **NetWasm, Compact GC** | **43,109 B** | **13,477 B** | WASI P2 Component; precise GC included |
 | Rust 1.95.0, size profile | 53,635 B | 16,963 B | Matched WASI P2 Component reference |
 | Kotlin 2.4.0 `wasmWasi` | 79,293 B | 22,655 B | P1 context; GC supplied by the host engine |
 | TinyGo 0.39.0 | 93,043 B | 26,931 B | P1 context; precise GC configured |
@@ -58,23 +58,25 @@ giving up most of the standard library and, for C#, the garbage collector.
 
 [Exact sources, versions, settings and reproduction steps](docs/size-and-methodology.md)
 
-## Faster than Mono AOT
+## Faster than Mono AOT and the desktop JIT
 
-NetWasm runs our allocation and garbage-collection benchmarks
-faster than Mono AOT, compiled from the same C# source and run by the same
-Wasmtime:
+NetWasm runs our allocation and garbage-collection benchmarks faster than Mono
+AOT, compiled from the same C# source and run by the same Wasmtime. It is also
+faster than desktop .NET 11's JIT on all three, although desktop .NET runs
+native code outside any Wasm sandbox:
 
-| Workload | NetWasm, NetWasmGC | Mono AOT, .NET 10 | NetWasm time |
-| --- | ---: | ---: | ---: |
-| Full transaction | 43.9 ms | 59.1 ms | 26% less |
-| Retained object graph | 8.8 ms | 14.2 ms | 38% less |
-| UI churn | 17.6 ms | 29.1 ms | 40% less |
+| Workload | NetWasm, NetWasmGC | Mono AOT, .NET 10 | Desktop .NET 11 JIT | Desktop .NET 11 NativeAOT |
+| --- | ---: | ---: | ---: | ---: |
+| Full transaction | **34.9 ms** | 59.1 ms | 49.9 ms | 32.6 ms |
+| Retained object graph | **4.6 ms** | 14.2 ms | 9.7 ms | 7.5 ms |
+| UI churn | **7.9 ms** | 29.1 ms | 8.6 ms | 6.6 ms |
 
-These are medians of 15 runs on an Apple M1 Max under Wasmtime 49.0.3, each run
-checked against desktop .NET's result. Mono AOT is Microsoft's `wasi-wasm`
-target in its default Release configuration. NetWasmGC also takes less time than
-desktop .NET 11's JIT on the first two workloads (49.9 and 9.7 ms); the JIT is
-faster on UI churn (8.6 ms), and desktop NativeAOT is the fastest on all three.
+These are medians of 15 runs on an Apple M1 Max, with every Wasm build under
+Wasmtime 49.0.3 and each run checked against desktop .NET's result. Mono AOT is
+Microsoft's `wasi-wasm` target in its default Release configuration. NetWasmGC
+takes 41% to 73% less time than Mono AOT and 8% to 53% less than the desktop
+JIT. Desktop NativeAOT is still faster on the full transaction and UI churn;
+NetWasmGC is faster on the retained object graph.
 
 [Versions, settings, desktop figures and reproduction](docs/performance.md)
 
@@ -169,9 +171,9 @@ compaction.
 
 | Strategy | Best fit | Raw component | Brotli 11 |
 | --- | --- | ---: | ---: |
-| **Compact (default)** | Small applications and low-churn UI | **47,895 B** | **13,660 B** |
-| NetWasmGC | Higher allocation throughput | 50,855 B | 15,053 B |
-| Bump | Bounded, one-shot jobs | 43,864 B | 11,959 B |
+| **Compact (default)** | Small applications and low-churn UI | **43,109 B** | **13,477 B** |
+| NetWasmGC | Higher allocation throughput | 46,072 B | 14,834 B |
+| Bump | Bounded, one-shot jobs | 39,078 B | 11,766 B |
 
 Select a strategy in the executable project's `.csproj`:
 
@@ -210,13 +212,13 @@ For an empty-UI Blazor WebAssembly application that prints `42`, with AOT,
 managed trimming, IL stripping, invariant globalization and size-focused native
 linking enabled:
 
-![AOT Wasm size comparison, lower is better: NetWasm with Compact GC 46.8 KiB, Blazor .NET 10 11.71 MiB, Blazor .NET 11 RC1 14.58 MiB. NetWasm is about 319 times smaller than the .NET 11 build by exact bytes.](docs/images/aot-console42-size.svg)
+![AOT Wasm size comparison, lower is better: NetWasm with Compact GC 42.1 KiB, Blazor .NET 10 11.71 MiB, Blazor .NET 11 RC1 14.58 MiB. NetWasm is about 355 times smaller than the .NET 11 build by exact bytes.](docs/images/aot-console42-size.svg)
 
 | AOT build | Uncompressed Wasm | Relative to NetWasm |
 | --- | ---: | ---: |
-| **NetWasm, Compact GC** | **47,895 B** | **1×** |
-| Blazor WebAssembly, .NET 10 | 12,276,684 B | 256× |
-| Blazor WebAssembly, .NET 11 RC1 | 15,289,241 B | 319× |
+| **NetWasm, Compact GC** | **43,109 B** | **1×** |
+| Blazor WebAssembly, .NET 10 | 12,276,684 B | 285× |
+| Blazor WebAssembly, .NET 11 RC1 | 15,289,241 B | 355× |
 
 The Blazor total includes its native runtime and required Webcil assemblies;
 NetWasm includes its runtime, garbage collector and WASI component. This is a
@@ -256,13 +258,13 @@ mean “desktop .NET, but in Wasm.” The main remaining themes are:
 - a stable `netwasm1.0` platform and runtime contract;
 - production diagnostics and broader host qualification.
 
-**New in NetWasm 0.10.0:** rebuilt garbage collectors. Objects carry no
-collector header, arrays are single allocations, NetWasmGC allocates by
-advancing a pointer, and Compact has a new core built for size and memory.
-Allocation-heavy programs run faster and use far less memory, and applications
-that ship time zone data start in a fraction of the time. The Boehm collector
-is removed.
-[Release notes](docs/releases/0.10.0.md)
+**New in NetWasm 0.10.1:** faster and smaller compiled code. Methods no longer
+pay on every call for exception handling they do not use, and CoreLib copies
+memory and formats integers with far less work. NetWasmGC now beats desktop
+.NET 11's JIT on all three of our allocation benchmarks, and the print-`42`
+component is 10% smaller. Programs in the default command world can await,
+including from an asynchronous `Main`.
+[Release notes](docs/releases/0.10.1.md)
 
 **In progress:** broader compatibility with existing .NET Standard
 2.1 library binaries and NuGet assets. The target is to consume libraries

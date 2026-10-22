@@ -131,6 +131,11 @@ internal sealed class WasmModulePlanInvariantValidator :
             ref expected,
             indices,
             "managed throw function");
+        RequireOptional(
+            plan.FunctionIndices.ManagedRethrowFunctionIndex,
+            ref expected,
+            indices,
+            "managed rethrow function");
         foreach (var invoke in plan.DelegateInvokes)
         {
             var index = plan.FunctionIndices.GetDelegateInvokeHelper(

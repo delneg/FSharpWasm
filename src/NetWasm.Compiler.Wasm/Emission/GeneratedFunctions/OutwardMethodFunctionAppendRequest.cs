@@ -21,4 +21,5 @@ internal sealed record OutwardMethodFunctionAppendRequest(
     IFunctionIndexResolver FunctionIndices,
     ICollection<ManagedBoundaryPlanEntry> BoundaryEntries,
     EntityKey? ArgumentFactory = null,
-    InteropImportPlan? InteropImports = null);
+    InteropImportPlan? InteropImports = null,
+    MethodInstanceModel? EntryCompletion = null);

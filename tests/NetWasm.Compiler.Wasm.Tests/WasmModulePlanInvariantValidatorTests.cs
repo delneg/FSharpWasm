@@ -444,8 +444,9 @@ public sealed class WasmModulePlanInvariantValidatorTests
             CliTypeIdentity.Named(Assembly, "Test", "Delegate", isValueType: false),
             [],
             method.Signature);
+        // Delegate helpers follow the managed methods and the shared throw function.
         var helperIndex = plan.RuntimeImports.Length + plan.InteropImports.Imports.Length +
-            plan.OrderedMethods.Length + plan.OrderedConstructedMethods.Length;
+            plan.OrderedMethods.Length + plan.OrderedConstructedMethods.Length + 1;
         var valid = plan with
         {
             DelegateInvokes = [invoke],

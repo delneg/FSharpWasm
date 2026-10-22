@@ -7,5 +7,6 @@ internal interface IManagedThrowFunctionAppender
 {
     void Append(
         IList<WasmFunctionDefinition> functions,
-        OptionalFunctionIndex functionIndex);
+        OptionalFunctionIndex throwFunctionIndex,
+        OptionalFunctionIndex rethrowFunctionIndex);
 }

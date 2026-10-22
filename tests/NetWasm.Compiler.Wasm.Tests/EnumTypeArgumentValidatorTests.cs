@@ -4,6 +4,7 @@ using NetWasm.Compiler.Wasm.Emission;
 using NetWasm.Compiler.Wasm.Emission.GeneratedFunctions;
 using NetWasm.Compiler.Wasm.Emission.Instructions.Runtime;
 using NetWasm.Compiler.Wasm.Encoding;
+using NetWasm.Compiler.Wasm.Emission.Planning;
 
 namespace NetWasm.Compiler.Wasm.Tests;
 
@@ -27,7 +28,7 @@ public sealed class EnumTypeArgumentValidatorTests
             typeIds,
             exceptions));
 
-        validator.Validate(code, 3, 5);
+        validator.Validate(code, 3, 5, OptionalFunctionIndex.At(7));
 
         Assert.Equal(
             [ManagedExceptionKind.ArgumentNull, ManagedExceptionKind.Argument],
@@ -79,7 +80,7 @@ public sealed class EnumTypeArgumentValidatorTests
     {
         public List<ManagedExceptionKind> Kinds { get; } = [];
 
-        public void Emit(IWasmInstructionWriter code, ManagedExceptionKind kind) =>
+        public void Emit(IWasmInstructionWriter code, ManagedExceptionKind kind, OptionalFunctionIndex throwFunctionIndex) =>
             Kinds.Add(kind);
     }
 

@@ -48,7 +48,10 @@ internal sealed class StructuredBlockOwnershipAnalyzer : IStructuredBlockOwnersh
                         VisitSequence(branch.WhenFalse, regionPath + ".WhenFalse");
                         break;
                     case Structured.StructuredLoop loop:
-                        Record(loop.Condition, regionPath + ".Condition");
+                        if (loop.Condition is { } condition)
+                        {
+                            Record(condition, regionPath + ".Condition");
+                        }
                         VisitSequence(loop.Body, regionPath + ".Body");
                         VisitSequence(loop.ContinueBody, regionPath + ".ContinueBody");
                         VisitSequence(loop.ExitBody, regionPath + ".ExitBody");

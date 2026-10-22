@@ -33,7 +33,10 @@ internal sealed class StructuredControlFlowOccurrenceCollector : IStructuredCont
                     Collect(conditional.WhenFalse, occurrences, visitedGroups);
                     break;
                 case StructuredLoopDraft loop:
-                    Add(loop.ConditionBlock.Index, loop.IsOriginal, occurrences);
+                    if (loop.ConditionBlock is { } condition)
+                    {
+                        Add(condition.Index, loop.IsOriginal, occurrences);
+                    }
                     Collect(loop.Body, occurrences, visitedGroups);
                     Collect(loop.ContinueBody, occurrences, visitedGroups);
                     Collect(loop.ExitBody, occurrences, visitedGroups);

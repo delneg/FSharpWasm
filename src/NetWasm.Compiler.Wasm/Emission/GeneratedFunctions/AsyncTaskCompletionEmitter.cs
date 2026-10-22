@@ -58,7 +58,14 @@ internal sealed class AsyncTaskCompletionEmitter(
 
         // Await semantics observe the fault tracker and preserve the original
         // exception/trace, including Task.WhenAll's first failure. The task handle
-        // roots its exception until the catch establishes an explicit root.
+        // roots its exception until the catch establishes an explicit root. The
+        // type local holds an exception-frame token until the catch reads the
+        // exception's type, so the catch rewinds the frames observation left.
+        ManagedMemoryEmitter.EmitAddressConstant(code.Instructions, layouts.Target, 0);
+        code.Instructions.Write(WasmInstruction.WithOperand(WasmOpcodes.I32Constant,
+            WasmInstructionOperand.Signed(0)));
+        Call(imports.Resolve(RuntimeImportSymbol.ExceptionFrameEnter));
+        Local(WasmOpcodes.LocalSet, type);
         Block(WasmOpcodes.Block, (byte)(layouts.Target.UsesMemory64 ? WasmValueType.I64 : WasmValueType.I32));
         code.Instructions.Write(WasmInstruction.WithOperand(WasmOpcodes.TryTable,
             WasmInstructionOperand.TryTableCatch(WasmOpcodes.EmptyBlockType, 0, 0)));
@@ -69,6 +76,8 @@ internal sealed class AsyncTaskCompletionEmitter(
         Op(WasmOpcodes.Unreachable);
         Op(WasmOpcodes.End);
         Local(WasmOpcodes.LocalSet, exception);
+        LocalGet(type);
+        Call(imports.Resolve(RuntimeImportSymbol.ExceptionFrameUnwind));
         if (plan.DeliverFunctionIndex is null)
         {
             // Release the managed catch state and task handle before terminating.

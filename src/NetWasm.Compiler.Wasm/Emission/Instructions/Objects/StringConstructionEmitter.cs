@@ -169,7 +169,7 @@ internal sealed class StringConstructionEmitter(
             request.Context,
             argumentBase + 1,
             CliValueKind.I4);
-        EmitArgumentOutOfRangeIfNegative(code, lengthLocal);
+        EmitArgumentOutOfRangeIfNegative(code, lengthLocal, request.Context.ManagedThrowFunction);
         code.Write(LocalGet(lengthLocal));
         code.Write(WasmInstruction.WithOperand(
             WasmOpcodes.I32Constant,
@@ -179,7 +179,7 @@ internal sealed class StringConstructionEmitter(
         code.Write(WasmInstruction.WithOperand(
             WasmOpcodes.If,
             WasmInstructionOperand.BlockType(WasmOpcodes.EmptyBlockType)));
-        exceptions.Emit(code, ManagedExceptionKind.OutOfMemory);
+        exceptions.Emit(code, ManagedExceptionKind.OutOfMemory, request.Context.ManagedThrowFunction);
         code.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
         code.Write(LocalGet(GetStackLocal(
             request.Context,
@@ -206,7 +206,7 @@ internal sealed class StringConstructionEmitter(
         code.Write(WasmInstruction.WithOperand(
             WasmOpcodes.If,
             WasmInstructionOperand.BlockType(WasmOpcodes.EmptyBlockType)));
-        exceptions.Emit(code, ManagedExceptionKind.ArgumentNull);
+        exceptions.Emit(code, ManagedExceptionKind.ArgumentNull, request.Context.ManagedThrowFunction);
         code.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
 
         var startLocal = plan.StartArgumentIndex is { } startArgumentIndex
@@ -223,11 +223,11 @@ internal sealed class StringConstructionEmitter(
             : (int?)null;
         if (startLocal is { } start)
         {
-            EmitArgumentOutOfRangeIfNegative(code, start);
+            EmitArgumentOutOfRangeIfNegative(code, start, request.Context.ManagedThrowFunction);
         }
         if (lengthLocal is { } length)
         {
-            EmitArgumentOutOfRangeIfNegative(code, length);
+            EmitArgumentOutOfRangeIfNegative(code, length, request.Context.ManagedThrowFunction);
         }
         if (startLocal is { } boundedStart)
         {
@@ -240,7 +240,7 @@ internal sealed class StringConstructionEmitter(
             code.Write(WasmInstruction.WithOperand(
                 WasmOpcodes.If,
                 WasmInstructionOperand.BlockType(WasmOpcodes.EmptyBlockType)));
-            exceptions.Emit(code, ManagedExceptionKind.ArgumentOutOfRange);
+            exceptions.Emit(code, ManagedExceptionKind.ArgumentOutOfRange, request.Context.ManagedThrowFunction);
             code.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
         }
 
@@ -289,7 +289,8 @@ internal sealed class StringConstructionEmitter(
 
     private void EmitArgumentOutOfRangeIfNegative(
         IWasmInstructionWriter code,
-        int local)
+        int local,
+        OptionalFunctionIndex throwFunction)
     {
         code.Write(LocalGet(local));
         code.Write(WasmInstruction.WithOperand(
@@ -299,7 +300,7 @@ internal sealed class StringConstructionEmitter(
         code.Write(WasmInstruction.WithOperand(
             WasmOpcodes.If,
             WasmInstructionOperand.BlockType(WasmOpcodes.EmptyBlockType)));
-        exceptions.Emit(code, ManagedExceptionKind.ArgumentOutOfRange);
+        exceptions.Emit(code, ManagedExceptionKind.ArgumentOutOfRange, throwFunction);
         code.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
     }
 
@@ -335,7 +336,7 @@ internal sealed class StringConstructionEmitter(
         code.Write(WasmInstruction.WithOperand(
             WasmOpcodes.If,
             WasmInstructionOperand.BlockType(WasmOpcodes.EmptyBlockType)));
-        exceptions.Emit(code, ManagedExceptionKind.OutOfMemory);
+        exceptions.Emit(code, ManagedExceptionKind.OutOfMemory, request.Context.ManagedThrowFunction);
         code.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
     }
 

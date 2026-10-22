@@ -208,11 +208,11 @@ public sealed class WasmModulePlannerTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public void PlansManagedThrowFunctionOnlyForStringLength(bool usesStringLength)
+    public void PlansTheSharedThrowFunctionsAfterTheManagedMethods(bool preservedRethrow)
     {
         var program = new FakeProgram();
         var entry = program.GetMethod(EntryKey);
-        var instructions = usesStringLength
+        var instructions = preservedRethrow
             ? new[]
             {
                 I(0, CilOperation.Call, new CilOperand.Entity(StringLengthKey)),
@@ -243,7 +243,7 @@ public sealed class WasmModulePlannerTests
                 program,
                 program,
                 program,
-                new FakeIntrinsics(),
+                new PreservedRethrowIntrinsics(),
                 new InteropImportPlanner(),
                 WasmRuntimeImports.CreateCatalog(),
                 new DisabledStackTraceMethodPlanBuilder(),
@@ -253,18 +253,25 @@ public sealed class WasmModulePlannerTests
                 FinalizationPlans()),
             request);
 
-        Assert.Equal(
-            usesStringLength,
-            plan.FunctionIndices.ManagedThrowFunctionIndex.IsPresent);
         Assert.True(plan.FunctionIndices.TryGetMethod(EntryKey, out var entryIndex));
         Assert.Equal(
-            entryIndex.Value + (usesStringLength ? 2 : 1),
+            entryIndex.Value + 1,
+            plan.FunctionIndices.ManagedThrowFunctionIndex.Value);
+        Assert.Equal(
+            preservedRethrow ? entryIndex.Value + 2 : null,
+            plan.FunctionIndices.ManagedRethrowFunctionIndex.Index?.Value);
+        Assert.Equal(
+            entryIndex.Value + (preservedRethrow ? 3 : 2),
             plan.StaticInitializerFunctionBase);
-        if (usesStringLength)
+    }
+
+    // Reads the test's string-length method as ExceptionDispatchInfo's preserved rethrow.
+    private sealed class PreservedRethrowIntrinsics : IRuntimeIntrinsicRegistry
+    {
+        public bool TryGetIntrinsic(EntityKey method, out RuntimeIntrinsic intrinsic)
         {
-            Assert.Equal(
-                entryIndex.Value + 1,
-                plan.FunctionIndices.ManagedThrowFunctionIndex.Value);
+            intrinsic = RuntimeIntrinsic.ExceptionDispatchPreserved;
+            return method == StringLengthKey;
         }
     }
 

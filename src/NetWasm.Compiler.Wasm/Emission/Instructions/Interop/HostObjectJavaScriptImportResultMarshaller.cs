@@ -1,6 +1,7 @@
 using NetWasm.Compiler.Wasm.Encoding;
 using NetWasm.Compiler.Core;
 using NetWasm.Compiler.Wasm.Emission.Support;
+using NetWasm.Compiler.Wasm.Emission.Planning;
 
 namespace NetWasm.Compiler.Wasm.Emission.Instructions.Interop;
 
@@ -46,7 +47,7 @@ internal sealed class HostObjectJavaScriptImportResultMarshaller(
         code.Write(WasmInstruction.WithOperand(WasmOpcodes.I32Constant, WasmInstructionOperand.Signed(objectLayout.TypeId)));
         code.Write(WasmInstruction.WithOperand(WasmOpcodes.Call, WasmInstructionOperand.Unsigned((uint)(runtimeImports.Resolve(RuntimeImportSymbol.Allocate)))));
         code.Write(WasmInstruction.WithOperand(WasmOpcodes.LocalSet, WasmInstructionOperand.Unsigned((uint)(context.ObjectTemporary))));
-        allocations.Validate(code, context.ObjectTemporary);
+        allocations.Validate(code, context.ObjectTemporary, request.Context.ManagedThrowFunction);
         code.Write(WasmInstruction.WithOperand(WasmOpcodes.LocalGet, WasmInstructionOperand.Unsigned((uint)(context.ObjectTemporary))));
         addresses.Emit(code, layouts.Target.ObjectHeaderSize);
         addresses.Emit(code, AddressOperation.Add);

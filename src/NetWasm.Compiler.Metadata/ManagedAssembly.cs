@@ -240,12 +240,13 @@ public sealed class ManagedAssembly : IDisposable
                 methodKeys.Add(methodKey);
                 var (Import, Export, WitImport, WitExport, WitPostReturn) =
                     ReadInteropDeclarations(method, methodKey, signature.ParameterTypes.Length);
+                var methodName = Reader.GetString(method.Name);
                 methods.Add(
                     methodToken,
                     new MethodDefinitionModel(
                         methodKey,
                         typeKey,
-                        Reader.GetString(method.Name),
+                        methodName,
                         (method.Attributes & MethodAttributes.Static) != 0,
                         new MethodSignatureModel(
                             signature.ReturnType,
@@ -269,6 +270,9 @@ public sealed class ManagedAssembly : IDisposable
                         IsAbstract = (method.Attributes & MethodAttributes.Abstract) != 0,
                         IsAggressiveInlining = (method.ImplAttributes & MethodImplAttributes.AggressiveInlining) != 0,
                         IsNoInlining = (method.ImplAttributes & MethodImplAttributes.NoInlining) != 0,
+                        IsDelegateAsynchronousCall =
+                            (method.ImplAttributes & MethodImplAttributes.CodeTypeMask) == MethodImplAttributes.Runtime &&
+                            methodName is "BeginInvoke" or "EndInvoke",
                     });
             }
 

@@ -33,9 +33,6 @@ public sealed class DelegateCloneIntrinsicEmitterTests
         Assert.Single(instructions, instruction => IsCall(
             instruction,
             imports.Resolve(RuntimeImportSymbol.Allocate)));
-        Assert.Equal(2, instructions.Count(instruction => IsCall(
-            instruction,
-            imports.Resolve(RuntimeImportSymbol.BeginThrow))));
         Assert.Contains(Local(WasmOpcodes.LocalGet, source), instructions);
         Assert.Contains(Local(WasmOpcodes.LocalSet, temporary), instructions);
         Assert.Contains(Local(WasmOpcodes.LocalSet, source), instructions);
@@ -43,8 +40,7 @@ public sealed class DelegateCloneIntrinsicEmitterTests
         Assert.Contains(WasmInstruction.WithOperand(
             WasmOpcodes.I32Constant,
             WasmInstructionOperand.Signed(objectLayout.TypeId)), instructions);
-        Assert.Equal(2, instructions.Count(instruction =>
-            instruction.Opcode == WasmOpcodes.Throw));
+        Assert.Equal(2, EmitterTestSupport.CountManagedThrows(instructions));
 
         AssertCopiedField(
             instructions,
@@ -92,10 +88,7 @@ public sealed class DelegateCloneIntrinsicEmitterTests
         Assert.DoesNotContain(instructions, instruction => IsCall(
             instruction,
             imports.Resolve(RuntimeImportSymbol.Allocate)));
-        Assert.Single(instructions, instruction => IsCall(
-            instruction,
-            imports.Resolve(RuntimeImportSymbol.BeginThrow)));
-        Assert.Single(instructions, instruction => instruction.Opcode == WasmOpcodes.Throw);
+        Assert.Equal(1, EmitterTestSupport.CountManagedThrows(instructions));
     }
 
     private static DelegateCloneIntrinsicEmitter CreateEmitter(
@@ -105,7 +98,7 @@ public sealed class DelegateCloneIntrinsicEmitterTests
         layouts,
         layouts,
         imports,
-        new ImplicitExceptionEmitter(layouts, layouts, imports));
+        new ImplicitExceptionEmitter(layouts, layouts));
 
     private static RuntimeIntrinsicEmissionRequest CreateRequest(
         WasmTargetLayout target,

@@ -141,8 +141,12 @@ internal sealed class ExceptionGroupStructurer(
             var continuations = leaveTargets.Select((target, index) =>
             {
                 var internalLoop = FindInternalLoop(source, target);
+                // Falling out of the region continues the loop, so only a target
+                // inside the loop may leave its first continuation empty; the
+                // loop's exit needs an explicit break.
                 if (index == 0 &&
                     internalLoop is not null &&
+                    internalLoop.Exit != state.Graph.GetBlockAtOffset(target).Index &&
                     !nestedProtectedPart)
                 {
                     return new StructuredExceptionContinuationDraft(
@@ -297,6 +301,15 @@ internal sealed class ExceptionGroupStructurer(
         {
             var tryEntry = state.Graph.GetBlockAtOffset(source.TryOffset).Index;
             var targetBlock = state.Graph.GetBlockAtOffset(target).Index;
+            // A continuation that stays inside the parent's protected code is
+            // structured inside that parent, so it cannot use the labels of a loop
+            // that encloses the parent: reaching them means leaving the parent.
+            var enclosingParent = parents.TryGetValue(source, out var parentSource) &&
+                _exceptionScopes.Find(parentSource, source)!.Value.Kind ==
+                    ExceptionScopeKind.Protected &&
+                IsInProtectedCode(parentSource, targetBlock)
+                    ? parentSource
+                    : null;
             return state.LoopsByHeader.Values
                 .Where(loop =>
                     // The condition-exit extension executes after leaving the
@@ -304,9 +317,17 @@ internal sealed class ExceptionGroupStructurer(
                     // continuations through this loop's break/continue labels.
                     loop.BodyComponent.Contains(tryEntry) &&
                     (loop.Component.Contains(targetBlock) ||
-                        loop.Exit == targetBlock))
+                        loop.Exit == targetBlock) &&
+                    (enclosingParent is null ||
+                        IsInProtectedCode(enclosingParent, loop.Header)))
                 .OrderBy(loop => loop.Component.Count)
                 .FirstOrDefault();
+        }
+
+        bool IsInProtectedCode(ExceptionGroupSource group, int block)
+        {
+            var offset = state.Graph.GetBlock(block).StartOffset;
+            return offset >= group.TryOffset && offset < group.TryEnd;
         }
     }
 

@@ -59,6 +59,7 @@ public sealed class JavaScriptResultLengthValidatorTests
 
         public void Emit(
             IWasmInstructionWriter code,
-            ManagedExceptionKind kind) => Kinds.Add(kind);
+            ManagedExceptionKind kind,
+            OptionalFunctionIndex throwFunctionIndex) => Kinds.Add(kind);
     }
 }

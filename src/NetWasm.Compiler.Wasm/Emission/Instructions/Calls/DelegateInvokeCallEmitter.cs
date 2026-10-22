@@ -19,7 +19,7 @@ internal sealed class DelegateInvokeCallEmitter(
             instruction.Context,
             request.ArgumentBase,
             CliValueKind.ManagedReference);
-        EmitNullCheck(code, delegateLocal);
+        EmitNullCheck(code, delegateLocal, request.Instruction.Context.ManagedThrowFunction);
         var returnsValue = signature.ReturnSignatureType.StackKind == CliValueKind.ValueType;
         var returnOffset = returnsValue
             ? instruction.Context.ValueLayout.TemporaryOffsets[
@@ -63,13 +63,16 @@ internal sealed class DelegateInvokeCallEmitter(
         }
     }
 
-    private void EmitNullCheck(IWasmInstructionWriter code, int objectLocal)
+    private void EmitNullCheck(
+        IWasmInstructionWriter code,
+        int objectLocal,
+        OptionalFunctionIndex throwFunction)
     {
         WriteLocalGet(code, objectLocal);
         if (layouts.Target.UsesMemory64) code.Write(WasmInstruction.NoOperand(WasmOpcodes.I64EqualZero));
         else code.Write(WasmInstruction.NoOperand(WasmOpcodes.I32EqualZero));
         code.Write(WasmInstruction.WithOperand(WasmOpcodes.If, WasmInstructionOperand.BlockType(WasmOpcodes.EmptyBlockType)));
-        exceptions.Emit(code, ManagedExceptionKind.NullReference);
+        exceptions.Emit(code, ManagedExceptionKind.NullReference, throwFunction);
         code.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
     }
 

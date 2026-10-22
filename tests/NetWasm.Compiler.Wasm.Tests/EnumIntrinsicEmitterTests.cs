@@ -9,6 +9,7 @@ using NetWasm.Compiler.Wasm.Emission.Instructions.Runtime;
 namespace NetWasm.Compiler.Wasm.Tests;
 
 using static EmitterTestSupport;
+using NetWasm.Compiler.Wasm.Emission.Planning;
 
 public sealed class EnumIntrinsicEmitterTests
 {
@@ -38,7 +39,7 @@ public sealed class EnumIntrinsicEmitterTests
                 1,
                 2,
                 4,
-                3);
+                3, OptionalFunctionIndex.At(7));
 
         emit(CreateCompareTo(program, layouts));
 
@@ -69,7 +70,7 @@ public sealed class EnumIntrinsicEmitterTests
                 1,
                 2,
                 4,
-                3);
+                3, OptionalFunctionIndex.At(7));
 
         Assert.Contains(expectedLessThan, code.ToArray());
         Assert.Contains(expectedGreaterThan, code.ToArray());
@@ -97,7 +98,7 @@ public sealed class EnumIntrinsicEmitterTests
             1,
             2,
             4,
-            3);
+            3, OptionalFunctionIndex.At(7));
 
         emit(CreateCompareTo(program, layouts));
 
@@ -121,7 +122,7 @@ public sealed class EnumIntrinsicEmitterTests
                 1,
                 2,
                 4,
-                3));
+                3, OptionalFunctionIndex.At(7)));
 
         Assert.Contains("closed receiver type", exception.Message);
     }
@@ -146,7 +147,7 @@ public sealed class EnumIntrinsicEmitterTests
                 1,
                 2,
                 4,
-                3));
+                3, OptionalFunctionIndex.At(7)));
 
         Assert.Contains("no reachable enum descriptor", exception.Message);
     }
@@ -166,7 +167,7 @@ public sealed class EnumIntrinsicEmitterTests
                 1,
                 2,
                 4,
-                3);
+                3, OptionalFunctionIndex.At(7));
 
         emit(CreateEquals(program, layouts));
 
@@ -188,7 +189,7 @@ public sealed class EnumIntrinsicEmitterTests
                 1,
                 2,
                 4,
-                3);
+                3, OptionalFunctionIndex.At(7));
 
         emit(CreateEquals(program, layouts));
 
@@ -213,7 +214,7 @@ public sealed class EnumIntrinsicEmitterTests
             1,
             2,
             4,
-            3);
+            3, OptionalFunctionIndex.At(7));
 
         emit(CreateEquals(program, layouts));
 
@@ -235,7 +236,7 @@ public sealed class EnumIntrinsicEmitterTests
                 1,
                 2,
                 4,
-                3));
+                3, OptionalFunctionIndex.At(7)));
 
         Assert.Contains("closed receiver type", exception.Message);
     }
@@ -260,7 +261,7 @@ public sealed class EnumIntrinsicEmitterTests
                 1,
                 2,
                 4,
-                3));
+                3, OptionalFunctionIndex.At(7)));
 
         Assert.Contains("no reachable enum descriptor", exception.Message);
     }
@@ -278,7 +279,7 @@ public sealed class EnumIntrinsicEmitterTests
             0,
             1,
             2,
-            3);
+            3, OptionalFunctionIndex.At(7));
 
         emit(CreateHashCode(program, layouts));
 
@@ -300,7 +301,7 @@ public sealed class EnumIntrinsicEmitterTests
             0,
             1,
             2,
-            3);
+            3, OptionalFunctionIndex.At(7));
 
         Assert.Contains(WasmOpcodes.I32Load8Signed, code.ToArray());
     }
@@ -324,7 +325,7 @@ public sealed class EnumIntrinsicEmitterTests
             0,
             1,
             2,
-            3);
+            3, OptionalFunctionIndex.At(7));
 
         Assert.Contains(WasmOpcodes.I32Load8Signed, code.ToArray());
     }
@@ -343,7 +344,7 @@ public sealed class EnumIntrinsicEmitterTests
                 0,
                 1,
                 2,
-                3));
+                3, OptionalFunctionIndex.At(7)));
 
         Assert.Contains("closed receiver type", exception.Message);
     }
@@ -358,10 +359,10 @@ public sealed class EnumIntrinsicEmitterTests
             new EnumStorageResolver(layouts, layouts, layouts),
             new EnumNullCheckEmitter(
                 references,
-                new ImplicitExceptionEmitter(layouts, layouts, 0)));
+                new ImplicitExceptionEmitter(layouts, layouts)));
         var code = new RecordingInstructionWriter();
 
-        ((IEnumTypeCodeEmitter)emitter).EmitTypeCode(code, 0, 1, 2);
+        ((IEnumTypeCodeEmitter)emitter).EmitTypeCode(code, 0, 1, 2, OptionalFunctionIndex.At(7));
 
         var bytes = code.ToArray();
         Assert.Contains(WasmOpcodes.I32Load, bytes);
@@ -382,7 +383,7 @@ public sealed class EnumIntrinsicEmitterTests
                 0,
                 1,
                 2,
-                3));
+                3, OptionalFunctionIndex.At(7)));
         var exception = contract(new EnumHashCodeEmitter(
             new EmptyEnumStorageResolver(),
             new NoOpEnumNullCheckEmitter(),
@@ -401,7 +402,7 @@ public sealed class EnumIntrinsicEmitterTests
             new EnumStorageResolver(layouts, layouts, layouts),
             new EnumNullCheckEmitter(
                 references,
-                new ImplicitExceptionEmitter(layouts, layouts, 0)),
+                new ImplicitExceptionEmitter(layouts, layouts)),
             new EnumValuePairEmitter(layouts),
             references,
             layouts);
@@ -416,7 +417,7 @@ public sealed class EnumIntrinsicEmitterTests
             new EnumStorageResolver(layouts, layouts, layouts),
             new EnumNullCheckEmitter(
                 references,
-                new ImplicitExceptionEmitter(layouts, layouts, 0)),
+                new ImplicitExceptionEmitter(layouts, layouts)),
             layouts,
             layouts);
     }
@@ -430,10 +431,10 @@ public sealed class EnumIntrinsicEmitterTests
             new EnumStorageResolver(layouts, layouts, layouts),
             new EnumNullCheckEmitter(
                 references,
-                new ImplicitExceptionEmitter(layouts, layouts, 0)),
+                new ImplicitExceptionEmitter(layouts, layouts)),
             new EnumValuePairEmitter(layouts),
             references,
-            new ImplicitExceptionEmitter(layouts, layouts, 0),
+            new ImplicitExceptionEmitter(layouts, layouts),
             layouts);
     }
 
@@ -444,7 +445,7 @@ public sealed class EnumIntrinsicEmitterTests
 
     private sealed class NoOpEnumNullCheckEmitter : IEnumNullCheckEmitter
     {
-        public void Emit(IWasmInstructionWriter code, int receiver)
+        public void Emit(IWasmInstructionWriter code, int receiver, OptionalFunctionIndex throwFunction)
         {
         }
     }

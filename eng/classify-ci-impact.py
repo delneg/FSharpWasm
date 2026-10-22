@@ -16,10 +16,12 @@ MARKDOWN_LINK = re.compile(r"(?<!!)\[[^]]+\]\(([^)]+)\)")
 REGULAR_FILE_MODES = {"100644", "100755"}
 CI_INFRASTRUCTURE_FILES = frozenset({
     ".github/workflows/ci.yml",
+    ".github/workflows/compiler-tests.yml",
     ".github/workflows/release.yml",
     "eng/ci-qualification.py",
     "eng/classify-ci-impact.py",
     "eng/compiler-test-durations.json",
+    "eng/compiler-test-full-durations.json",
     "eng/create-compiler-test-shard-filter.py",
     "eng/merge-compiler-test-timings.py",
     "eng/tests/test_ci_qualification.py",

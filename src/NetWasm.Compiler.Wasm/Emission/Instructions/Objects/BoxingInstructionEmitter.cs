@@ -6,6 +6,7 @@ using NetWasm.Compiler.Core.Types;
 using NetWasm.Compiler.Wasm.Emission.Methods;
 using NetWasm.Compiler.Wasm.Emission.Instructions.Runtime;
 using NetWasm.Compiler.Wasm.Emission.Support;
+using NetWasm.Compiler.Wasm.Emission.Planning;
 
 namespace NetWasm.Compiler.Wasm.Emission.Instructions.Objects;
 
@@ -66,7 +67,7 @@ internal sealed class BoxingInstructionEmitter(
         code.Write(WasmInstruction.WithOperand(WasmOpcodes.I32Constant, WasmInstructionOperand.Signed(boxed.TypeId)));
         code.Write(WasmInstruction.WithOperand(WasmOpcodes.Call, WasmInstructionOperand.Unsigned((uint)(runtimeImports.Resolve(RuntimeImportSymbol.Allocate)))));
         code.Write(WasmInstruction.WithOperand(WasmOpcodes.LocalSet, WasmInstructionOperand.Unsigned((uint)(request.Context.ObjectTemporary))));
-        EmitAllocationFailureCheck(code, request.Context.ObjectTemporary);
+        EmitAllocationFailureCheck(code, request.Context.ObjectTemporary, request.Context.ManagedThrowFunction);
         code.Write(WasmInstruction.WithOperand(WasmOpcodes.LocalGet, WasmInstructionOperand.Unsigned((uint)(request.Context.ObjectTemporary))));
         addresses.Emit(code, payloadOffset);
         addresses.Emit(code, AddressOperation.Add);
@@ -100,12 +101,15 @@ internal sealed class BoxingInstructionEmitter(
         request.Stack[slot] = CliValueKind.ManagedReference;
     }
 
-    private void EmitAllocationFailureCheck(IWasmInstructionWriter code, int objectLocal)
+    private void EmitAllocationFailureCheck(
+        IWasmInstructionWriter code,
+        int objectLocal,
+        OptionalFunctionIndex throwFunction)
     {
         code.Write(WasmInstruction.WithOperand(WasmOpcodes.LocalGet, WasmInstructionOperand.Unsigned((uint)(objectLocal))));
         addresses.Emit(code, AddressOperation.EqualZero);
         code.Write(WasmInstruction.WithOperand(WasmOpcodes.If, WasmInstructionOperand.BlockType(WasmOpcodes.EmptyBlockType)));
-        exceptions.Emit(code, ManagedExceptionKind.OutOfMemory);
+        exceptions.Emit(code, ManagedExceptionKind.OutOfMemory, throwFunction);
         code.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
     }
 

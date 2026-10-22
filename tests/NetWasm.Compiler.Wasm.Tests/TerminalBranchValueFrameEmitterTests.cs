@@ -17,7 +17,7 @@ public sealed class TerminalBranchValueFrameEmitterTests
     [InlineData(WasmTarget.Wasm32, false)]
     [InlineData(WasmTarget.Wasm64, true)]
     [InlineData(WasmTarget.Wasm64, false)]
-    public void SeparatesValueCleanupOwnershipWhilePreservingMethodRootsAndTrace(WasmTarget target, bool frameFirst)
+    public void FramesOneArmWhilePreservingMethodRootsAndTrace(WasmTarget target, bool frameFirst)
     {
         var fixture = new Fixture(target, frameFirst);
         var bodies = new List<(StructuredSequence Sequence, MethodEmissionContext Context)>();
@@ -33,13 +33,10 @@ public sealed class TerminalBranchValueFrameEmitterTests
         Assert.Same(fixture.Placement.FramedLayout, framed.ValueLayout);
         Assert.Equal(fixture.Context.RootSlotCount, framed.RootSlotCount);
         Assert.Equal(fixture.Context.StackTraceMethodId, framed.StackTraceMethodId);
-        Assert.False(framed.LeaveFrameOnExceptionalExit);
         Assert.Equal(1, fixture.Frames.Calls);
-        Assert.Equal(1, fixture.Exceptions.Calls);
-        Assert.Equal(0, fixture.Exceptions.Context!.RootSlotCount);
-        Assert.Equal(0, fixture.Exceptions.Context.StackTraceMethodId);
-        Assert.Same(fixture.Placement.FramedLayout, fixture.Exceptions.Context.ValueLayout);
-        Assert.Equal(["condition", "allocate", "protect"], fixture.Events);
+        Assert.Equal(["condition", "allocate"], fixture.Events);
+        // An exception leaves the branch frame for its catcher to rewind.
+        Assert.DoesNotContain(fixture.Code.ToInstructions(), instruction => instruction.Opcode == WasmOpcodes.TryTable);
 
         var instructions = fixture.Code.ToInstructions();
         Assert.Equal(1, instructions.Count(instruction => instruction.Opcode == WasmOpcodes.If));
@@ -53,7 +50,7 @@ public sealed class TerminalBranchValueFrameEmitterTests
     }
 
     [Fact]
-    public void AllocationEmissionFailureDoesNotCreateAnInnerCleanupOwner()
+    public void AllocationEmissionFailureStopsBeforeTheBody()
     {
         var fixture = new Fixture(WasmTarget.Wasm32, true);
         fixture.Frames.Fail = true;
@@ -61,7 +58,6 @@ public sealed class TerminalBranchValueFrameEmitterTests
 
         Assert.Throws<InvalidOperationException>(() => fixture.Emit((_, _) => bodies++));
 
-        Assert.Equal(0, fixture.Exceptions.Calls);
         Assert.Equal(0, bodies);
         Assert.Equal(["condition", "allocate"], fixture.Events);
     }
@@ -113,9 +109,8 @@ public sealed class TerminalBranchValueFrameEmitterTests
         {
             var layouts = new RecordingLayoutProvider(WasmTargetLayout.For(target));
             Frames = new(Events);
-            Exceptions = new(Events);
             Emitter = new[] { new TerminalBranchValueFrameEmitter(layouts,
-                new StructuredConditionValueEmitter(layouts), Frames, Exceptions) }
+                new StructuredConditionValueEmitter(layouts), Frames) }
                 .Cast<ITerminalBranchValueFrameEmitter>().Single();
             var type = CliTypeIdentity.FromStackKind(CliValueKind.I8);
             Header = new(new FakeProgram().GetMethod(EntryKey), null, 1, [CliValueKind.I8], [type], []);
@@ -140,7 +135,6 @@ public sealed class TerminalBranchValueFrameEmitterTests
         public RecordingInstructionWriter Code { get; } = new();
         public List<string> Events { get; } = [];
         public RecordingFrames Frames { get; }
-        public RecordingExceptions Exceptions { get; }
 
         public void Emit(Action<StructuredSequence, MethodEmissionContext> body) => Emitter.Emit(Code, Header, Context,
             Placement, (occurrence, context) =>
@@ -162,20 +156,6 @@ public sealed class TerminalBranchValueFrameEmitterTests
             Calls++;
             events.Add("allocate");
             if (Fail) throw new InvalidOperationException("allocation emission failed");
-        }
-    }
-
-    private sealed class RecordingExceptions(List<string> events) : IMethodExceptionBoundaryEmitter
-    {
-        public int Calls { get; private set; }
-        public MethodEmissionContext? Context { get; private set; }
-
-        public void Emit(IWasmInstructionWriter code, MethodEmissionContext context, Action<MethodEmissionContext> body)
-        {
-            Calls++;
-            Context = context;
-            events.Add("protect");
-            body(context with { LeaveFrameOnExceptionalExit = false });
         }
     }
 }

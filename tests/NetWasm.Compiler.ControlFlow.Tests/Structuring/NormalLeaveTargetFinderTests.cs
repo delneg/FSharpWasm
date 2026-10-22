@@ -27,6 +27,18 @@ public sealed class NormalLeaveTargetFinderTests
         Assert.DoesNotContain(method.Blocks.Values, block => block.StartOffset == 7);
     }
 
+    [Fact]
+    public void AChildLeaveBackToALoopHeaderBeforeTheRegionLeavesTheRegionToo()
+    {
+        var body = UnconditionalLoopStructuringTests.NestedLeaveToHeader();
+        var state = new ControlFlowStructuringState(Validate(body));
+        var finder = new NormalLeaveTargetFinder();
+        var inner = new ExceptionGroupSource(2, 4, [body.ExceptionRegions[0]]);
+
+        Assert.Equal([0, 10], ((INormalLeaveTargetFinder)finder).Find(
+            state, [body.ExceptionRegions[1]], [inner], []));
+    }
+
     private static CilMethodBody BodyWithUnreachableLeave() => Body(
         CliValueKind.I4, 1, [],
         I(0, CilOperation.LoadNull),

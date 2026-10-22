@@ -22,6 +22,9 @@ internal sealed class NetWasmCompilationInvoker(
             ExceptionTypeMap = result.DiagnosticArtifacts?.ExceptionTypeMap,
             NativeImports = result.NativeImports,
             NativeCallbackSupport = result.NativeCallbackSupport,
+            SynchronousEntry = result.Program is not { EntryPoint: { } entry } program ||
+                !program.JavaScriptAsyncBindings.TryGetValue(entry.Key, out var binding) ||
+                binding.CommandEntryPoint is not null,
         };
     }
 }

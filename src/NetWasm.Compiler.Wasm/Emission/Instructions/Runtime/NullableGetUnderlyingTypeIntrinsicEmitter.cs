@@ -18,7 +18,7 @@ internal sealed class NullableGetUnderlyingTypeIntrinsicEmitter(
         var input = request.Local(0, CliValueKind.ManagedReference);
         var result = request.Local(0, CliValueKind.ManagedReference);
         var typeId = request.Instruction.Context.NumericTemporaryI4;
-        typeIds.Read(code, input, typeId);
+        typeIds.Read(code, input, typeId, request.Instruction.Context.ManagedThrowFunction);
         addresses.Emit(code, 0);
         Set(code, result);
 

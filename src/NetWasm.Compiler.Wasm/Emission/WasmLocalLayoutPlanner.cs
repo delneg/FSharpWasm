@@ -109,6 +109,7 @@ internal static class WasmLocalLayoutPlanner
         types.Add(CliValueKind.I4);
         types.Add(CliValueKind.I4);
         types.Add(CliValueKind.I4);
+        types.Add(CliValueKind.I4);
         return types.ToImmutable();
     }
 

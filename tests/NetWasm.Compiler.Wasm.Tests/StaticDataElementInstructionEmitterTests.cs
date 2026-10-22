@@ -8,6 +8,7 @@ using NetWasm.Compiler.Wasm.Encoding;
 namespace NetWasm.Compiler.Wasm.Tests;
 
 using static EmitterTestSupport;
+using NetWasm.Compiler.Wasm.Emission.Planning;
 
 public sealed class StaticDataElementInstructionEmitterTests
 {
@@ -209,6 +210,7 @@ public sealed class StaticDataElementInstructionEmitterTests
 
         public void Emit(
             IWasmInstructionWriter code,
-            ManagedExceptionKind kind) => Kinds.Add(kind);
+            ManagedExceptionKind kind,
+            OptionalFunctionIndex throwFunctionIndex) => Kinds.Add(kind);
     }
 }

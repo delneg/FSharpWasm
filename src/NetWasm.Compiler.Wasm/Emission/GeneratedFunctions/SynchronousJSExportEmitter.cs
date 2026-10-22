@@ -96,7 +96,7 @@ internal sealed class SynchronousJSExportEmitter(
                         referenceLocals[parameter.Index],
                         temporaryI4,
                         objectTemporary,
-                        new InteropMarshallingTarget(interopImports));
+                        new InteropMarshallingTarget(interopImports), functionIndices.ManagedThrowFunction);
                 }
                 else if (InteropTypeClassifier.IsJSObject(parameter.Type))
                 {
@@ -104,7 +104,7 @@ internal sealed class SynchronousJSExportEmitter(
                         code.Instructions,
                         parameter.Type,
                         parameter.Index,
-                        referenceLocals[parameter.Index]);
+                        referenceLocals[parameter.Index], functionIndices.ManagedThrowFunction);
                 }
                 else
                 {
@@ -115,7 +115,7 @@ internal sealed class SynchronousJSExportEmitter(
                         referenceLocals[parameter.Index],
                         temporaryI4,
                         objectTemporary,
-                        new InteropMarshallingTarget(interopImports));
+                        new InteropMarshallingTarget(interopImports), functionIndices.ManagedThrowFunction);
                 }
                 WriteRootAddress(code, rootFrameLocal);
                 WriteLocalGet(code, referenceLocals[parameter.Index]);
@@ -215,10 +215,7 @@ internal sealed class SynchronousJSExportEmitter(
                         RuntimeImportSymbol.ManagedTerminalExceptionRaise,
                         initialization.RuntimeImportSelection)
                     : null,
-                EmitBody,
-                rootSlotCount == 0 ? null : () => LeaveRootFrameIfPresent(
-                    code,
-                    rootFrameLocal));
+                EmitBody);
         }
         else
         {
@@ -278,22 +275,6 @@ internal sealed class SynchronousJSExportEmitter(
     private void LeaveRootFrame(GeneratedFunctionWriterLease code, int rootFrameLocal)
     {
         WriteLocalGet(code, rootFrameLocal);
-        addresses.Emit(code.Instructions, 0);
-        WriteLocalSet(code, rootFrameLocal);
         WriteCall(code, runtimeImports.Resolve(RuntimeImportSymbol.RootFrameLeave));
-    }
-
-    private void LeaveRootFrameIfPresent(
-        GeneratedFunctionWriterLease code,
-        int rootFrameLocal)
-    {
-        WriteLocalGet(code, rootFrameLocal);
-        addresses.Emit(code.Instructions, AddressOperation.EqualZero);
-        code.Instructions.Write(WasmInstruction.WithOperand(
-            WasmOpcodes.If,
-            WasmInstructionOperand.BlockType(WasmOpcodes.EmptyBlockType)));
-        code.Instructions.Write(WasmInstruction.NoOperand(WasmOpcodes.Else));
-        LeaveRootFrame(code, rootFrameLocal);
-        code.Instructions.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
     }
 }

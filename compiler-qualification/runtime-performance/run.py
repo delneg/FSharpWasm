@@ -35,9 +35,11 @@ SCENARIOS = {
     'generic-virtual': ('net11', ['generic-virtual', '1000']),
     'default-interface': ('net11', ['default-interface', '1000']),
     'activator-exact': ('net11', ['activator-exact', '100']),
+    'short-copies': ('corelib', ['short-copies', '50000']),
+    'integer-formatting': ('corelib', ['integer-formatting', '20000']),
 }
 COLLECTORS = ['Compact', 'NetWasm', 'Bump']
-NAMES = {'transaction': 'Transaction', 'gc': 'GcWorkloads', 'net11': 'Net11Patterns'}
+NAMES = {'transaction': 'Transaction', 'gc': 'GcWorkloads', 'net11': 'Net11Patterns', 'corelib': 'CoreLibPaths'}
 
 
 def run(command, cwd, env, log):
@@ -110,7 +112,7 @@ def parse(text):
     """Returns (milliseconds, checksum) from a workload's first result line."""
     for line in text.splitlines():
         fields = line.split('|')
-        if fields[0] in ('PROBE', 'GCWORK', 'NET11'):
+        if fields[0] in ('PROBE', 'GCWORK', 'NET11', 'CORELIB'):
             ticks, frequency, checksum = int(fields[2]), int(fields[3]), fields[4]
             return ticks * 1000 / frequency, checksum
     raise ValueError(f'no result line in: {text[:200]}')

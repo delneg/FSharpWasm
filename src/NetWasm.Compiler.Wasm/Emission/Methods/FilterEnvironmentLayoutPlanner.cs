@@ -187,7 +187,10 @@ internal sealed class FilterEnvironmentLayoutPlanner(
                     }
                     break;
                 case StructuredLoop loop:
-                    yield return loop.Condition.Block;
+                    if (loop.Condition is { } condition)
+                    {
+                        yield return condition.Block;
+                    }
                     foreach (var block in EnumerateBlocks(loop.Body))
                     {
                         yield return block;

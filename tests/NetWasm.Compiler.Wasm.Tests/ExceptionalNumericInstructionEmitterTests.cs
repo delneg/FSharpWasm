@@ -9,6 +9,7 @@ using NetWasm.Compiler.Wasm.Encoding;
 namespace NetWasm.Compiler.Wasm.Tests;
 
 using static EmitterTestSupport;
+using NetWasm.Compiler.Wasm.Emission.Planning;
 
 public sealed class ExceptionalNumericInstructionEmitterTests
 {
@@ -356,7 +357,8 @@ public sealed class ExceptionalNumericInstructionEmitterTests
             CliValueKind type,
             int leftLocal,
             int rightLocal,
-            int resultLocal)
+            int resultLocal,
+            OptionalFunctionIndex throwFunction)
         {
             CallCount++;
             Operation = operation;
@@ -371,7 +373,7 @@ public sealed class ExceptionalNumericInstructionEmitterTests
     {
         public List<ManagedExceptionKind> Kinds { get; } = [];
 
-        public void Emit(IWasmInstructionWriter code, ManagedExceptionKind kind)
+        public void Emit(IWasmInstructionWriter code, ManagedExceptionKind kind, OptionalFunctionIndex throwFunctionIndex)
         {
             Kinds.Add(kind);
             code.Write(WasmInstruction.NoOperand(WasmOpcodes.Throw));

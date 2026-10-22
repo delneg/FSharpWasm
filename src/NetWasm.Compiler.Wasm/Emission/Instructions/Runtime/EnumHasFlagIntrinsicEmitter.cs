@@ -16,6 +16,7 @@ internal sealed class EnumHasFlagIntrinsicEmitter(
             request.Local(1, CliValueKind.ManagedReference),
             request.Local(0, CliValueKind.I4),
             context.NumericTemporaryI4,
+            context.ManagedThrowFunction,
             receiverKind,
             request.ConstrainedType);
     }

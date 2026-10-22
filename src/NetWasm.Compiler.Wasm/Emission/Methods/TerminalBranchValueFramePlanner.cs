@@ -172,7 +172,10 @@ internal sealed class TerminalBranchValueFramePlanner : ITerminalBranchValueFram
                 children = [branch.WhenTrue, branch.WhenFalse];
                 break;
             case StructuredLoop loop:
-                blocks.Add(loop.Condition.Block);
+                if (loop.Condition is { } condition)
+                {
+                    blocks.Add(condition.Block);
+                }
                 children = [loop.Body, loop.ContinueBody, loop.ExitBody];
                 break;
             case StructuredPostTestLoop loop:

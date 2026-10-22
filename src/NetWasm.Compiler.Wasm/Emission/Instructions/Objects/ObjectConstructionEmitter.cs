@@ -106,7 +106,7 @@ internal sealed class ObjectConstructionEmitter(
         code.Write(WasmInstruction.WithOperand(WasmOpcodes.I32Constant, WasmInstructionOperand.Signed(layout.TypeId)));
         code.Write(WasmInstruction.WithOperand(WasmOpcodes.Call, WasmInstructionOperand.Unsigned((uint)(runtimeImports.Resolve(RuntimeImportSymbol.Allocate)))));
         code.Write(WasmInstruction.WithOperand(WasmOpcodes.LocalSet, WasmInstructionOperand.Unsigned((uint)(request.Context.ObjectTemporary))));
-        EmitAllocationFailureCheck(code, request.Context.ObjectTemporary);
+        EmitAllocationFailureCheck(code, request.Context.ObjectTemporary, request.Context.ManagedThrowFunction);
         code.Write(WasmInstruction.WithOperand(WasmOpcodes.LocalGet, WasmInstructionOperand.Unsigned((uint)(request.Context.ObjectTemporary))));
         code.Write(WasmInstruction.WithOperand(WasmOpcodes.LocalGet, WasmInstructionOperand.Unsigned((uint)(GetStackLocal(
             request.Context,
@@ -194,7 +194,7 @@ internal sealed class ObjectConstructionEmitter(
             allocation,
             request.Target.RuntimeImportSelection)))));
         code.Write(WasmInstruction.WithOperand(WasmOpcodes.LocalSet, WasmInstructionOperand.Unsigned((uint)(request.Context.ObjectTemporary))));
-        EmitAllocationFailureCheck(code, request.Context.ObjectTemporary);
+        EmitAllocationFailureCheck(code, request.Context.ObjectTemporary, request.Context.ManagedThrowFunction);
         roots.Emit(request, code, constructorCall: true);
         code.Write(WasmInstruction.WithOperand(WasmOpcodes.LocalGet, WasmInstructionOperand.Unsigned((uint)(request.Context.ObjectTemporary))));
         EmitArguments(request, code, signature, argumentBase);
@@ -254,12 +254,15 @@ internal sealed class ObjectConstructionEmitter(
         addresses.Emit(code, AddressOperation.Add);
     }
 
-    private void EmitAllocationFailureCheck(IWasmInstructionWriter code, int objectLocal)
+    private void EmitAllocationFailureCheck(
+        IWasmInstructionWriter code,
+        int objectLocal,
+        OptionalFunctionIndex throwFunction)
     {
         code.Write(WasmInstruction.WithOperand(WasmOpcodes.LocalGet, WasmInstructionOperand.Unsigned((uint)(objectLocal))));
         addresses.Emit(code, AddressOperation.EqualZero);
         code.Write(WasmInstruction.WithOperand(WasmOpcodes.If, WasmInstructionOperand.BlockType(WasmOpcodes.EmptyBlockType)));
-        exceptions.Emit(code, ManagedExceptionKind.OutOfMemory);
+        exceptions.Emit(code, ManagedExceptionKind.OutOfMemory, throwFunction);
         code.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
     }
 

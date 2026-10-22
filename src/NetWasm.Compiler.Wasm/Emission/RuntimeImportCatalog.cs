@@ -25,6 +25,7 @@ internal enum RuntimeImportSymbol
     EndCatch,
     ExceptionFrameEnter,
     ExceptionFrameLeave,
+    ExceptionFrameUnwind,
     ExceptionFrameTargetClause,
     RegisterValueType,
     AllocateValueArray,

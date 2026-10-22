@@ -106,6 +106,10 @@ public sealed record JavaScriptAsyncMethodBinding(
     public FieldInstanceModel StatusField { get; init; } = null!;
     public FieldInstanceModel? ResultField { get; init; }
     public MethodInstanceModel? GetVoidResult { get; init; }
+    // CoreLib's AsyncEntryPoint.Run for this task type, set only when the selected world has no
+    // host-driven reactor: an asynchronous Main is then entered synchronously and runs its own
+    // event loop to completion.
+    public MethodInstanceModel? CommandEntryPoint { get; init; }
 }
 
 public readonly record struct WitFunctionIdentity(

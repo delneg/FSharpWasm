@@ -73,7 +73,6 @@ public sealed class SynchronousJSExportEmitterTests
         Assert.True(runtime.Called);
         Assert.False(strings.Called);
         Assert.False(byteArrays.Called);
-        Assert.Null(terminal.CatchCleanup);
         Assert.Equal(includeReporter, terminal.ReportCalled);
         Assert.Equal(!includeReporter, terminal.TrapCalled);
         Assert.Equal(includeRaise
@@ -186,7 +185,8 @@ public sealed class SynchronousJSExportEmitterTests
             int destination,
             int temporaryI4,
             int objectTemporary,
-            InteropMarshallingTarget target) => Called = true;
+            InteropMarshallingTarget target,
+            OptionalFunctionIndex throwFunction) => Called = true;
     }
 
     private sealed class RecordingByteArrayMarshaller :
@@ -201,7 +201,8 @@ public sealed class SynchronousJSExportEmitterTests
             int destination,
             int temporaryI4,
             int objectTemporary,
-            InteropMarshallingTarget target) => Called = true;
+            InteropMarshallingTarget target,
+            OptionalFunctionIndex throwFunction) => Called = true;
     }
 
     private sealed class RecordingHostObjectMarshaller : IHostCallbackHostObjectArgumentMarshaller
@@ -212,14 +213,14 @@ public sealed class SynchronousJSExportEmitterTests
             IWasmInstructionWriter code,
             CliTypeIdentity objectType,
             int handleParameter,
-            int destination) => Calls.Add((objectType, handleParameter));
+            int destination,
+            OptionalFunctionIndex throwFunction) => Calls.Add((objectType, handleParameter));
     }
 
     private sealed class RecordingTerminalBoundary :
         IManagedTerminalExceptionBoundaryEmitter,
         IManagedTerminalTrapBoundaryEmitter
     {
-        public Action? CatchCleanup { get; private set; }
         public bool ReportCalled { get; private set; }
         public bool TrapCalled { get; private set; }
         public int? ReportFunctionIndex { get; private set; }
@@ -250,14 +251,12 @@ public sealed class SynchronousJSExportEmitterTests
             int resultLocal,
             int reportFunctionIndex,
             int? raiseFunctionIndex,
-            Action emitBody,
-            Action? emitCatchCleanup = null)
+            Action emitBody)
         {
             ReportCalled = true;
             ResultType = resultType;
             ReportFunctionIndex = reportFunctionIndex;
             RaiseFunctionIndex = raiseFunctionIndex;
-            CatchCleanup = emitCatchCleanup;
             emitBody();
         }
     }

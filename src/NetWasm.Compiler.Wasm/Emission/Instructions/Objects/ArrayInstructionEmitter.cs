@@ -6,6 +6,7 @@ using NetWasm.Compiler.Wasm.Emission.Methods;
 using NetWasm.Compiler.Wasm.Emission.Instructions.Runtime;
 using NetWasm.Compiler.Wasm.Emission.Support;
 using NetWasm.Compiler.Wasm.Emission.Arrays;
+using NetWasm.Compiler.Wasm.Emission.Planning;
 
 namespace NetWasm.Compiler.Wasm.Emission.Instructions.Objects;
 
@@ -67,7 +68,7 @@ internal sealed class ArrayInstructionEmitter(
             lengthSlot,
             CliValueKind.ManagedReference);
         code.Write(WasmInstruction.WithOperand(WasmOpcodes.LocalSet, WasmInstructionOperand.Unsigned((uint)(arrayLocal))));
-        EmitAllocationFailureCheck(code, arrayLocal);
+        EmitAllocationFailureCheck(code, arrayLocal, request.Context.ManagedThrowFunction);
         request.Stack[lengthSlot] = CliValueKind.ManagedReference;
     }
 
@@ -106,7 +107,7 @@ internal sealed class ArrayInstructionEmitter(
             CliValueKind.ManagedReference);
         if (!request.Context.ArrayMetadata.Plan.CheckedAccesses.Contains(request.Instruction.Offset))
         {
-            EmitNullCheck(code, arrayLocal);
+            EmitNullCheck(code, arrayLocal, request.Context.ManagedThrowFunction);
         }
         if (request.Context.ArrayMetadata.Plan.Accesses.TryGetValue(request.Instruction.Offset, out var slot))
         {
@@ -208,7 +209,7 @@ internal sealed class ArrayInstructionEmitter(
         code.Write(WasmInstruction.WithOperand(WasmOpcodes.Call, WasmInstructionOperand.Unsigned((uint)(runtimeImports.Resolve(RuntimeImportSymbol.IsAssignable)))));
         code.Write(WasmInstruction.NoOperand(WasmOpcodes.I32EqualZero));
         code.Write(WasmInstruction.WithOperand(WasmOpcodes.If, WasmInstructionOperand.BlockType(WasmOpcodes.EmptyBlockType)));
-        exceptions.Emit(code, ManagedExceptionKind.ArrayTypeMismatch);
+        exceptions.Emit(code, ManagedExceptionKind.ArrayTypeMismatch, request.Context.ManagedThrowFunction);
         code.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
         code.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
     }
@@ -316,7 +317,7 @@ internal sealed class ArrayInstructionEmitter(
             code.Write(WasmInstruction.WithOperand(
                 WasmOpcodes.If,
                 WasmInstructionOperand.BlockType(WasmOpcodes.EmptyBlockType)));
-            exceptions.Emit(code, ManagedExceptionKind.ArrayTypeMismatch);
+            exceptions.Emit(code, ManagedExceptionKind.ArrayTypeMismatch, request.Context.ManagedThrowFunction);
             code.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
         }
         elementAddresses.Emit(
@@ -398,21 +399,27 @@ internal sealed class ArrayInstructionEmitter(
             ? layouts.Target.ObjectReferenceSize
             : values.GetValueLayout(elementType).Size;
 
-    private void EmitNullCheck(IWasmInstructionWriter code, int objectLocal)
+    private void EmitNullCheck(
+        IWasmInstructionWriter code,
+        int objectLocal,
+        OptionalFunctionIndex throwFunction)
     {
         code.Write(WasmInstruction.WithOperand(WasmOpcodes.LocalGet, WasmInstructionOperand.Unsigned((uint)(objectLocal))));
         addresses.Emit(code, AddressOperation.EqualZero);
         code.Write(WasmInstruction.WithOperand(WasmOpcodes.If, WasmInstructionOperand.BlockType(WasmOpcodes.EmptyBlockType)));
-        exceptions.Emit(code, ManagedExceptionKind.NullReference);
+        exceptions.Emit(code, ManagedExceptionKind.NullReference, throwFunction);
         code.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
     }
 
-    private void EmitAllocationFailureCheck(IWasmInstructionWriter code, int objectLocal)
+    private void EmitAllocationFailureCheck(
+        IWasmInstructionWriter code,
+        int objectLocal,
+        OptionalFunctionIndex throwFunction)
     {
         code.Write(WasmInstruction.WithOperand(WasmOpcodes.LocalGet, WasmInstructionOperand.Unsigned((uint)(objectLocal))));
         addresses.Emit(code, AddressOperation.EqualZero);
         code.Write(WasmInstruction.WithOperand(WasmOpcodes.If, WasmInstructionOperand.BlockType(WasmOpcodes.EmptyBlockType)));
-        exceptions.Emit(code, ManagedExceptionKind.OutOfMemory);
+        exceptions.Emit(code, ManagedExceptionKind.OutOfMemory, throwFunction);
         code.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
     }
 

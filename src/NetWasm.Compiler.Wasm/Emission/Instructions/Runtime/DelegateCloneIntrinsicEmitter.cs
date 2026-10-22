@@ -1,5 +1,6 @@
 using NetWasm.Compiler.Core;
 using NetWasm.Compiler.Wasm.Encoding;
+using NetWasm.Compiler.Wasm.Emission.Planning;
 
 namespace NetWasm.Compiler.Wasm.Emission.Instructions.Runtime;
 
@@ -30,7 +31,7 @@ internal sealed class DelegateCloneIntrinsicEmitter(
             WriteLocalSet(code, request.Instruction.Context.ObjectTemporary);
             EmitAllocationFailureCheck(
                 code,
-                request.Instruction.Context.ObjectTemporary);
+                request.Instruction.Context.ObjectTemporary, request.Instruction.Context.ManagedThrowFunction);
 
             CopyField(
                 code,
@@ -61,7 +62,7 @@ internal sealed class DelegateCloneIntrinsicEmitter(
             code.Write(WasmInstruction.NoOperand(WasmOpcodes.Else));
         }
 
-        exceptions.Emit(code, ManagedExceptionKind.InvalidCast);
+        exceptions.Emit(code, ManagedExceptionKind.InvalidCast, request.Instruction.Context.ManagedThrowFunction);
         for (var index = 0;
              index < request.Instruction.Target.DelegateTypes.Length;
              index++)
@@ -85,7 +86,8 @@ internal sealed class DelegateCloneIntrinsicEmitter(
 
     private void EmitAllocationFailureCheck(
         IWasmInstructionWriter code,
-        int objectLocal)
+        int objectLocal,
+        OptionalFunctionIndex throwFunction)
     {
         WriteLocalGet(code, objectLocal);
         code.Write(WasmInstruction.NoOperand(
@@ -95,7 +97,7 @@ internal sealed class DelegateCloneIntrinsicEmitter(
         code.Write(WasmInstruction.WithOperand(
             WasmOpcodes.If,
             WasmInstructionOperand.BlockType(WasmOpcodes.EmptyBlockType)));
-        exceptions.Emit(code, ManagedExceptionKind.OutOfMemory);
+        exceptions.Emit(code, ManagedExceptionKind.OutOfMemory, throwFunction);
         code.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
     }
 

@@ -7,6 +7,7 @@ using NetWasm.Compiler.Wasm.Encoding;
 namespace NetWasm.Compiler.Wasm.Tests;
 
 using static EmitterTestSupport;
+using NetWasm.Compiler.Wasm.Emission.Planning;
 
 public sealed class AllocationResultValidatorTests
 {
@@ -17,14 +18,14 @@ public sealed class AllocationResultValidatorTests
         var code = new RecordingInstructionWriter();
         var validator = ThroughContract(new AllocationResultValidator(
             CreateAddressInstructions(layouts),
-            new ImplicitExceptionEmitter(layouts, layouts, 7)));
+            new ImplicitExceptionEmitter(layouts, layouts)));
 
-        validator.Validate(code, 5);
+        validator.Validate(code, 5, OptionalFunctionIndex.At(7));
 
         Assert.Equal(WasmOpcodes.LocalGet, code.ToArray()[0]);
         Assert.Contains(WasmOpcodes.I32EqualZero, code.ToArray());
         Assert.Contains(WasmOpcodes.If, code.ToArray());
-        Assert.Contains(WasmOpcodes.Throw, code.ToArray());
+        Assert.True(ContainsManagedThrow(code.ToArray()));
         Assert.Equal(WasmOpcodes.End, code.ToArray()[^1]);
     }
 

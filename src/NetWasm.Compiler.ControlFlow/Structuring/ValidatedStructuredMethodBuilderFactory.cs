@@ -98,7 +98,8 @@ public sealed class ValidatedStructuredMethodBuilderFactory : IValidatedStructur
                         _reachableSetOverlaps,
                         _dispatcherBoundaries,
                         joins,
-                        reachableBlocks),
+                        reachableBlocks,
+                        new DispatcherFallthroughExitClassifier()),
                     new DispatcherSequenceStepExecutor(
                         new ActiveControlFlowBlockClipper(),
                         activeBlockRetention),

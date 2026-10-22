@@ -48,7 +48,7 @@ internal sealed class EnumToStringEmitter(
         var result = request.Instruction.Context.ObjectTemporary;
         var typeId = request.Instruction.Context.NumericTemporaryI4;
 
-        typeArguments.Validate(code, enumType, typeId);
+        typeArguments.Validate(code, enumType, typeId, request.Instruction.Context.ManagedThrowFunction);
         addresses.Emit(code, 0);
         Set(code, result);
         foreach (var entry in metadata.EnumMetadata)

@@ -74,7 +74,7 @@ internal sealed class EnumIsDefinedEmitter(
         var value = request.Local(1, CliValueKind.ManagedReference);
         var result = request.Local(0, CliValueKind.I4);
         var typeId = request.Instruction.Context.NumericTemporaryI4;
-        typeArguments.Validate(code, type, typeId);
+        typeArguments.Validate(code, type, typeId, request.Instruction.Context.ManagedThrowFunction);
         WriteI32(code, 0);
         Set(code, result);
         foreach (var entry in metadata.EnumMetadata)

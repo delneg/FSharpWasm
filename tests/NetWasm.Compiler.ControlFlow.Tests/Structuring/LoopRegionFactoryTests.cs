@@ -149,6 +149,100 @@ public sealed class LoopRegionFactoryTests
         Assert.Equal(5, partitions.Exit);
     }
 
+    [Fact]
+    public void AnUnconditionalLoopWhoseRegionsNeverLeaveItRemainsDispatcherOwned()
+    {
+        var state = CreateProtectedLoopState(1);
+        var factory = CreateUnconditionalFactory(
+            new FixedCommonReachableBlockFinder(null), new RecordingExitPartitioner());
+
+        var result = CreateProtectedLoop(factory, state);
+
+        Assert.Null(result.Region);
+        Assert.Equal(ImmutableHashSet.Create(1, 2), result.DispatcherOwnedBlocks);
+    }
+
+    [Fact]
+    public void AnUnconditionalLoopWithoutAJoinExitsAtItsFirstExit()
+    {
+        var state = CreateProtectedLoopState(1, 4, 5);
+        var partitions = new RecordingExitPartitioner();
+        var factory = CreateUnconditionalFactory(new FixedCommonReachableBlockFinder(null), partitions);
+
+        CreateProtectedLoop(factory, state);
+
+        // Every exit leaves through the protected region, so each is an early exit.
+        Assert.Equal(4, partitions.Exit);
+        Assert.Equal(4, partitions.ConditionExit);
+        Assert.Equal(ImmutableHashSet.Create(4, 5), partitions.AdditionalExits);
+    }
+
+    [Fact]
+    public void AnUnconditionalLoopWhoseExitPartitionOverlapsRemainsDispatcherOwned()
+    {
+        var state = CreateProtectedLoopState(1, 4);
+        var factory = CreateUnconditionalFactory(
+            new FixedCommonReachableBlockFinder(4), new OverlappingExitPartitioner());
+
+        var result = CreateProtectedLoop(factory, state);
+
+        Assert.Null(result.Region);
+        Assert.Equal(ImmutableHashSet.Create(1, 2), result.DispatcherOwnedBlocks);
+    }
+
+    private static LoopRegionFactory CreateUnconditionalFactory(
+        ICommonReachableBlockFinder joins,
+        ILoopExitPartitioner partitions) =>
+        new(new RecordingOverlapClassifier(false), new FixedLoopConditionChooser(null), joins,
+            new EmptyReachableBlockFinder(), new UnexpectedIrreducibleControlFlowExceptionFactory(),
+            partitions, new RecordingContinueTargetFinder(1), CreateEligibilityClassifier());
+
+    private static LoopRegionCreation CreateProtectedLoop(
+        LoopRegionFactory factory,
+        ControlFlowStructuringState state)
+    {
+        var domain = new ControlFlowDomain(0, state.Graph.ReachableBlocks);
+        return Create(factory, state, state.Graph, [1, 2], domain, [domain]);
+    }
+
+    // Header 1 enters a protected region at block 2 that leaves to the given continuations.
+    private static ControlFlowStructuringState CreateProtectedLoopState(params int[] continuations)
+    {
+        var template = ControlFlowStructuringStateTestFactory.Create();
+        var body = template.Graph.MethodBody with
+        {
+            ExceptionRegions = [new CilExceptionRegion(CilExceptionRegionKind.Catch, 2, 1, 3, 1, null, null)],
+        };
+        var blocks = Enumerable.Range(0, 6)
+            .Select(index => new BasicBlock(index, index, []))
+            .ToImmutableArray();
+        var successors = ImmutableDictionary<int, ImmutableArray<int>>.Empty
+            .Add(0, [1]).Add(1, [2]).Add(2, [1]).Add(3, []).Add(4, []).Add(5, []);
+        var predecessors = ImmutableDictionary<int, ImmutableArray<int>>.Empty
+            .Add(0, []).Add(1, [0, 2]).Add(2, [1]).Add(3, []).Add(4, []).Add(5, []);
+        var emptyEdges = Enumerable.Range(0, 6)
+            .ToImmutableDictionary(index => index, _ => ImmutableArray<int>.Empty);
+        var reachable = Enumerable.Range(0, 6).ToImmutableHashSet();
+        var graph = new ControlFlowGraph(
+            body, blocks, successors, predecessors, emptyEdges, emptyEdges, reachable);
+        return new ControlFlowStructuringState(new ValidatedControlFlowGraph(
+            graph,
+            ImmutableDictionary<int, ImmutableArray<CliValueKind>>.Empty,
+            ImmutableDictionary<int, ImmutableArray<CliValueKind>>.Empty))
+        {
+            ContinuationGraph = new ControlFlowGraph(body, blocks,
+                successors.SetItem(2, [.. continuations]), predecessors, emptyEdges, emptyEdges,
+                reachable),
+        };
+    }
+
+    private sealed class OverlappingExitPartitioner : ILoopExitPartitioner
+    {
+        public LoopExitPartition Partition(ControlFlowGraph graph, ImmutableHashSet<int> component,
+            int exit, int conditionExit, ImmutableHashSet<int> additionalExits) =>
+            new([], component, true);
+    }
+
     private sealed class RecordingExitPartitioner : ILoopExitPartitioner
     {
         public ControlFlowGraph? Graph { get; private set; }

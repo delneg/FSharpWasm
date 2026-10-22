@@ -103,6 +103,11 @@ internal sealed class RuntimeFunctionAppender(
         int entryPointIndex;
         if (entryPointProfile == WasmEntryPointProfile.Process)
         {
+            // Without a host-driven reactor an asynchronous Main is entered synchronously and
+            // AsyncEntryPoint.Run runs its event loop to completion; with one, the host observes
+            // the asynchronous process boundary.
+            var commandEntryPoint = asyncBinding?.CommandEntryPoint;
+            var processBinding = commandEntryPoint is null ? asyncBinding : null;
             entryPointIndex = outwardMethods.Append(new(
                 functions,
                 importCount,
@@ -110,11 +115,11 @@ internal sealed class RuntimeFunctionAppender(
                 "netwasm.entry",
                 "run",
                 entryPoint,
-                asyncBinding,
-                asyncBinding is null
+                processBinding,
+                processBinding is null
                     ? null
-                    : ManagedAsyncBoundaryNames.ForProcess(asyncBinding),
-                asyncBinding is null
+                    : ManagedAsyncBoundaryNames.ForProcess(processBinding),
+                processBinding is null
                     ? null
                     : ManagedAsyncBoundaryKinds.Process,
                 initialization,
@@ -123,7 +128,8 @@ internal sealed class RuntimeFunctionAppender(
                 ManagedBoundaryKind.ProcessEntryPoint,
                 functionIndices,
                 boundaryEntries,
-                entryPointArgumentFactory));
+                entryPointArgumentFactory,
+                EntryCompletion: commandEntryPoint));
         }
         else
         {

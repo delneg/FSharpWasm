@@ -17,6 +17,6 @@ internal sealed class EnumEqualsIntrinsicEmitter(
             request.Local(1, CliValueKind.ManagedReference),
             request.Local(0, CliValueKind.I4),
             context.ObjectTemporary,
-            context.NumericTemporaryI4);
+            context.NumericTemporaryI4, request.Instruction.Context.ManagedThrowFunction);
     }
 }

@@ -36,7 +36,7 @@ internal sealed class StructuredControlFlowEmitter(
         StructuredSequence sequence,
         MethodEmissionContext context,
         Func<StructuredBlockOccurrence, bool, bool, ConditionValue> emitBlock,
-        Action<StructuredExceptionRegion, MethodEmissionContext, bool, int?, int?, int?>
+        Action<StructuredExceptionRegion, MethodEmissionContext, int?, int?, int?, int?>
             emitExceptionRegion,
         int? loopBreakDepth = null,
         int? loopContinueDepth = null,
@@ -115,10 +115,10 @@ internal sealed class StructuredControlFlowEmitter(
                     emitExceptionRegion(
                         exception,
                         context,
-                        context.ActiveExceptionGroup is null,
                         loopBreakDepth,
                         loopContinueDepth,
-                        dispatcherContinueDepth);
+                        dispatcherContinueDepth,
+                        exceptionLeaveDepth);
                     break;
                 case StructuredDispatcher dispatcher:
                     dispatchers.Emit(
@@ -171,11 +171,12 @@ internal sealed class StructuredControlFlowEmitter(
                         exceptionLeaveDepth,
                         dispatcherContinueDepth);
                     break;
-                case StructuredLoop loop when context.RotateLoops:
-                    arraySnapshots.Emit(code, context, loop.Condition.Block);
+                case StructuredLoop { Condition: { } rotatedCondition } loop when context.RotateLoops:
+                    arraySnapshots.Emit(code, context, rotatedCondition.Block);
                     EmitRotatedLoop(
                         code,
                         loop,
+                        rotatedCondition,
                         method,
                         context,
                         emitBlock,
@@ -186,7 +187,10 @@ internal sealed class StructuredControlFlowEmitter(
                         dispatcherContinueDepth);
                     break;
                 case StructuredLoop loop:
-                    arraySnapshots.Emit(code, context, loop.Condition.Block);
+                    if (loop.Condition is { } loopCondition)
+                    {
+                        arraySnapshots.Emit(code, context, loopCondition.Block);
+                    }
                     EmitLoop(
                         code,
                         loop,
@@ -236,7 +240,7 @@ internal sealed class StructuredControlFlowEmitter(
         StructuredMethod method,
         MethodEmissionContext context,
         Func<StructuredBlockOccurrence, bool, bool, ConditionValue> emitBlock,
-        Action<StructuredExceptionRegion, MethodEmissionContext, bool, int?, int?, int?>
+        Action<StructuredExceptionRegion, MethodEmissionContext, int?, int?, int?, int?>
             emitExceptionRegion,
         int? loopBreakDepth,
         int? loopContinueDepth,
@@ -296,7 +300,7 @@ internal sealed class StructuredControlFlowEmitter(
         StructuredMethod method,
         MethodEmissionContext context,
         Func<StructuredBlockOccurrence, bool, bool, ConditionValue> emitBlock,
-        Action<StructuredExceptionRegion, MethodEmissionContext, bool, int?, int?, int?>
+        Action<StructuredExceptionRegion, MethodEmissionContext, int?, int?, int?, int?>
             emitExceptionRegion,
         int? outerLoopBreakDepth,
         int? outerLoopContinueDepth,
@@ -312,20 +316,25 @@ internal sealed class StructuredControlFlowEmitter(
         code.Write(WasmInstruction.WithOperand(
             WasmOpcodes.Loop,
             WasmInstructionOperand.BlockType(WasmOpcodes.EmptyBlockType)));
-        EmitConditionValue(
-            code,
-            context,
-            emitBlock(
-                loop.Condition,
-                true,
-                loop.Condition.Role == StructuredBlockRole.Owner));
-        if (loop.ContinueWhenConditionTrue)
+        // An unconditional loop runs its body until a break, return or
+        // exception-region continuation leaves it.
+        if (loop.Condition is { } condition)
         {
-            code.Write(WasmInstruction.NoOperand(WasmOpcodes.I32EqualZero));
+            EmitConditionValue(
+                code,
+                context,
+                emitBlock(
+                    condition,
+                    true,
+                    condition.Role == StructuredBlockRole.Owner));
+            if (loop.ContinueWhenConditionTrue)
+            {
+                code.Write(WasmInstruction.NoOperand(WasmOpcodes.I32EqualZero));
+            }
+            code.Write(WasmInstruction.WithOperand(
+                WasmOpcodes.BranchIf,
+                WasmInstructionOperand.Unsigned(1)));
         }
-        code.Write(WasmInstruction.WithOperand(
-            WasmOpcodes.BranchIf,
-            WasmInstructionOperand.Unsigned(1)));
         code.Write(WasmInstruction.WithOperand(
             WasmOpcodes.Block,
             WasmInstructionOperand.BlockType(WasmOpcodes.EmptyBlockType)));
@@ -388,10 +397,11 @@ internal sealed class StructuredControlFlowEmitter(
     private void EmitRotatedLoop(
         IWasmInstructionWriter code,
         StructuredLoop loop,
+        StructuredBlockOccurrence condition,
         StructuredMethod method,
         MethodEmissionContext context,
         Func<StructuredBlockOccurrence, bool, bool, ConditionValue> emitBlock,
-        Action<StructuredExceptionRegion, MethodEmissionContext, bool, int?, int?, int?>
+        Action<StructuredExceptionRegion, MethodEmissionContext, int?, int?, int?, int?>
             emitExceptionRegion,
         int? outerLoopBreakDepth,
         int? outerLoopContinueDepth,
@@ -410,9 +420,9 @@ internal sealed class StructuredControlFlowEmitter(
             code,
             context,
             emitBlock(
-                loop.Condition,
+                condition,
                 true,
-                loop.Condition.Role == StructuredBlockRole.Owner));
+                condition.Role == StructuredBlockRole.Owner));
         if (loop.ContinueWhenConditionTrue)
         {
             code.Write(WasmInstruction.NoOperand(WasmOpcodes.I32EqualZero));
@@ -460,7 +470,7 @@ internal sealed class StructuredControlFlowEmitter(
                 ? continueDispatcherDepth + 4
                 : null);
         code.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
-        EmitConditionValue(code, context, emitBlock(loop.Condition, true, false));
+        EmitConditionValue(code, context, emitBlock(condition, true, false));
         if (!loop.ContinueWhenConditionTrue)
         {
             code.Write(WasmInstruction.NoOperand(WasmOpcodes.I32EqualZero));
@@ -498,7 +508,7 @@ internal sealed class StructuredControlFlowEmitter(
         StructuredMethod method,
         MethodEmissionContext context,
         Func<StructuredBlockOccurrence, bool, bool, ConditionValue> emitBlock,
-        Action<StructuredExceptionRegion, MethodEmissionContext, bool, int?, int?, int?>
+        Action<StructuredExceptionRegion, MethodEmissionContext, int?, int?, int?, int?>
             emitExceptionRegion,
         int? outerLoopBreakDepth,
         int? outerLoopContinueDepth,

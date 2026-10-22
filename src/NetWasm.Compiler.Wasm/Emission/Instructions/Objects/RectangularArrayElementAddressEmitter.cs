@@ -3,6 +3,7 @@ using NetWasm.Compiler.Core;
 using NetWasm.Compiler.Wasm.Emission.Methods;
 using NetWasm.Compiler.Wasm.Emission.Support;
 using NetWasm.Compiler.Wasm.Encoding;
+using NetWasm.Compiler.Wasm.Emission.Planning;
 
 namespace NetWasm.Compiler.Wasm.Emission.Instructions.Objects;
 
@@ -28,7 +29,7 @@ internal sealed class RectangularArrayElementAddressEmitter(
             instruction.Context,
             request.ArraySlot,
             CliValueKind.ManagedReference);
-        EmitNullCheck(code, arrayLocal);
+        EmitNullCheck(code, arrayLocal, request.Instruction.Context.ManagedThrowFunction);
 
         if (instruction.Instruction.Operation ==
                 CilOperation.LoadRectangularArrayElementAddress &&
@@ -42,7 +43,7 @@ internal sealed class RectangularArrayElementAddressEmitter(
             WriteI32(code, typeLayouts.GetObjectLayout(arrayType).TypeId);
             code.Write(WasmInstruction.NoOperand(WasmOpcodes.I32Equal));
             code.Write(WasmInstruction.NoOperand(WasmOpcodes.I32EqualZero));
-            ThrowIf(code, ManagedExceptionKind.ArrayTypeMismatch);
+            ThrowIf(code, ManagedExceptionKind.ArrayTypeMismatch, request.Instruction.Context.ManagedThrowFunction);
         }
 
         if (arrayType.ArrayRank == 1)
@@ -76,7 +77,7 @@ internal sealed class RectangularArrayElementAddressEmitter(
                     2,
                     (uint)shape.DimensionLengthOffset)));
             code.Write(WasmInstruction.NoOperand(WasmOpcodes.I32GreaterThanOrEqualUnsigned));
-            ThrowIf(code, ManagedExceptionKind.IndexOutOfRange);
+            ThrowIf(code, ManagedExceptionKind.IndexOutOfRange, request.Instruction.Context.ManagedThrowFunction);
 
             Get(code, accumulator);
             Get(code, indexLocal);
@@ -128,7 +129,7 @@ internal sealed class RectangularArrayElementAddressEmitter(
                 2,
                 (uint)objects.ArrayLengthOffset)));
         code.Write(WasmInstruction.NoOperand(WasmOpcodes.I32GreaterThanOrEqualUnsigned));
-        ThrowIf(code, ManagedExceptionKind.IndexOutOfRange);
+        ThrowIf(code, ManagedExceptionKind.IndexOutOfRange, request.Context.ManagedThrowFunction);
 
         Get(code, arrayLocal);
         ManagedMemoryEmitter.EmitReferenceLoad(
@@ -188,19 +189,25 @@ internal sealed class RectangularArrayElementAddressEmitter(
         addresses.Emit(code, AddressOperation.Add);
     }
 
-    private void EmitNullCheck(IWasmInstructionWriter code, int arrayLocal)
+    private void EmitNullCheck(
+        IWasmInstructionWriter code,
+        int arrayLocal,
+        OptionalFunctionIndex throwFunction)
     {
         Get(code, arrayLocal);
         addresses.Emit(code, AddressOperation.EqualZero);
-        ThrowIf(code, ManagedExceptionKind.NullReference);
+        ThrowIf(code, ManagedExceptionKind.NullReference, throwFunction);
     }
 
-    private void ThrowIf(IWasmInstructionWriter code, ManagedExceptionKind kind)
+    private void ThrowIf(
+        IWasmInstructionWriter code,
+        ManagedExceptionKind kind,
+        OptionalFunctionIndex throwFunction)
     {
         code.Write(WasmInstruction.WithOperand(
             WasmOpcodes.If,
             WasmInstructionOperand.BlockType(WasmOpcodes.EmptyBlockType)));
-        exceptions.Emit(code, kind);
+        exceptions.Emit(code, kind, throwFunction);
         code.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
     }
 

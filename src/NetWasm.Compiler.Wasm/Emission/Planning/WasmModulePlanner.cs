@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Linq;
 using NetWasm.Compiler.ControlFlow.Structured;
@@ -139,7 +140,6 @@ internal sealed class WasmModulePlanner(
         var orderedConstructedMethodKeys = orderedConstructedMethods
             .Select(identity => identity.CanonicalName)
             .ToImmutableArray();
-        var hasManagedThrowFunction = RequiresManagedThrowFunction(methodEmissions);
         var stackTraceConstructedMethods = request.EmitStackTrace
             ? orderedConstructedMethodKeys
                 .Select(name => new StackTraceConstructedMethod(
@@ -180,19 +180,21 @@ internal sealed class WasmModulePlanner(
             .DistinctBy(method => method.DeclaringType.CanonicalName)
             .OrderBy(method => method.DeclaringType.CanonicalName, StringComparer.Ordinal)
             .ToImmutableArray();
+        // Every implicit and explicit throw calls the shared throw function, which follows
+        // the managed methods. ExceptionDispatchInfo's rethrow has its own when reachable.
+        var managedThrowFunction = importedFunctionCount + orderedMethods.Length +
+            orderedConstructedMethods.Length;
+        var hasManagedRethrowFunction = RequiresManagedRethrowFunction(methodEmissions);
+        var throwFunctionCount = hasManagedRethrowFunction ? 2 : 1;
         var delegateInvokeHelperIndices = delegateInvokes
             .Select((method, index) => (
                 method.DeclaringType.CanonicalName,
-                Index: new WasmFunctionIndex(importedFunctionCount + orderedMethods.Length +
-                    orderedConstructedMethods.Length +
-                    (hasManagedThrowFunction ? 1 : 0) + index)))
+                Index: new WasmFunctionIndex(managedThrowFunction + throwFunctionCount + index)))
             .ToImmutableDictionary(
                 item => item.CanonicalName,
                 item => item.Index,
                 StringComparer.Ordinal);
-        var helperBase = importedFunctionCount + orderedMethods.Length +
-            orderedConstructedMethods.Length +
-            (hasManagedThrowFunction ? 1 : 0) + delegateInvokes.Length;
+        var helperBase = managedThrowFunction + throwFunctionCount + delegateInvokes.Length;
         var plan = new WasmModulePlan(
             runtimeImportSelection,
             finalization,
@@ -207,10 +209,10 @@ internal sealed class WasmModulePlanner(
                 delegateInvokeHelperIndices,
                 importedMethodIndices)
             {
-                ManagedThrowFunctionIndex = Optional(
-                    hasManagedThrowFunction,
-                    importedFunctionCount + orderedMethods.Length +
-                    orderedConstructedMethods.Length),
+                ManagedThrowFunctionIndex = OptionalFunctionIndex.At(managedThrowFunction),
+                ManagedRethrowFunctionIndex = hasManagedRethrowFunction
+                    ? OptionalFunctionIndex.At(managedThrowFunction + 1)
+                    : OptionalFunctionIndex.Missing,
             },
             interopImports)
         {
@@ -222,84 +224,54 @@ internal sealed class WasmModulePlanner(
         return plan;
     }
 
-    private static OptionalFunctionIndex Optional(bool present, int index) =>
-        present ? OptionalFunctionIndex.At(index) : OptionalFunctionIndex.Missing;
+    private bool RequiresManagedRethrowFunction(
+        ImmutableArray<StructuredMethodEmission> methodEmissions) =>
+        CalledIntrinsics(methodEmissions)
+            .Any(static intrinsic => intrinsic == RuntimeIntrinsic.ExceptionDispatchPreserved);
 
     private bool RequiresEphemeronHandles(
         ImmutableArray<StructuredMethodEmission> methodEmissions) =>
-        methodEmissions
-            .SelectMany(static emission => emission.Method.Header.Instructions)
-            .Where(static instruction =>
-                instruction.Operation is CilOperation.Call or CilOperation.CallVirtual)
-            .Select(static instruction => instruction.Operand switch
-            {
-                CilOperand.Entity entity => entity.Key,
-                CilOperand.MethodInstance method => method.Value.Definition.Key,
-                _ => default,
-            })
-            .Any(method =>
-                method != default &&
-                intrinsics.TryGetIntrinsic(method, out var intrinsic) &&
-                intrinsic is RuntimeIntrinsic.EphemeronHandleCreate or
-                    RuntimeIntrinsic.EphemeronHandleGetKey or
-                    RuntimeIntrinsic.EphemeronHandleGetValue or
-                    RuntimeIntrinsic.EphemeronHandleSetTargetToNull or
-                    RuntimeIntrinsic.EphemeronHandleSetValue or
-                    RuntimeIntrinsic.EphemeronHandleRelease);
+        CalledIntrinsics(methodEmissions)
+            .Any(static intrinsic => intrinsic is RuntimeIntrinsic.EphemeronHandleCreate or
+                RuntimeIntrinsic.EphemeronHandleGetKey or
+                RuntimeIntrinsic.EphemeronHandleGetValue or
+                RuntimeIntrinsic.EphemeronHandleSetTargetToNull or
+                RuntimeIntrinsic.EphemeronHandleSetValue or
+                RuntimeIntrinsic.EphemeronHandleRelease);
 
     private bool RequiresWeakHandles(
         ImmutableArray<StructuredMethodEmission> methodEmissions) =>
-        methodEmissions
-            .SelectMany(static emission => emission.Method.Header.Instructions)
-            .Where(static instruction =>
-                instruction.Operation is CilOperation.Call or CilOperation.CallVirtual)
-            .Select(static instruction => instruction.Operand switch
-            {
-                CilOperand.Entity entity => entity.Key,
-                CilOperand.MethodInstance method => method.Value.Definition.Key,
-                _ => default,
-            })
-            .Any(method =>
-                method != default &&
-                intrinsics.TryGetIntrinsic(method, out var intrinsic) &&
-                intrinsic is RuntimeIntrinsic.WeakHandleCreate or
-                    RuntimeIntrinsic.WeakHandleGet or
-                    RuntimeIntrinsic.WeakHandleSet or
-                    RuntimeIntrinsic.WeakHandleRelease);
+        CalledIntrinsics(methodEmissions)
+            .Any(static intrinsic => intrinsic is RuntimeIntrinsic.WeakHandleCreate or
+                RuntimeIntrinsic.WeakHandleGet or
+                RuntimeIntrinsic.WeakHandleSet or
+                RuntimeIntrinsic.WeakHandleRelease);
 
     private bool RequiresRandomSeed(
         ImmutableArray<StructuredMethodEmission> methodEmissions) =>
-        methodEmissions
-            .SelectMany(static emission => emission.Method.Header.Instructions)
-            .Where(static instruction =>
-                instruction.Operation is CilOperation.Call or CilOperation.CallVirtual)
-            .Select(static instruction => instruction.Operand switch
-            {
-                CilOperand.Entity entity => entity.Key,
-                CilOperand.MethodInstance method => method.Value.Definition.Key,
-                _ => default,
-            })
-            .Any(method =>
-                method != default &&
-                intrinsics.TryGetIntrinsic(method, out var intrinsic) &&
-                intrinsic == RuntimeIntrinsic.RandomSeed);
+        CalledIntrinsics(methodEmissions)
+            .Any(static intrinsic => intrinsic == RuntimeIntrinsic.RandomSeed);
 
-    private bool RequiresManagedThrowFunction(
-        ImmutableArray<StructuredMethodEmission> methodEmissions) =>
-        methodEmissions
+    private IEnumerable<RuntimeIntrinsic> CalledIntrinsics(
+        ImmutableArray<StructuredMethodEmission> methodEmissions)
+    {
+        foreach (var instruction in methodEmissions
             .SelectMany(static emission => emission.Method.Header.Instructions)
             .Where(static instruction =>
-                instruction.Operation is CilOperation.Call or CilOperation.CallVirtual)
-            .Select(static instruction => instruction.Operand switch
+                instruction.Operation is CilOperation.Call or CilOperation.CallVirtual))
+        {
+            var method = instruction.Operand switch
             {
                 CilOperand.Entity entity => entity.Key,
-                CilOperand.MethodInstance method => method.Value.Definition.Key,
+                CilOperand.MethodInstance instance => instance.Value.Definition.Key,
                 _ => default,
-            })
-            .Any(method =>
-                method != default &&
-                intrinsics.TryGetIntrinsic(method, out var intrinsic) &&
-                intrinsic == RuntimeIntrinsic.StringLength);
+            };
+            if (method != default && intrinsics.TryGetIntrinsic(method, out var intrinsic))
+            {
+                yield return intrinsic;
+            }
+        }
+    }
 
     private MethodInstanceModel GetMethodInstance(CilInstruction instruction) =>
         instruction.Operand switch

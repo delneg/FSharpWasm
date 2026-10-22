@@ -5,6 +5,7 @@ using NetWasm.Compiler.Wasm;
 using NetWasm.Compiler.Wasm.Emission;
 using NetWasm.Compiler.Wasm.Emission.GeneratedFunctions;
 using NetWasm.Compiler.Wasm.Encoding;
+using NetWasm.Compiler.Wasm.Emission.Planning;
 
 namespace NetWasm.Compiler.Wasm.Emission.Instructions.Runtime;
 
@@ -21,6 +22,7 @@ internal sealed class EnumHasFlagEmitter(
         int flag,
         int result,
         int temporaryI4,
+        OptionalFunctionIndex throwFunction,
         CliValueKind receiverKind = CliValueKind.ManagedReference,
         CliTypeIdentity? constrainedType = null)
     {
@@ -33,12 +35,12 @@ internal sealed class EnumHasFlagEmitter(
                 receiver,
                 flag,
                 result,
-                temporaryI4);
+                temporaryI4, throwFunction);
             return;
         }
 
-        nullChecks.Emit(code, receiver);
-        nullChecks.Emit(code, flag);
+        nullChecks.Emit(code, receiver, throwFunction);
+        nullChecks.Emit(code, flag, throwFunction);
         EmitConstant(code, 0);
         SetLocal(code, temporaryI4);
 
@@ -70,7 +72,7 @@ internal sealed class EnumHasFlagEmitter(
             code.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
         }
         code.Write(WasmInstruction.NoOperand(WasmOpcodes.Else));
-        exceptions.Emit(code, ManagedExceptionKind.Argument);
+        exceptions.Emit(code, ManagedExceptionKind.Argument, throwFunction);
         code.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
         GetLocal(code, temporaryI4);
         SetLocal(code, result);
@@ -82,7 +84,8 @@ internal sealed class EnumHasFlagEmitter(
         int receiver,
         int flag,
         int result,
-        int temporaryI4)
+        int temporaryI4,
+        OptionalFunctionIndex throwFunction)
     {
         var storage = storages.Resolve().SingleOrDefault(candidate =>
             candidate.EnumType.Equals(constrainedType));
@@ -92,7 +95,7 @@ internal sealed class EnumHasFlagEmitter(
                 $"no reachable enum descriptor exists for '{constrainedType.CanonicalName}'");
         }
 
-        nullChecks.Emit(code, flag);
+        nullChecks.Emit(code, flag, throwFunction);
         EmitConstant(code, 0);
         SetLocal(code, temporaryI4);
 
@@ -122,7 +125,7 @@ internal sealed class EnumHasFlagEmitter(
             code.Write(WasmInstruction.NoOperand(WasmOpcodes.I32Equal));
         SetLocal(code, temporaryI4);
         code.Write(WasmInstruction.NoOperand(WasmOpcodes.Else));
-        exceptions.Emit(code, ManagedExceptionKind.Argument);
+        exceptions.Emit(code, ManagedExceptionKind.Argument, throwFunction);
         code.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
 
         GetLocal(code, temporaryI4);

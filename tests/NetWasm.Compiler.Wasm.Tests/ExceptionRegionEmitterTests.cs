@@ -33,7 +33,7 @@ public sealed class ExceptionRegionEmitterTests
         for (var occurrence = 0; occurrence < 2; occurrence++)
         {
             emitter.Emit(new RecordingInstructionWriter(), WithGroups(method, group),
-                new StructuredExceptionRegion(group.Id, null), context, false, CreateModuleData(group),
+                new StructuredExceptionRegion(group.Id, null), context, CreateModuleData(group),
                 (sequence, current, _, _, _) =>
                 {
                     Assert.Same(body, sequence);
@@ -77,7 +77,6 @@ public sealed class ExceptionRegionEmitterTests
             WithGroups(method, group),
             new StructuredExceptionRegion(group.Id, null),
             CreateContext(group),
-            false,
             CreateModuleData(group),
             (sequence, context, _, _, leaveDepth) =>
             {
@@ -121,7 +120,6 @@ public sealed class ExceptionRegionEmitterTests
                 method,
                 new StructuredExceptionRegion(new(99), null),
                 CreateContext(),
-                false,
                 CreateModuleData(),
                 (_, _, _, _, _) => { }));
     }
@@ -157,7 +155,6 @@ public sealed class ExceptionRegionEmitterTests
             WithGroups(method, group),
             new StructuredExceptionRegion(group.Id, null),
             context,
-            false,
             module,
             (_, _, _, _, _) => sequences++);
 
@@ -199,7 +196,6 @@ public sealed class ExceptionRegionEmitterTests
             WithGroups(method, group, nested),
             new StructuredExceptionRegion(group.Id, null),
             CreateContext(group, nested),
-            false,
             CreateModuleData((group, false), (nested, false)),
             (_, _, _, _, _) => { });
 
@@ -208,8 +204,12 @@ public sealed class ExceptionRegionEmitterTests
             new WasmBinarySnapshotReader(buffer).Read());
     }
 
-    [Fact]
-    public void OutermostCatchLeavesTheMethodFrameBeforeRethrow()
+    [Theory]
+    [InlineData(CilExceptionRegionKind.Catch)]
+    [InlineData(CilExceptionRegionKind.Finally)]
+    [InlineData(CilExceptionRegionKind.Fault)]
+    public void LandingPadRewindsTheFramesTheExceptionLeftWithoutLeavingTheMethod(
+        CilExceptionRegionKind kind)
     {
         var program = new FakeProgram();
         var imports = WasmRuntimeImports.CreateCatalog();
@@ -219,24 +219,44 @@ public sealed class ExceptionRegionEmitterTests
             program.GetMethod(EntryKey),
             I(0, CilOperation.LoadInt32, new CilOperand.ConstantI4(0)),
             I(1, CilOperation.Return));
+        var handlerBody = new StructuredSequence([new StructuredLoopContinue()]);
         var group = Group(
             0,
             1,
             [new StructuredExceptionCode(StructuredSequence.Empty)],
-            [Clause(CilExceptionRegionKind.Catch, TypeKey)],
+            [Clause(kind, kind == CilExceptionRegionKind.Catch ? TypeKey : null, handlerBody)],
             []);
-        var frameExits = new RecordingMethodFrameExitEmitter();
+        var code = new RecordingInstructionWriter();
+        var emittedSequences = new List<StructuredSequence>();
+        var context = CreateContext(group) with
+        {
+            ValueLayout = new ValueFrameLayout(4, [], [], [], []),
+            StackTraceMethodId = 17,
+        };
 
-        CreateEmitter(program, layouts, imports, frameExits).Emit(
-            new WasmInstructionWriter(new WasmBinaryWriter(new WasmBinaryBuffer())),
+        CreateEmitter(program, layouts, imports).Emit(
+            code,
             WithGroups(method, group),
             new StructuredExceptionRegion(group.Id, null),
-            CreateContext(group),
-            true,
+            context,
             CreateModuleData(group),
-            (_, _, _, _, _) => { });
+            (sequence, _, _, _, _) => emittedSequences.Add(sequence));
 
-        Assert.Equal(1, frameExits.Calls);
+        Assert.Contains(handlerBody, emittedSequences);
+        var calls = code.ToInstructions()
+            .Where(instruction => instruction.Opcode == WasmOpcodes.Call)
+            .Select(instruction => (int)instruction.Operand.UnsignedValue)
+            .ToList();
+        var unwind = imports.Resolve(RuntimeImportSymbol.ExceptionFrameUnwind);
+        var leave = imports.Resolve(RuntimeImportSymbol.ExceptionFrameLeave);
+        // The normal exit leaves the exception frame; the landing pad unwinds it.
+        Assert.Equal(1, calls.Count(call => call == unwind));
+        Assert.Equal(1, calls.Count(call => call == leave));
+        Assert.True(calls.IndexOf(unwind) > calls.IndexOf(leave));
+        // Whatever catches a rethrow rewinds this method's frames, so it never leaves them here.
+        Assert.DoesNotContain(imports.Resolve(RuntimeImportSymbol.RootFrameLeave), calls);
+        Assert.DoesNotContain(imports.Resolve(RuntimeImportSymbol.ValueFrameLeave), calls);
+        Assert.DoesNotContain(imports.Resolve(RuntimeImportSymbol.StackTraceFrameLeave), calls);
     }
 
     [Fact]
@@ -266,7 +286,6 @@ public sealed class ExceptionRegionEmitterTests
                 WithGroups(method, group),
                 new StructuredExceptionRegion(group.Id, null),
                 CreateContext(group),
-                true,
                 CreateModuleData(group),
                 (_, _, _, _, _) => { }));
 
@@ -303,7 +322,6 @@ public sealed class ExceptionRegionEmitterTests
             WithGroups(method, group),
             new StructuredExceptionRegion(group.Id, null),
             CreateContext(group),
-            false,
             CreateModuleData(group),
             (sequence, _, loopBreakDepth, loopContinueDepth, _) =>
             {
@@ -351,7 +369,6 @@ public sealed class ExceptionRegionEmitterTests
             WithGroups(method, group),
             region,
             context,
-            false,
             CreateModuleData(group),
             (sequence, _, _, _, _) =>
                 emittedContinuationBody |= ReferenceEquals(sequence, continuationBody),
@@ -399,7 +416,6 @@ public sealed class ExceptionRegionEmitterTests
                 WithGroups(method, group),
                 region,
                 CreateContext(group),
-                false,
                 CreateModuleData(group),
                 (_, _, _, _, _) => { }));
     }
@@ -429,7 +445,6 @@ public sealed class ExceptionRegionEmitterTests
             WithGroups(method, group),
             new StructuredExceptionRegion(group.Id, null),
             context,
-            false,
             CreateModuleData(group),
             (_, _, _, _, _) => { });
 
@@ -469,7 +484,7 @@ public sealed class ExceptionRegionEmitterTests
         var handlers = 0;
         var continuations = 0;
         CreateEmitter(program, layouts, imports).Emit(code, WithGroups(method, group),
-            new StructuredExceptionRegion(group.Id, null), context, false, CreateModuleData(group),
+            new StructuredExceptionRegion(group.Id, null), context, CreateModuleData(group),
             (sequence, actual, _, _, _) =>
             {
                 if (ReferenceEquals(sequence, handler))
@@ -493,7 +508,7 @@ public sealed class ExceptionRegionEmitterTests
     }
 
     [Fact]
-    public void FinallyUsesMemory64ComparisonAndCanSuppressFrameExit()
+    public void FinallyTestsItsPendingExceptionWithAMemory64Comparison()
     {
         var program = new FakeProgram();
         var imports = WasmRuntimeImports.CreateCatalog();
@@ -509,49 +524,17 @@ public sealed class ExceptionRegionEmitterTests
             [new StructuredExceptionCode(StructuredSequence.Empty)],
             [Clause(CilExceptionRegionKind.Finally, null)],
             []);
-        var frameExits = new RecordingMethodFrameExitEmitter();
+        var code = new RecordingInstructionWriter();
 
-        CreateEmitter(program, layouts, imports, frameExits).Emit(
-            new WasmInstructionWriter(new WasmBinaryWriter(new WasmBinaryBuffer())),
-            WithGroups(method, group),
-            new StructuredExceptionRegion(group.Id, null),
-            CreateContext(group) with { LeaveFrameOnExceptionalExit = false },
-            true,
-            CreateModuleData(group),
-            (_, _, _, _, _) => { });
-
-        Assert.Equal(0, frameExits.Calls);
-    }
-
-    [Fact]
-    public void OutermostFinallyLeavesTheMethodFrameBeforeTestingExceptionalExit()
-    {
-        var program = new FakeProgram();
-        var imports = WasmRuntimeImports.CreateCatalog();
-        var layouts = new RecordingLayoutProvider();
-        var method = Structure(
-            program,
-            program.GetMethod(EntryKey),
-            I(0, CilOperation.LoadInt32, new CilOperand.ConstantI4(0)),
-            I(1, CilOperation.Return));
-        var group = Group(
-            0,
-            1,
-            [new StructuredExceptionCode(StructuredSequence.Empty)],
-            [Clause(CilExceptionRegionKind.Finally, null)],
-            []);
-        var frameExits = new RecordingMethodFrameExitEmitter();
-
-        CreateEmitter(program, layouts, imports, frameExits).Emit(
-            new WasmInstructionWriter(new WasmBinaryWriter(new WasmBinaryBuffer())),
+        CreateEmitter(program, layouts, imports).Emit(
+            code,
             WithGroups(method, group),
             new StructuredExceptionRegion(group.Id, null),
             CreateContext(group),
-            true,
             CreateModuleData(group),
             (_, _, _, _, _) => { });
 
-        Assert.Equal(1, frameExits.Calls);
+        Assert.Contains(code.ToInstructions(), instruction => instruction.Opcode == WasmOpcodes.I64EqualZero);
     }
 
     [Fact]
@@ -578,115 +561,12 @@ public sealed class ExceptionRegionEmitterTests
             WithGroups(method, group),
             new StructuredExceptionRegion(group.Id, null),
             CreateContext(group),
-            false,
             CreateModuleData((group, true)),
             (_, _, _, _, _) => { });
 
         Assert.Contains(
             imports.Resolve(RuntimeImportSymbol.ExceptionFrameSetEnvironment),
             Calls(new WasmBinarySnapshotReader(buffer).Read()));
-    }
-
-    [Fact]
-    public void OutermostFaultLeavesTheMethodFrameBeforeRethrow()
-    {
-        var program = new FakeProgram();
-        var imports = WasmRuntimeImports.CreateCatalog();
-        var layouts = new RecordingLayoutProvider();
-        var method = Structure(
-            program,
-            program.GetMethod(EntryKey),
-            I(0, CilOperation.LoadInt32, new CilOperand.ConstantI4(0)),
-            I(1, CilOperation.Return));
-        var handlerBody = new StructuredSequence([new StructuredLoopContinue()]);
-        var group = Group(
-            0,
-            1,
-            [new StructuredExceptionCode(StructuredSequence.Empty)],
-            [Clause(CilExceptionRegionKind.Fault, null, handlerBody)],
-            []);
-        var buffer = new WasmBinaryBuffer();
-        var emittedSequences = new List<StructuredSequence>();
-
-        var context = CreateContext(group) with
-        {
-            ValueLayout = new ValueFrameLayout(4, [], [], [], []),
-        };
-        CreateEmitter(program, layouts, imports).Emit(
-            new WasmInstructionWriter(new WasmBinaryWriter(buffer)),
-            WithGroups(method, group),
-            new StructuredExceptionRegion(group.Id, null),
-            context,
-            true,
-            CreateModuleData(group),
-            (sequence, _, _, _, _) => emittedSequences.Add(sequence));
-
-        Assert.Contains(handlerBody, emittedSequences);
-        Assert.Contains(
-            imports.Resolve(RuntimeImportSymbol.ValueFrameLeave),
-            Calls(new WasmBinarySnapshotReader(buffer).Read()));
-    }
-
-    [Fact]
-    public void OutermostFaultCanSuppressMethodFrameExit()
-    {
-        var program = new FakeProgram();
-        var imports = WasmRuntimeImports.CreateCatalog();
-        var layouts = new RecordingLayoutProvider();
-        var method = Structure(
-            program,
-            program.GetMethod(EntryKey),
-            I(0, CilOperation.LoadInt32, new CilOperand.ConstantI4(0)),
-            I(1, CilOperation.Return));
-        var group = Group(
-            0,
-            1,
-            [new StructuredExceptionCode(StructuredSequence.Empty)],
-            [Clause(CilExceptionRegionKind.Fault, null)],
-            []);
-        var frameExits = new RecordingMethodFrameExitEmitter();
-
-        CreateEmitter(program, layouts, imports, frameExits).Emit(
-            new WasmInstructionWriter(new WasmBinaryWriter(new WasmBinaryBuffer())),
-            WithGroups(method, group),
-            new StructuredExceptionRegion(group.Id, null),
-            CreateContext(group) with { LeaveFrameOnExceptionalExit = false },
-            true,
-            CreateModuleData(group),
-            (_, _, _, _, _) => { });
-
-        Assert.Equal(0, frameExits.Calls);
-    }
-
-    [Fact]
-    public void NestedFaultNeverLeavesTheMethodFrame()
-    {
-        var program = new FakeProgram();
-        var imports = WasmRuntimeImports.CreateCatalog();
-        var layouts = new RecordingLayoutProvider();
-        var method = Structure(
-            program,
-            program.GetMethod(EntryKey),
-            I(0, CilOperation.LoadInt32, new CilOperand.ConstantI4(0)),
-            I(1, CilOperation.Return));
-        var group = Group(
-            0,
-            1,
-            [new StructuredExceptionCode(StructuredSequence.Empty)],
-            [Clause(CilExceptionRegionKind.Fault, null)],
-            []);
-        var frameExits = new RecordingMethodFrameExitEmitter();
-
-        CreateEmitter(program, layouts, imports, frameExits).Emit(
-            new WasmInstructionWriter(new WasmBinaryWriter(new WasmBinaryBuffer())),
-            WithGroups(method, group),
-            new StructuredExceptionRegion(group.Id, null),
-            CreateContext(group),
-            false,
-            CreateModuleData(group),
-            (_, _, _, _, _) => { });
-
-        Assert.Equal(0, frameExits.Calls);
     }
 
     [Theory]
@@ -731,7 +611,6 @@ public sealed class ExceptionRegionEmitterTests
                     ? null
                     : new(fallthroughContinuation.Value)),
             CreateContext(group),
-            false,
             CreateModuleData(group),
             (_, _, _, _, _) => { });
 
@@ -766,7 +645,6 @@ public sealed class ExceptionRegionEmitterTests
             WithGroups(method, group),
             new StructuredExceptionRegion(group.Id, new(1)),
             CreateContext(group),
-            false,
             CreateModuleData(group),
             (_, _, _, _, _) => { });
     }
@@ -800,9 +678,106 @@ public sealed class ExceptionRegionEmitterTests
             WithGroups(method, group, parent),
             new StructuredExceptionRegion(group.Id, null),
             CreateContext(group, parent) with { ActiveExceptionGroup = parent },
-            false,
             CreateModuleData(group),
             (_, _, _, _, _) => { });
+    }
+
+    // A leave in a continuation body to an enclosing group's continuation must end that
+    // body: code after the leave in the same body would otherwise still run.
+    [Theory]
+    [InlineData(CilExceptionRegionKind.Catch, null, null)]
+    [InlineData(CilExceptionRegionKind.Catch, 3, 4)]
+    [InlineData(CilExceptionRegionKind.Finally, null, null)]
+    [InlineData(CilExceptionRegionKind.Finally, 3, 4)]
+    [InlineData(CilExceptionRegionKind.Fault, null, null)]
+    [InlineData(CilExceptionRegionKind.Fault, 3, 4)]
+    public void ContinuationBodyLeavesTheEnclosingCodeInsideItsSelector(
+        CilExceptionRegionKind kind,
+        int? enclosingLeaveDepth,
+        int? expectedLeaveDepth)
+    {
+        var program = new FakeProgram();
+        var imports = WasmRuntimeImports.CreateCatalog();
+        var layouts = new RecordingLayoutProvider();
+        var method = Structure(
+            program,
+            program.GetMethod(EntryKey),
+            I(0, CilOperation.LoadInt32, new CilOperand.ConstantI4(0)),
+            I(1, CilOperation.Return));
+        var continuation = new StructuredSequence([new StructuredLoopBreak()]);
+        var group = Group(
+            0,
+            1,
+            [new StructuredExceptionCode(StructuredSequence.Empty)],
+            [Clause(kind, kind == CilExceptionRegionKind.Catch ? TypeKey : null)],
+            [Continuation(42, continuation)]);
+        var emitted = 0;
+        int? capturedLeaveDepth = -1;
+
+        CreateEmitter(program, layouts, imports).Emit(
+            new WasmInstructionWriter(new WasmBinaryWriter(new WasmBinaryBuffer())),
+            WithGroups(method, group),
+            new StructuredExceptionRegion(group.Id, null),
+            CreateContext(group),
+            CreateModuleData(group),
+            (sequence, _, _, _, leaveDepth) =>
+            {
+                if (ReferenceEquals(sequence, continuation))
+                {
+                    emitted++;
+                    capturedLeaveDepth = leaveDepth;
+                }
+            },
+            enclosingLeaveDepth: enclosingLeaveDepth);
+
+        Assert.Equal(1, emitted);
+        Assert.Equal(expectedLeaveDepth, capturedLeaveDepth);
+    }
+
+    [Fact]
+    public void NestedGroupContinuationLeavesTheParentProtectedCode()
+    {
+        var program = new FakeProgram();
+        var imports = WasmRuntimeImports.CreateCatalog();
+        var layouts = new RecordingLayoutProvider();
+        var method = Structure(
+            program,
+            program.GetMethod(EntryKey),
+            I(0, CilOperation.LoadInt32, new CilOperand.ConstantI4(0)),
+            I(1, CilOperation.Return));
+        var continuation = new StructuredSequence([new StructuredLoopBreak()]);
+        var nested = Group(
+            2,
+            1,
+            [new StructuredExceptionCode(StructuredSequence.Empty)],
+            [Clause(CilExceptionRegionKind.Finally, null)],
+            [Continuation(42, continuation)]);
+        var parent = Group(
+            0,
+            3,
+            [new StructuredNestedExceptionGroup(nested.Id)],
+            [Clause(CilExceptionRegionKind.Catch, TypeKey)],
+            [Continuation(99, StructuredSequence.Empty)]);
+        StructuredExceptionGroupId? activeGroup = null;
+        int? capturedLeaveDepth = -1;
+
+        CreateEmitter(program, layouts, imports).Emit(
+            new WasmInstructionWriter(new WasmBinaryWriter(new WasmBinaryBuffer())),
+            WithGroups(method, parent, nested),
+            new StructuredExceptionRegion(parent.Id, null),
+            CreateContext(parent, nested),
+            CreateModuleData((parent, false), (nested, false)),
+            (sequence, context, _, _, leaveDepth) =>
+            {
+                if (ReferenceEquals(sequence, continuation))
+                {
+                    activeGroup = context.ActiveExceptionGroup?.Id;
+                    capturedLeaveDepth = leaveDepth;
+                }
+            });
+
+        Assert.Equal(parent.Id, activeGroup);
+        Assert.Equal(1, capturedLeaveDepth);
     }
 
     [Fact]
@@ -834,7 +809,6 @@ public sealed class ExceptionRegionEmitterTests
             WithGroups(method, group, parent),
             new StructuredExceptionRegion(group.Id, null),
             CreateContext(group, parent) with { ActiveExceptionGroup = parent },
-            false,
             CreateModuleData(group),
             (_, _, _, _, _) => { });
     }
@@ -863,7 +837,6 @@ public sealed class ExceptionRegionEmitterTests
                 WithGroups(method, group),
                 new StructuredExceptionRegion(group.Id, null),
                 CreateContext(group),
-                false,
                 CreateModuleData(group),
                 (_, _, _, _, _) => { }));
 
@@ -931,8 +904,7 @@ public sealed class ExceptionRegionEmitterTests
     private static IExceptionRegionEmitter CreateEmitter(
         FakeProgram program,
         RecordingLayoutProvider layouts,
-        RuntimeImportCatalog imports,
-        IMethodFrameExitEmitter? methodFrameExits = null)
+        RuntimeImportCatalog imports)
     {
         return new[]
             {
@@ -940,7 +912,6 @@ public sealed class ExceptionRegionEmitterTests
                     layouts,
                     imports,
                     new ExceptionPayloadBlockEmitter(layouts),
-                    methodFrameExits ?? CreateMethodFrameExit(imports),
                     new StructuredExceptionGroupKeyFactory()),
             }
             .Cast<IExceptionRegionEmitter>()
@@ -1008,6 +979,7 @@ public sealed class ExceptionRegionEmitterTests
             17,
             18)
         {
+            ManagedThrowFunction = OptionalFunctionIndex.At(7),
             ExceptionRootSlots = groups.Select((group, index) => (group.Id, index))
                 .ToImmutableDictionary(item => item.Id, item => item.index),
         };
@@ -1019,11 +991,4 @@ public sealed class ExceptionRegionEmitterTests
         .Select(item => (int)code[item.index + 1])];
 
     private sealed record UnrelatedPart : StructuredExceptionPart;
-
-    private sealed class RecordingMethodFrameExitEmitter : IMethodFrameExitEmitter
-    {
-        public int Calls { get; private set; }
-
-        public void Emit(IWasmInstructionWriter code, MethodEmissionContext context) => Calls++;
-    }
 }

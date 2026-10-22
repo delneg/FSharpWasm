@@ -1,4 +1,3 @@
-using System;
 using NetWasm.Compiler.Core;
 using NetWasm.Compiler.Wasm.Emission.Planning;
 using NetWasm.Compiler.Wasm.Encoding;
@@ -7,11 +6,11 @@ namespace NetWasm.Compiler.Wasm.Emission;
 
 internal interface IImplicitExceptionEmitter
 {
-    void Emit(IWasmInstructionWriter code, ManagedExceptionKind kind);
-
+    // Throws through the module's shared throw function. Wasmtime saves every callee-saved
+    // register on each call to a function that contains a throw instruction, so the throw
+    // stays out of line.
     void Emit(
         IWasmInstructionWriter code,
         ManagedExceptionKind kind,
-        OptionalFunctionIndex throwFunctionIndex) => throw new NotSupportedException(
-            "this exception emitter does not support a shared throw function");
+        OptionalFunctionIndex throwFunctionIndex);
 }

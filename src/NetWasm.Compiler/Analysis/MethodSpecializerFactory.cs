@@ -30,7 +30,8 @@ internal sealed class MethodSpecializerFactory(
         ITypeRelationshipClassifier relationships,
         IMethodBodyReader methodBodies,
         WasmOptimizationSettings optimizationSettings,
-        IRuntimeIntrinsicRegistry intrinsics) =>
+        IRuntimeIntrinsicRegistry intrinsics,
+        PlatformWorldCapabilities world) =>
         new MethodSpecializer(
         [
             .. optimizationSettings.SwitchBitTests == SwitchBitTestPolicy.Conservative
@@ -51,6 +52,7 @@ internal sealed class MethodSpecializerFactory(
                     optimizationSettings.LoopInvariantFieldHoisting)),
             new RectangularArrayCallRewriter(),
             new IntrinsicCallRewriter(calledMethods, symbols),
+            new PlatformWorldCallRewriter(calledMethods, symbols, world),
             new ClosedTypeIsValueTypeCallRewriter(calledMethods, symbols),
             new InterlockedCallRewriter(calledMethods, symbols),
             new ActivatorCallRewriter(

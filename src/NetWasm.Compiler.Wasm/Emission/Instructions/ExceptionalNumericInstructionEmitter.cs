@@ -54,7 +54,7 @@ internal sealed class ExceptionalNumericInstructionEmitter(
             type,
             leftLocal,
             rightLocal,
-            resultLocal);
+            resultLocal, request.Context.ManagedThrowFunction);
         code.Write(WasmInstruction.WithOperand(WasmOpcodes.LocalGet, WasmInstructionOperand.Unsigned((uint)(resultLocal))));
         code.Write(WasmInstruction.WithOperand(WasmOpcodes.LocalSet, WasmInstructionOperand.Unsigned((uint)(leftLocal))));
         request.Stack.RemoveAt(left + 1);
@@ -196,7 +196,7 @@ internal sealed class ExceptionalNumericInstructionEmitter(
             code.Write(WasmInstruction.NoOperand(WasmOpcodes.I32EqualZero));
         }
         code.Write(WasmInstruction.WithOperand(WasmOpcodes.If, WasmInstructionOperand.BlockType(WasmOpcodes.EmptyBlockType)));
-        exceptions.Emit(code, ManagedExceptionKind.DivideByZero);
+        exceptions.Emit(code, ManagedExceptionKind.DivideByZero, request.Context.ManagedThrowFunction);
         code.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
     }
 
@@ -231,7 +231,7 @@ internal sealed class ExceptionalNumericInstructionEmitter(
         }
         code.Write(WasmInstruction.NoOperand(WasmOpcodes.I32And));
         code.Write(WasmInstruction.WithOperand(WasmOpcodes.If, WasmInstructionOperand.BlockType(WasmOpcodes.EmptyBlockType)));
-        exceptions.Emit(code, ManagedExceptionKind.Overflow);
+        exceptions.Emit(code, ManagedExceptionKind.Overflow, request.Context.ManagedThrowFunction);
         code.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
     }
 

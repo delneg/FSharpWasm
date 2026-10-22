@@ -53,7 +53,8 @@ The `Math.Sin`, `Math.Cos`, `Math.Tan`, `Math.Sinh`, `Math.Tanh`, `Math.Acosh`,
 ports of Sun fdlibm. They retain the permissive Sun Microsystems notices from
 1993 and 2004. Their source is pinned to `biosbits/fdlibm` commit
 `dfd9eaed985332a1c3af98c2bab4004eea217d3d`; every derived file identifies its
-upstream filename. Permission to use, copy, modify and distribute is granted
+upstream filename. `Math.Pow` ports the FreeBSD msun `e_pow.c` that Emscripten
+6.0.7 carries as `pow_small.c` and keeps its 2004 Sun Microsystems notice. Permission to use, copy, modify and distribute is granted
 provided the corresponding notice is preserved. The complete notices appear
 in the source files and in `THIRD-PARTY-NOTICES.TXT`.
 

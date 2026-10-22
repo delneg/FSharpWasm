@@ -23,12 +23,18 @@ internal sealed class ManagedTerminalExceptionBoundaryEmitter(
         int resultLocal,
         int reportFunctionIndex,
         int? raiseFunctionIndex,
-        Action emitBody,
-        Action? emitCatchCleanup = null)
+        Action emitBody)
     {
         ArgumentNullException.ThrowIfNull(code);
         ArgumentNullException.ThrowIfNull(emitBody);
 
+        // The type-id local holds this boundary's exception-frame token until the
+        // catch reads the exception's type. The frame marks the arenas as the host
+        // call found them, so the catch rewinds every frame the body left behind.
+        WriteAddressConstant(code, 0);
+        WriteI32Constant(code, 0);
+        WriteCall(code, runtimeImports.Resolve(RuntimeImportSymbol.ExceptionFrameEnter));
+        WriteLocalSet(code, typeIdLocal);
         EmitResultBlock(code, resultType);
         exceptions.Emit(code);
         code.Write(WasmInstruction.WithOperand(
@@ -39,12 +45,15 @@ internal sealed class ManagedTerminalExceptionBoundaryEmitter(
                 0)));
         emitBody();
         code.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
+        WriteLocalGet(code, typeIdLocal);
+        WriteCall(code, runtimeImports.Resolve(RuntimeImportSymbol.ExceptionFrameLeave));
         if (resultType != CliValueKind.Void)
             WriteLocalGet(code, resultLocal);
         WriteBranch(code, 1);
         code.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
         WriteLocalSet(code, exceptionLocal);
-        emitCatchCleanup?.Invoke();
+        WriteLocalGet(code, typeIdLocal);
+        WriteCall(code, runtimeImports.Resolve(RuntimeImportSymbol.ExceptionFrameUnwind));
 
         WriteI32Constant(code, 1);
         WriteCall(code, runtimeImports.Resolve(RuntimeImportSymbol.RootFrameEnter));
@@ -129,6 +138,9 @@ internal sealed class ManagedTerminalExceptionBoundaryEmitter(
         code.Write(WasmInstruction.WithOperand(
             WasmOpcodes.LocalSet,
             WasmInstructionOperand.Unsigned((uint)index)));
+
+    private void WriteAddressConstant(IWasmInstructionWriter code, int value) =>
+        ManagedMemoryEmitter.EmitAddressConstant(code, layouts.Target, value);
 
     private static void WriteI32Constant(IWasmInstructionWriter code, int value) =>
         code.Write(WasmInstruction.WithOperand(

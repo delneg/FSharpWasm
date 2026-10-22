@@ -22,8 +22,6 @@ public sealed class KnownNonBugCorpusPartitionerTests
                     377, 378, 380, 381, 383, 384, 386, 387,
                     422, 423, 425, 426, 428, 429, 431, 432],
             [CorpusCaseTestData.FloatingMathDomains] = [26, 42, 206, 222],
-            [CorpusCaseTestData.BinaryMathEdges] =
-                [392, 394, 395, 408, 410, 411, 425, 426, 427, 441, 442, 443],
             [CorpusCaseTestData.RankOne] = [1, 2],
             [CorpusCaseTestData.AsyncConversionTransport] =
                 [32, 33, 34, 35, 40, 41, 42, 43, 48, 49, 50, 51,
@@ -134,9 +132,6 @@ public sealed class KnownNonBugCorpusPartitionerTests
             (typeof(FloatingMathEdgeTests),
                 nameof(FloatingMathEdgeTests.TrigonometricNegativeZeroDesktopBitsAreNotRequired),
                 KnownNonBugSkipReasons.TrigonometricNegativeZero),
-            (typeof(FloatingMathEdgeTests),
-                nameof(FloatingMathEdgeTests.PowFiniteDesktopExactBitsAreNotRequired),
-                KnownNonBugSkipReasons.PowFiniteExactBits),
             (typeof(RttiArrayOperationCompilationTests),
                 nameof(RttiArrayOperationCompilationTests.CoreClrZeroBoundRankOneNormalizationIsNotRequired),
                 KnownNonBugSkipReasons.ZeroBoundRankOneArrayIdentity),

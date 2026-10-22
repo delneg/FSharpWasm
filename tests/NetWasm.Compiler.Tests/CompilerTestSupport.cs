@@ -75,7 +75,8 @@ internal static class CompilerTestSupport
             _ => null,
             intrinsics,
             new WasmOptimizationSettingsResolver().Resolve(
-                FinalWasmOptimization.Oz));
+                FinalWasmOptimization.Oz),
+            PlatformWorldCapabilities.None);
     }
 
     internal static ManagedLayoutSnapshot CreateLayouts(
@@ -370,6 +371,8 @@ internal static class CompilerTestSupport
             "exception_frame_set_environment:(token,environment)=>{" +
             "exceptionFrames[token-1].environment=environment;}," +
             "exception_frame_leave:token=>{if(token!==exceptionFrames.length)throw Error('EH frame');" +
+            "departedExceptionFrame=exceptionFrames.pop();}," +
+            "exception_frame_unwind:token=>{if(token!==exceptionFrames.length)throw Error('EH frame');" +
             "departedExceptionFrame=exceptionFrames.pop();}," +
             "exception_frame_target_clause:token=>{if(token!==exceptionFrames.length+1)throw Error('EH query');return departedExceptionFrame.targetClause;}," +
             "finalizer_safepoint:z,collect:()=>{collectionCount++;}};" +

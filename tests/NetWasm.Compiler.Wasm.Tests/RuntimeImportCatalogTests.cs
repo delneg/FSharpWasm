@@ -30,6 +30,7 @@ public sealed class RuntimeImportCatalogTests
             RuntimeAbi.RuntimeEndCatch,
             RuntimeAbi.RuntimeExceptionFrameEnter,
             RuntimeAbi.RuntimeExceptionFrameLeave,
+            RuntimeAbi.RuntimeExceptionFrameUnwind,
             RuntimeAbi.RuntimeExceptionFrameTargetClause,
             RuntimeAbi.RuntimeRegisterValueType,
             RuntimeAbi.RuntimeAllocateValueArray,

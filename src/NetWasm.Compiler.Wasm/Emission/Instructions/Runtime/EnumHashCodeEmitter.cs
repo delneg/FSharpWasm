@@ -5,6 +5,7 @@ using NetWasm.Compiler.Core;
 using NetWasm.Compiler.Wasm;
 using NetWasm.Compiler.Wasm.Emission;
 using NetWasm.Compiler.Wasm.Emission.GeneratedFunctions;
+using NetWasm.Compiler.Wasm.Emission.Planning;
 
 namespace NetWasm.Compiler.Wasm.Emission.Instructions.Runtime;
 
@@ -21,7 +22,8 @@ internal sealed class EnumHashCodeEmitter(
         int receiver,
         int result,
         int temporaryI4,
-        int temporaryI8)
+        int temporaryI8,
+        OptionalFunctionIndex throwFunction)
     {
         if (receiverKind == CliValueKind.ManagedAddress)
         {
@@ -43,7 +45,7 @@ internal sealed class EnumHashCodeEmitter(
             code.Write(WasmInstruction.WithOperand(WasmOpcodes.LocalSet, WasmInstructionOperand.Unsigned((uint)(result))));
             return;
         }
-        nullChecks.Emit(code, receiver);
+        nullChecks.Emit(code, receiver, throwFunction);
         code.Write(WasmInstruction.WithOperand(WasmOpcodes.I32Constant, WasmInstructionOperand.Signed(0)));
         code.Write(WasmInstruction.WithOperand(WasmOpcodes.LocalSet, WasmInstructionOperand.Unsigned((uint)(temporaryI4))));
         var enumStorages = storages.Resolve();

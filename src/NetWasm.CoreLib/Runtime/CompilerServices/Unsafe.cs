@@ -3,6 +3,7 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System.Diagnostics.CodeAnalysis;
+using System.Runtime.InteropServices;
 
 namespace System.Runtime.CompilerServices
 {
@@ -114,19 +115,13 @@ namespace System.Runtime.CompilerServices
             destination = AsRef<T>(source);
 
         public static void CopyBlock(void* destination, void* source, uint byteCount) =>
-            CopyBlock(ref AsRef<byte>(destination), ref AsRef<byte>(source), byteCount);
+            NativeMemory.Copy(source, destination, byteCount);
 
         public static void CopyBlock(
             ref byte destination,
             ref readonly byte source,
-            uint byteCount)
-        {
-            for (uint index = 0; index < byteCount; index++)
-            {
-                AddByteOffset(ref destination, index) =
-                    AddByteOffset(ref AsRef(in source), index);
-            }
-        }
+            uint byteCount) =>
+            CopyBlock(AsPointer(ref destination), AsPointer(in source), byteCount);
 
         public static void CopyBlockUnaligned(void* destination, void* source, uint byteCount) =>
             CopyBlock(destination, source, byteCount);
@@ -138,15 +133,10 @@ namespace System.Runtime.CompilerServices
             CopyBlock(ref destination, in source, byteCount);
 
         public static void InitBlock(void* startAddress, byte value, uint byteCount) =>
-            InitBlock(ref AsRef<byte>(startAddress), value, byteCount);
+            NativeMemory.Fill(startAddress, byteCount, value);
 
-        public static void InitBlock(ref byte startAddress, byte value, uint byteCount)
-        {
-            for (uint index = 0; index < byteCount; index++)
-            {
-                AddByteOffset(ref startAddress, index) = value;
-            }
-        }
+        public static void InitBlock(ref byte startAddress, byte value, uint byteCount) =>
+            InitBlock(AsPointer(ref startAddress), value, byteCount);
 
         public static void InitBlockUnaligned(void* startAddress, byte value, uint byteCount) =>
             InitBlock(startAddress, value, byteCount);

@@ -76,7 +76,7 @@ internal sealed class StructuredControlFlowOwnershipProjector : IStructuredContr
             },
             StructuredLoopDraft loop => loop with
             {
-                IsOriginal = Owns(loop.ConditionBlock.Index),
+                IsOriginal = loop.ConditionBlock is not { } condition || Owns(condition.Index),
                 Body = Project(loop.Body),
                 ContinueBody = Project(loop.ContinueBody),
                 ExitBody = Project(loop.ExitBody),

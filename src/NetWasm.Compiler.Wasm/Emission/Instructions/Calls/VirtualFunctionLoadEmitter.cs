@@ -40,7 +40,7 @@ internal sealed class VirtualFunctionLoadEmitter(
             request.Context,
             receiver,
             CliValueKind.NativeInt);
-        EmitNullCheck(code, receiverLocal);
+        EmitNullCheck(code, receiverLocal, request.Context.ManagedThrowFunction);
         var caller = request.Header.MethodInstance?.CanonicalName ??
                      throw new InvalidOperationException(
                          "a virtual function-load requires a method instance caller");
@@ -64,7 +64,7 @@ internal sealed class VirtualFunctionLoadEmitter(
             code.Write(WasmInstruction.WithOperand(WasmOpcodes.LocalSet, WasmInstructionOperand.Unsigned((uint)(functionLocal))));
             code.Write(WasmInstruction.NoOperand(WasmOpcodes.Else));
         }
-        exceptions.Emit(code, ManagedExceptionKind.InvalidCast);
+        exceptions.Emit(code, ManagedExceptionKind.InvalidCast, request.Context.ManagedThrowFunction);
         for (var index = 0; index < dispatch.Targets.Length; index++)
         {
             code.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
@@ -72,13 +72,16 @@ internal sealed class VirtualFunctionLoadEmitter(
         request.Stack[receiver] = CliValueKind.NativeInt;
     }
 
-    private void EmitNullCheck(IWasmInstructionWriter code, int receiverLocal)
+    private void EmitNullCheck(
+        IWasmInstructionWriter code,
+        int receiverLocal,
+        OptionalFunctionIndex throwFunction)
     {
         code.Write(WasmInstruction.WithOperand(WasmOpcodes.LocalGet, WasmInstructionOperand.Unsigned((uint)(receiverLocal))));
         if (layouts.Target.UsesMemory64) code.Write(WasmInstruction.NoOperand(WasmOpcodes.I64EqualZero));
         else code.Write(WasmInstruction.NoOperand(WasmOpcodes.I32EqualZero));
         code.Write(WasmInstruction.WithOperand(WasmOpcodes.If, WasmInstructionOperand.BlockType(WasmOpcodes.EmptyBlockType)));
-        exceptions.Emit(code, ManagedExceptionKind.NullReference);
+        exceptions.Emit(code, ManagedExceptionKind.NullReference, throwFunction);
         code.Write(WasmInstruction.NoOperand(WasmOpcodes.End));
     }
 

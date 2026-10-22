@@ -439,6 +439,8 @@ public sealed class NativeCallEmitterTests
 
     private sealed class RecordingIndices(CompilerException? error = null) : IFunctionIndexResolver
     {
+        public OptionalFunctionIndex ManagedThrowFunction => OptionalFunctionIndex.At(7);
+
         public int Resolve(InteropImportKey import) => Resolve(import.Method);
 
         public MethodInstanceModel? LastMethod { get; private set; }

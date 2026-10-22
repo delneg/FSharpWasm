@@ -10,6 +10,7 @@ using NetWasm.Compiler.Wasm.Encoding;
 namespace NetWasm.Compiler.Wasm.Tests;
 
 using static EmitterTestSupport;
+using NetWasm.Compiler.Wasm.Emission.Planning;
 
 public sealed class ArrayGetValueIntrinsicEmitterTests
 {
@@ -60,6 +61,40 @@ public sealed class ArrayGetValueIntrinsicEmitterTests
         Assert.Equal([ManagedExceptionKind.OutOfMemory], exceptions.Kinds);
     }
 
+    [Fact]
+    public void SkipsANullableDescriptorWhoseUnderlyingTypeIsNeverBoxed()
+    {
+        // Analysis boxes T only for Nullable<T> array elements, so a Nullable<T> that no array
+        // holds has no boxed layout and needs no element branch.
+        var layout = new RecordingLayoutProvider(WasmTargetLayout.Wasm32);
+        var addresses = new RecordingAddresses();
+        var emitter = new ArrayGetValueIntrinsicEmitter(new RecordingReceiver(), WasmRuntimeImports.CreateCatalog(),
+            addresses, new RecordingExceptions(), new RecordingRoots(), new Descriptors(true),
+            new NullableTypeResolver(), new UnboxedLayouts(layout), layout, layout);
+        var request = CreateRuntimeIntrinsicRequest(RuntimeIntrinsic.ArrayGetValue,
+            [CliValueKind.ManagedReference, CliValueKind.I4]);
+        var writer = new RecordingInstructionWriter();
+
+        emitter.Emit(request, writer);
+
+        Assert.Equal(1, writer.ToInstructions().Count(i => i.Opcode == WasmOpcodes.If));
+        Assert.Equal<int>([0, 1], addresses.Constants);
+    }
+
+    private sealed class UnboxedLayouts(RecordingLayoutProvider layouts) : ITypeLayoutProvider
+    {
+        public ObjectLayout GetObjectLayout(CliTypeIdentity type) => throw new InvalidOperationException();
+        public bool GetObjectLayout(CliTypeIdentity type, out ObjectLayout layout)
+        {
+            layout = default;
+            return false;
+        }
+        public ObjectLayout GetObjectLayout(EntityKey type) => layouts.GetObjectLayout(type);
+        public int ReferenceArrayTypeId => layouts.ReferenceArrayTypeId;
+        public int StringTypeId => layouts.StringTypeId;
+        public int TypeTypeId => layouts.TypeTypeId;
+    }
+
     private sealed class Descriptors(bool nullable) : ITypeDescriptorSource
     {
         internal static readonly CliTypeIdentity Underlying = CliTypeIdentity.FromStackKind(CliValueKind.I4);
@@ -78,7 +113,7 @@ public sealed class ArrayGetValueIntrinsicEmitterTests
         public IWasmInstructionWriter? Writer { get; private set; }
         public int InstructionCount { get; private set; }
 
-        public void Validate(IWasmInstructionWriter code, int receiverLocal)
+        public void Validate(IWasmInstructionWriter code, int receiverLocal, OptionalFunctionIndex throwFunction)
         {
             Local = receiverLocal;
             Writer = code;
@@ -113,6 +148,6 @@ public sealed class ArrayGetValueIntrinsicEmitterTests
     private sealed class RecordingExceptions : IImplicitExceptionEmitter
     {
         public List<ManagedExceptionKind> Kinds { get; } = [];
-        public void Emit(IWasmInstructionWriter code, ManagedExceptionKind kind) => Kinds.Add(kind);
+        public void Emit(IWasmInstructionWriter code, ManagedExceptionKind kind, OptionalFunctionIndex throwFunctionIndex) => Kinds.Add(kind);
     }
 }

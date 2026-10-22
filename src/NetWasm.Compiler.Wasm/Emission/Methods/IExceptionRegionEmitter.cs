@@ -12,10 +12,10 @@ internal interface IExceptionRegionEmitter
         StructuredMethod method,
         StructuredExceptionRegion region,
         MethodEmissionContext context,
-        bool isOutermost,
         ModuleDataPlan moduleData,
         Action<StructuredSequence, MethodEmissionContext, int?, int?, int?> emitSequence,
         int? loopBreakDepth = null,
         int? loopContinueDepth = null,
-        int? dispatcherContinueDepth = null);
+        int? dispatcherContinueDepth = null,
+        int? enclosingLeaveDepth = null);
 }

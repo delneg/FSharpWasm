@@ -198,6 +198,75 @@ public sealed class RuntimeFunctionAppenderTests
             boundaries[^1].Kind);
     }
 
+    [Fact]
+    public void ProcessEntryRunsACommandWorldMainSynchronouslyThroughItsCompletion()
+    {
+        var entries = new RecordingEntryPointEmitter();
+        var wrapper = new FixedAsyncWrapperEmitter();
+        var helpers = new FixedAsyncHelperAppender();
+        var functionTypes = new FixedFunctionTypeResolver();
+        var boundaryBuilder = new FixedBoundaryBuilder();
+        IRuntimeFunctionAppender appender = new[]
+        {
+            new RuntimeFunctionAppender(
+                new FixedDescriptorSource(false),
+                new FixedFilterDispatcherEmitter(),
+                new RecordingFinalizerEmitter(),
+                entries,
+                functionTypes,
+                new OutwardMethodFunctionAppender(
+                    wrapper,
+                    helpers,
+                    entries,
+                    functionTypes,
+                    boundaryBuilder,
+                    WasmRuntimeImports.CreateCatalog()),
+                boundaryBuilder),
+        }.Cast<IRuntimeFunctionAppender>().Single();
+        var method = new FakeProgram().GetMethod(EmitterTestSupport.EntryKey);
+        var instance = new MethodInstanceModel(
+            method,
+            CliTypeIdentity.Named(
+                EmitterTestSupport.Assembly,
+                "Tests",
+                "TaskSource",
+                isValueType: false),
+            [],
+            method.Signature);
+        var run = instance with { Signature = MethodSignatureModel.Create(CliValueKind.Void) };
+        var binding = new JavaScriptAsyncMethodBinding(
+            method.Key,
+            new(JavaScriptAsyncReturnKind.Task, null),
+            instance.DeclaringType,
+            instance,
+            instance,
+            instance)
+        { GetVoidResult = instance, CommandEntryPoint = run };
+        var functions = new List<WasmFunctionDefinition>();
+        var boundaries = new List<ManagedBoundaryPlanEntry>();
+
+        var result = appender.Append(
+            functions,
+            0,
+            [],
+            ImmutableDictionary<int, int>.Empty,
+            method,
+            TestRuntimeInitialization.Create(0),
+            WasmEntryPointProfile.Process,
+            binding,
+            new Dictionary<string, int>(),
+            new FixedFunctionIndexResolver(),
+            boundaries);
+
+        Assert.Equal(2, result.EntryPointIndex);
+        Assert.Equal(0, wrapper.Count);
+        Assert.Equal(0, helpers.Count);
+        Assert.Equal(1, entries.Count);
+        Assert.Same(run, entries.Completion);
+        Assert.Equal(CliValueKind.Void, functions[^1].Type.Result);
+        Assert.Equal(ManagedBoundaryKind.ProcessEntryPoint, boundaries[^1].Kind);
+    }
+
     private static IRuntimeFunctionAppender CreateAppender() => new[]
     {
         CreateRuntimeAppender(),
@@ -301,6 +370,7 @@ public sealed class RuntimeFunctionAppenderTests
         public int Count { get; private set; }
         public bool HasFinalizers { get; private set; }
         public bool ReportTerminalExceptions { get; private set; }
+        public MethodInstanceModel? Completion { get; private set; }
 
         public byte[] Emit(
             MethodDefinitionModel entryPoint,
@@ -308,11 +378,13 @@ public sealed class RuntimeFunctionAppenderTests
             bool hasFinalizers,
             IFunctionIndexResolver functionIndices,
             bool reportTerminalExceptions,
-            EntityKey? argumentFactory)
+            EntityKey? argumentFactory,
+            MethodInstanceModel? completion)
         {
             Count++;
             HasFinalizers = hasFinalizers;
             ReportTerminalExceptions = reportTerminalExceptions;
+            Completion = completion;
             return [3];
         }
     }
@@ -364,6 +436,8 @@ public sealed class RuntimeFunctionAppenderTests
 
     private sealed class FixedFunctionIndexResolver : IFunctionIndexResolver
     {
+        public OptionalFunctionIndex ManagedThrowFunction => OptionalFunctionIndex.At(7);
+
         public int Resolve(InteropImportKey import) => Resolve(import.Method);
 
         public int Resolve(EntityKey method) => 0;

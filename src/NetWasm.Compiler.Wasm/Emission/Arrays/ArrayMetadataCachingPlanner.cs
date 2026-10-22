@@ -273,14 +273,19 @@ internal sealed class ArrayMetadataCachingPlanner(
                     CollectLoopOffsets(conditional.WhenTrue, method, repeating, offsets, loopEntries, preTested);
                     CollectLoopOffsets(conditional.WhenFalse, method, repeating, offsets, loopEntries, preTested);
                     break;
-                case StructuredLoop loop:
-                    preTested.Add(loop.Condition.Block);
-                    AddLoop(loop.Condition, loop.Body, loop.ContinueBody);
+                case StructuredLoop { Condition: { } condition } loop:
+                    preTested.Add(condition.Block);
+                    AddLoop(condition, loop.Body, loop.ContinueBody);
                     CollectLoopOffsets(loop.ExitBody, method, repeating, offsets, loopEntries, preTested);
                     break;
                 case StructuredPostTestLoop loop:
                     AddLoop(loop.Condition, loop.Body, loop.ContinueBody);
                     CollectLoopOffsets(loop.ExitBody, method, repeating, offsets, loopEntries, preTested);
+                    break;
+                case StructuredLoop loop:
+                    // Like a dispatcher, an unconditional loop has no entry
+                    // condition to snapshot metadata before; its body repeats.
+                    CollectLoopOffsets(loop.Body, method, true, offsets, loopEntries, preTested);
                     break;
                 case StructuredSequence nested:
                     CollectLoopOffsets(nested, method, repeating, offsets, loopEntries, preTested);

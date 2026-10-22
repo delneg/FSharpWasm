@@ -11,7 +11,7 @@ internal sealed class ArrayLengthEmitter(
     public void EmitLength(RuntimeIntrinsicEmissionRequest request, IWasmInstructionWriter code)
     {
         var array = request.Local(0, CliValueKind.ManagedReference);
-        receivers.Validate(code, array);
+        receivers.Validate(code, array, request.Instruction.Context.ManagedThrowFunction);
         code.Write(WasmInstruction.WithOperand(
             WasmOpcodes.LocalGet,
             WasmInstructionOperand.Unsigned((uint)array)));

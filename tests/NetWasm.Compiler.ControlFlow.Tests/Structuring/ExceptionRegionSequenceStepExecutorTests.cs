@@ -19,7 +19,8 @@ public sealed class ExceptionRegionSequenceStepExecutorTests
             new ReachableSetOverlapClassifier(),
             new DispatcherBoundaryClipper(),
             joins,
-            reachableBlocks);
+            reachableBlocks,
+            new DispatcherFallthroughExitClassifier());
         var state = ControlFlowStructuringStateTestFactory.Create();
         var recursiveBuilder = new StructuredControlFlowBuilderProbe();
         var regions = ImmutableArray.CreateBuilder<StructuredRegionDraft>();

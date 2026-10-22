@@ -137,6 +137,8 @@ public sealed class AsyncJSImportHelperAppenderTests
 
     private sealed class FixedFunctionIndexResolver : IFunctionIndexResolver
     {
+        public OptionalFunctionIndex ManagedThrowFunction => OptionalFunctionIndex.At(7);
+
         public int Resolve(InteropImportKey import) => Resolve(import.Method);
 
         public int Resolve(EntityKey method) => 0;

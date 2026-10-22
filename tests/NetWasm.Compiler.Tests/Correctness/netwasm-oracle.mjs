@@ -623,13 +623,14 @@ var dispatchException = exception => {
         if (kind === 0) {
           accepted = isAssignable(exception, entry.value);
         } else {
-          var saved = [lastException, filterSearchFloor];
+          var saved = [lastException, filterSearchFloor, stackTraceFrames.length];
           filterSearchFloor = frame;
           accepted = application.exports["netwasm.filter"](
             entry.value,
             exception,
             active.environment);
           [lastException, filterSearchFloor] = saved;
+          stackTraceFrames.length = saved[2];
         }
       } else {
         accepted = isAssignable(
@@ -902,6 +903,7 @@ var runtimeValues = {
       count,
       environment: 0,
       targetClause: 0,
+      stackTraceDepth: stackTraceFrames.length,
     });
     return exceptionFrames.length;
   },
@@ -910,6 +912,17 @@ var runtimeValues = {
   },
   exception_frame_leave(token) {
     if (token !== exceptionFrames.length) throw new Error("unbalanced EH frame");
+    departedExceptionFrame = exceptionFrames.pop();
+  },
+  // Methods leave their frames only on normal exit, so a landing pad drops the
+  // stack-trace frames the exception left behind.
+  exception_frame_unwind(token) {
+    if (token !== exceptionFrames.length) throw new Error("unbalanced EH frame");
+    var frame = exceptionFrames[token - 1];
+    if (frame.stackTraceDepth > stackTraceFrames.length) {
+      throw new Error("an exception frame outlived its stack-trace frames");
+    }
+    stackTraceFrames.length = frame.stackTraceDepth;
     departedExceptionFrame = exceptionFrames.pop();
   },
   exception_frame_target_clause(token) {
@@ -951,6 +964,19 @@ try {
       const reactorImports = createReactorOracleImports(target, {
         watch: (_pollable, token) => watchedTokens.push(token),
         cancel: token => canceledTokens.add(token),
+        // Simulated time: every pollable a command world waits on is ready at once, so its event
+        // loop runs each wait in order without sleeping.
+        poll(_pollables, count, result) {
+          var ready = Number(count);
+          var address = componentReallocate(0, 0, 4, ready * 4);
+          var view = createRefreshableDataView(memory);
+          for (var index = 0; index < ready; index++) {
+            view.setUint32(asNumber(address) + index * 4, index, true);
+          }
+          writeAddress(view, result, 0, address);
+          writeAddress(view, result, memory64 ? 8 : 4, ready);
+        },
+        drop() {},
       });
       var instantiated = await WebAssembly.instantiate(bytes, {
         "netwasm.runtime.v1": runtime,

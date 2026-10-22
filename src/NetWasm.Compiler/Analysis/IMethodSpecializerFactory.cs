@@ -18,5 +18,6 @@ internal interface IMethodSpecializerFactory
         ITypeRelationshipClassifier relationships,
         IMethodBodyReader methodBodies,
         WasmOptimizationSettings optimizationSettings,
-        IRuntimeIntrinsicRegistry intrinsics);
+        IRuntimeIntrinsicRegistry intrinsics,
+        PlatformWorldCapabilities world);
 }
