@@ -38,13 +38,14 @@ those notices in addition to the path assignment.
 
 ## Free-use thresholds
 
-A qualifying small organization is not a Government Entity, has fewer than 250
-Employees, and has Annual Revenue below USD 10,000,000, with Employees and
-revenue counted across Affiliates. It may use the tooling internally for any
-purpose and may sell, license, host, deploy, or distribute unlimited Generated
-Output. Other free uses include personal non-commercial work, education and
-academic research, qualifying open-source work, official NetWasm contributions,
-and a 30-day internal evaluation.
+Small and medium-sized businesses can use NetWasm free. An organization
+qualifies when it is not a Government Entity, has fewer than 250 Employees, and
+has Annual Revenue below USD 10,000,000, with Employees and revenue counted
+across Affiliates. It may use the tooling internally for any purpose and may
+sell, license, host, deploy, or distribute unlimited Generated Output. Other
+free uses include personal non-commercial work, education and academic
+research, qualifying open-source work, official NetWasm contributions, and a
+30-day internal evaluation.
 
 ## Sponsors commercial tiers
 

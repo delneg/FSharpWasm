@@ -120,7 +120,7 @@ document, maintain, or distribute a software project for which:
    specifically for that work or uses that work primarily to obtain a direct
    commercial advantage.
 
-**Qualifying Small Organization** means an Organization that:
+**Qualifying Organization** means an Organization that:
 
 1. is not a Government Entity;
 2. has fewer than 250 Employees at the time of use; **and**
@@ -203,13 +203,13 @@ the first evaluation use by you or your Organization. Evaluation may not be
 used for production workloads, customer deliverables, or a Commercial
 Offering.
 
-### 4.6 Use by a Qualifying Small Organization
+### 4.6 Use by a Qualifying Organization
 
-Internal use by a Qualifying Small Organization for any purpose, including
+Internal use by a Qualifying Organization for any purpose, including
 commercial software development, production builds, and creation of products
 or services.
 
-A Qualifying Small Organization may sell, license, host, deploy, or distribute
+A Qualifying Organization may sell, license, host, deploy, or distribute
 unlimited Generated Output without royalties or additional fees under this
 License. This Section does not authorize a Commercial Offering of the Software
 itself.
@@ -224,7 +224,7 @@ community, research, nonprofit, accessibility, or public-interest grant.
 A contractor or service provider may use the Software directly for a client
 only when both the service provider and that direct client are each either:
 
-1. a Qualifying Small Organization;
+1. a Qualifying Organization;
 2. independently entitled to another Permitted Free Use for that work; or
 3. covered by a Commercial License.
 
@@ -236,7 +236,7 @@ NetWasm.
 
 A Commercial License or Sponsors Commercial Grant is required for:
 
-1. any use by or for an Organization that is not a Qualifying Small
+1. any use by or for an Organization that is not a Qualifying
    Organization, unless the particular use independently qualifies under
    Sections 4.2, 4.3, 4.4, 4.5, or 4.7;
 2. any Commercial Offering, regardless of the user’s size, revenue, or
@@ -278,7 +278,7 @@ in Generated Output remain governed by Section 8.
 
 ## 6. Change in qualification
 
-If an Organization ceases to be a Qualifying Small Organization, its rights
+If an Organization ceases to be a Qualifying Organization, its rights
 under Section 4.6 continue for 60 days solely to allow it to obtain a
 Commercial License or stop using the Software. Generated Output created before
 or during that period remains governed by Section 8.
