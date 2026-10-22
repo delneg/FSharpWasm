@@ -179,7 +179,7 @@ internal sealed class RepeatedArrayAccessPlanner(IControlFlowDominanceAnalyzer d
                 var stored = Stored(instruction);
                 // A value already on the stack still holds the old one.
                 for (var i = 0; i < origins.Count; i++)
-                    if (origins[i].Slot == stored) origins[i] = Origin.Unknown;
+                    if (Nullable.Equals(origins[i].Slot, stored)) origins[i] = Origin.Unknown;
                 return;
             case CilOperation.LoadInt32 when instruction.Operand is CilOperand.ConstantI4 constant:
                 origins.Add(new(null, constant.Value, true));
