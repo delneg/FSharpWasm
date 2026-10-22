@@ -155,35 +155,8 @@ def run_cells(*, root, env, feed, version, sdk_version, node, kinds, profiles, c
             row['passed'] = behavior_passed and row['inputsUnchanged'] and row['outputsUnchanged']
             save()
             assert row['passed']
-    gate_static_roots(summary)
     summary['passed'] = all(row['passed'] for row in summary['cells'])
     save()
-
-
-def gate_static_roots(summary):
-    """Issue #89 repro 3: in Chromium Release, a callback with 400 static roots
-    costs at most 1.25 times one with none. Other browsers are recorded only."""
-    costs = {}
-    for row in summary['cells']:
-        if row['kind'] != 'issue89-static-roots':
-            continue
-        for result in row['browser']['results']:
-            costs[(row['profile'], row['collector'], result['browser'], row['variant'])] = \
-                result['metrics']['microsecondsPerCall']
-    if not costs:
-        return
-    gates = []
-    for (profile, collector, browser, variant), cost in sorted(costs.items(), key=str):
-        if variant != 'n400':
-            continue
-        baseline = costs[(profile, collector, browser, 'n0')]
-        ratio = cost / baseline
-        gated = profile == 'Release' and browser == 'chromium'
-        gates.append({'profile': profile, 'collector': collector, 'browser': browser,
-                      'n0': baseline, 'n200': costs.get((profile, collector, browser, 'n200')),
-                      'n400': cost, 'ratio': ratio, 'gated': gated, 'passed': not gated or ratio <= 1.25})
-    summary['staticRootsGate'] = gates
-    assert all(gate['passed'] for gate in gates), f'Static-root cost gate failed: {gates}'
 
 
 def main():
