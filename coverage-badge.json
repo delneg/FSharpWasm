@@ -1,0 +1,6 @@
+{
+  "schemaVersion": 1,
+  "label": "compiler coverage",
+  "message": "100% lines, 100% branches",
+  "color": "brightgreen"
+}
