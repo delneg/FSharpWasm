@@ -52,26 +52,25 @@ public sealed class UnsupportedBoundaryCompilationTests
     }
 
     [Fact]
-    public void ManagedThreadsAreAbsentFromThePlatformSurface()
+    public void ManagedThreadsAreEventLoopWorkOnThePlatformSurface()
     {
+        // FSharp.Core's async starts work with Thread and ThreadPool, so CoreLib has
+        // them as work scheduled on the single-threaded event loop (no OS threads).
         using var assets = TestAssets.Create();
 
-        var exception = Assert.Throws<RoslynCompilationException>(() =>
-            assets.CompileSource(
-                "ThreadFixture",
-                """
-                public static class EntryPoint
+        assets.CompileSource(
+            "ThreadFixture",
+            """
+            public static class EntryPoint
+            {
+                public static int Run(int input)
                 {
-                    public static int Run(int input)
-                    {
-                        var thread = new System.Threading.Thread(() => { });
-                        thread.Start();
-                        return input;
-                    }
+                    var thread = new System.Threading.Thread(() => { });
+                    thread.Start();
+                    return input;
                 }
-                """));
-
-        Assert.Equal(["CS0234"], exception.DiagnosticCodes);
+            }
+            """);
     }
 
     [Fact]

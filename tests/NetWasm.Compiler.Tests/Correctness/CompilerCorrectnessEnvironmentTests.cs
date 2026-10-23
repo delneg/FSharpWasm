@@ -69,7 +69,7 @@ public sealed class CompilerCorrectnessEnvironmentTests
         Assert.True(File.Exists(environment.CoreLibPath));
         Assert.True(Directory.Exists(environment.DesktopReferenceDirectory));
         Assert.True(File.Exists(environment.NodeRunnerPath));
-        Assert.Equal("10.0.401", environment.SdkVersion);
+        Assert.Equal("11.0.100-rc.2.26504.105", environment.SdkVersion);
         Assert.Equal(TimeSpan.FromMinutes(10), environment.ProcessTimeout);
     }
 }
