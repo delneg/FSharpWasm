@@ -17,5 +17,11 @@ namespace System.Runtime.InteropServices
         // program needs to run its own event loop.
         [MethodImpl(MethodImplOptions.NoInlining)]
         internal static bool ImportsEventLoop() => true;
+
+        // True for F# programs (FSharp.Core is in the closed world). An F# entry point cannot be
+        // asynchronous, so there a blocking wait on an incomplete task runs the event loop until
+        // the task completes, as an asynchronous Main would. Elsewhere it throws, as on Mono.
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        internal static bool BlockingWaitDrivesEventLoop() => false;
     }
 }

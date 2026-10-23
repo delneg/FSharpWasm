@@ -52,7 +52,7 @@ internal sealed class MethodSpecializerFactory(
                     optimizationSettings.LoopInvariantFieldHoisting)),
             new RectangularArrayCallRewriter(),
             new IntrinsicCallRewriter(calledMethods, symbols),
-            new PlatformWorldCallRewriter(calledMethods, symbols, world),
+            new PlatformWorldCallRewriter(calledMethods, symbols, world, types),
             new ClosedTypeIsValueTypeCallRewriter(calledMethods, symbols),
             new InterlockedCallRewriter(calledMethods, symbols),
             new ActivatorCallRewriter(

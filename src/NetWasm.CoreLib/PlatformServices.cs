@@ -389,6 +389,32 @@ namespace System.Runtime.InteropServices
             _commandScheduler.RunUntilCompleted(task);
         }
 
+        // A blocking wait in an F# program (see PlatformWorld.BlockingWaitDrivesEventLoop): runs the
+        // command world's event loop until done() holds. Returns false when it cannot: elsewhere,
+        // in a reactor world, or when no scheduled work or pending I/O remains.
+        internal static bool RunEventLoopUntil(Func<bool> done)
+        {
+            if (done == null)
+            {
+                throw new ArgumentNullException();
+            }
+
+            if (done())
+            {
+                return true;
+            }
+
+            if (!PlatformWorld.BlockingWaitDrivesEventLoop() ||
+                PlatformWorld.ImportsReactorHost() ||
+                !PlatformWorld.ImportsEventLoop())
+            {
+                return false;
+            }
+
+            _ = Scheduler;
+            return _commandScheduler != null && _commandScheduler.RunUntil(done);
+        }
+
         internal static void EnsureLocalTimeReady()
         {
             if (_localTimeReady)

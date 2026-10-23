@@ -85,6 +85,25 @@ namespace System.Runtime.InteropServices
             }
         }
 
+        // Runs the loop until done() holds. Returns false when nothing is scheduled and done() still
+        // does not hold, so the caller can never be released.
+        internal bool RunUntil(Func<bool> done)
+        {
+            if (done == null)
+            {
+                throw new ArgumentNullException();
+            }
+
+            while (!done())
+            {
+                if (!RunOnce())
+                {
+                    return false;
+                }
+            }
+            return true;
+        }
+
         // Runs the work that is ready now. When none is, waits once for any pollable and runs the
         // work it released. Returns false when nothing is scheduled at all.
         internal bool RunOnce()

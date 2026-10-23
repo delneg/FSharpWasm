@@ -2315,8 +2315,33 @@ namespace System.Threading.Tasks
 
         internal void GetVoidResult() => GetVoidResult(suppressThrowing: false);
 
+        // A blocking wait on an incomplete task throws PlatformNotSupportedException, as on Mono's
+        // WASI runtime, except in F# programs, where it runs the command world's event loop until
+        // the task completes (see PlatformWorld.BlockingWaitDrivesEventLoop).
+        private protected void DriveEventLoopForBlockingWait()
+        {
+            if (!IsCompleted && Runtime.InteropServices.PlatformWorld.BlockingWaitDrivesEventLoop())
+            {
+                Runtime.InteropServices.PlatformServices.RunEntryPointToCompletion(this);
+            }
+        }
+
+        public void Wait()
+        {
+            GetVoidResult(suppressThrowing: true);
+            if (IsFaulted)
+            {
+                throw Exception!;
+            }
+            if (IsCanceled)
+            {
+                throw new AggregateException(new TaskCanceledException());
+            }
+        }
+
         internal void GetVoidResult(bool suppressThrowing)
         {
+            DriveEventLoopForBlockingWait();
             if (!IsCompleted)
             {
                 throw new PlatformNotSupportedException();
@@ -2760,6 +2785,7 @@ namespace System.Threading.Tasks
 
         private void GetResultCore()
         {
+            DriveEventLoopForBlockingWait();
             if (!IsCompleted)
             {
                 throw new PlatformNotSupportedException();

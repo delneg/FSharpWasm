@@ -1,6 +1,7 @@
 using System;
 using System.Linq;
 using NetWasm.Compiler.Core;
+using NetWasm.Compiler.Metadata;
 
 namespace NetWasm.Compiler.Analysis;
 
@@ -10,9 +11,28 @@ namespace NetWasm.Compiler.Analysis;
 internal sealed class PlatformWorldCallRewriter(
     ICalledMethodResolver calledMethods,
     ISymbolFormatter symbols,
-    PlatformWorldCapabilities world) : IMethodRewriteRule
+    PlatformWorldCapabilities world,
+    ITypeFinder? types = null) : IMethodRewriteRule
 {
     private const string PlatformWorldType = "System.Runtime.InteropServices.PlatformWorld";
+    private readonly Lazy<bool> _fsharpProgram = new(() => IsFSharpProgram(types));
+
+    // An F# program links FSharp.Core, whose Unit type every F# assembly uses.
+    private static bool IsFSharpProgram(ITypeFinder? types)
+    {
+        if (types is null)
+        {
+            return false;
+        }
+        try
+        {
+            return types.FindType("Microsoft.FSharp.Core.Unit").Key.Assembly.Name == "FSharp.Core";
+        }
+        catch (CompilerException)
+        {
+            return false;
+        }
+    }
 
     public CilMethodBody Rewrite(CilMethodBody body)
     {
@@ -34,6 +54,7 @@ internal sealed class PlatformWorldCallRewriter(
             {
                 "ImportsReactorHost" => world.ReactorHost,
                 "ImportsEventLoop" => world.EventLoop,
+                "BlockingWaitDrivesEventLoop" => _fsharpProgram.Value,
                 _ => (bool?)null,
             };
             if (value is not { } known)

@@ -47,7 +47,7 @@ internal sealed class RuntimeGenericArgumentMetadataBuilder(
                     TypeDefinitionModel? definition = null;
                     if (argument.Identity.Shape != CliTypeShape.GenericTypeParameter &&
                         (typeDefinitions is null ||
-                         argument.Identity.Shape is not (CliTypeShape.Named or CliTypeShape.GenericInstantiation) ||
+                         argument.Identity.Shape is not (CliTypeShape.Named or CliTypeShape.GenericInstantiation or CliTypeShape.Primitive) ||
                          (definition = typeDefinitions.ResolveTypeIdentity(argument.Identity)) is null))
                     {
                         throw new CompilerException(new CompilerDiagnostic(
