@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- The compiler's F#-specific rules, written in F#: FSharp.Core calls that
+       NetWasm sends to NetWasm.FSharp.Core instead. NetWasm.Compiler runs them
+       with its other method rewrite rules. -->
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <Nullable>disable</Nullable>
+    <Tailcalls>false</Tailcalls>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+  </PropertyGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="NetWasm.Compiler" />
+    <InternalsVisibleTo Include="NetWasm.Compiler.Tests" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="Library.fs" />
+    <Compile Include="FSharpPrintfCallRewriter.fs" />
+    <Compile Include="FSharpCoreMessageFormatRewriter.fs" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../NetWasm.Compiler.Metadata/NetWasm.Compiler.Metadata.csproj" />
+  </ItemGroup>
+</Project>

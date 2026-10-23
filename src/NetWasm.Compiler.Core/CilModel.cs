@@ -178,6 +178,9 @@ public sealed record CilInstruction(
     public int? OriginalOffset { get; init; }
 
     public int SourceOffset => OriginalOffset ?? Offset;
+
+    /// <summary>This instruction with another operand; for languages without <c>with</c> on records.</summary>
+    public CilInstruction WithOperand(CilOperand operand) => this with { Operand = operand };
 }
 
 public sealed record CilMethodBody(
@@ -194,6 +197,10 @@ public sealed record CilMethodBody(
         [.. Locals.Select(CliTypeIdentity.FromStackKind)];
 
     public ImmutableArray<CilExceptionRegion> ExceptionRegions { get; init; } = [];
+
+    /// <summary>This body with other instructions; for languages without <c>with</c> on records.</summary>
+    public CilMethodBody WithInstructions(ImmutableArray<CilInstruction> instructions) =>
+        this with { Instructions = instructions };
 }
 
 public enum CilExceptionRegionKind

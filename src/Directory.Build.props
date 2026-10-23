@@ -11,5 +11,8 @@
     <AnalysisLevel>latest-recommended</AnalysisLevel>
     <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
     <ContinuousIntegrationBuild>true</ContinuousIntegrationBuild>
+    <!-- English only: packages that flatten their dependencies (the tasks, the
+         browser compiler) would otherwise collide on FSharp.Core's satellites. -->
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
   </PropertyGroup>
 </Project>
