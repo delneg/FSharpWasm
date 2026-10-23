@@ -1,0 +1,8 @@
+<Project>
+  <!-- Stops the repository's C# build settings from applying to the F# projects. -->
+  <PropertyGroup>
+    <FsWasmRoot>$(MSBuildThisFileDirectory)</FsWasmRoot>
+    <Deterministic>true</Deterministic>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+  </PropertyGroup>
+</Project>

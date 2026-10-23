@@ -1,0 +1,6 @@
+bin/
+obj/
+artifacts/
+out/
+results/
+target/
