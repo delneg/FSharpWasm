@@ -15,6 +15,7 @@ namespace System
         internal static Type GetTypeFromSemanticId(int semanticTypeId) =>
             throw new PlatformNotSupportedException(
                 "Only compiler-emitted semantic type identities are supported.");
+        public Assembly Assembly => Assembly.ClosedWorld;
         public bool IsValueType => HasFlag(RuntimeTypeFactsFlags.ValueType);
         public bool IsEnum => HasFlag(RuntimeTypeFactsFlags.Enum);
         public bool IsInterface => HasFlag(RuntimeTypeFactsFlags.Interface);

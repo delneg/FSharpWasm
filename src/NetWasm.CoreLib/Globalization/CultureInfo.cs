@@ -30,6 +30,12 @@ public sealed class CultureInfo : IFormatProvider
         set => ValidateInvariant(value);
     }
 
+    public static CultureInfo CurrentUICulture
+    {
+        get => s_invariantCulture;
+        set => ValidateInvariant(value);
+    }
+
     public string Name { get; }
 
     public NumberFormatInfo NumberFormat => NumberFormatInfo.InvariantInfo;

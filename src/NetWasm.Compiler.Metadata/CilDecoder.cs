@@ -80,6 +80,89 @@ internal sealed class CilDecoder(
 
     public CilMethodBody Decode(ManagedAssembly assembly, MethodInstanceModel methodInstance)
     {
+        try
+        {
+            return DecodeBody(assembly, methodInstance);
+        }
+        catch (CompilerException exception) when (
+            assembly.Metadata.AssemblyIdentityAliases.IsTolerant(assembly.Identity) &&
+            exception.Diagnostic.Code is DiagnosticCode.AssemblyResolution or
+                DiagnosticCode.UnsupportedMetadata or DiagnosticCode.UnsupportedCil)
+        {
+            return DecodeUnavailable(assembly, methodInstance, exception.Diagnostic.Message);
+        }
+    }
+
+    // A library compiled against .NET's reference assemblies (FSharp.Core) may
+    // use members NetWasm.CoreLib lacks in methods a program never runs. When
+    // the build marks the library tolerant, such a method compiles to a body
+    // that throws PlatformNotSupportedException with the reason, instead of
+    // failing the whole compilation.
+    private CilMethodBody DecodeUnavailable(
+        ManagedAssembly assembly,
+        MethodInstanceModel methodInstance,
+        string reason)
+    {
+        var method = methodInstance.Definition;
+        var displayName = _symbols.Format(method);
+        var message = $"{displayName} is not available on NetWasm: {reason}";
+        var instructions = ImmutableArray.CreateBuilder<CilInstruction>();
+        if (FindExceptionConstructor(assembly) is int token)
+        {
+            var genericContext = new CliGenericContext([], []);
+            instructions.Add(new CilInstruction(0, 5, CilOperation.LoadString, new CilOperand.UserString(message)));
+            instructions.Add(new CilInstruction(5, 10, CilOperation.NewObject,
+                ResolveMethod(assembly, genericContext, displayName, 5, token)));
+        }
+        else
+        {
+            instructions.Add(new CilInstruction(0, 10, CilOperation.LoadNull, new CilOperand.None()));
+        }
+        instructions.Add(new CilInstruction(10, 11, CilOperation.Throw, new CilOperand.None()));
+        var lowered = switches.Lower(instructions.ToImmutable(), []);
+        return new CilMethodBody(method, 2, [], lowered.Instructions)
+        {
+            MethodInstance = methodInstance,
+            LocalSignatureTypes = [],
+            ExceptionRegions = lowered.ExceptionRegions,
+        };
+    }
+
+    private static int? FindExceptionConstructor(ManagedAssembly assembly)
+    {
+        var reader = assembly.Reader;
+        int? best = null;
+        var bestRank = int.MaxValue;
+        foreach (var handle in reader.MemberReferences)
+        {
+            var reference = reader.GetMemberReference(handle);
+            if (reference.Parent.Kind != HandleKind.TypeReference ||
+                reader.GetString(reference.Name) != ".ctor")
+            {
+                continue;
+            }
+            var type = reader.GetTypeReference((TypeReferenceHandle)reference.Parent);
+            if (reader.GetString(type.Namespace) != "System")
+            {
+                continue;
+            }
+            var rank = Array.IndexOf(
+                ["PlatformNotSupportedException", "NotSupportedException", "InvalidOperationException"],
+                reader.GetString(type.Name));
+            // instance void (string)
+            if (rank < 0 || rank >= bestRank ||
+                !reader.GetBlobBytes(reference.Signature).AsSpan().SequenceEqual(new byte[] { 0x20, 0x01, 0x01, 0x0e }))
+            {
+                continue;
+            }
+            best = MetadataTokens.GetToken(handle);
+            bestRank = rank;
+        }
+        return best;
+    }
+
+    private CilMethodBody DecodeBody(ManagedAssembly assembly, MethodInstanceModel methodInstance)
+    {
         var method = methodInstance.Definition;
         var body = _methodBodies.Read(assembly.PortableExecutableReader, method);
         var displayName = _symbols.Format(method);
@@ -353,6 +436,11 @@ internal sealed class CilDecoder(
             case "constrained.": operation = CilOperation.Constrained; operand = ReadSignatureType(assembly, genericContext, displayName, bytes, ref position, offset); break;
             case "volatile.": operation = CilOperation.Volatile; operand = new CilOperand.None(); break;
             case "readonly.": operation = CilOperation.Readonly; operand = new CilOperand.None(); break;
+            // fsc and FSharp.Core emit tail. before calls in tail position. The
+            // prefix is only a hint, so a tail. call compiles as an ordinary call.
+            // Anywhere else it is invalid CIL and stays rejected.
+            case "tail." when position < bytes.Length && bytes[position] is 0x28 or 0x29 or 0x6f:
+                operation = CilOperation.Nop; operand = new CilOperand.None(); break;
             case "unaligned.": operation = CilOperation.Unaligned; operand = new CilOperand.Index(ReadByte(bytes, ref position, displayName, offset)); break;
             case "break": operation = CilOperation.Break; operand = new CilOperand.None(); break;
             case "newarr": operation = CilOperation.NewArray; operand = ReadSignatureType(assembly, genericContext, displayName, bytes, ref position, offset); break;

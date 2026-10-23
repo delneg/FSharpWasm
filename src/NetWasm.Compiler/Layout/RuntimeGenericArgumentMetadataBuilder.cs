@@ -7,7 +7,8 @@ namespace NetWasm.Compiler.Layout;
 
 internal sealed class RuntimeGenericArgumentMetadataBuilder(
     ReachableProgram program,
-    ManagedStaticDataBuildState state) : IRuntimeGenericArgumentMetadataBuilder
+    ManagedStaticDataBuildState state,
+    ITypeDefinitionResolver? typeDefinitions = null) : IRuntimeGenericArgumentMetadataBuilder
 {
     private readonly ReachableProgram _program = program ??
         throw new ArgumentNullException(nameof(program));
@@ -40,7 +41,14 @@ internal sealed class RuntimeGenericArgumentMetadataBuilder(
             {
                 if (!typeIds.TryGetValue(argument.Identity, out var typeId))
                 {
-                    if (argument.Identity.Shape != CliTypeShape.GenericTypeParameter)
+                    // A generic parameter, or a type that is only ever an argument
+                    // and never constructed (F#'s Unit, whose value is null), gets
+                    // a descriptor that carries just its identity, definition and name.
+                    TypeDefinitionModel? definition = null;
+                    if (argument.Identity.Shape != CliTypeShape.GenericTypeParameter &&
+                        (typeDefinitions is null ||
+                         argument.Identity.Shape is not (CliTypeShape.Named or CliTypeShape.GenericInstantiation) ||
+                         (definition = typeDefinitions.ResolveTypeIdentity(argument.Identity)) is null))
                     {
                         throw new CompilerException(new CompilerDiagnostic(
                             DiagnosticCode.RuntimeContract,
@@ -52,13 +60,13 @@ internal sealed class RuntimeGenericArgumentMetadataBuilder(
                     _state.MetadataTypeDescriptors.Add(new(argument.Identity, typeId));
                     _state.PendingTypeFacts.Add(new PendingRuntimeTypeFacts(
                         argument.Identity,
-                        Definition: null,
+                        Definition: definition,
                         typeId,
                         BaseTypeId: 0,
                         AssignableTypeIdsAddress: 0,
                         AssignableTypeIdCount: 0,
                         DelegateInvokeDescriptor: null,
-                        Names: GetNames(argument.Name)));
+                        Names: GetNames(argument.Name ?? SimpleName(argument.Identity))));
                 }
                 argumentTypeIds.Add(typeId);
             }
@@ -125,6 +133,11 @@ internal sealed class RuntimeGenericArgumentMetadataBuilder(
                 argument.GenericParameterIndex),
             definition.GenericParameterNames[argument.GenericParameterIndex]);
     }
+
+    private static string? SimpleName(CliTypeIdentity identity) =>
+        identity.Shape == CliTypeShape.Named && identity.FullName is string fullName
+            ? fullName[(fullName.LastIndexOfAny(['.', '+']) + 1)..]
+            : null;
 
     private RuntimeTypeNames? GetNames(string? name)
     {

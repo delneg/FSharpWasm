@@ -90,7 +90,8 @@ internal sealed class ManagedStaticDataBuilderFactory(
                 bitmaps),
             new RuntimeGenericArgumentMetadataBuilder(
                 program,
-                state),
+                state,
+                typeDefinitions),
             new MemberDescriptorDataBuilder(
                 typeFinder,
                 typeDefinitions,

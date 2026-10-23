@@ -31,6 +31,10 @@
     <Compile Include="Reflection/CustomAttributeFormatException.cs" />
     <Compile Include="Reflection/TargetInvocationException.cs" />
     <Compile Include="Reflection/TargetParameterCountException.cs" />
+    <Compile Include="Reflection/Assembly.cs" />
+    <Compile Include="Linq/FSharpEnumerable.cs" />
+    <Compile Include="Reflection/IntrospectionExtensions.cs" />
+    <Compile Include="Resources/ResourceManager.cs" />
     <Compile Include="Runtime/CompilerServices/CallConv.cs" />
     <Compile Include="AssemblyInfo.cs" />
     <Compile Include="CompilerContracts.cs" />

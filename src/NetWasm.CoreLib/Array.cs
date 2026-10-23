@@ -771,6 +771,12 @@ namespace System
 
         public object? GetValue(long index) => GetValue(ToInt32(index));
 
+        // Multidimensional arrays are not supported; these overloads exist for
+        // libraries (FSharp.Core's structural comparison) that branch on Rank.
+        public object? GetValue(int index1, int index2) => GetValue([index1, index2]);
+
+        public object? GetValue(long index1, long index2) => GetValue([index1, index2]);
+
         public object? GetValue(params long[] indices)
         {
             if (indices is null) throw new ArgumentNullException();

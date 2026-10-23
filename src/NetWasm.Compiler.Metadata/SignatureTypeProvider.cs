@@ -162,10 +162,11 @@ internal sealed class SignatureTypeProvider : ISignatureTypeProvider<CliTypeIden
         {
             var assemblyReference = reader.GetAssemblyReference(
                 (AssemblyReferenceHandle)scope);
+            var referenced = new AssemblyIdentity(reader.GetString(assemblyReference.Name));
             return (
-                _assemblyIdentityAliases.Canonicalize(new AssemblyIdentity(
-                    reader.GetString(assemblyReference.Name))),
-                Qualify(typeNamespace, typeName));
+                _assemblyIdentityAliases.Canonicalize(referenced),
+                _assemblyIdentityAliases.CanonicalizeTypeName(
+                    referenced, Qualify(typeNamespace, typeName)));
         }
 
         if (scope.Kind == HandleKind.TypeReference)

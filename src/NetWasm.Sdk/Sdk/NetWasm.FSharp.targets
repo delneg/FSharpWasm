@@ -27,6 +27,11 @@
     <PackageDownload Include="FSharp.Core" Version="[$(NetWasmFSharpCoreVersion)]"
                      Condition="'$(_NetWasmFSharpCoreFromPackage)' == 'true'" />
     <NetWasmReferenceAssemblyAlias Include="System.Runtime;netstandard;System.Runtime.Numerics" Assembly="NetWasm.CoreLib" />
+    <!-- FSharp.Core methods that need APIs NetWasm lacks (reflection-driven
+         printing, threads, web requests) compile to bodies that throw
+         PlatformNotSupportedException, so the rest of FSharp.Core works. -->
+    <NetWasmReferenceAssemblyAlias Include="tolerate:FSharp.Core" Assembly="FSharp.Core"
+                                   Condition="'$(NetWasmFSharpCoreStrict)' != 'true'" />
   </ItemGroup>
 
   <Target Name="NetWasmFSharpResolveReferences"
