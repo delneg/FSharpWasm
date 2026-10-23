@@ -6,7 +6,6 @@
     { "opcode": "mkrefany", "category": "typed-reference", "reason": "System.TypedReference is intentionally unsupported." },
     { "opcode": "refanytype", "category": "typed-reference", "reason": "System.TypedReference is intentionally unsupported." },
     { "opcode": "refanyval", "category": "typed-reference", "reason": "System.TypedReference is intentionally unsupported." },
-    { "opcode": "tail.", "category": "tail-call", "reason": "CLI tail-call semantics are not yet implemented." },
     { "opcode": "prefix1", "category": "reserved", "reason": "Reserved CLI encoding; not a valid program opcode." },
     { "opcode": "prefix2", "category": "reserved", "reason": "Reserved CLI encoding; not a valid program opcode." },
     { "opcode": "prefix3", "category": "reserved", "reason": "Reserved CLI encoding; not a valid program opcode." },

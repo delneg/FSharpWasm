@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- The F# runtime library of NetWasm: reflection-free replacements for the
+       parts of FSharp.Core that NetWasm cannot compile (printf). NetWasm.Ref
+       ships it, and the SDK adds it to every F# program's compile; the
+       compiler sends FSharp.Core's calls to it. It targets netstandard2.1, as
+       FSharp.Core does, and binds to NetWasm.CoreLib through the same aliases. -->
+  <PropertyGroup>
+    <TargetFramework>netstandard2.1</TargetFramework>
+    <IsPackable>false</IsPackable>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <DisableImplicitFSharpCoreReference>true</DisableImplicitFSharpCoreReference>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <Deterministic>true</Deterministic>
+    <Tailcalls>false</Tailcalls>
+    <Nullable>disable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="Format.fs" />
+    <Compile Include="Printf.fs" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="FSharp.Core" Version="10.1.401" />
+  </ItemGroup>
+</Project>

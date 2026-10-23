@@ -42,6 +42,10 @@
                       ReferenceOutputAssembly="false"
                       BuildReference="true"
                       PrivateAssets="all" />
+    <ProjectReference Include="$(MSBuildProjectDirectory)/../NetWasm.FSharp.Core/NetWasm.FSharp.Core.fsproj"
+                      ReferenceOutputAssembly="false"
+                      BuildReference="true"
+                      PrivateAssets="all" />
     <ProjectReference Include="$(NetWasmPackTaskProjectPath)"
                       ReferenceOutputAssembly="false"
                       BuildReference="true"
@@ -86,6 +90,17 @@
     </PropertyGroup>
     <RemoveDir Directories="$(_NetWasmRefFSharpReferenceRoot)" />
     <Exec Command="&quot;$(_NetWasmRefDotNet)&quot; &quot;$(_NetWasmRefFSharpFacadesTool)&quot; &quot;$(CoreLibReferenceAssemblyPath)&quot; &quot;$(_NetWasmRefGeneratorArchiveRoot)ref/$(TargetFramework)&quot; &quot;$(_NetWasmRefFSharpReferenceRoot.TrimEnd('/').TrimEnd('\'))&quot;" />
+    <!-- NetWasm.FSharp.Core: the printf that the compiler puts in place of
+         FSharp.Core's reflection-driven one. A program input, not a reference. -->
+    <MSBuild Projects="$(MSBuildProjectDirectory)/../NetWasm.FSharp.Core/NetWasm.FSharp.Core.fsproj"
+             Targets="Build"
+             Condition="'$(NoBuild)' != 'true'"
+             Properties="Configuration=$(Configuration)" />
+    <MSBuild Projects="$(MSBuildProjectDirectory)/../NetWasm.FSharp.Core/NetWasm.FSharp.Core.fsproj"
+             Targets="GetTargetPath"
+             Properties="Configuration=$(Configuration)">
+      <Output TaskParameter="TargetOutputs" ItemName="_NetWasmRefFSharpLibrary" />
+    </MSBuild>
     <ItemGroup>
       <_NetWasmRefFSharpReference Include="$(_NetWasmRefFSharpReferenceRoot)System.Runtime.dll;$(_NetWasmRefFSharpReferenceRoot)netstandard.dll;$(_NetWasmRefFSharpReferenceRoot)System.Runtime.Numerics.dll;$(_NetWasmRefFSharpReferenceRoot)NetWasm.CoreLib.dll" />
       <FileWrites Include="@(_NetWasmRefFSharpReference)" />
@@ -143,6 +158,11 @@
       <_NetWasmRefPackageFile Include="@(_NetWasmRefFSharpReference)">
         <SourcePath>%(FullPath)</SourcePath>
         <PackagePath>fsharp/ref/%(Filename)%(Extension)</PackagePath>
+        <PackKind>Other</PackKind>
+      </_NetWasmRefPackageFile>
+      <_NetWasmRefPackageFile Include="@(_NetWasmRefFSharpLibrary)">
+        <SourcePath>%(FullPath)</SourcePath>
+        <PackagePath>fsharp/lib/%(Filename)%(Extension)</PackagePath>
         <PackKind>Other</PackKind>
       </_NetWasmRefPackageFile>
     </ItemGroup>

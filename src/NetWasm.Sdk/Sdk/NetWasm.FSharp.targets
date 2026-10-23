@@ -43,6 +43,7 @@
     </ItemGroup>
     <PropertyGroup>
       <_NetWasmFSharpReferenceRoot>@(_NetWasmFSharpCoreLibContract->'%(RootDir)%(Directory)'->Distinct())</_NetWasmFSharpReferenceRoot>
+      <_NetWasmFSharpLibraryRoot Condition="'$(_NetWasmFSharpReferenceRoot)' != ''">$([MSBuild]::NormalizeDirectory('$(_NetWasmFSharpReferenceRoot)', '..', '..', 'fsharp', 'lib'))</_NetWasmFSharpLibraryRoot>
       <_NetWasmFSharpReferenceRoot Condition="'$(_NetWasmFSharpReferenceRoot)' != ''">$([MSBuild]::NormalizeDirectory('$(_NetWasmFSharpReferenceRoot)', '..', '..', 'fsharp', 'ref'))</_NetWasmFSharpReferenceRoot>
     </PropertyGroup>
     <Error Code="NWFS001"
@@ -55,8 +56,12 @@
       <ReferencePath Remove="@(_NetWasmFSharpCoreLibContract)" />
       <ReferencePath Include="$(_NetWasmFSharpReferenceRoot)System.Runtime.dll;$(_NetWasmFSharpReferenceRoot)NetWasm.CoreLib.dll;$(_NetWasmFSharpReferenceRoot)netstandard.dll;$(_NetWasmFSharpReferenceRoot)System.Runtime.Numerics.dll" />
       <ReferencePath Include="$(NetWasmFSharpCorePath)" NuGetPackageId="FSharp.Core" NuGetPackageVersion="$(NetWasmFSharpCoreVersion)" />
-      <!-- FSharp.Core is one more managed input of the NetWasm compile. -->
+      <!-- FSharp.Core is one more managed input of the NetWasm compile, and so is
+           NetWasm.FSharp.Core, whose printf the compiler calls in place of
+           FSharp.Core's (FSharpPrintfCallRewriter). -->
       <ReferenceCopyLocalPaths Include="$(NetWasmFSharpCorePath)" NuGetPackageId="FSharp.Core" DestinationSubDirectory="" />
+      <ReferenceCopyLocalPaths Include="$(_NetWasmFSharpLibraryRoot)NetWasm.FSharp.Core.dll"
+                               Condition="Exists('$(_NetWasmFSharpLibraryRoot)NetWasm.FSharp.Core.dll')" DestinationSubDirectory="" />
     </ItemGroup>
   </Target>
 </Project>

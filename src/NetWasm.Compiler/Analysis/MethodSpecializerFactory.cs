@@ -55,6 +55,7 @@ internal sealed class MethodSpecializerFactory(
             new PlatformWorldCallRewriter(calledMethods, symbols, world, types),
             new ClosedTypeIsValueTypeCallRewriter(calledMethods, symbols),
             new InterlockedCallRewriter(calledMethods, symbols),
+            new FSharpPrintfCallRewriter(types, methods, methodInstances, calledMethods, symbols),
             new ActivatorCallRewriter(
                 typeDefinitions,
                 methods,
