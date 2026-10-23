@@ -1,0 +1,12 @@
+[package]
+name = "console42"
+version = "0.0.0"
+edition = "2021"
+
+[profile.small]
+inherits = "release"
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = "symbols"

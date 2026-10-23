@@ -1,0 +1,11 @@
+<Project Sdk="NetWasm.Sdk">
+  <!-- The upstream C# workload, built exactly as run.py builds it. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>netwasm0.1</TargetFramework>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../../../../compiler-qualification/runtime-performance/workloads/gc/Program.cs" Link="Program.cs" />
+  </ItemGroup>
+</Project>

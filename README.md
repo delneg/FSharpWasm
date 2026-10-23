@@ -1,5 +1,8 @@
 # NetWasm
 
+> **This fork (`fsharp` branch)** adds F# support and F# ports of the runtime
+> benchmarks: see [fsharp/README.md](fsharp/README.md).
+
 **Independent .NET for WebAssembly and WASI.**<br>
 Write C#. Deploy small, standalone Wasm.
 
