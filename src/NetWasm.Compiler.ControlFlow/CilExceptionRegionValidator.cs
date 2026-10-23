@@ -190,10 +190,15 @@ internal sealed class CilExceptionRegionValidator : ICilExceptionRegionValidator
                 }
                 // ECMA-335 lets control enter a try block at its first
                 // instruction. F# resumable state machines (task { }) branch
-                // there from their dispatch table.
+                // there from their dispatch table, into tries with catch or
+                // finally handlers; a filter-guarded try stays rejected.
                 if (sourceZones.All(targetZones.Contains) &&
                     targetZones.All(zone => sourceZones.Contains(zone) ||
-                        (zone.Kind == ExceptionZoneKind.Try && zone.Start == target)))
+                        (zone.Kind == ExceptionZoneKind.Try && zone.Start == target &&
+                            !body.ExceptionRegions.Any(region =>
+                                region.FilterOffset is not null &&
+                                region.TryOffset == zone.Start &&
+                                region.TryOffset + region.TryLength == zone.End))))
                 {
                     continue;
                 }

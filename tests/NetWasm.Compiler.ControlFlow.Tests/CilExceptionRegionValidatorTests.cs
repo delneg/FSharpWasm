@@ -111,6 +111,38 @@ public sealed class CilExceptionRegionValidatorTests
     }
 
     [Fact]
+    public void BranchMayEnterATryAtItsFirstInstructionUnlessAFilterGuardsIt()
+    {
+        // F# resumable state machines (task { }) jump from their dispatch
+        // table to the first instruction of a try block, as ECMA-335 allows.
+        var body = Body(
+            CliValueKind.Void,
+            1,
+            [],
+            I(0, CilOperation.Branch, new CilOperand.BranchTarget(1)),
+            I(1, CilOperation.Nop),
+            I(2, CilOperation.Leave, new CilOperand.BranchTarget(5)),
+            I(3, CilOperation.Pop),
+            I(4, CilOperation.Leave, new CilOperand.BranchTarget(5)),
+            I(5, CilOperation.Return)) with
+        {
+            ExceptionRegions =
+            [new CilExceptionRegion(CilExceptionRegionKind.Catch, 1, 2, 3, 2, TypeKey, null)],
+        };
+        CreateExceptionRegionValidator().Validate(body, body.Instructions[^1].NextOffset);
+
+        var intoTheMiddle = body with
+        {
+            Instructions = body.Instructions.SetItem(0, I(0, CilOperation.Branch, new CilOperand.BranchTarget(2))),
+        };
+        AssertDiagnostic(
+            () => CreateExceptionRegionValidator().Validate(
+                intoTheMiddle,
+                intoTheMiddle.Instructions[^1].NextOffset),
+            "branch crosses an exception-region boundary");
+    }
+
+    [Fact]
     public void ValidatesRegionAwareTransfersAndCleanupTerminators()
     {
         var valid = FinallyBody();
