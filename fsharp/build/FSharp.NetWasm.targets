@@ -7,11 +7,13 @@
     FSharp.Core, and fsc looks for primitive types only in a "system" assembly
     (netstandard, System.Runtime, mscorlib). So for an F# project:
 
-    1. fsc compiles against the netstandard 2.1 reference assembly and the
-       ordinary netstandard2.1 FSharp.Core, both fetched with PackageDownload
-       (which skips NuGet's framework compatibility check).
+    1. fsc compiles against the net10.0 reference pack (Microsoft.NETCore.App.Ref)
+       and the ordinary netstandard2.1 FSharp.Core, both fetched with
+       PackageDownload, which skips NuGet's framework compatibility check.
     2. After CoreCompile, Retarget rewrites the program and a copy of
-       FSharp.Core so their netstandard references point at NetWasm.CoreLib.
+       FSharp.Core so that their references to framework assemblies
+       (System.Runtime, System.Console, netstandard, ...) point at the one
+       NetWasm.CoreLib instead.
     3. NetWasm compiles the program as usual, with FSharp.Core as one more
        managed reference. It is a closed-world compiler, so only the reachable
        part of FSharp.Core enters the Wasm, and an API that NetWasm lacks
@@ -20,7 +22,8 @@
   <PropertyGroup>
     <FsWasmFSharpCoreVersion Condition="'$(FsWasmFSharpCoreVersion)' == ''">10.1.401</FsWasmFSharpCoreVersion>
     <DisableImplicitFSharpCoreReference>true</DisableImplicitFSharpCoreReference>
-    <FsWasmNetStandardRef>$(NuGetPackageRoot)netstandard.library.ref/2.1.0/ref/netstandard2.1/netstandard.dll</FsWasmNetStandardRef>
+    <FsWasmNetCoreRefVersion Condition="'$(FsWasmNetCoreRefVersion)' == ''">$(BundledNETCoreAppPackageVersion)</FsWasmNetCoreRefVersion>
+    <FsWasmNetCoreRefDir>$(NuGetPackageRoot)microsoft.netcore.app.ref/$(FsWasmNetCoreRefVersion)/ref/net10.0/</FsWasmNetCoreRefDir>
     <FsWasmFSharpCore>$(NuGetPackageRoot)fsharp.core/$(FsWasmFSharpCoreVersion)/lib/netstandard2.1/FSharp.Core.dll</FsWasmFSharpCore>
     <FsWasmRetargetProject>$(FsWasmRoot)tools/Retarget/Retarget.fsproj</FsWasmRetargetProject>
     <FsWasmRetargetDll>$(FsWasmRoot)artifacts/retarget/Retarget.dll</FsWasmRetargetDll>
@@ -33,20 +36,21 @@
 
   <ItemGroup>
     <PackageDownload Include="FSharp.Core" Version="[$(FsWasmFSharpCoreVersion)]" />
-    <PackageDownload Include="NETStandard.Library.Ref" Version="[2.1.0]" />
+    <PackageDownload Include="Microsoft.NETCore.App.Ref" Version="[$(FsWasmNetCoreRefVersion)]" />
   </ItemGroup>
 
-  <!-- fsc sees netstandard + FSharp.Core instead of NetWasm.CoreLib. -->
+  <!-- fsc sees the net10.0 reference pack + FSharp.Core instead of NetWasm.CoreLib. -->
   <Target Name="FsWasmUseNetStandardReferences" AfterTargets="ResolveAssemblyReferences" BeforeTargets="CoreCompile">
-    <Error Condition="!Exists('$(FsWasmFSharpCore)') OR !Exists('$(FsWasmNetStandardRef)')"
-           Text="FSharp.NetWasm: FSharp.Core $(FsWasmFSharpCoreVersion) or NETStandard.Library.Ref 2.1.0 was not restored." />
+    <Error Condition="!Exists('$(FsWasmFSharpCore)') OR !Exists('$(FsWasmNetCoreRefDir)System.Runtime.dll')"
+           Text="FSharp.NetWasm: FSharp.Core $(FsWasmFSharpCoreVersion) or Microsoft.NETCore.App.Ref $(FsWasmNetCoreRefVersion) was not restored." />
     <PropertyGroup>
-      <TargetProfile>netstandard</TargetProfile>
+      <TargetProfile>netcore</TargetProfile>
     </PropertyGroup>
     <ItemGroup>
       <_FsWasmCoreLibReference Include="@(ReferencePath)" Condition="'%(Filename)' == 'NetWasm.CoreLib'" />
       <ReferencePath Remove="@(_FsWasmCoreLibReference)" />
-      <ReferencePath Include="$(FsWasmNetStandardRef);$(FsWasmFSharpCore)" />
+      <_FsWasmFrameworkReference Include="$(FsWasmNetCoreRefDir)*.dll" />
+      <ReferencePath Include="@(_FsWasmFrameworkReference);$(FsWasmFSharpCore)" />
     </ItemGroup>
   </Target>
 
@@ -59,8 +63,8 @@
           DependsOnTargets="FsWasmBuildRetargetTool">
     <MakeDir Directories="$(FsWasmIntermediate)" />
     <Exec Condition="!Exists('$(FsWasmIntermediate)FSharp.Core.dll')"
-          Command="&quot;$(FsWasmDotNet)&quot; &quot;$(FsWasmRetargetDll)&quot; &quot;$(FsWasmFSharpCore)&quot; &quot;$(FsWasmIntermediate)FSharp.Core.dll&quot; &quot;$(NetWasmRuntimeCoreLibPath)&quot;" />
-    <Exec Command="&quot;$(FsWasmDotNet)&quot; &quot;$(FsWasmRetargetDll)&quot; &quot;@(IntermediateAssembly->'%(FullPath)')&quot; &quot;@(IntermediateAssembly->'%(FullPath)')&quot; &quot;$(NetWasmRuntimeCoreLibPath)&quot;" />
+          Command="&quot;$(FsWasmDotNet)&quot; &quot;$(FsWasmRetargetDll)&quot; &quot;$(FsWasmFSharpCore)&quot; &quot;$(FsWasmIntermediate)FSharp.Core.dll&quot; &quot;$(NetWasmRuntimeCoreLibPath)&quot; &quot;$(FsWasmNetCoreRefDir)&quot;" />
+    <Exec Command="&quot;$(FsWasmDotNet)&quot; &quot;$(FsWasmRetargetDll)&quot; &quot;@(IntermediateAssembly->'%(FullPath)')&quot; &quot;@(IntermediateAssembly->'%(FullPath)')&quot; &quot;$(NetWasmRuntimeCoreLibPath)&quot; &quot;$(FsWasmNetCoreRefDir)&quot;" />
     <ItemGroup>
       <ReferenceCopyLocalPaths Include="$(FsWasmIntermediate)FSharp.Core.dll" />
     </ItemGroup>
