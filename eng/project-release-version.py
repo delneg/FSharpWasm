@@ -35,6 +35,7 @@ XML_FIELDS = {
 JSON_FIELDS = {
     Path("global.json"): ("NetWasm.Sdk",),
     Path("src/NetWasm.Templates/content/NetWasm.App/base/global.json"): ("NetWasm.Sdk",),
+    Path("src/NetWasm.Templates/content/NetWasm.App.FSharp/base/global.json"): ("NetWasm.Sdk",),
     Path("src/NetWasm.Templates/content/NetWasm.Library/global.json"): ("NetWasm.Sdk",),
     Path("src/NetWasm.Toolchain/toolchain-manifest.json"): ("packageVersion",),
 }

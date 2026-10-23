@@ -1,314 +1,208 @@
-# NetWasm
+# NetWasm for F#
 
-> **This fork (`fsharp` branch)** adds F# support and F# ports of the runtime
-> benchmarks: see [fsharp/README.md](fsharp/README.md).
+**F# to small, standalone WebAssembly and WASI.**<br>
+Write F#. Deploy a Wasm component with no CLR, no Mono, no `dotnet.js` and no DLLs.
 
-**Independent .NET for WebAssembly and WASI.**<br>
-Write C#. Deploy small, standalone Wasm.
+This is a fork of [zion-sati/NetWasm](https://github.com/zion-sati/NetWasm), an
+independent compiler, CoreLib, runtime and SDK that compiles .NET CIL directly
+to WebAssembly. The fork makes F# a first-class input: an ordinary `.fsproj`
+builds, runs, publishes and tests like a C# project, with no IL rewriting step.
+The compiler's own command line and its F#-specific rules are written in F#.
+C# still compiles exactly as upstream, and upstream's test suites still pass.
 
-NetWasm is an independent compiler, CoreLib, runtime and SDK that compiles C#
-and .NET CIL directly to WebAssembly. It does not carry the desktop CLR, Mono,
-`dotnet.js` or application DLLs into production.
+```fsharp
+type Shape =
+    | Circle of radius: float
+    | Rect of width: float * height: float
 
-[![Star NetWasm on GitHub](https://img.shields.io/github/stars/zion-sati/NetWasm?style=for-the-badge&logo=github&label=Star%20NetWasm)](https://github.com/zion-sati/NetWasm)
-[![Publication](https://img.shields.io/github/actions/workflow/status/zion-sati/NetWasm/release.yml?label=publish&event=release)](https://github.com/zion-sati/NetWasm/actions/workflows/release.yml)
-[![Compiler coverage](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fzion-sati%2FNetWasm%2Fbadges%2Fcoverage-badge.json)](https://github.com/zion-sati/NetWasm/actions/workflows/release.yml)
-[![License: Community + MIT](https://img.shields.io/badge/license-Community%20%2B%20MIT-blue)](docs/licensing.md)
+type Order = { Id: int; Items: Shape list }
 
-[Compile C# to WebAssembly](https://www.netwasm.com/compile-csharp-to-webassembly/) ·
-[Try it in the browser](https://playground.netwasm.com/) ·
-[Install and build](#try-it) ·
-[See supported APIs](docs/support-status.md) ·
-[Read the documentation](docs/index.md)
+let area shape =
+    match shape with
+    | Circle r -> System.Math.PI * r * r
+    | Rect (w, h) -> w * h
 
-## C# now beats Rust on Wasm size
+let total order = order.Items |> List.sumBy area
 
-**NetWasm + precise GC: 43,109 bytes**<br>
-**Rust 1.95.0 size-oriented profile: 53,635 bytes**
+let fetch id =
+    task {
+        do! System.Threading.Tasks.Task.Delay 10
+        return { Id = id; Items = [ Circle 1.0; Rect (2.0, 3.0) ] }
+    }
 
-For the same print-`42` workload, NetWasm's result includes the runtime and
-precise Compact garbage collector. Both artifacts are standalone WASI Preview 2
-Components, built the way a developer gets them out of the box: each
-toolchain's standard library and ordinary build, with no hand-added tools.
+[<EntryPoint>]
+let main _ =
+    let order = (fetch 7).Result
+    printfn "order %d: %d shapes, area %.2f" order.Id order.Items.Length (total order)
+    let big = seq { 1..10 } |> Seq.filter (fun n -> n % 3 = 0) |> Seq.map (sprintf "#%d") |> String.concat " "
+    printfn $"multiples of three: {big}"
+    try
+        failwithf "no shape %d" 42
+    with Failure message -> eprintfn "caught: %s" message
+    0
+```
 
-**19.6% smaller raw. 20.6% smaller with Brotli-11.**
-
-![Wasm footprint landscape with raw and Brotli-11 sizes. NetWasm with precise GC is 43,109 raw and 13,477 compressed bytes; Rust is 53,635 and 16,963; Kotlin/Wasm is 79,293 and 22,655; TinyGo is 93,043 and 26,931. NetWasm and Rust are the matched WASI Preview 2 comparison; Kotlin and TinyGo are contextual Preview 1 references.](docs/images/wasm-footprint-landscape-brotli11.svg)
-
-| Toolchain | Raw Wasm | Brotli 11 | Comparison role |
-| --- | ---: | ---: | --- |
-| **NetWasm, Compact GC** | **43,109 B** | **13,477 B** | WASI P2 Component; precise GC included |
-| Rust 1.95.0, size profile | 53,635 B | 16,963 B | Matched WASI P2 Component reference |
-| Kotlin 2.4.0 `wasmWasi` | 79,293 B | 22,655 B | P1 context; GC supplied by the host engine |
-| TinyGo 0.39.0 | 93,043 B | 26,931 B | P1 context; precise GC configured |
-
-Rust is the headline comparison because it uses the same workload and output
-form. Kotlin/Wasm and TinyGo show the broader footprint landscape, but their
-targets and runtime boundaries differ. This is a measured workload/profile
-result, not a language-wide size ranking.
-
-NetWasm's figure is the template application's default Release publish. Rust's
-adds Cargo's documented size settings (`opt-level = "z"`, LTO, one codegen
-unit, `panic = "abort"` and stripped symbols) to an ordinary `cargo build`.
-Binaryen's wasm-opt is not a post-processing step here: it is part of NetWasm's
-compiler pipeline and runs in every ordinary build, with nothing to install or
-enable. Rust's `wasm32-wasip2` output is a component, so applying wasm-opt to it
-means extracting the core module, optimizing it and re-encoding the component
-by hand.
-
-Both languages can go lower, but that is a different class of program: Rust
-with `no_std`, or C# with a minimal library such as bflat's zero library, each
-giving up most of the standard library and, for C#, the garbage collector.
-
-[Exact sources, versions, settings and reproduction steps](docs/size-and-methodology.md)
-
-## Faster than Mono AOT and the desktop JIT
-
-NetWasm runs our allocation and garbage-collection benchmarks faster than Mono
-AOT, compiled from the same C# source and run by the same Wasmtime. It is also
-faster than desktop .NET 11's JIT on all three, although desktop .NET runs
-native code outside any Wasm sandbox:
-
-| Workload | NetWasm, NetWasmGC | Mono AOT, .NET 10 | Desktop .NET 11 JIT | Desktop .NET 11 NativeAOT |
-| --- | ---: | ---: | ---: | ---: |
-| Full transaction | **34.8 ms** | 59.1 ms | 49.9 ms | 32.6 ms |
-| Retained object graph | **4.7 ms** | 14.2 ms | 9.7 ms | 7.5 ms |
-| UI churn | **7.8 ms** | 29.1 ms | 8.6 ms | 6.6 ms |
-
-These are medians of 15 runs on an Apple M1 Max, with every Wasm build under
-Wasmtime 49.0.3 and each run checked against desktop .NET's result. Mono AOT is
-Microsoft's `wasi-wasm` target in its default Release configuration. NetWasmGC
-takes 41% to 73% less time than Mono AOT and 10% to 52% less than the desktop
-JIT. Desktop NativeAOT is still faster on the full transaction and UI churn;
-NetWasmGC is faster on the retained object graph.
-
-Without allocation in the timed region, NetWasm takes 20% less time than Mono AOT
-on the transaction's library work and 7% less on a quicksort, and matches it on
-n-body and CRC-32 kernels. Desktop .NET is faster on the library work and the
-quicksort without allocation.
-
-[Versions, settings, desktop figures and reproduction](docs/performance.md)
-
-## More than Hello World
-
-Hello World is just the smallest example. NetWasm builds real applications too.
-
-**C# 15** · **JavaScript modules and Web Workers** · **static `.a` interop** · **WIT/WASI P2** ·
-**expression trees** · **HTTP/JSON/XML/Regex** · **reflection-free DI** ·
-**TUnit/VSTest** · **wasm64** · **three allocation strategies**
-
-Today NetWasm can:
-
-- build, run, publish and test projects through the ordinary `dotnet` CLI;
-- publish C# exports as typed [JavaScript modules](docs/javascript-interop.md)
-  that run in the page or in a [Web Worker](docs/web-workers.md);
-- link compatible Wasm [`.a` archives](docs/static-native-interop.md) and
-  generate bounded C ABI marshalling;
-- [generate C# bindings from WIT](docs/wit-bindings.md) and produce standalone
-  WASI P2 Components;
-- construct and inspect expression trees without general runtime reflection;
-- use independently packaged LINQ, HTTP, JSON, XML, Regex, Hashing and
-  dependency-injection libraries;
-- dual-target libraries for `netwasm0.1` and desktop .NET.
-
-The profile is deliberately smaller than desktop .NET. It already supports
-complete applications, portable libraries, test projects and browser modules.
+```sh
+$ dotnet publish -c Release -o publish && wasmtime run publish/HelloFs.wasm
+order 7: 2 shapes, area 9.14
+multiples of three: #3 #6 #9
+caught: no shape 42
+```
 
 ## Try it
 
-Install [.NET SDK 10.0.303 or newer](https://dotnet.microsoft.com/download/dotnet/10.0),
-then run:
+The fork is not on nuget.org: build its packages into a local feed. You need
+the [.NET 11 SDK](https://dotnet.microsoft.com/download/dotnet/11.0) (the repo
+pins 11.0.100-rc.2) and a WASI Preview 2 host such as
+[Wasmtime](https://wasmtime.dev/) 49 or newer.
 
 ```sh
-dotnet new install NetWasm.Templates
-dotnet new netwasm-app -n HelloNetWasm
-cd HelloNetWasm
-dotnet restore
-dotnet run
-dotnet publish -c Release -o publish/local
+git clone https://github.com/delneg/FSharpWasm && cd FSharpWasm
+eng/build-local-feed.sh                    # packages into artifacts/feed
+dotnet new install artifacts/feed/NetWasm.Templates.0.10.2-fs.dev.nupkg
+cd ..
+dotnet new netwasm-app -lang F# -n HelloFs && cd HelloFs
+dotnet new nugetconfig
+dotnet nuget add source ../FSharpWasm/artifacts/feed -n netwasm-fsharp --configfile nuget.config
+dotnet run                                 # 42
+dotnet publish -c Release -o publish
+wasmtime run publish/HelloFs.wasm
 ```
 
-Run the published component with a compatible WASI Preview 2 host, such as
-[Wasmtime](https://wasmtime.dev/):
+The template's `global.json` names NetWasm.Sdk `0.10.2-fs.dev` and rolls forward to
+the newest installed .NET SDK; native tools (Node, LLD, Binaryen) come from the
+upstream NetWasm 0.10.2 release through NuGet, as for C#.
+
+An existing F# project needs `<Project Sdk="NetWasm.Sdk">`,
+`<TargetFramework>netwasm0.1</TargetFramework>` and the NetWasm.Sdk version
+under `msbuild-sdks` in `global.json`; the SDK supplies FSharp.Core.
+
+## What works
+
+Checked by programs compiled with this fork and run under Wasmtime 49.0.3:
+
+- records, unions, pattern matching, tuples, options, lists, arrays, `Map`,
+  `Set` and `seq { }`, through the ordinary FSharp.Core package;
+- `task { }` and `async { }` on NetWasm's event loop: `.Result`,
+  `Task.Delay`, `Async.StartAsTask`, `Async.RunSynchronously`, `Async.Sleep`;
+- `printf`, `printfn`, `sprintf`, `eprintfn`, `failwithf`, `ksprintf` and
+  interpolated strings. A [printf oracle](tests/fsharp/printf-oracle.fsx)
+  checks 385 formats against FSharp.Core on CoreCLR: 383 agree;
+- FSharp.Core's own error messages (`Seq.take`, index and count checks), with
+  their values;
+- several `try ... with` in a row, as fsc compiles them.
+
+## How it works
+
+- **Reference set.** fsc needs a primary assembly named `System.Runtime`;
+  NetWasm has one CoreLib with its own name. NetWasm.Ref ships an F# reference
+  set ([src/NetWasm.FSharp.Facades](src/NetWasm.FSharp.Facades), in F#): the
+  CoreLib contract renamed to `System.Runtime`, plus forwarding facades for
+  `NetWasm.CoreLib`, `netstandard` and `System.Runtime.Numerics`. The compiler
+  aliases all four names to NetWasm.CoreLib, so the program and the stock
+  netstandard2.1 FSharp.Core link against the same CoreLib.
+- **Closed world.** Only the reachable part of FSharp.Core enters the Wasm.
+  FSharp.Core methods that need APIs outside the profile (reflection-driven
+  printing, threads, web requests) compile to bodies that throw
+  `PlatformNotSupportedException`, so the rest of FSharp.Core works
+  (`NetWasmFSharpCoreStrict=true` turns this off).
+- **Printf without reflection.** [src/NetWasm.FSharp.Core](src/NetWasm.FSharp.Core)
+  (F#) is a reflection-free printf and message formatter. The compiler rules in
+  [src/NetWasm.Compiler.FSharp](src/NetWasm.Compiler.FSharp) (F#) send
+  FSharp.Core's printf calls and its resource-string error messages to it.
+- **SDK.** [NetWasm.FSharp.targets](src/NetWasm.Sdk/Sdk/NetWasm.FSharp.targets)
+  is imported for every `.fsproj`: the reference set, FSharp.Core, the aliases
+  and an F# app template (`dotnet new netwasm-app -lang F#`).
+- **.NET 11.** The repository builds with the .NET 11 RC2 SDK
+  (`global.json`); F# projects use the F# compiler of the SDK that builds them.
+
+## Benchmarks: F# vs C# vs Rust
+
+The F# ports of upstream's C# benchmark workloads, plus Rust where a port
+exists, built from this checkout and run under the same Wasmtime:
 
 ```sh
-wasmtime run publish/local/HelloNetWasm.wasm
+eng/build-local-feed.sh
+uv run benchmarks/bench.py         # or: --runs 5 --scenarios nbody sort
 ```
 
-```text
-42
-```
+Median ms of 15 samples (min–max) after 3 warmups; NetWasm O3 with the NetWasm
+GC; Rust `opt-level = 3` with LTO; Wasmtime 49.0.3 on an Intel i5-11400F (4 CPUs, Linux). Every
+sample checks each language's checksum against C#'s. Lower is better. The
+benchmarks roll forward to the newest .NET SDK; the .NET 10.0.401 and 11 RC2
+SDKs give byte-identical Wasm (checked: compute in C# and F#, F# transaction).
 
-The published component is self-contained with respect to .NET. A WebAssembly
-host is still required. **Build with .NET; run without .NET.**
+| scenario | C# | F# | Rust | F#/C# |
+|---|---|---|---|---|
+| transaction | 24.01 (23.92–24.11) | 24.72 (24.65–24.77) | – | 1.030 |
+| transaction-full | 45.42 (45.23–47.33) | 44.86 (44.44–45.16) | – | 0.988 |
+| object-graph | 7.07 (6.98–7.24) | 7.05 (6.90–7.27) | – | 0.997 |
+| ui-churn | 10.68 (10.56–17.01) | 11.30 (11.12–15.79) | – | 1.058 |
+| nbody | 55.25 (55.15–56.11) | 52.95 (52.87–54.57) | 51.97 (51.90–52.18) | 0.958 |
+| sort | 56.35 (56.15–56.57) | 56.76 (56.62–56.92) | 56.03 (55.78–56.43) | 1.007 |
+| crc32 | 34.65 (34.62–34.85) | 34.64 (34.62–36.63) | 34.91 (34.86–35.05) | 1.000 |
 
-Projects using C# 15 select the .NET 11 SDK; earlier language versions can stay
-on .NET 10. The SDK restores its pinned Node, LLD and Binaryen tools through
-NuGet, so an ordinary app does not require a separate Emscripten, Git or Python
-installation. See the [complete quickstart](docs/sdk-quickstart.md) for host,
-restore, Windows, browser and dual-targeting details.
+Geometric mean F#/C#: **1.005** (1.003 in the run before). Medians move by
+1-3% from run to run (ui-churn was 1.031 in that run), so F# and C# are level.
 
-## How it stays small
+| artifact (bytes) | C# raw | C# Brotli-11 | F# raw | F# Brotli-11 | Rust raw | Rust Brotli-11 |
+|---|---:|---:|---:|---:|---:|---:|
+| print-42 (Oz, Compact GC) | 43,109 | 13,477 | **38,939** | **12,477** | 52,569 | 16,648 |
+| compute (O3) | 119,469 | 24,957 | 112,859 | 24,316 | 103,658 | 32,825 |
+| gc (O3) | 114,801 | 23,599 | 121,559 | 25,376 | – | – |
+| transaction (O3) | 230,931 | 46,190 | 226,505 | 47,102 | – | – |
 
-Roslyn produces CIL. NetWasm compiles the reachable program directly to Wasm,
-specializes its generics and links only the runtime support it needs. The linked
-Wasm component is the program.
+The F# print-42 component is smaller than both C#'s and Rust's. A program that
+uses `printf` carries the formatter: the example above publishes at about 800 KB
+raw.
 
-- **Closed-world compilation.** Unreachable code, imports and runtime features
-  do not enter the artifact.
-- **A smaller platform contract.** NetWasm supports portable APIs instead of
-  reproducing every desktop runtime assumption.
-- **No broad runtime reflection.** Runtime type names, dynamic assembly loading
-  and the `dynamic` keyword are outside the profile.
-- **Generated boundaries.** JSON, DI, WIT and native interop use known contracts
-  rather than runtime discovery.
-- **Optional data and diagnostics.** Timezone data, rich stack traces and other
-  deployment data are included only when selected.
-- **One collector.** Only the chosen allocation strategy is linked.
+Upstream's C# comparisons with Mono AOT, desktop .NET and other languages are in
+[docs/performance.md](docs/performance.md) and
+[docs/size-and-methodology.md](docs/size-and-methodology.md).
 
-This is a new .NET platform, not desktop .NET squeezed into a Wasm sandbox.
-That boundary is what makes native-Wasm-sized C# possible.
+## Limitations
 
-[How JSON and optional features affect size](docs/size-and-methodology.md#json-is-not-one-fixed-cost)
+On top of [NetWasm's own boundary](docs/support-status.md) (no runtime
+reflection, `dynamic`, assembly loading or managed threads):
 
-## Choose your allocation strategy
+- `%A` of a record or union prints its type name, not its fields; `%A` of
+  options and maps drops string quotes.
+- FSharp.Core error messages show their values when those are strings or
+  integers, and `?` for others.
+- **Runtime async** (F# 11 preview's `runtimeTask`) is not supported: those
+  methods need the runtime to suspend them, and NetWasm has no lowering for them
+  yet. `task { }` and `async { }` work.
+- **VSTest under the .NET 11 SDK.** VSTest 18.11 discovers runtime providers
+  before it loads `/TestAdapterPath` extensions, so `dotnet test` with the
+  NetWasm VSTest adapter fails with "No suitable test runtime provider was
+  found". The same test project passes with the .NET 10 SDK (VSTest 18.7).
+- The packages that need upstream's maintainer-only native toolchain
+  (NetWasm.Runtime.Pack, NetWasm.Toolchain, NetWasm.HostTools.*,
+  NetWasm.Wit.Bindings.Tool) are not rebuilt here: the SDK takes them from the
+  upstream 0.10.2 release.
 
-Compact is the default: a size-first, precise, non-moving mark-and-sweep
-collector. It traces compiler-published roots and reference layouts without
-conservative scanning. Its name refers to implementation size, not moving heap
-compaction.
+## C# to F#
 
-| Strategy | Best fit | Raw component | Brotli 11 |
-| --- | --- | ---: | ---: |
-| **Compact (default)** | Small applications and low-churn UI | **43,109 B** | **13,477 B** |
-| NetWasmGC | Higher allocation throughput | 46,072 B | 14,834 B |
-| Bump | Bounded, one-shot jobs | 39,078 B | 11,766 B |
+The fork ports NetWasm's own code to F# piece by piece, keeping upstream's tests
+unchanged and green:
 
-Select a strategy in the executable project's `.csproj`:
+| project | language |
+|---|---|
+| NetWasm.Compiler.Cli (the `netwasm` compiler command line) | F# |
+| NetWasm.Compiler.FSharp (printf and FSharp.Core message rules) | F# |
+| NetWasm.FSharp.Core (reflection-free printf) | F# |
+| NetWasm.FSharp.Facades (F# reference set) | F# |
+| benchmark workloads | F# ports alongside C# |
+| compiler core, Wasm emission, GC, CoreLib, SDK tasks | C#, as upstream |
 
-```xml
-<PropertyGroup>
-  <NetWasmGarbageCollector>NetWasm</NetWasmGarbageCollector>
-</PropertyGroup>
-```
-
-Leaving the property unset selects Compact. Libraries remain collector-neutral;
-all four backends are packaged for wasm32 and wasm64. See
-[Choosing a garbage collector](docs/runtime-garbage-collection.md) for the
-tradeoffs and diagnostics.
-
-## Libraries should travel upward
-
-A library written for the smaller NetWasm profile should also be useful on
-desktop .NET, rather than trapped in a Wasm-only ecosystem.
-
-```sh
-dotnet new netwasm-lib -n MyLibrary
-```
-
-The template targets `netwasm0.1` and `net10.0`, producing NuGet assets for
-both platforms. This is explicit multi-targeting, not a promise that arbitrary
-desktop packages work in reverse.
-
-[NetWasm.Libraries](https://github.com/zion-sati/NetWasm.Libraries) provides the
-ported framework and extensions packages.
-[TUnit-NetWasm](https://github.com/zion-sati/TUnit-NetWasm) provides ordinary
-`dotnet test` integration through the generic VSTest bridge.
-
-## How does this compare to conventional .NET Wasm?
-
-For an empty-UI Blazor WebAssembly application that prints `42`, with AOT,
-managed trimming, IL stripping, invariant globalization and size-focused native
-linking enabled:
-
-![AOT Wasm size comparison, lower is better: NetWasm with Compact GC 42.1 KiB, Blazor .NET 10 11.71 MiB, Blazor .NET 11 RC1 14.58 MiB. NetWasm is about 355 times smaller than the .NET 11 build by exact bytes.](docs/images/aot-console42-size.svg)
-
-| AOT build | Uncompressed Wasm | Relative to NetWasm |
-| --- | ---: | ---: |
-| **NetWasm, Compact GC** | **43,109 B** | **1×** |
-| Blazor WebAssembly, .NET 10 | 12,276,684 B | 285× |
-| Blazor WebAssembly, .NET 11 RC1 | 15,289,241 B | 355× |
-
-The Blazor total includes its native runtime and required Webcil assemblies;
-NetWasm includes its runtime, garbage collector and WASI component. This is a
-console component versus an empty-UI application, not an equivalent-framework
-comparison or a claim about every .NET workload.
-
-[Exact Blazor versions, settings and reproduction](docs/size-and-methodology.md#blazor-webassembly-aot-printing-42)
-
-## Current boundary
-
-NetWasm is pre-1.0. Its supported profile is usable today and covered by
-published qualification, but source, package, target-profile and ABI contracts
-may change between minor releases.
-
-The normal portable output is a wasm32 WASI Preview 2 Component. Raw wasm32,
-raw wasm64 and JavaScript-host integration are advanced alternatives; wasm64
-Components remain blocked by upstream tooling.
-
-Runtime reflection, `dynamic`, runtime assembly loading and managed threading
-are outside the profile. General `System.IO.File`/`Directory`/`FileStream`, raw
-sockets and subprocess APIs are not yet implemented. Existing NuGet packages
-work only when their reachable code and API dependencies fit the supported
-profile.
-
-[Supported APIs and limitations](docs/support-status.md) ·
-[Documentation index](docs/index.md)
-
-## Road to 1.0
-
-NetWasm 1.0 means a useful, documented and stable smaller platform. It does not
-mean “desktop .NET, but in Wasm.” The main remaining themes are:
-
-- broader WASI Preview 2 coverage;
-- globalization modes and optional culture data;
-- expression-tree completion;
-- a faster incremental development loop;
-- a stable `netwasm1.0` platform and runtime contract;
-- production diagnostics and broader host qualification.
-
-**New in NetWasm 0.10.2:** faster array and loop code. Small helpers called in
-loops are inlined, and array accesses skip null and bounds checks an earlier
-access already made. Our quicksort benchmark now takes 7% less time than Mono
-AOT instead of 33% more, so NetWasm takes less time than Mono AOT, or matches
-it, on every workload we publish.
-[Release notes](docs/releases/0.10.2.md)
-
-**In progress:** broader compatibility with existing .NET Standard
-2.1 library binaries and NuGet assets. The target is to consume libraries
-unchanged when their reachable code fits the NetWasm profile, without carrying
-unused unsupported paths into the application.
-
-This does not turn NetWasm into desktop .NET. Reachable general runtime
-reflection, `dynamic`, runtime assembly loading, managed threading, unsupported
-host APIs and named-culture globalization remain outside the initial
-compatibility slice and fail at compile time.
-
-[Read the full 1.0 roadmap](docs/roadmap.md)
-
-## Packages
-
-<details>
-<summary>Compiler, SDK, runtime and hosting packages</summary>
-
-[NetWasm.Compiler.Browser](https://www.nuget.org/packages/NetWasm.Compiler.Browser) ·
-[NetWasm.Compiler.Tasks](https://www.nuget.org/packages/NetWasm.Compiler.Tasks) ·
-[NetWasm.Hosting](https://www.nuget.org/packages/NetWasm.Hosting) ·
-[NetWasm.Hosting.Build](https://www.nuget.org/packages/NetWasm.Hosting.Build) ·
-[NetWasm.Ref](https://www.nuget.org/packages/NetWasm.Ref) ·
-[NetWasm.Runtime.Pack](https://www.nuget.org/packages/NetWasm.Runtime.Pack) ·
-[NetWasm.Runtime.Wasm32](https://www.nuget.org/packages/NetWasm.Runtime.Wasm32) ·
-[NetWasm.Runtime.Wasm64](https://www.nuget.org/packages/NetWasm.Runtime.Wasm64) ·
-[NetWasm.Sdk](https://www.nuget.org/packages/NetWasm.Sdk) ·
-[NetWasm.Templates](https://www.nuget.org/packages/NetWasm.Templates) ·
-[NetWasm.Testing.VSTest](https://www.nuget.org/packages/NetWasm.Testing.VSTest) ·
-[NetWasm.Toolchain](https://www.nuget.org/packages/NetWasm.Toolchain) ·
-[NetWasm.Wit.Bindings.Tool](https://www.nuget.org/packages/NetWasm.Wit.Bindings.Tool)
-
-[Ported-library packages](https://github.com/zion-sati/NetWasm.Libraries#packages) ·
-[TUnit packages](https://github.com/zion-sati/TUnit-NetWasm#netwasm-packages)
-
-</details>
+Tracked lines, upstream (ef66b27) → this fork: F# 0 → 2,736 (2,149 of them
+in `src`), C# in `src` 358,463 → 358,381. The ports removed about 1,100 lines of
+C# (the CLI's 952 and the two F# rewrite rules); the fork's own C# additions
+(CoreLib's event loop, threads, F# support in the compiler) fill most of that.
+What blocks a faster port: the compiler's model is C# records that the rest of
+the compiler builds with `with` expressions, which F# cannot use on C# records;
+CoreLib must compile to NetWasm's closed world, where FSharp.Core's own
+dependencies would come along.
 
 ## License
 
@@ -332,9 +226,10 @@ enforcement.
 [Third-party notices](THIRD-PARTY-NOTICES.md) ·
 Commercial licensing: <zion.sati@netwasm.com>
 
-## Bring a workload
+## Upstream
 
-Start with `Console.WriteLine(42)`, then try the smallest real workload where
-deployment size, sandboxing or portability matters. If something is missing,
-open an [issue](https://github.com/zion-sati/NetWasm/issues). Concrete workloads
-are how the 1.0 support boundary gets decided.
+NetWasm is by [zion-sati](https://github.com/zion-sati/NetWasm): its
+[documentation](docs/index.md), [supported APIs](docs/support-status.md),
+[roadmap](docs/roadmap.md) and C# packages on nuget.org apply here too. This
+fork's changes are F#-specific; report problems with them in
+[this repository](https://github.com/delneg/FSharpWasm/issues), not upstream.
