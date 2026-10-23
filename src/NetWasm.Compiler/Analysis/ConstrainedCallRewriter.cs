@@ -97,7 +97,15 @@ internal sealed class ConstrainedCallRewriter(
                 CilOperation.Call or CilOperation.CallVirtual => CilOperation.Call,
                 _ => CilOperation.LoadFunction,
             };
-            if (call.Operation == CilOperation.Call)
+            // A value type's own method takes the managed pointer on the stack as its
+            // this, so the direct call needs no prefix. fsc emits this form for
+            // x.ToString() on a primitive where Roslyn emits the plain call; without the
+            // prefix the inliner treats both alike.
+            if (call.Operation == CilOperation.Call ||
+                directOperation == CilOperation.Call &&
+                concreteType.IsValueType &&
+                !implementation.IsStatic &&
+                implementation.DeclaringType == concreteType.Key)
             {
                 instructions[index - 1] = instructions[index - 1] with
                 {

@@ -56,6 +56,7 @@ internal sealed class MethodSpecializerFactory(
             new ClosedTypeIsValueTypeCallRewriter(calledMethods, symbols),
             new InterlockedCallRewriter(calledMethods, symbols),
             new FSharpPrintfCallRewriter(types, methods, methodInstances, calledMethods, symbols),
+            new FSharpCoreMessageFormatRewriter(types, methods, methodInstances, calledMethods, symbols),
             new ActivatorCallRewriter(
                 typeDefinitions,
                 methods,

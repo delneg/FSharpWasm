@@ -17,6 +17,7 @@
   <ItemGroup>
     <Compile Include="Format.fs" />
     <Compile Include="Printf.fs" />
+    <Compile Include="Messages.fs" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="FSharp.Core" Version="10.1.401" />

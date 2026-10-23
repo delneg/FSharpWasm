@@ -1222,7 +1222,8 @@ public sealed class MethodSpecializerTests
             Body(new CilInstruction(0, 1, CilOperation.Constrained, new CilOperand.TypeIdentity(type)),
                 new CilInstruction(1, 2, CilOperation.CallVirtual, new CilOperand.Entity(declaration.Key))));
 
-        Assert.Equal(CilOperation.Constrained, rewritten.Instructions[0].Operation);
+        // A value type's own method takes the address as this: no prefix left.
+        Assert.Equal(valueType ? CilOperation.Nop : CilOperation.Constrained, rewritten.Instructions[0].Operation);
         Assert.Equal(valueType ? CilOperation.Call : CilOperation.CallVirtual, rewritten.Instructions[1].Operation);
         Assert.Equal(implementation,
             Assert.IsType<CilOperand.MethodInstance>(rewritten.Instructions[1].Operand).Value.Definition);
@@ -1323,7 +1324,7 @@ public sealed class MethodSpecializerTests
                 new FixedSymbolFormatter("System.Int32")),
             body);
 
-        Assert.Equal(CilOperation.Constrained, rewritten.Instructions[0].Operation);
+        Assert.Equal(CilOperation.Nop, rewritten.Instructions[0].Operation);
         Assert.Equal(CilOperation.Call, rewritten.Instructions[1].Operation);
         Assert.Equal(
             implementation,
