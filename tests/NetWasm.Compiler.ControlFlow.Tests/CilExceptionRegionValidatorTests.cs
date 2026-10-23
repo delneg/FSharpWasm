@@ -143,6 +143,44 @@ public sealed class CilExceptionRegionValidatorTests
     }
 
     [Fact]
+    public void LeaveMayEndAtTheFirstInstructionOfTheNextTry()
+    {
+        // fsc ends one try ... with by leaving straight to the first instruction
+        // of the next one: try 0-2 | catch 2-4 | try 4-6 | catch 6-8 | ret.
+        var body = Body(
+            CliValueKind.Void,
+            1,
+            [],
+            I(0, CilOperation.Nop),
+            I(1, CilOperation.Leave, new CilOperand.BranchTarget(4)),
+            I(2, CilOperation.Pop),
+            I(3, CilOperation.Leave, new CilOperand.BranchTarget(4)),
+            I(4, CilOperation.Nop),
+            I(5, CilOperation.Leave, new CilOperand.BranchTarget(8)),
+            I(6, CilOperation.Pop),
+            I(7, CilOperation.Leave, new CilOperand.BranchTarget(8)),
+            I(8, CilOperation.Return)) with
+        {
+            ExceptionRegions =
+            [
+                new CilExceptionRegion(CilExceptionRegionKind.Catch, 0, 2, 2, 2, TypeKey, null),
+                new CilExceptionRegion(CilExceptionRegionKind.Catch, 4, 2, 6, 2, TypeKey, null),
+            ],
+        };
+        CreateExceptionRegionValidator().Validate(body, body.Instructions[^1].NextOffset);
+
+        var intoTheMiddle = body with
+        {
+            Instructions = body.Instructions.SetItem(1, I(1, CilOperation.Leave, new CilOperand.BranchTarget(5))),
+        };
+        AssertDiagnostic(
+            () => CreateExceptionRegionValidator().Validate(
+                intoTheMiddle,
+                intoTheMiddle.Instructions[^1].NextOffset),
+            "leave target does not exit to an enclosing exception region");
+    }
+
+    [Fact]
     public void ValidatesRegionAwareTransfersAndCleanupTerminators()
     {
         var valid = FinallyBody();

@@ -8,10 +8,23 @@ open System.Text
 /// NetWasm, String.Format brings the whole composite-formatting machinery, about
 /// 220 KB, into a program that never formats anything else. The compiler
 /// (FSharpCoreMessageFormatRewriter) sends those calls here: the same text, with each
-/// "{n}" hole filled by the argument's ToString(); alignment and format strings are
-/// ignored.
+/// "{n}" hole filled by the argument's text; alignment and format strings are ignored.
 [<AbstractClass; Sealed>]
 type Messages =
+    /// FSharp.Core passes these messages strings and ints (69 of its 75 holes; the rest
+    /// are a float and Types). A virtual ToString() on obj would make every reachable
+    /// override part of the program (Exception's among them), and a Type's name the
+    /// runtime's type-name tables, so the text comes from the argument's own type, and
+    /// any other argument shows as "?".
+    static member private Text(value: obj) : string =
+        match value with
+        | :? string as text -> text
+        | :? int as number -> number.ToString()
+        | :? int64 as number -> number.ToString()
+        | :? uint32 as number -> number.ToString()
+        | :? uint64 as number -> number.ToString()
+        | _ -> "?"
+
     static member private Fill(format: string, args: obj[]) : string =
         if isNull format then
             ""
@@ -27,7 +40,7 @@ type Messages =
                     let close = format.IndexOf('}', i)
                     let mutable index = 0
                     let mutable j = i + 1
-                    while j < format.Length && Char.IsDigit format[j] do
+                    while j < format.Length && format[j] >= '0' && format[j] <= '9' do
                         index <- index * 10 + int format[j] - int '0'
                         j <- j + 1
                     if close < 0 || j = i + 1 || isNull args || index >= args.Length then
@@ -36,7 +49,7 @@ type Messages =
                     else
                         match args[index] with
                         | null -> ()
-                        | value -> output.Append(value.ToString()) |> ignore
+                        | value -> output.Append(Messages.Text value) |> ignore
                         i <- close + 1
                 else
                     output.Append c |> ignore

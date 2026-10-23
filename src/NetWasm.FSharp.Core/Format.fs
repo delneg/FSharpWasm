@@ -128,9 +128,9 @@ module internal Engine =
             if i < n && format[i] = '*' then
                 i <- i + 1
                 star
-            elif i < n && Char.IsDigit format[i] then
+            elif i < n && (format[i] >= '0' && format[i] <= '9') then
                 let mutable value = 0
-                while i < n && Char.IsDigit format[i] do
+                while i < n && (format[i] >= '0' && format[i] <= '9') do
                     value <- value * 10 + int format[i] - int '0'
                     i <- i + 1
                 value

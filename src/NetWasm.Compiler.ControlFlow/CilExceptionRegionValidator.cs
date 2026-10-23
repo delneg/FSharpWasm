@@ -181,7 +181,7 @@ internal sealed class CilExceptionRegionValidator : ICilExceptionRegionValidator
                 var targetZones = ZonesAt(zones, target);
                 if (instruction.Operation == CilOperation.Leave)
                 {
-                    ValidateLeave(body, instruction, sourceZones, targetZones);
+                    ValidateLeave(body, instruction, target, sourceZones, targetZones);
                     continue;
                 }
                 if (SameZones(sourceZones, targetZones))
@@ -194,11 +194,7 @@ internal sealed class CilExceptionRegionValidator : ICilExceptionRegionValidator
                 // finally handlers; a filter-guarded try stays rejected.
                 if (sourceZones.All(targetZones.Contains) &&
                     targetZones.All(zone => sourceZones.Contains(zone) ||
-                        (zone.Kind == ExceptionZoneKind.Try && zone.Start == target &&
-                            !body.ExceptionRegions.Any(region =>
-                                region.FilterOffset is not null &&
-                                region.TryOffset == zone.Start &&
-                                region.TryOffset + region.TryLength == zone.End))))
+                        EntersTryAtItsStart(body, zone, target)))
                 {
                     continue;
                 }
@@ -219,9 +215,22 @@ internal sealed class CilExceptionRegionValidator : ICilExceptionRegionValidator
         }
     }
 
+    // ECMA-335 lets control enter a try block at its first instruction; a
+    // filter-guarded try stays closed to such entries.
+    private static bool EntersTryAtItsStart(
+        CilMethodBody body,
+        ExceptionZone zone,
+        int target) =>
+        zone.Kind == ExceptionZoneKind.Try && zone.Start == target &&
+        !body.ExceptionRegions.Any(region =>
+            region.FilterOffset is not null &&
+            region.TryOffset == zone.Start &&
+            region.TryOffset + region.TryLength == zone.End);
+
     private static void ValidateLeave(
         CilMethodBody body,
         CilInstruction instruction,
+        int targetOffset,
         ImmutableArray<ExceptionZone> source,
         ImmutableArray<ExceptionZone> target)
     {
@@ -235,8 +244,11 @@ internal sealed class CilExceptionRegionValidator : ICilExceptionRegionValidator
                 instruction.Offset,
                 "leave originates in a filter, finally, or fault region");
         }
-        if (source.Length == 0 || target.Length >= source.Length ||
-            target.Any(zone => !source.Contains(zone)))
+        // fsc ends one try ... with by leaving to the first instruction of the
+        // next, so the target may also be inside tries the leave enters there.
+        var entered = target.Where(zone => !source.Contains(zone)).ToArray();
+        if (source.Length == 0 || target.Length - entered.Length >= source.Length ||
+            entered.Any(zone => !EntersTryAtItsStart(body, zone, targetOffset)))
         {
             throw Invalid(
                 body,
