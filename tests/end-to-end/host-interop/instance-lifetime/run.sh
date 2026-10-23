@@ -16,7 +16,7 @@ case "$profile" in
 esac
 mkdir -p "$artifacts"
 dotnet build "$repo_root/src/NetWasm.CoreLib/NetWasm.CoreLib.csproj" -c Release --nologo
-dotnet build "$repo_root/src/NetWasm.Compiler.Cli/NetWasm.Compiler.Cli.csproj" -c Release --nologo
+dotnet build "$repo_root/src/NetWasm.Compiler.Cli/NetWasm.Compiler.Cli.fsproj" -c Release --nologo
 
 status=0
 for configuration in "${configurations[@]}"; do

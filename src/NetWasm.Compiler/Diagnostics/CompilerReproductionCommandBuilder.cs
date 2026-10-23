@@ -18,7 +18,7 @@ internal sealed class CompilerReproductionCommandBuilder(
             "dotnet",
             "run",
             "--project",
-            "src/NetWasm.Compiler.Cli/NetWasm.Compiler.Cli.csproj",
+            "src/NetWasm.Compiler.Cli/NetWasm.Compiler.Cli.fsproj",
             "--",
             "--input",
             options.EntryAssemblyPath,

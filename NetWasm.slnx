@@ -9,7 +9,7 @@
     <Project Path="src/NetWasm.Compiler/NetWasm.Compiler.csproj" />
     <Project Path="src/NetWasm.Compiler.Browser/NetWasm.Compiler.Browser.csproj" />
     <Project Path="src/NetWasm.Compiler.Tasks/NetWasm.Compiler.Tasks.csproj" />
-    <Project Path="src/NetWasm.Compiler.Cli/NetWasm.Compiler.Cli.csproj" />
+    <Project Path="src/NetWasm.Compiler.Cli/NetWasm.Compiler.Cli.fsproj" />
     <Project Path="src/NetWasm.CoreLib/NetWasm.CoreLib.csproj" />
     <Project Path="src/NetWasm.Runtime/NetWasm.Runtime.csproj" />
     <Project Path="src/NetWasm.Runtime.Pack/NetWasm.Runtime.Pack.csproj" />

@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+    <!-- F# 9 nullness checking is not on here: the C# projects' Nullable=enable
+         would otherwise turn every interop call into a warning-as-error. -->
+    <Nullable>disable</Nullable>
+    <Tailcalls>false</Tailcalls>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+  </PropertyGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="NetWasm.Compiler.Cli.Tests" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="CliOptions.fs" />
+    <Compile Include="FileCapabilities.fs" />
+    <Compile Include="CompileCliArtifactPlanner.fs" />
+    <Compile Include="CliCommands.fs" />
+    <Compile Include="CompilerCli.fs" />
+    <Compile Include="Program.fs" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../NetWasm.Compiler/NetWasm.Compiler.csproj" />
+    <ProjectReference Include="../NetWasm.Compiler.ComponentModel/NetWasm.Compiler.ComponentModel.csproj" />
+  </ItemGroup>
+</Project>

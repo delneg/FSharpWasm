@@ -59,7 +59,7 @@ emsdk_root="${NETWASM_EMSDK_ROOT:-${EMSDK_ROOT:-}}"
 executed_cells=0
 blocked_cells=0
 
-dotnet build "$repo_root/src/NetWasm.Compiler.Cli/NetWasm.Compiler.Cli.csproj" \
+dotnet build "$repo_root/src/NetWasm.Compiler.Cli/NetWasm.Compiler.Cli.fsproj" \
     -c Release --no-restore --nologo \
     > "$artifact_root/build.stdout" 2> "$artifact_root/build.stderr"
 csc="$(dirname "$(command -v dotnet)")/sdk/$sdk_version/Roslyn/bincore/csc.dll"

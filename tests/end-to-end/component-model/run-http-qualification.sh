@@ -40,7 +40,7 @@ dotnet build "$repo_root/src/NetWasm.CoreLib/NetWasm.CoreLib.csproj" -c Release 
     > "$artifact_root/corelib-build.stdout" 2> "$artifact_root/corelib-build.stderr"
 dotnet build "$repo_root/src/NetWasm.System.Net.Http/NetWasm.System.Net.Http.csproj" -c Release --no-restore --nologo \
     > "$artifact_root/http-build.stdout" 2> "$artifact_root/http-build.stderr"
-dotnet build "$repo_root/src/NetWasm.Compiler.Cli/NetWasm.Compiler.Cli.csproj" -c Release --no-restore --nologo \
+dotnet build "$repo_root/src/NetWasm.Compiler.Cli/NetWasm.Compiler.Cli.fsproj" -c Release --no-restore --nologo \
     > "$artifact_root/compiler-build.stdout" 2> "$artifact_root/compiler-build.stderr"
 cargo build --quiet --locked --release --manifest-path "$host_manifest" --bin netwasm-wasmtime-http-host \
     > "$artifact_root/host-build.stdout" 2> "$artifact_root/host-build.stderr"
