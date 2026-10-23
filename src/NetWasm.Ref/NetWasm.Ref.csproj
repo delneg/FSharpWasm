@@ -64,9 +64,10 @@
            Text="The NetWasm.CoreLib metadata-only reference assembly was not produced." />
   </Target>
 
-  <!-- F# reference set: System.Runtime and netstandard facades over the
-       CoreLib contract, next to a copy of it (see NetWasm.FSharp.Facades). The
-       SDK compiles .fsproj projects against this folder. -->
+  <!-- F# reference set: the CoreLib contract renamed System.Runtime, and
+       forwarding facades for NetWasm.CoreLib, netstandard and
+       System.Runtime.Numerics (see NetWasm.FSharp.Facades). The SDK compiles
+       .fsproj projects against this folder. -->
   <Target Name="NetWasmRefBuildFSharpReferences"
           DependsOnTargets="NetWasmRefBuildContract;NetWasmRefResolveImportGeneratorAssets">
     <MSBuild Projects="$(MSBuildProjectDirectory)/../NetWasm.FSharp.Facades/NetWasm.FSharp.Facades.fsproj"

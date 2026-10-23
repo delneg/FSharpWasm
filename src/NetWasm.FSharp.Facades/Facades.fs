@@ -1,18 +1,22 @@
 /// Reference facades for compiling F# against NetWasm.CoreLib.
 ///
-/// fsc finds primitive types only in a "system" assembly: one named like
-/// System.Runtime or netstandard, or one in the same folder as it. NetWasm has
-/// a single CoreLib with a name of its own, and FSharp.Core is built against
-/// netstandard. So the F# reference set is a folder with
+/// fsc takes primitive types from its primary assembly, System.Runtime for
+/// --targetprofile:netcore, and encodes them as int32, string and so on only
+/// when they are defined there. NetWasm has a single CoreLib with a name of its
+/// own, and FSharp.Core is built against netstandard. So the F# reference set
+/// is a folder with
 ///
-/// - System.Runtime.dll: forwards every public CoreLib type to NetWasm.CoreLib;
-/// - netstandard.dll: the same forwarders, plus an empty definition for each
-///   netstandard type that CoreLib lacks, so FSharp.Core's signature data loads;
-/// - NetWasm.CoreLib.dll: the reference assembly itself.
+/// - System.Runtime.dll: the NetWasm.CoreLib contract, renamed;
+/// - NetWasm.CoreLib.dll: forwards every type to System.Runtime, so libraries
+///   built for netwasm0.1 in C# can be referenced from F#;
+/// - netstandard.dll and System.Runtime.Numerics.dll, which FSharp.Core
+///   references: the same forwarders, plus an empty definition of each type
+///   of that .NET assembly that CoreLib lacks, so FSharp.Core's signature data
+///   loads.
 ///
-/// The NetWasm compiler then aliases System.Runtime and netstandard to
-/// NetWasm.CoreLib. Code that really uses one of the empty types fails there,
-/// with NetWasm's diagnostic for a missing type.
+/// The NetWasm compiler aliases all four names to NetWasm.CoreLib. Code that
+/// really uses one of the empty types fails there, with NetWasm's diagnostic
+/// for a missing type.
 module NetWasm.FSharp.Facades.ReferenceSet
 
 open System
@@ -109,8 +113,9 @@ let private split (name: string) =
     | dot -> name.Substring(0, dot), name.Substring(dot + 1)
 
 /// Writes facade <name>.dll, which forwards every visible type of the CoreLib
-/// reference assembly and defines the given stubs.
-let write (coreLibReference: string) (name: string) (stubs: Stub list) (output: string) =
+/// reference assembly to the assembly called destination, and defines the
+/// given stubs.
+let write (coreLibReference: string) (destination: string) (name: string) (stubs: Stub list) (output: string) =
     let pe, core = openMetadata coreLibReference
     use _ = pe
     let coreDefinition = core.GetAssemblyDefinition()
@@ -122,7 +127,7 @@ let write (coreLibReference: string) (name: string) (stubs: Stub list) (output: 
     |> ignore
     let coreRef =
         mb.AddAssemblyReference(
-            str (core.GetString coreDefinition.Name),
+            str destination,
             coreDefinition.Version,
             StringHandle(),
             BlobHandle(),
@@ -197,11 +202,51 @@ let write (coreLibReference: string) (name: string) (stubs: Stub list) (output: 
     File.WriteAllBytes(output, image.ToArray())
     forwarded
 
-/// The facades of the F# reference set. System.Runtime is the primary
-/// assembly fsc compiles against, so it has no stubs: a program that uses a type
-/// CoreLib lacks fails in fsc. The others are what FSharp.Core references.
+/// Copies an assembly with its assembly name changed. The name is patched in
+/// the #Strings heap, which only works for a name no longer than the old one
+/// that no other string shares, and both are checked.
+let rename (input: string) (name: string) (output: string) =
+    let bytes = File.ReadAllBytes input
+    let pe, reader = openMetadata input
+    use _ = pe
+    let old = reader.GetString(reader.GetAssemblyDefinition().Name)
+    let newBytes = Encoding.UTF8.GetBytes name
+    if newBytes.Length > Encoding.UTF8.GetByteCount old then
+        failwith $"cannot rename {old} to the longer name {name}"
+    let heapOffset = MetadataTokens.GetHeapOffset(reader.GetAssemblyDefinition().Name)
+    let position = pe.PEHeaders.MetadataStartOffset + reader.GetHeapMetadataOffset(HeapIndex.String) + heapOffset
+    let oldBytes = Encoding.UTF8.GetBytes old
+    if bytes.AsSpan(position, oldBytes.Length).SequenceEqual(ReadOnlySpan oldBytes) |> not then
+        failwith $"assembly name {old} not found at its #Strings offset"
+    // Clear the old name, then write the new one. Any string that ended inside
+    // the old one would now read differently: compare every string after.
+    bytes.AsSpan(position, oldBytes.Length).Clear()
+    newBytes.CopyTo(bytes, position)
+    File.WriteAllBytes(output, bytes)
+    let check, renamed = openMetadata output
+    use _ = check
+    if renamed.GetString(renamed.GetAssemblyDefinition().Name) <> name then
+        failwith "assembly rename did not take"
+    for handle in reader.TypeDefinitions do
+        let a = reader.GetTypeDefinition handle
+        let b = renamed.GetTypeDefinition handle
+        if reader.GetString a.Name <> renamed.GetString b.Name
+           || reader.GetString a.Namespace <> renamed.GetString b.Namespace then
+            failwith $"assembly rename changed type name {reader.GetString a.Name}"
+    for handle in reader.MethodDefinitions do
+        if reader.GetString((reader.GetMethodDefinition handle).Name) <> renamed.GetString((renamed.GetMethodDefinition handle).Name) then
+            failwith "assembly rename changed a method name"
+    for handle in reader.MemberReferences do
+        if reader.GetString((reader.GetMemberReference handle).Name) <> renamed.GetString((renamed.GetMemberReference handle).Name) then
+            failwith "assembly rename changed a member reference"
+
+/// The primary assembly fsc compiles against: the renamed CoreLib contract.
+let primary = "System.Runtime"
+
+/// The forwarding facades of the F# reference set, and whether each one gets
+/// stubs for the types of the .NET assembly of that name that CoreLib lacks.
 let facades =
-    [ "System.Runtime", false
+    [ "NetWasm.CoreLib", false
       "netstandard", true
       "System.Runtime.Numerics", true ]
 
@@ -222,10 +267,8 @@ let writeReferenceSet (coreLibReference: string) (referencePack: string) (output
                       | true, s -> s
                       | _ -> Class, 0
                   yield { Namespace = ns; Name = simple; Shape = shape; Arity = arity } ]
-    let written =
-        [ for name, withStubs in facades do
-              let stubs = if withStubs then stubsFor name else []
-              let forwarded = write coreLibReference name stubs (Path.Combine(outputDirectory, name + ".dll"))
-              yield name, forwarded, stubs.Length ]
-    File.Copy(coreLibReference, Path.Combine(outputDirectory, "NetWasm.CoreLib.dll"), true)
-    written
+    rename coreLibReference primary (Path.Combine(outputDirectory, primary + ".dll"))
+    [ for name, withStubs in facades do
+          let stubs = if withStubs then stubsFor name else []
+          let forwarded = write coreLibReference primary name stubs (Path.Combine(outputDirectory, name + ".dll"))
+          yield name, forwarded, stubs.Length ]
