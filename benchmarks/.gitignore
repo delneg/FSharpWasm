@@ -1,6 +1,5 @@
 bin/
 obj/
-artifacts/
 out/
-results/
 target/
+results/*.json

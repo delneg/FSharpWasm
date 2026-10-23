@@ -1,0 +1,6 @@
+<Project>
+  <!-- The benchmarks consume NetWasm as packages; the repository's build settings stay out. -->
+  <PropertyGroup>
+    <Deterministic>true</Deterministic>
+  </PropertyGroup>
+</Project>

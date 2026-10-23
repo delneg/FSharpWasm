@@ -1,4 +1,0 @@
-<Project>
-  <Import Project="$(FsWasmRoot)build/FSharp.NetWasm.targets"
-          Condition="'$(MSBuildProjectExtension)' == '.fsproj' AND '$(TargetFramework)' == 'netwasm0.1'" />
-</Project>

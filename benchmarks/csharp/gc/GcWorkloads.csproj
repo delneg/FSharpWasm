@@ -6,6 +6,6 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
   <ItemGroup>
-    <Compile Include="../../../../compiler-qualification/runtime-performance/workloads/transaction/Program.cs" Link="Program.cs" />
+    <Compile Include="../../../compiler-qualification/runtime-performance/workloads/gc/Program.cs" Link="Program.cs" />
   </ItemGroup>
 </Project>

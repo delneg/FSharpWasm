@@ -5,8 +5,12 @@
 """Benchmark the F# ports against the upstream C# workloads (and Rust, where a
 port exists) on NetWasm under Wasmtime.
 
-    uv run fsharp/bench/bench.py                 # build, then 3 warmups + 15 samples
-    uv run fsharp/bench/bench.py --runs 5 --scenarios nbody sort
+    eng/build-local-feed.sh                      # this checkout's NetWasm, into artifacts/feed
+    uv run benchmarks/bench.py                   # build, then 3 warmups + 15 samples
+    uv run benchmarks/bench.py --runs 5 --scenarios nbody sort
+
+C# and F# build with the same NetWasm: the packages of artifacts/feed
+(benchmarks/NuGet.Config, benchmarks/global.json).
 
 Every sample runs each language once per scenario, in an order that rotates
 with the sample, so drift on the machine spreads across languages. A sample
@@ -16,7 +20,7 @@ whose checksum differs from C#'s fails the run. Prints a Markdown table
     METRIC fs_vs_cs=<geometric mean over scenarios of F# median / C# median>
 
 Lower is better; 1.0 means F# matches C#. Results also go to
-fsharp/results/<stamp>.json and fsharp/results/latest.md.
+benchmarks/results/<stamp>.json and benchmarks/results/latest.md.
 """
 import argparse
 import json
@@ -32,9 +36,9 @@ from pathlib import Path
 
 import brotli
 
-FSHARP = Path(__file__).resolve().parents[1]
-OUT = FSHARP / 'out'
-RESULTS = FSHARP / 'results'
+BENCH = Path(__file__).resolve().parent
+OUT = BENCH / 'out'
+RESULTS = BENCH / 'results'
 
 # The upstream run.py scenarios that these workloads cover.
 SCENARIOS = {
@@ -54,10 +58,9 @@ RUST_WORKLOADS = {'compute'}
 def project(lang, workload):
     if lang == 'cs':
         name = 'Hello' if workload == 'hello' else NAMES[workload]
-        return FSHARP / 'bench' / 'csharp' / workload / f'{name}.csproj'
-    if workload == 'hello':
-        return FSHARP / 'samples' / 'Hello' / 'Hello.fsproj'
-    return FSHARP / 'workloads' / workload / f'{NAMES[workload]}.fsproj'
+        return BENCH / 'csharp' / workload / f'{name}.csproj'
+    name = 'Hello' if workload == 'hello' else NAMES[workload]
+    return BENCH / 'fsharp' / workload / f'{name}.fsproj'
 
 
 def run(command, **kwargs):
@@ -81,8 +84,8 @@ def publish(lang, workload, optimization, collector, build):
 
 def cargo(crate, profile, build):
     """Builds one Rust crate for wasm32-wasip2; returns its component."""
-    manifest = FSHARP / 'bench' / 'rust' / crate / 'Cargo.toml'
-    target = FSHARP / 'target'
+    manifest = BENCH / 'rust' / crate / 'Cargo.toml'
+    target = BENCH / 'target'
     if build:
         run(['cargo', 'build', '--profile', profile, '--target', 'wasm32-wasip2',
              '--manifest-path', str(manifest), '--target-dir', str(target)])
@@ -127,13 +130,15 @@ def main():
     parser.add_argument('--warmups', type=int, default=3)
     parser.add_argument('--optimization', default='O3', choices=['O3', 'Oz'])
     parser.add_argument('--collector', default='NetWasm', choices=['Compact', 'NetWasm', 'Bump'])
-    parser.add_argument('--no-build', action='store_true', help='reuse fsharp/out and fsharp/target')
+    parser.add_argument('--no-build', action='store_true', help='reuse benchmarks/out and benchmarks/target')
     parser.add_argument('--no-sizes', action='store_true', help='skip the print-42 size builds')
     parser.add_argument('--wasmtime', default=os.environ.get('WASMTIME') or shutil.which('wasmtime'))
     args = parser.parse_args()
     if not args.wasmtime:
         sys.exit('wasmtime not found: put it on PATH or set WASMTIME')
     build = not args.no_build
+    if build and not (BENCH.parent / 'artifacts' / 'feed').is_dir():
+        sys.exit('artifacts/feed not found: run eng/build-local-feed.sh first')
     langs = [lang for lang in LANGS if lang in args.langs]
     if 'rust' in langs and build and not shutil.which('cargo'):
         sys.exit('cargo not found: install Rust or pass --langs cs fs')
