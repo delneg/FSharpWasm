@@ -22,14 +22,13 @@ XML_FIELDS = {
         "NetWasmCompilerTasksPackageVersion",
         "NetWasmHostToolsPackageVersion",
     ),
+    # Runtime.Pack, Toolchain and HostTools are not versioned here: the SDK
+    # takes them from the upstream release (NetWasmUpstreamNativePackageVersion).
     Path("src/NetWasm.Sdk/Sdk/NetWasm.Sdk.Tfm.props"): (
         "NetWasmRefPackageVersion",
         "NetWasmRuntimePackageVersion",
-        "NetWasmRuntimePackPackageVersion",
-        "NetWasmToolchainPackageVersion",
         "NetWasmHostingPackageVersion",
         "NetWasmHostingBuildPackageVersion",
-        "NetWasmHostToolsPackageVersion",
     ),
     Path("src/NetWasm.Sdk/Sdk/Sdk.props"): ("NetWasmSdkPackageVersion",),
 }

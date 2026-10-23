@@ -38,6 +38,10 @@
                       ReferenceOutputAssembly="false"
                       BuildReference="true"
                       PrivateAssets="all" />
+    <ProjectReference Include="$(MSBuildProjectDirectory)/../NetWasm.FSharp.Facades/NetWasm.FSharp.Facades.fsproj"
+                      ReferenceOutputAssembly="false"
+                      BuildReference="true"
+                      PrivateAssets="all" />
     <ProjectReference Include="$(NetWasmPackTaskProjectPath)"
                       ReferenceOutputAssembly="false"
                       BuildReference="true"
@@ -60,6 +64,33 @@
            Text="The NetWasm.CoreLib metadata-only reference assembly was not produced." />
   </Target>
 
+  <!-- F# reference set: System.Runtime and netstandard facades over the
+       CoreLib contract, next to a copy of it (see NetWasm.FSharp.Facades). The
+       SDK compiles .fsproj projects against this folder. -->
+  <Target Name="NetWasmRefBuildFSharpReferences"
+          DependsOnTargets="NetWasmRefBuildContract;NetWasmRefResolveImportGeneratorAssets">
+    <MSBuild Projects="$(MSBuildProjectDirectory)/../NetWasm.FSharp.Facades/NetWasm.FSharp.Facades.fsproj"
+             Targets="Build"
+             Condition="'$(NoBuild)' != 'true'"
+             Properties="Configuration=$(Configuration)" />
+    <MSBuild Projects="$(MSBuildProjectDirectory)/../NetWasm.FSharp.Facades/NetWasm.FSharp.Facades.fsproj"
+             Targets="GetTargetPath"
+             Properties="Configuration=$(Configuration)">
+      <Output TaskParameter="TargetOutputs" PropertyName="_NetWasmRefFSharpFacadesTool" />
+    </MSBuild>
+    <PropertyGroup>
+      <_NetWasmRefFSharpReferenceRoot>$([MSBuild]::NormalizeDirectory('$(MSBuildProjectDirectory)', '$(IntermediateOutputPath)', 'fsharp-ref'))</_NetWasmRefFSharpReferenceRoot>
+      <_NetWasmRefDotNet>$(DOTNET_HOST_PATH)</_NetWasmRefDotNet>
+      <_NetWasmRefDotNet Condition="'$(_NetWasmRefDotNet)' == ''">dotnet</_NetWasmRefDotNet>
+    </PropertyGroup>
+    <RemoveDir Directories="$(_NetWasmRefFSharpReferenceRoot)" />
+    <Exec Command="&quot;$(_NetWasmRefDotNet)&quot; &quot;$(_NetWasmRefFSharpFacadesTool)&quot; &quot;$(CoreLibReferenceAssemblyPath)&quot; &quot;$(_NetWasmRefGeneratorArchiveRoot)ref/$(TargetFramework)&quot; &quot;$(_NetWasmRefFSharpReferenceRoot.TrimEnd('/').TrimEnd('\'))&quot;" />
+    <ItemGroup>
+      <_NetWasmRefFSharpReference Include="$(_NetWasmRefFSharpReferenceRoot)System.Runtime.dll;$(_NetWasmRefFSharpReferenceRoot)netstandard.dll;$(_NetWasmRefFSharpReferenceRoot)System.Runtime.Numerics.dll;$(_NetWasmRefFSharpReferenceRoot)NetWasm.CoreLib.dll" />
+      <FileWrites Include="@(_NetWasmRefFSharpReference)" />
+    </ItemGroup>
+  </Target>
+
   <Target Name="NetWasmRefResolvePackTaskOutput"
           BeforeTargets="Pack">
     <MSBuild Projects="$(NetWasmPackTaskProjectPath)"
@@ -80,7 +111,7 @@
        It runs before the wrapper's Pack target and feeds the one-action
        CanonicalPackMsBuildTask directly; no stock package is produced first. -->
   <Target Name="NetWasmRefPack"
-          DependsOnTargets="NetWasmRefBuildContract;NetWasmRefResolvePackTaskOutput;NetWasmRefResolveImportGeneratorAssets;_InitializeNuspecRepositoryInformationProperties"
+          DependsOnTargets="NetWasmRefBuildContract;NetWasmRefResolvePackTaskOutput;NetWasmRefResolveImportGeneratorAssets;NetWasmRefBuildFSharpReferences;_InitializeNuspecRepositoryInformationProperties"
           Condition="'$(NetWasmSdkRefPackEnabled)' == 'true'">
     <PropertyGroup>
       <NetWasmRefPackageFilePath>$([System.IO.Path]::Combine('$(PackageOutputPath)', '$(PackageId).$(PackageVersion).nupkg'))</NetWasmRefPackageFilePath>
@@ -108,6 +139,11 @@
         <PackKind>BuildOutput</PackKind>
       </_NetWasmRefPackageFile>
       <_NetWasmRefPackageFile Include="@(_NetWasmRefGeneratorPackageFile)" />
+      <_NetWasmRefPackageFile Include="@(_NetWasmRefFSharpReference)">
+        <SourcePath>%(FullPath)</SourcePath>
+        <PackagePath>fsharp/ref/%(Filename)%(Extension)</PackagePath>
+        <PackKind>Other</PackKind>
+      </_NetWasmRefPackageFile>
     </ItemGroup>
     <CanonicalPackMsBuildTask
       PackageId="$(PackageId)"

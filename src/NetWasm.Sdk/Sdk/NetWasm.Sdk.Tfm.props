@@ -6,6 +6,15 @@
   -->
   <PropertyGroup>
     <!--
+      This fork rebuilds the managed packages (SDK, compiler tasks, Ref,
+      Runtime.Wasm32/64 with CoreLib, hosting, templates). The packages that
+      need the maintainer-only native toolchain (Emscripten runtime pack, the
+      Binaryen/jco/wasm-tools toolchain, host tools and the WIT bindings tool)
+      come unchanged from the upstream NetWasm release built from the same
+      source.
+    -->
+    <NetWasmUpstreamNativePackageVersion Condition="'$(NetWasmUpstreamNativePackageVersion)' == ''">0.10.2</NetWasmUpstreamNativePackageVersion>
+    <!--
       An inner build inherits TargetFrameworks from the outer build.  Use the
       current TargetFramework whenever it is present; otherwise the outer
       evaluation owns the full declared list.  This keeps desktop inner
@@ -17,11 +26,11 @@
     <NetWasmRefPackageId Condition="'$(NetWasmSdkContainsCustomProfile)' == 'true' AND '$(NetWasmRefPackageId)' == ''">NetWasm.Ref</NetWasmRefPackageId>
     <NetWasmRefPackageVersion Condition="'$(NetWasmSdkContainsCustomProfile)' == 'true' AND '$(NetWasmRefPackageVersion)' == ''">0.4.2</NetWasmRefPackageVersion>
     <NetWasmRuntimePackageVersion Condition="'$(NetWasmSdkContainsCustomProfile)' == 'true' AND '$(NetWasmRuntimePackageVersion)' == ''">0.4.2</NetWasmRuntimePackageVersion>
-    <NetWasmRuntimePackPackageVersion Condition="'$(NetWasmSdkContainsCustomProfile)' == 'true' AND '$(NetWasmRuntimePackPackageVersion)' == ''">0.4.2</NetWasmRuntimePackPackageVersion>
-    <NetWasmToolchainPackageVersion Condition="'$(NetWasmSdkContainsCustomProfile)' == 'true' AND '$(NetWasmToolchainPackageVersion)' == ''">0.4.2</NetWasmToolchainPackageVersion>
+    <NetWasmRuntimePackPackageVersion Condition="'$(NetWasmSdkContainsCustomProfile)' == 'true' AND '$(NetWasmRuntimePackPackageVersion)' == ''">$(NetWasmUpstreamNativePackageVersion)</NetWasmRuntimePackPackageVersion>
+    <NetWasmToolchainPackageVersion Condition="'$(NetWasmSdkContainsCustomProfile)' == 'true' AND '$(NetWasmToolchainPackageVersion)' == ''">$(NetWasmUpstreamNativePackageVersion)</NetWasmToolchainPackageVersion>
     <NetWasmHostingPackageVersion Condition="'$(NetWasmSdkContainsCustomProfile)' == 'true' AND '$(NetWasmHostingPackageVersion)' == ''">0.4.2</NetWasmHostingPackageVersion>
     <NetWasmHostingBuildPackageVersion Condition="'$(NetWasmSdkContainsCustomProfile)' == 'true' AND '$(NetWasmHostingBuildPackageVersion)' == ''">0.4.2</NetWasmHostingBuildPackageVersion>
-    <NetWasmHostToolsPackageVersion Condition="'$(NetWasmSdkContainsCustomProfile)' == 'true' AND '$(NetWasmHostToolsPackageVersion)' == ''">0.4.2</NetWasmHostToolsPackageVersion>
+    <NetWasmHostToolsPackageVersion Condition="'$(NetWasmSdkContainsCustomProfile)' == 'true' AND '$(NetWasmHostToolsPackageVersion)' == ''">$(NetWasmUpstreamNativePackageVersion)</NetWasmHostToolsPackageVersion>
   </PropertyGroup>
 
   <ItemGroup>
@@ -79,7 +88,7 @@
       see this item.
     -->
     <NetWasmRefPackageVersion Condition="'$(NetWasmRefPackageVersion)' == ''">0.4.2</NetWasmRefPackageVersion>
-    <NetWasmToolchainPackageVersion Condition="'$(NetWasmToolchainPackageVersion)' == ''">0.4.2</NetWasmToolchainPackageVersion>
+    <NetWasmToolchainPackageVersion Condition="'$(NetWasmToolchainPackageVersion)' == ''">$(NetWasmUpstreamNativePackageVersion)</NetWasmToolchainPackageVersion>
     <NetWasmHostingPackageVersion Condition="'$(NetWasmHostingPackageVersion)' == ''">0.4.2</NetWasmHostingPackageVersion>
     <NetWasmHostingBuildPackageVersion Condition="'$(NetWasmHostingBuildPackageVersion)' == ''">0.4.2</NetWasmHostingBuildPackageVersion>
     <BuildProjectReferences Condition="'$(NoBuild)' == 'true'">false</BuildProjectReferences>
@@ -96,7 +105,7 @@
 
   <ItemGroup Condition="'$(TargetFramework)' == 'netwasm0.1'">
     <!-- Tool-only download: never add desktop generator assemblies to guest references. -->
-    <PackageDownload Include="NetWasm.Wit.Bindings.Tool" Version="[$(NetWasmSdkPackageVersion)]"
+    <PackageDownload Include="NetWasm.Wit.Bindings.Tool" Version="[$(NetWasmUpstreamNativePackageVersion)]"
                      Condition="'@(_NetWasmWorkerReference)' != ''" />
   </ItemGroup>
 

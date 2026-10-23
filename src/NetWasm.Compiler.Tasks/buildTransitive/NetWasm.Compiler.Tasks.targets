@@ -217,6 +217,7 @@
            Membership belongs in the identity as well as per-file input digests. -->
       <_NetWasmCompilationIdentityLine Include="@(_NetWasmCompilerWitInput->'witInput=%(FullPath)')" />
       <_NetWasmCompilationIdentityLine Include="@(_NetWasmPortablePdbInput->'pdbInput=%(FullPath)')" />
+      <_NetWasmCompilationIdentityLine Include="@(NetWasmReferenceAssemblyAlias->'referenceAssemblyAlias=%(Identity)=%(Assembly)')" />
     </ItemGroup>
     <WriteLinesToFile File="$(NetWasmCompilationIdentityPath)"
                       Lines="@(_NetWasmCompilationIdentityLine)"
@@ -243,6 +244,7 @@
            Text="Compilation requires the validated Node executable and pinned platform-neutral NetWasm wasm-tools command." />
     <NetWasmCompileTask InputAssemblyPath="@(IntermediateAssembly->'%(FullPath)')"
                         References="@(_NetWasmManagedLinkReference)"
+                        ReferenceAssemblyAliases="@(NetWasmReferenceAssemblyAlias)"
                         Sources="@(Compile)"
                         CompilationIdentityPath="$(NetWasmCompilationIdentityPath)"
                         WitInputs="@(_NetWasmCompilerWitInput)"

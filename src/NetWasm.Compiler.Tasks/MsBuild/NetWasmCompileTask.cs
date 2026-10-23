@@ -95,6 +95,11 @@ public sealed class NetWasmCompileTask : CompilerArtifactManifestTaskBase
     public bool NoLogo { get; set; }
     public string? PathMap { get; set; }
 
+    // Each item maps a referenced assembly name (the item spec) to the assembly
+    // that defines its types (Assembly metadata). F# programs and FSharp.Core are
+    // compiled against netstandard/System.Runtime facades over NetWasm.CoreLib.
+    public ITaskItem[] ReferenceAssemblyAliases { get; set; } = [];
+
     [Required]
     public string WasmToolsNodePath { get; set; } = string.Empty;
 
@@ -154,7 +159,8 @@ public sealed class NetWasmCompileTask : CompilerArtifactManifestTaskBase
                 ProjectDirectory,
                 PathMap,
                 StructuredDiagnostics,
-                optimizationOverrides));
+                optimizationOverrides,
+                ReadReferenceAssemblyAliases(ReferenceAssemblyAliases)));
             _artifacts.Write(new(
                 compilation,
                 CoreModulePath,
@@ -192,4 +198,28 @@ public sealed class NetWasmCompileTask : CompilerArtifactManifestTaskBase
         }
     }
 
+
+    internal static ImmutableDictionary<string, string>? ReadReferenceAssemblyAliases(
+        ITaskItem[] items)
+    {
+        if (items is null or { Length: 0 })
+        {
+            return null;
+        }
+
+        var aliases = ImmutableDictionary.CreateBuilder<string, string>(StringComparer.Ordinal);
+        foreach (var item in items)
+        {
+            var target = item.GetMetadata("Assembly");
+            if (string.IsNullOrWhiteSpace(item.ItemSpec) || string.IsNullOrWhiteSpace(target))
+            {
+                throw new ArgumentException(
+                    $"NetWasm reference assembly alias '{item.ItemSpec}' needs a name and Assembly metadata.");
+            }
+
+            aliases[item.ItemSpec.Trim()] = target.Trim();
+        }
+
+        return aliases.ToImmutable();
+    }
 }

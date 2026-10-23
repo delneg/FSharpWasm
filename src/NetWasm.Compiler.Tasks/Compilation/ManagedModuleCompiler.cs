@@ -32,6 +32,7 @@ internal sealed class ManagedModuleCompiler(
             request.DiagnosticTracePath,
             request.DiagnosticLogPath,
             SourcePaths: request.SourcePaths,
+            ReferenceAssemblyAliases: request.ReferenceAssemblyAliases,
             EmitStackTrace: request.EmitStackTrace,
             EntryMethodToken: entryPoint?.MetadataToken,
             EntryPointKind: request.CompileAsLibrary

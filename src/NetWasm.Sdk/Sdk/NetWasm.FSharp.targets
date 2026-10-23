@@ -1,0 +1,56 @@
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <!--
+    F# on NetWasm. Imported for every .fsproj.
+
+    fsc compiles against NetWasm.Ref's F# reference set: System.Runtime and
+    netstandard facades that forward to NetWasm.CoreLib, next to the CoreLib
+    contract itself (see src/NetWasm.FSharp.Facades). FSharp.Core is the
+    ordinary netstandard2.1 package. The NetWasm compiler aliases System.Runtime
+    and netstandard to NetWasm.CoreLib, so the program and FSharp.Core link
+    against the one CoreLib with no rewriting step. It is a closed-world
+    compiler: only the reachable part of FSharp.Core enters the Wasm.
+  -->
+  <PropertyGroup Condition="'$(TargetFramework)' == 'netwasm0.1'">
+    <!-- NuGet would reject FSharp.Core for the custom profile (NU1202). -->
+    <DisableImplicitFSharpCoreReference>true</DisableImplicitFSharpCoreReference>
+    <NetWasmFSharpCoreVersion Condition="'$(NetWasmFSharpCoreVersion)' == ''">$(FSharpCoreImplicitPackageVersion)</NetWasmFSharpCoreVersion>
+    <NetWasmFSharpCoreVersion Condition="'$(NetWasmFSharpCoreVersion)' == ''">10.1.401</NetWasmFSharpCoreVersion>
+    <_NetWasmFSharpCoreFromPackage Condition="'$(NetWasmFSharpCorePath)' == ''">true</_NetWasmFSharpCoreFromPackage>
+    <NetWasmFSharpCorePath Condition="'$(NetWasmFSharpCorePath)' == ''">$([MSBuild]::NormalizePath('$(NuGetPackageRoot)', 'fsharp.core', '$(NetWasmFSharpCoreVersion.ToLowerInvariant())', 'lib', 'netstandard2.1', 'FSharp.Core.dll'))</NetWasmFSharpCorePath>
+    <TargetProfile>netcore</TargetProfile>
+    <!-- FSharp.Core's satellite assemblies are never deployed. -->
+    <SatelliteResourceLanguages Condition="'$(SatelliteResourceLanguages)' == ''">en</SatelliteResourceLanguages>
+  </PropertyGroup>
+
+  <ItemGroup Condition="'$(TargetFramework)' == 'netwasm0.1'">
+    <PackageDownload Include="FSharp.Core" Version="[$(NetWasmFSharpCoreVersion)]"
+                     Condition="'$(_NetWasmFSharpCoreFromPackage)' == 'true'" />
+    <NetWasmReferenceAssemblyAlias Include="System.Runtime;netstandard;System.Runtime.Numerics" Assembly="NetWasm.CoreLib" />
+  </ItemGroup>
+
+  <Target Name="NetWasmFSharpResolveReferences"
+          AfterTargets="ResolveAssemblyReferences"
+          BeforeTargets="CoreCompile"
+          Condition="'$(TargetFramework)' == 'netwasm0.1'">
+    <ItemGroup>
+      <_NetWasmFSharpCoreLibContract Include="@(ReferencePath)" Condition="'%(Filename)' == 'NetWasm.CoreLib'" />
+    </ItemGroup>
+    <PropertyGroup>
+      <_NetWasmFSharpReferenceRoot>@(_NetWasmFSharpCoreLibContract->'%(RootDir)%(Directory)'->Distinct())</_NetWasmFSharpReferenceRoot>
+      <_NetWasmFSharpReferenceRoot Condition="'$(_NetWasmFSharpReferenceRoot)' != ''">$([MSBuild]::NormalizeDirectory('$(_NetWasmFSharpReferenceRoot)', '..', '..', 'fsharp', 'ref'))</_NetWasmFSharpReferenceRoot>
+    </PropertyGroup>
+    <Error Code="NWFS001"
+           Condition="'$(_NetWasmFSharpReferenceRoot)' == '' OR !Exists('$(_NetWasmFSharpReferenceRoot)System.Runtime.dll') OR !Exists('$(_NetWasmFSharpReferenceRoot)netstandard.dll') OR !Exists('$(_NetWasmFSharpReferenceRoot)NetWasm.CoreLib.dll')"
+           Text="The restored NetWasm.Ref package has no F# reference set (fsharp/ref). Use a NetWasm.Ref built from this repository." />
+    <Error Code="NWFS002"
+           Condition="!Exists('$(NetWasmFSharpCorePath)')"
+           Text="FSharp.Core $(NetWasmFSharpCoreVersion) was not restored at '$(NetWasmFSharpCorePath)'." />
+    <ItemGroup>
+      <ReferencePath Remove="@(_NetWasmFSharpCoreLibContract)" />
+      <ReferencePath Include="$(_NetWasmFSharpReferenceRoot)System.Runtime.dll;$(_NetWasmFSharpReferenceRoot)netstandard.dll;$(_NetWasmFSharpReferenceRoot)System.Runtime.Numerics.dll;$(_NetWasmFSharpReferenceRoot)NetWasm.CoreLib.dll" />
+      <ReferencePath Include="$(NetWasmFSharpCorePath)" NuGetPackageId="FSharp.Core" NuGetPackageVersion="$(NetWasmFSharpCoreVersion)" />
+      <!-- FSharp.Core is one more managed input of the NetWasm compile. -->
+      <ReferenceCopyLocalPaths Include="$(NetWasmFSharpCorePath)" NuGetPackageId="FSharp.Core" DestinationSubDirectory="" />
+    </ItemGroup>
+  </Target>
+</Project>

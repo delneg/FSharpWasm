@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Build-time tool for NetWasm.Ref: writes the reference facades that let
+       fsc compile F# against NetWasm.CoreLib. Not shipped itself. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <IsPackable>false</IsPackable>
+    <RollForward>Major</RollForward>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="Facades.fs" />
+    <Compile Include="Program.fs" />
+  </ItemGroup>
+</Project>
