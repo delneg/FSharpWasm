@@ -115,6 +115,42 @@ let private patchThrowFormatting (messageArgs: bool) (m: ModuleDefinition) =
             site.Operand <- helper
     sites.Length
 
+/// For `x.ToString()` or `x.GetHashCode()` on a primitive, fsc emits
+/// `constrained. P; callvirt Object::ToString`, where C# emits a direct
+/// `call P::ToString`. ECMA-335 defines the two as equivalent when P overrides
+/// the method, as every primitive does, but NetWasm compiles the constrained
+/// form slower: about 7% of ui-churn. This rewrites it to the C# form.
+/// (fsc's `ldelem.any`/`stelem.any` of reference types and Array.zeroCreate of
+/// a constant length were measured too: rewriting them changed nothing.)
+/// FSWASM_PEEPHOLE=0 turns it off, for measuring.
+let private peephole (m: ModuleDefinition) =
+    let primitives =
+        set [ "System.Boolean"; "System.Char"; "System.SByte"; "System.Byte"; "System.Int16"; "System.UInt16"
+              "System.Int32"; "System.UInt32"; "System.Int64"; "System.UInt64"; "System.Single"; "System.Double" ]
+    let mutable count = 0
+    if Environment.GetEnvironmentVariable "FSWASM_PEEPHOLE" <> "0" then
+        for t in m.GetTypes() do
+            for meth in t.Methods do
+                if meth.HasBody then
+                    let code = meth.Body.Instructions
+                    for k in 1 .. code.Count - 1 do
+                        let prefix, i = code.[k - 1], code.[k]
+                        match prefix.Operand, i.Operand with
+                        | (:? TypeReference as p), (:? MethodReference as r) when
+                            prefix.OpCode = OpCodes.Constrained && i.OpCode = OpCodes.Callvirt
+                            && primitives.Contains p.FullName
+                            && r.DeclaringType.FullName = "System.Object"
+                            && (r.Name = "ToString" || r.Name = "GetHashCode")
+                            && r.Parameters.Count = 0 ->
+                            // Nop in place keeps a branch to the prefix valid.
+                            prefix.OpCode <- OpCodes.Nop
+                            prefix.Operand <- null
+                            i.OpCode <- OpCodes.Call
+                            i.Operand <- MethodReference(r.Name, r.ReturnType, p, HasThis = true)
+                            count <- count + 1
+                        | _ -> ()
+    count
+
 let private alwaysRetargeted =
     [ "netstandard"; "mscorlib"; "System.Private.CoreLib"; "System.Runtime"; "System.Runtime.Numerics" ]
 
@@ -168,7 +204,7 @@ let private retarget (input: string) (output: string) (coreLibPath: string) refe
         if assembly.Name.Name = "FSharp.Core" then
             assembly.Modules |> Seq.sumBy (fun m -> patchResourceStrings m + patchThrowFormatting messageArgs m)
         else
-            0
+            assembly.Modules |> Seq.sumBy peephole
     assembly.Write output
     eprintfn "FSharp.NetWasm: retargeted %d reference(s) in %s%s" changed (Path.GetFileName input)
         (if patched > 0 then sprintf ", patched %d call site(s)" patched else "")
