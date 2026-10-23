@@ -1,6 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
+    <!-- Test-only MSBuild and NuGet packages. -->
+    <NuGetAudit>false</NuGetAudit>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
@@ -15,22 +17,13 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../../src/NetWasm.Sdk.Pack/NetWasm.Sdk.Pack.csproj" />
-    <Reference Include="Microsoft.Build.Framework">
-      <HintPath>$(MSBuildToolsPath)/Microsoft.Build.Framework.dll</HintPath>
-      <Private>true</Private>
-    </Reference>
-    <Reference Include="Microsoft.Build">
-      <HintPath>$(MSBuildToolsPath)/Microsoft.Build.dll</HintPath>
-      <Private>true</Private>
-    </Reference>
-    <Reference Include="Microsoft.Build.Utilities.Core">
-      <HintPath>$(MSBuildToolsPath)/Microsoft.Build.Utilities.Core.dll</HintPath>
-      <Private>true</Private>
-    </Reference>
-    <Reference Include="Microsoft.Build.Tasks.Core">
-      <HintPath>$(MSBuildToolsPath)/Microsoft.Build.Tasks.Core.dll</HintPath>
-      <Private>true</Private>
-    </Reference>
+    <!-- MSBuild from packages, not the building SDK's copies, which target
+         the SDK's runtime (net11.0 under the .NET 11 SDK). NuGet stays the
+         SDK's own, so that it reads the restore graphs that SDK writes. -->
+    <PackageReference Include="Microsoft.Build" Version="18.0.2" />
+    <PackageReference Include="Microsoft.Build.Framework" Version="18.0.2" />
+    <PackageReference Include="Microsoft.Build.Utilities.Core" Version="18.0.2" />
+    <PackageReference Include="Microsoft.Build.Tasks.Core" Version="18.0.2" />
     <Reference Include="NuGet.Versioning">
       <HintPath>$(MSBuildToolsPath)/NuGet.Versioning.dll</HintPath>
       <Private>true</Private>

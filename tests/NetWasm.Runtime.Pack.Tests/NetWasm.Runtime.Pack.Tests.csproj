@@ -9,9 +9,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <Reference Include="Microsoft.Build.Framework">
-      <HintPath>$(MSBuildToolsPath)/Microsoft.Build.Framework.dll</HintPath>
-    </Reference>
+    <PackageReference Include="Microsoft.Build.Framework" Version="18.0.2" />
     <PackageReference Include="coverlet.collector" Version="6.0.4" />
     <PackageReference Include="Microsoft.Build.Utilities.Core" Version="18.0.2" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />

@@ -1,5 +1,5 @@
 {
-  "dotnetSdk": "10.0.401",
+  "dotnetSdk": "11.0.100-rc.2.26504.105",
   "roslynCompiler": "5.9.0-1.26423.113",
   "binaryen": "132",
   "wabt": "1.0.41",

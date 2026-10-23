@@ -3,6 +3,7 @@
   "author": "NetWasm",
   "classifications": [ "NetWasm", "Wasm", "Console" ],
   "identity": "NetWasm.Templates.App",
+  "groupIdentity": "NetWasm.Templates.App",
   "name": "NetWasm Application",
   "shortName": "netwasm-app",
   "sourceName": "NetWasmProject",

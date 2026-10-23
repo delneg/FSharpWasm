@@ -476,7 +476,7 @@ public sealed partial class SdkToolchainContractTests
         var referenceBuilds = referenceProject.Descendants("MSBuild")
             .Where(task => (string?)task.Attribute("Targets") == "Build")
             .ToArray();
-        Assert.Equal(2, referenceBuilds.Length);
+        Assert.Equal(4, referenceBuilds.Length); // CoreLib, NetWasm.FSharp.Facades, NetWasm.FSharp.Core, the pack task
         Assert.All(referenceBuilds, task => Assert.Contains(
             "'$(NoBuild)' != 'true'", (string?)task.Attribute("Condition"),
             StringComparison.Ordinal));

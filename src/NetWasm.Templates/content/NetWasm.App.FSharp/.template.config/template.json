@@ -1,0 +1,25 @@
+{
+  "$schema": "http://json.schemastore.org/template",
+  "author": "NetWasm",
+  "classifications": [ "NetWasm", "Wasm", "Console" ],
+  "identity": "NetWasm.Templates.App.FSharp",
+  "groupIdentity": "NetWasm.Templates.App",
+  "name": "NetWasm Application",
+  "shortName": "netwasm-app",
+  "sourceName": "NetWasmProject",
+  "preferNameDirectory": true,
+  "sources": [
+    {
+      "source": "base",
+      "target": "."
+    },
+    {
+      "source": "console",
+      "target": "."
+    }
+  ],
+  "tags": {
+    "language": "F#",
+    "type": "project"
+  }
+}

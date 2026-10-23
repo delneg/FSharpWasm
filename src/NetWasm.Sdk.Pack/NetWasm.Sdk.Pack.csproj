@@ -7,6 +7,9 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <IsPackable>false</IsPackable>
+    <!-- Its package references are compile-time only (ExcludeAssets="runtime"):
+         nothing of theirs ships or runs, so their advisories do not apply. -->
+    <NuGetAudit>false</NuGetAudit>
     <IncludeBuildOutput>false</IncludeBuildOutput>
     <!-- Release task payloads are embedded in the SDK package.  Omitting
          portable PDBs keeps that payload independent of build-root paths;
@@ -19,30 +22,14 @@
     <DefaultItemExcludes>$(DefaultItemExcludes);$(MSBuildProjectDirectory)/obj/**;$(MSBuildProjectDirectory)/bin/**</DefaultItemExcludes>
   </PropertyGroup>
 
+  <!-- Compile-time references only: the task runs inside the building SDK's
+       MSBuild, which supplies these assemblies. Packages rather than the
+       SDK's own copies, so that a newer SDK (whose copies target a newer
+       runtime) still builds this net10.0 task. -->
   <ItemGroup>
-    <Reference Include="Microsoft.Build.Framework">
-      <HintPath>$(MSBuildToolsPath)/Microsoft.Build.Framework.dll</HintPath>
-      <Private>false</Private>
-    </Reference>
-    <Reference Include="Microsoft.Build">
-      <HintPath>$(MSBuildToolsPath)/Microsoft.Build.dll</HintPath>
-      <Private>false</Private>
-    </Reference>
-    <Reference Include="Microsoft.Build.Utilities.Core">
-      <HintPath>$(MSBuildToolsPath)/Microsoft.Build.Utilities.Core.dll</HintPath>
-      <Private>false</Private>
-    </Reference>
-    <Reference Include="NuGet.Packaging">
-      <HintPath>$(MSBuildToolsPath)/NuGet.Packaging.dll</HintPath>
-      <Private>false</Private>
-    </Reference>
-    <Reference Include="NuGet.Versioning">
-      <HintPath>$(MSBuildToolsPath)/NuGet.Versioning.dll</HintPath>
-      <Private>false</Private>
-    </Reference>
-    <Reference Include="NuGet.Frameworks">
-      <HintPath>$(MSBuildToolsPath)/NuGet.Frameworks.dll</HintPath>
-      <Private>false</Private>
-    </Reference>
+    <PackageReference Include="Microsoft.Build" Version="18.0.2" PrivateAssets="all" ExcludeAssets="runtime" />
+    <PackageReference Include="Microsoft.Build.Framework" Version="18.0.2" PrivateAssets="all" ExcludeAssets="runtime" />
+    <PackageReference Include="Microsoft.Build.Utilities.Core" Version="18.0.2" PrivateAssets="all" ExcludeAssets="runtime" />
+    <PackageReference Include="NuGet.Packaging" Version="7.0.0" PrivateAssets="all" ExcludeAssets="runtime" />
   </ItemGroup>
 </Project>
