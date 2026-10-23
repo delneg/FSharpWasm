@@ -1,0 +1,9 @@
+<Project Sdk="NetWasm.Sdk">
+  <!-- The print-42 program of the upstream size comparison. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>netwasm0.1</TargetFramework>
+    <Nullable>enable</Nullable>
+    <AssemblyName>NetWasmApp</AssemblyName>
+  </PropertyGroup>
+</Project>

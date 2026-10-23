@@ -4,13 +4,14 @@
 /// NetWasm then compiles only the reachable code, so an API that CoreLib lacks
 /// fails the NetWasm compile, not this step.
 ///
-///   Retarget <input.dll> <output.dll> <NetWasm.CoreLib.dll> [<reference pack dir>]
+///   Retarget <input.dll> <output.dll> <NetWasm.CoreLib.dll> [--pack <dir>] [--message-args]
 ///
 /// A reference is retargeted when it names netstandard, mscorlib,
 /// System.Private.CoreLib, System.Runtime or any assembly in the reference
 /// pack directory.
 module Retarget
 
+open System
 open System.IO
 open Mono.Cecil
 open Mono.Cecil.Cil
@@ -52,6 +53,68 @@ let private patchResourceStrings (m: ModuleDefinition) =
                         patched <- patched + 1
     patched
 
+/// FSharp.Core builds most argument-error messages with
+/// String.Format(string, object[]) right before it throws. On NetWasm that one
+/// call pulls the whole composite-formatting machinery into the closed world
+/// (about 220 KB), and every Array.zeroCreate with a non-constant length
+/// reaches such an error path. Calls followed closely by `throw` are redirected
+/// to an injected helper. By default it returns the format string alone (the
+/// smallest output); with --message-args it returns
+/// `format + " " + String.Join(" ", args)`, about 16 KB more, so the message
+/// keeps its arguments.
+let private patchThrowFormatting (messageArgs: bool) (m: ModuleDefinition) =
+    let isFormat (i: Instruction) =
+        i.OpCode = OpCodes.Call
+        && (match i.Operand with
+            | :? MethodReference as r ->
+                r.Name = "Format" && r.DeclaringType.FullName = "System.String" && r.Parameters.Count = 2
+                && r.Parameters.[1].ParameterType.FullName = "System.Object[]"
+            | _ -> false)
+    let throwsSoon (code: Mono.Collections.Generic.Collection<Instruction>) k =
+        seq { k + 1 .. min (code.Count - 1) (k + 8) } |> Seq.exists (fun j -> code.[j].OpCode = OpCodes.Throw)
+    let sites =
+        [ for t in m.GetTypes() do
+              for meth in t.Methods do
+                  if meth.HasBody then
+                      let code = meth.Body.Instructions
+                      for k in 0 .. code.Count - 1 do
+                          if isFormat code.[k] && throwsSoon code k then yield code.[k] ]
+    if not sites.IsEmpty then
+        let format = (sites.Head.Operand :?> MethodReference)
+        let stringType = format.ReturnType
+        let objectArray = format.Parameters.[1].ParameterType
+        let join =
+            MethodReference("Join", stringType, format.DeclaringType, HasThis = false)
+        join.Parameters.Add(ParameterDefinition(stringType))
+        join.Parameters.Add(ParameterDefinition(objectArray))
+        let concat =
+            MethodReference("Concat", stringType, format.DeclaringType, HasThis = false)
+        for _ in 1..3 do
+            concat.Parameters.Add(ParameterDefinition(stringType))
+        let holder =
+            TypeDefinition(
+                "Microsoft.FSharp.Core", "NetWasmMessages",
+                TypeAttributes.NotPublic ||| TypeAttributes.Sealed ||| TypeAttributes.Abstract ||| TypeAttributes.Class,
+                m.TypeSystem.Object)
+        let helper =
+            MethodDefinition("Format", MethodAttributes.Assembly ||| MethodAttributes.Static ||| MethodAttributes.HideBySig, stringType)
+        helper.Parameters.Add(ParameterDefinition("format", ParameterAttributes.None, stringType))
+        helper.Parameters.Add(ParameterDefinition("args", ParameterAttributes.None, objectArray))
+        let il = helper.Body.GetILProcessor()
+        il.Emit(OpCodes.Ldarg_0)
+        if messageArgs then
+            il.Emit(OpCodes.Ldstr, " ")
+            il.Emit(OpCodes.Ldstr, " ")
+            il.Emit(OpCodes.Ldarg_1)
+            il.Emit(OpCodes.Call, join)
+            il.Emit(OpCodes.Call, concat)
+        il.Emit(OpCodes.Ret)
+        holder.Methods.Add helper
+        m.Types.Add holder
+        for site in sites do
+            site.Operand <- helper
+    sites.Length
+
 let private alwaysRetargeted =
     [ "netstandard"; "mscorlib"; "System.Private.CoreLib"; "System.Runtime"; "System.Runtime.Numerics" ]
 
@@ -63,7 +126,7 @@ let private frameworkAssemblies (referencePack: string option) =
         | _ -> []
     set (alwaysRetargeted @ fromPack)
 
-let private retarget (input: string) (output: string) (coreLibPath: string) referencePack =
+let private retarget (input: string) (output: string) (coreLibPath: string) referencePack messageArgs =
     let framework = frameworkAssemblies referencePack
     let coreLib = AssemblyDefinition.ReadAssembly(coreLibPath).Name
     // Read from memory so the input may be rewritten in place.
@@ -103,22 +166,30 @@ let private retarget (input: string) (output: string) (coreLibPath: string) refe
         | None -> ()
     let patched =
         if assembly.Name.Name = "FSharp.Core" then
-            assembly.Modules |> Seq.sumBy patchResourceStrings
+            assembly.Modules |> Seq.sumBy (fun m -> patchResourceStrings m + patchThrowFormatting messageArgs m)
         else
             0
     assembly.Write output
     eprintfn "FSharp.NetWasm: retargeted %d reference(s) in %s%s" changed (Path.GetFileName input)
-        (if patched > 0 then sprintf ", patched %d resource lookup(s)" patched else "")
+        (if patched > 0 then sprintf ", patched %d call site(s)" patched else "")
 
 [<EntryPoint>]
 let main argv =
-    match argv with
-    | [| input; output; coreLib |] ->
-        retarget input output coreLib None
-        0
-    | [| input; output; coreLib; pack |] ->
-        retarget input output coreLib (Some pack)
-        0
+    match List.ofArray argv with
+    | input :: output :: coreLib :: options ->
+        let rec parse pack messageArgs options =
+            match options with
+            | "--pack" :: dir :: rest -> parse (Some dir) messageArgs rest
+            | "--message-args" :: rest -> parse pack true rest
+            | [] -> Some(pack, messageArgs)
+            | _ -> None
+        match parse None false options with
+        | Some(pack, messageArgs) ->
+            retarget input output coreLib pack messageArgs
+            0
+        | None ->
+            eprintfn "usage: Retarget <input.dll> <output.dll> <NetWasm.CoreLib.dll> [--pack <dir>] [--message-args]"
+            2
     | _ ->
-        eprintfn "usage: Retarget <input.dll> <output.dll> <NetWasm.CoreLib.dll> [<reference pack dir>]"
+        eprintfn "usage: Retarget <input.dll> <output.dll> <NetWasm.CoreLib.dll> [--pack <dir>] [--message-args]"
         2
